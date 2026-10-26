@@ -187,4 +187,4 @@ if has paperclip; then
 fi
 has hermes && info "Hermes:     $(get_env HERMES_URL)    (admin / $(get_env HERMES_DASHBOARD_PASSWORD)); terminal: ./hermes"
 [[ -z "$ADDONS" ]] && info "Add-ons (optional): ./setup.sh --with search,browser,local-models,openwebui,paperclip,hermes"
-info "Stop: docker compose down    Update: git pull && ./setup.sh"
+info "Stop: docker compose down    Update: run the install command again, or git pull && ./setup.sh"

@@ -21,8 +21,25 @@ You don't need any of them for the assistant, memory, skills, schedules, Telegra
 
 Requirements: Docker with Compose v2 (Docker Desktop or OrbStack on a Mac), 1 GB RAM free, about 2 GB of disk for the build. At least one model provider key, or Ollama.
 
+One command (Linux or macOS):
+
 ```bash
-git clone <this repo> ai-workspace && cd ai-workspace
+curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/main/install.sh | bash
+```
+
+With add-ons, or with no questions:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/main/install.sh | bash -s -- --with search,browser
+curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/main/install.sh | bash -s -- --yes
+```
+
+The installer checks Docker (on Linux it offers to install it with Docker's official script; on a Mac install Docker Desktop or OrbStack first), downloads the code to `~/ai-workspace` (`AI_WORKSPACE_DIR` changes that), and runs `setup.sh`. Run the same command again to upgrade. Prefer to read it first? `curl -fsSL .../install.sh -o install.sh`, read it, then `bash install.sh`.
+
+From a clone instead:
+
+```bash
+git clone https://github.com/Inclined88888/ai-workspace && cd ai-workspace
 ./setup.sh                        # core only
 ./setup.sh --with search,browser  # core plus add-ons (comma separated)
 ./setup.sh --with none            # turn all add-ons off again
@@ -39,7 +56,8 @@ Re-running is safe and is how you upgrade or change add-ons: it adds new setting
 # 2. Optional, free local models on the Mac GPU:
 brew install ollama && brew services start ollama
 ollama pull qwen3:4b
-./setup.sh
+# 3. Install:
+curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/main/install.sh | bash
 ```
 
 Native Ollama uses the Mac GPU; the `local-models` add-on would run on CPU inside Docker's VM, so skip it on a Mac.
