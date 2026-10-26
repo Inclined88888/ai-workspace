@@ -4,3 +4,7 @@ dist/
 __pycache__/
 *.pyc
 .venv/
+*.egg-info/
+.pytest_cache/
+out/
+*.tsbuildinfo

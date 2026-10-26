@@ -54,8 +54,14 @@ if [[ ! -f .env ]]; then
   FIRST_RUN=true
 fi
 
+# Upgrades: add settings introduced since this .env was created (existing values are never touched)
+while IFS= read -r line; do
+  key=${line%%=*}
+  [[ "$line" =~ ^[A-Z_]+= ]] && ! grep -qE "^$key=" .env && printf '%s\n' "$line" >> .env
+done < .env.example
+
 # Secrets: generate any that are empty. Existing ones are never rotated (that would lock you out of data).
-for key in WEBUI_SECRET_KEY APP_SECRET TOOLS_API_KEY SEARXNG_SECRET; do
+for key in WEBUI_SECRET_KEY APP_SECRET TOOLS_API_KEY SEARXNG_SECRET BROWSER_API_KEY PAPERCLIP_AUTH_SECRET PAPERCLIP_TOOL_ACTION_SECRET PAPERCLIP_AGENT_JWT_SECRET; do
   [[ -z "$(get_env "$key")" ]] && set_env "$key" "$(rand 32)"
 done
 [[ -z "$(get_env SETUP_CODE)" ]] && set_env SETUP_CODE "$(rand 4)"
@@ -71,6 +77,8 @@ if $FIRST_RUN; then
     set_env BIND_ADDRESS 0.0.0.0
     HOST_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
     set_env WEBUI_PUBLIC_URL "http://${HOST_IP:-localhost}:$(get_env WEBUI_PORT)"
+    set_env PAPERCLIP_PUBLIC_URL "http://${HOST_IP:-localhost}:$(get_env PAPERCLIP_PORT)"
+    set_env PAPERCLIP_ALLOWED_HOSTNAMES "localhost${HOST_IP:+,$HOST_IP}"
     info "Bound to all interfaces. Traffic is plain HTTP: put a reverse proxy with HTTPS in front before exposing it beyond your LAN."
   fi
 
@@ -83,6 +91,10 @@ if $FIRST_RUN; then
   ask_secret OPENAI "OpenAI API key"
   ask_secret ANTHROPIC "Anthropic API key"
   ask_secret OPENROUTER "OpenRouter API key"
+  ask_secret GEMINI "Gemini API key (browser agent, Gemini CLI employees)"
+  ask_secret OPENCODE "OpenCode Zen API key (free tier models for Paperclip employees, opencode.ai/auth)"
+  [[ -n "$GEMINI" ]] && set_env GEMINI_API_KEY "$GEMINI"
+  [[ -n "$OPENCODE" ]] && set_env OPENCODE_API_KEY "$OPENCODE"
   URLS=(); KEYS=()
   [[ -n "$OPENAI" ]] && { set_env OPENAI_API_KEY "$OPENAI"; URLS+=("https://api.openai.com/v1"); KEYS+=("$OPENAI"); }
   [[ -n "$ANTHROPIC" ]] && { set_env ANTHROPIC_API_KEY "$ANTHROPIC"; URLS+=("https://api.anthropic.com/v1"); KEYS+=("$ANTHROPIC"); }
@@ -126,12 +138,22 @@ fi
 ask EMBED "Download nomic-embed-text for better document search in Chat? (y/N)" "n"
 [[ "$EMBED" =~ ^[Yy] ]] && { docker compose exec -T ollama ollama pull nomic-embed-text || true; }
 
+# Give Paperclip's OpenCode employees every local model plus the browser tool
+./scripts/sync-opencode-config.sh && docker compose restart paperclip >/dev/null
+
+echo
+bold "Paperclip admin"
+PAPERCLIP_INVITE=$(./scripts/paperclip-invite.sh 2>&1 | tail -1 || true)
+
 BIND=$(get_env BIND_ADDRESS); HOST=localhost
 [[ "$BIND" == "0.0.0.0" ]] && HOST=$(hostname -I 2>/dev/null | awk '{print $1}')
 echo
 bold "Ready"
 info "Workbench:  http://${HOST}:$(get_env WORKBENCH_PORT)    setup code: $(get_env SETUP_CODE)"
 info "Chat:       http://${HOST}:$(get_env WEBUI_PORT)    (the first account you create becomes admin)"
+info "Company:    http://${HOST}:$(get_env PAPERCLIP_PORT)    (Paperclip)"
+info "            First admin: open $PAPERCLIP_INVITE"
+info "            (expires in 72h; new link any time: ./scripts/paperclip-invite.sh)"
 echo
-info "Do the first sign up in Chat right away so nobody else can claim the admin account."
+info "Do the first sign up in Chat and Paperclip right away so nobody else can claim the admin accounts."
 info "Stop: docker compose down    Update: docker compose pull && docker compose up -d --build"

@@ -1,8 +1,9 @@
 # AI Workspace stack.
 # Run ./setup.sh for a guided first start, or: cp .env.example .env && docker compose up -d
 #
-#   Workbench  (notes, docs, tasks, research, mail, calendar, compare)  http://localhost:${WORKBENCH_PORT:-3100}
-#   Chat       (Open WebUI: chat, agents, files/RAG, memory, web search) http://localhost:${WEBUI_PORT:-3000}
+#   Workbench  (notes, docs, tasks, research, mail, calendar, browser agent, compare)  http://localhost:${WORKBENCH_PORT:-3100}
+#   Chat       (Open WebUI: chat, agents, files/RAG, memory, web search)                http://localhost:${WEBUI_PORT:-3000}
+#   Company    (Paperclip: AI org chart, roles, tasks, per agent budgets)               http://localhost:${PAPERCLIP_PORT:-3200}
 
 name: ai-workspace
 
@@ -42,6 +43,7 @@ services:
       - ollama
       - searxng
       - workbench
+      - browser
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${WEBUI_PORT:-3000}:8080"
     volumes:
@@ -71,7 +73,10 @@ services:
       TOOL_SERVER_CONNECTIONS: >-
         [{"type":"openapi","url":"http://workbench:8000/tools","spec_type":"url","spec":"","path":"openapi.json",
         "auth_type":"bearer","key":"${TOOLS_API_KEY}","config":{"enable":true},
-        "info":{"id":"workbench","name":"Workbench","description":"Notes, documents, tasks, calendar and email drafts"}}]
+        "info":{"id":"workbench","name":"Workbench","description":"Notes, documents, tasks, calendar and email drafts"}},
+        {"type":"openapi","url":"http://browser:8100/tools","spec_type":"url","spec":"","path":"openapi.json",
+        "auth_type":"bearer","key":"${BROWSER_API_KEY}","config":{"enable":true},
+        "info":{"id":"browser","name":"Browser","description":"A browser agent that can navigate websites to reach a goal"}}]
 
   workbench:
     build: ./workbench
@@ -98,8 +103,74 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      # Browser agent (proxied for the Browser page) and Paperclip link
+      BROWSER_URL: http://browser:8100
+      BROWSER_API_KEY: ${BROWSER_API_KEY:?run ./setup.sh or set BROWSER_API_KEY in .env}
+      PAPERCLIP_URL: ${PAPERCLIP_PUBLIC_URL:-http://localhost:3200}
+
+  # Browser agent (browser-use + Playwright). Internal only: reached by Workbench, Chat and Paperclip.
+  browser:
+    build: ./browser-agent
+    image: ai-workspace/browser-agent:local
+    restart: unless-stopped
+    shm_size: 1gb
+    volumes:
+      - browser:/data
+    environment:
+      BROWSER_API_KEY: ${BROWSER_API_KEY:?run ./setup.sh or set BROWSER_API_KEY in .env}
+      BROWSER_MAX_CONCURRENT: ${BROWSER_MAX_CONCURRENT:-2}
+      BROWSER_MAX_STEPS_LIMIT: ${BROWSER_MAX_STEPS_LIMIT:-50}
+      # Spend guard for every caller (Workbench, Chat, Paperclip employees): steps per UTC month, 0 = unlimited
+      BROWSER_MONTHLY_STEP_LIMIT: ${BROWSER_MONTHLY_STEP_LIMIT:-2000}
+      # Keep the agent off IP addresses and the stack's own hostnames
+      BROWSER_BLOCK_IP_ADDRESSES: "true"
+      BROWSER_PROHIBITED_DOMAINS: localhost,ollama,searxng,open-webui,workbench,paperclip,browser
+      # Model providers (auto picks Anthropic, then Gemini, then local Ollama)
+      BROWSER_LLM_PROVIDER: ${BROWSER_LLM_PROVIDER:-auto}
+      BROWSER_LLM_MODEL: ${BROWSER_LLM_MODEL:-}
+      OLLAMA_HOST: http://ollama:11434
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+
+  # Paperclip: run a company of AI agents (org chart, goals, tasks, per agent monthly budgets).
+  # Upstream image, unmodified: upgrade with `docker compose pull paperclip && docker compose up -d paperclip`.
+  paperclip:
+    image: ghcr.io/paperclipai/paperclip:${PAPERCLIP_TAG:-latest}
+    restart: unless-stopped
+    pids_limit: 2048
+    stop_grace_period: 90s
+    depends_on:
+      - ollama
+      - browser
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${PAPERCLIP_PORT:-3200}:3100"
+    volumes:
+      - paperclip:/paperclip
+      - ./paperclip/opencode.json:/etc/ai-workspace/opencode.json:ro
+    environment:
+      HOST: 0.0.0.0
+      PAPERCLIP_HOME: /paperclip
+      PAPERCLIP_DEPLOYMENT_MODE: authenticated
+      PAPERCLIP_DEPLOYMENT_EXPOSURE: private
+      PAPERCLIP_PUBLIC_URL: ${PAPERCLIP_PUBLIC_URL:-http://localhost:3200}
+      PAPERCLIP_ALLOWED_HOSTNAMES: ${PAPERCLIP_ALLOWED_HOSTNAMES:-}
+      BETTER_AUTH_SECRET: ${PAPERCLIP_AUTH_SECRET:?run ./setup.sh or set PAPERCLIP_AUTH_SECRET in .env}
+      PAPERCLIP_TOOL_ACTION_SIGNING_SECRET: ${PAPERCLIP_TOOL_ACTION_SECRET:?run ./setup.sh or set PAPERCLIP_TOOL_ACTION_SECRET in .env}
+      PAPERCLIP_AGENT_JWT_SECRET: ${PAPERCLIP_AGENT_JWT_SECRET:?run ./setup.sh or set PAPERCLIP_AGENT_JWT_SECRET in .env}
+      # OpenCode employees: local Ollama models + browser MCP from this config; Zen free models with OPENCODE_API_KEY
+      OPENCODE_CONFIG: /etc/ai-workspace/opencode.json
+      OPENCODE_API_KEY: ${OPENCODE_API_KEY:-}
+      BROWSER_API_KEY: ${BROWSER_API_KEY}
+      # Claude Code, Codex and Gemini CLI employees use the standard provider keys
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
 
 volumes:
   ollama:
   open-webui:
   workbench:
+  browser:
+  paperclip:

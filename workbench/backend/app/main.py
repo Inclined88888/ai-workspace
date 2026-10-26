@@ -5,7 +5,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import api, config, db, llm
+from . import api, browser_proxy, config, db, llm
 from .tools import tools
 
 
@@ -43,6 +43,7 @@ def healthz():
 
 app.include_router(api.public)
 app.include_router(api.api)
+app.include_router(browser_proxy.router)
 app.mount("/tools", tools)
 
 if config.STATIC_DIR.exists():

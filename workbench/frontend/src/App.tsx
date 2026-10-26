@@ -1,11 +1,12 @@
 import {
-  CalendarDays, CheckSquare, Columns3, ExternalLink, FileText, Home, LogOut, Mail, Menu, Moon, NotebookPen,
+  Building2, CalendarDays, CheckSquare, Globe, Columns3, ExternalLink, FileText, Home, LogOut, Mail, Menu, Moon, NotebookPen,
   Search, Settings as SettingsIcon, Sun, Sparkles,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { api } from "./api";
 import Auth from "./pages/Auth";
+import Browser from "./pages/Browser";
 import CalendarPage from "./pages/Calendar";
 import Compare from "./pages/Compare";
 import Dashboard from "./pages/Dashboard";
@@ -21,12 +22,15 @@ export type Status = {
   setup_code_required: boolean;
   workspace_name: string;
   chat_url: string;
+  paperclip_url: string;
+  browser_enabled: boolean;
 };
 
 const NAV = [
   { section: "Workspace" },
   { to: "/", label: "Home", icon: Home },
   { to: "/research", label: "Research", icon: Search },
+  { to: "/browser", label: "Browser agent", icon: Globe },
   { to: "/compare", label: "Compare models", icon: Columns3 },
   { section: "Your stuff" },
   { to: "/notes", label: "Notes", icon: NotebookPen },
@@ -101,6 +105,11 @@ export default function App() {
         <a className="nav-link" href={status.chat_url} target="_blank" rel="noreferrer">
           <Sparkles size={16} /> Chat &amp; agents <ExternalLink size={12} style={{ marginLeft: "auto" }} />
         </a>
+        {status.paperclip_url && (
+          <a className="nav-link" href={status.paperclip_url} target="_blank" rel="noreferrer">
+            <Building2 size={16} /> Company (Paperclip) <ExternalLink size={12} style={{ marginLeft: "auto" }} />
+          </a>
+        )}
         {NAV.map((item, i) =>
           "section" in item ? (
             <div key={i} className="nav-section">{item.section}</div>
@@ -128,6 +137,8 @@ export default function App() {
           <Route path="/" element={<Dashboard chatUrl={status.chat_url} />} />
           <Route path="/research" element={<Research />} />
           <Route path="/research/:id" element={<Research />} />
+          <Route path="/browser" element={<Browser />} />
+          <Route path="/browser/:id" element={<Browser />} />
           <Route path="/compare" element={<Compare />} />
           <Route path="/notes" element={<Docs kind="note" />} />
           <Route path="/notes/:id" element={<Docs kind="note" />} />

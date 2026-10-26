@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "browser-agent"
+version = "0.1.0"
+description = "Give an AI agent a goal in plain English and let it drive a real browser. Built on browser-use."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = [
+  # Agent loop. Kept inside one minor series because browser-use changes its API between minors.
+  # Upgrade: bump this range, run `pytest`, done.
+  "browser-use>=0.13.11,<0.14",
+  # Direct page control for the one-off CLI actions.
+  "playwright>=1.50",
+]
+
+[project.optional-dependencies]
+server = ["fastapi>=0.115", "uvicorn[standard]>=0.30"]
+dev = ["pytest>=8", "pytest-asyncio>=0.24"]
+
+[project.scripts]
+browser-agent = "browser_agent.cli:main"
+browser-agent-server = "browser_agent.server:run"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/browser_agent"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
