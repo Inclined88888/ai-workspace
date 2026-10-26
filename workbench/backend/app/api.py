@@ -49,6 +49,7 @@ def status(request: Request):
         "workspace_name": db.get_setting("workspace_name", config.WORKSPACE_NAME),
         "chat_url": config.CHAT_URL,
         "paperclip_url": config.PAPERCLIP_URL,
+        "hermes_url": config.HERMES_URL,
         "browser_enabled": bool(config.BROWSER_API_KEY),
     }
 

@@ -77,10 +77,14 @@ def require_user(request: Request) -> None:
         raise HTTPException(401, "Not signed in")
 
 
-def require_tool_key(request: Request) -> None:
+def check_bearer(request: Request) -> bool:
     auth = request.headers.get("authorization", "")
     token = auth[7:] if auth.lower().startswith("bearer ") else ""
-    if not token or not hmac.compare_digest(token, config.TOOLS_API_KEY):
+    return bool(token) and hmac.compare_digest(token, config.TOOLS_API_KEY)
+
+
+def require_tool_key(request: Request) -> None:
+    if not check_bearer(request):
         raise HTTPException(401, "Invalid tool API key")
 
 

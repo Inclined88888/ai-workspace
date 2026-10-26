@@ -4,6 +4,7 @@
 #   Workbench  (notes, docs, tasks, research, mail, calendar, browser agent, compare)  http://localhost:${WORKBENCH_PORT:-3100}
 #   Chat       (Open WebUI: chat, agents, files/RAG, memory, web search)                http://localhost:${WEBUI_PORT:-3000}
 #   Company    (Paperclip: AI org chart, roles, tasks, per agent budgets)               http://localhost:${PAPERCLIP_PORT:-3200}
+#   Hermes     (Hermes Agent dashboard: memory, skills, scheduled jobs, messaging)      http://localhost:${HERMES_DASHBOARD_PORT:-3300}
 
 name: ai-workspace
 
@@ -58,9 +59,10 @@ services:
       # Local models
       OLLAMA_BASE_URL: http://ollama:11434
       # External OpenAI compatible providers (semicolon separated, keys in the same order)
-      ENABLE_OPENAI_API: ${WEBUI_ENABLE_OPENAI_API:-false}
-      OPENAI_API_BASE_URLS: ${WEBUI_OPENAI_API_BASE_URLS:-}
-      OPENAI_API_KEYS: ${WEBUI_OPENAI_API_KEYS:-}
+      # Hermes Agent is always the first connection (model "hermes-agent"); cloud providers follow
+      ENABLE_OPENAI_API: "true"
+      OPENAI_API_BASE_URLS: http://hermes:8642/v1${WEBUI_OPENAI_API_BASE_URLS:+;${WEBUI_OPENAI_API_BASE_URLS}}
+      OPENAI_API_KEYS: ${HERMES_API_KEY}${WEBUI_OPENAI_API_KEYS:+;${WEBUI_OPENAI_API_KEYS}}
       # Web search through the bundled SearXNG
       ENABLE_WEB_SEARCH: "true"
       WEB_SEARCH_ENGINE: searxng
@@ -107,6 +109,7 @@ services:
       BROWSER_URL: http://browser:8100
       BROWSER_API_KEY: ${BROWSER_API_KEY:?run ./setup.sh or set BROWSER_API_KEY in .env}
       PAPERCLIP_URL: ${PAPERCLIP_PUBLIC_URL:-http://localhost:3200}
+      HERMES_URL: ${HERMES_PUBLIC_URL:-http://localhost:3300}
 
   # Browser agent (browser-use + Playwright). Internal only: reached by Workbench, Chat and Paperclip.
   browser:
@@ -163,10 +166,46 @@ services:
       OPENCODE_CONFIG: /etc/ai-workspace/opencode.json
       OPENCODE_API_KEY: ${OPENCODE_API_KEY:-}
       BROWSER_API_KEY: ${BROWSER_API_KEY}
+      TOOLS_API_KEY: ${TOOLS_API_KEY}
       # Claude Code, Codex and Gemini CLI employees use the standard provider keys
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+
+  # Hermes Agent (Nous Research): persistent memory, self written skills, scheduled jobs, subagents,
+  # messaging (Telegram, Discord, Slack, ...). Upstream image, unmodified. All state lives in the volume.
+  hermes:
+    image: nousresearch/hermes-agent:${HERMES_TAG:-latest}
+    restart: unless-stopped
+    command: ["gateway", "run"]
+    shm_size: 1gb
+    depends_on:
+      - ollama
+      - workbench
+      - browser
+    ports:
+      # Dashboard (memory, skills, cron, sessions, messaging setup), behind basic auth
+      - "${BIND_ADDRESS:-127.0.0.1}:${HERMES_DASHBOARD_PORT:-3300}:9119"
+    volumes:
+      - hermes:/opt/data
+    environment:
+      # OpenAI compatible API used by Chat and by Paperclip's hermes_gateway employees (internal only)
+      API_SERVER_ENABLED: "true"
+      API_SERVER_HOST: 0.0.0.0
+      API_SERVER_KEY: ${HERMES_API_KEY:?run ./setup.sh or set HERMES_API_KEY in .env}
+      HERMES_DASHBOARD: "1"
+      HERMES_DASHBOARD_BASIC_AUTH_USERNAME: ${HERMES_DASHBOARD_USER:-admin}
+      HERMES_DASHBOARD_BASIC_AUTH_PASSWORD: ${HERMES_DASHBOARD_PASSWORD:?run ./setup.sh or set HERMES_DASHBOARD_PASSWORD in .env}
+      HERMES_DASHBOARD_BASIC_AUTH_SECRET: ${HERMES_DASHBOARD_SECRET:?run ./setup.sh or set HERMES_DASHBOARD_SECRET in .env}
+      # Model keys (keys saved in the Hermes dashboard take precedence)
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      OPENCODE_ZEN_API_KEY: ${OPENCODE_API_KEY:-}
+      # Read by the MCP server entries in config.yaml (scripts/hermes-config.sh)
+      TOOLS_API_KEY: ${TOOLS_API_KEY}
+      BROWSER_API_KEY: ${BROWSER_API_KEY}
 
 volumes:
   ollama:
@@ -174,3 +213,4 @@ volumes:
   workbench:
   browser:
   paperclip:
+  hermes:

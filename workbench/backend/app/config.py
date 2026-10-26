@@ -21,6 +21,7 @@ COOKIE_SECURE = _bool("COOKIE_SECURE")
 BROWSER_URL = os.getenv("BROWSER_URL", "http://browser:8100").rstrip("/")
 BROWSER_API_KEY = os.getenv("BROWSER_API_KEY", "")
 PAPERCLIP_URL = os.getenv("PAPERCLIP_URL", "")
+HERMES_URL = os.getenv("HERMES_URL", "")
 SESSION_DAYS = int(os.getenv("SESSION_DAYS", "30"))
 CALENDAR_SYNC_MINUTES = int(os.getenv("CALENDAR_SYNC_MINUTES", "15"))
 

@@ -1,5 +1,5 @@
 import {
-  Building2, CalendarDays, CheckSquare, Globe, Columns3, ExternalLink, FileText, Home, LogOut, Mail, Menu, Moon, NotebookPen,
+  Bot, Building2, CalendarDays, CheckSquare, Globe, Columns3, ExternalLink, FileText, Home, LogOut, Mail, Menu, Moon, NotebookPen,
   Search, Settings as SettingsIcon, Sun, Sparkles,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -23,6 +23,7 @@ export type Status = {
   workspace_name: string;
   chat_url: string;
   paperclip_url: string;
+  hermes_url: string;
   browser_enabled: boolean;
 };
 
@@ -108,6 +109,11 @@ export default function App() {
         {status.paperclip_url && (
           <a className="nav-link" href={status.paperclip_url} target="_blank" rel="noreferrer">
             <Building2 size={16} /> Company (Paperclip) <ExternalLink size={12} style={{ marginLeft: "auto" }} />
+          </a>
+        )}
+        {status.hermes_url && (
+          <a className="nav-link" href={status.hermes_url} target="_blank" rel="noreferrer">
+            <Bot size={16} /> Hermes agent <ExternalLink size={12} style={{ marginLeft: "auto" }} />
           </a>
         )}
         {NAV.map((item, i) =>

@@ -2,7 +2,7 @@
 # Writes paperclip/opencode.json: the OpenCode config used by Paperclip's opencode_local employees.
 #  • every model downloaded in Ollama becomes "ollama/<name>" (free, local)
 #  • the built in "opencode" provider (OpenCode Zen, free tier models) works when OPENCODE_API_KEY is set
-#  • the browser agent is attached as an MCP server, so employees can browse the web
+#  • Workbench (notes, tasks, calendar, mail drafts) and the browser agent are attached as MCP servers
 # Run again after pulling new Ollama models. setup.sh calls it automatically.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -28,6 +28,12 @@ cat > paperclip/opencode.json <<JSON
     }
   },
   "mcp": {
+    "workbench": {
+      "type": "remote",
+      "url": "http://workbench:8000/mcp/",
+      "enabled": true,
+      "headers": { "Authorization": "Bearer {env:TOOLS_API_KEY}" }
+    },
     "browser": {
       "type": "remote",
       "url": "http://browser:8100/mcp",

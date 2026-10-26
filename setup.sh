@@ -61,10 +61,11 @@ while IFS= read -r line; do
 done < .env.example
 
 # Secrets: generate any that are empty. Existing ones are never rotated (that would lock you out of data).
-for key in WEBUI_SECRET_KEY APP_SECRET TOOLS_API_KEY SEARXNG_SECRET BROWSER_API_KEY PAPERCLIP_AUTH_SECRET PAPERCLIP_TOOL_ACTION_SECRET PAPERCLIP_AGENT_JWT_SECRET; do
+for key in WEBUI_SECRET_KEY APP_SECRET TOOLS_API_KEY SEARXNG_SECRET BROWSER_API_KEY PAPERCLIP_AUTH_SECRET PAPERCLIP_TOOL_ACTION_SECRET PAPERCLIP_AGENT_JWT_SECRET HERMES_API_KEY HERMES_DASHBOARD_SECRET; do
   [[ -z "$(get_env "$key")" ]] && set_env "$key" "$(rand 32)"
 done
 [[ -z "$(get_env SETUP_CODE)" ]] && set_env SETUP_CODE "$(rand 4)"
+[[ -z "$(get_env HERMES_DASHBOARD_PASSWORD)" ]] && set_env HERMES_DASHBOARD_PASSWORD "$(rand 12)"
 
 if $FIRST_RUN; then
   echo
@@ -79,6 +80,7 @@ if $FIRST_RUN; then
     set_env WEBUI_PUBLIC_URL "http://${HOST_IP:-localhost}:$(get_env WEBUI_PORT)"
     set_env PAPERCLIP_PUBLIC_URL "http://${HOST_IP:-localhost}:$(get_env PAPERCLIP_PORT)"
     set_env PAPERCLIP_ALLOWED_HOSTNAMES "localhost${HOST_IP:+,$HOST_IP}"
+    set_env HERMES_PUBLIC_URL "http://${HOST_IP:-localhost}:$(get_env HERMES_DASHBOARD_PORT)"
     info "Bound to all interfaces. Traffic is plain HTTP: put a reverse proxy with HTTPS in front before exposing it beyond your LAN."
   fi
 
@@ -141,6 +143,9 @@ ask EMBED "Download nomic-embed-text for better document search in Chat? (y/N)" 
 # Give Paperclip's OpenCode employees every local model plus the browser tool
 ./scripts/sync-opencode-config.sh && docker compose restart paperclip >/dev/null
 
+# Hermes: first run model + Workbench and browser tools (later runs leave its config alone)
+./scripts/hermes-config.sh || info "Hermes config not written; run ./scripts/hermes-config.sh later."
+
 echo
 bold "Paperclip admin"
 PAPERCLIP_INVITE=$(./scripts/paperclip-invite.sh 2>&1 | tail -1 || true)
@@ -158,6 +163,7 @@ if [[ "$PAPERCLIP_INVITE" == http* ]]; then
 else
   info "            $PAPERCLIP_INVITE"
 fi
+info "Hermes:     http://${HOST}:$(get_env HERMES_DASHBOARD_PORT)    (login admin / $(get_env HERMES_DASHBOARD_PASSWORD)); in Chat pick model hermes-agent"
 echo
 info "Do the first sign up in Chat and Paperclip right away so nobody else can claim the admin accounts."
 info "Stop: docker compose down    Update: docker compose pull && docker compose up -d --build"

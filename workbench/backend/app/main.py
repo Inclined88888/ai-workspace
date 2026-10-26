@@ -6,6 +6,8 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import api, browser_proxy, config, db, llm
+from .mcp_server import mcp, mcp_app
+from .security import check_bearer
 from .tools import tools
 
 
@@ -15,7 +17,8 @@ async def lifespan(_: FastAPI):
     llm.seed_providers()
     api.recover_interrupted()
     loop_task = asyncio.create_task(api.calendar_loop())
-    yield
+    async with mcp.session_manager.run():
+        yield
     loop_task.cancel()
 
 
@@ -25,6 +28,8 @@ app = FastAPI(title="Workbench", lifespan=lifespan, docs_url=None, redoc_url=Non
 @app.middleware("http")
 async def guard(request: Request, call_next):
     # CSRF: state changing API calls must carry a custom header, which cross site pages cannot send without CORS.
+    if request.url.path.startswith("/mcp") and not check_bearer(request):
+        return JSONResponse({"detail": "Invalid or missing bearer token"}, status_code=401)
     if request.url.path.startswith("/api/") and request.method not in ("GET", "HEAD", "OPTIONS"):
         if request.headers.get("x-workbench") != "1":
             return JSONResponse({"detail": "Missing X-Workbench header"}, status_code=403)
@@ -45,13 +50,14 @@ app.include_router(api.public)
 app.include_router(api.api)
 app.include_router(browser_proxy.router)
 app.mount("/tools", tools)
+app.mount("/mcp", mcp_app)  # MCP clients use http://workbench:8000/mcp/
 
 if config.STATIC_DIR.exists():
     app.mount("/assets", StaticFiles(directory=config.STATIC_DIR / "assets"), name="assets")
 
     @app.get("/{path:path}", include_in_schema=False)
     def spa(path: str):
-        if path.startswith(("api/", "tools/")):
+        if path.startswith(("api/", "tools/", "mcp")):
             return JSONResponse({"detail": "Not found"}, status_code=404)
         candidate = (config.STATIC_DIR / path).resolve()
         if path and candidate.is_file() and config.STATIC_DIR.resolve() in candidate.parents:
