@@ -152,8 +152,12 @@ bold "Ready"
 info "Workbench:  http://${HOST}:$(get_env WORKBENCH_PORT)    setup code: $(get_env SETUP_CODE)"
 info "Chat:       http://${HOST}:$(get_env WEBUI_PORT)    (the first account you create becomes admin)"
 info "Company:    http://${HOST}:$(get_env PAPERCLIP_PORT)    (Paperclip)"
-info "            First admin: open $PAPERCLIP_INVITE"
-info "            (expires in 72h; new link any time: ./scripts/paperclip-invite.sh)"
+if [[ "$PAPERCLIP_INVITE" == http* ]]; then
+  info "            First admin: open $PAPERCLIP_INVITE"
+  info "            (expires in 72h; new link any time: ./scripts/paperclip-invite.sh)"
+else
+  info "            $PAPERCLIP_INVITE"
+fi
 echo
 info "Do the first sign up in Chat and Paperclip right away so nobody else can claim the admin accounts."
 info "Stop: docker compose down    Update: docker compose pull && docker compose up -d --build"
