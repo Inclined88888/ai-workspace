@@ -108,9 +108,11 @@ if $FIRST_RUN; then
   fi
   echo; bold "Models"
   info "Paste at least one key (stored in .env, mode 600), or use local models (Ollama)."
+  info "Free options: an OpenRouter key (models ending in :free) or a Gemini key from aistudio.google.com (free tier)."
   ask_secret ANTHROPIC "Anthropic API key"; [[ -n "$ANTHROPIC" ]] && set_env ANTHROPIC_API_KEY "$ANTHROPIC"
   ask_secret OPENROUTER "OpenRouter API key (hundreds of models, real cost tracking)"; [[ -n "$OPENROUTER" ]] && set_env OPENROUTER_API_KEY "$OPENROUTER"
   ask_secret OPENAI "OpenAI API key"; [[ -n "$OPENAI" ]] && set_env OPENAI_API_KEY "$OPENAI"
+  ask_secret GEMINI "Google Gemini API key (free tier)"; [[ -n "$GEMINI" ]] && set_env GEMINI_API_KEY "$GEMINI"
 fi
 
 # Local models: Ollama add-on container, or the native Ollama app on this computer (fast on a Mac)

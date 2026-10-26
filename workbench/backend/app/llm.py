@@ -19,8 +19,45 @@ PRESETS = {
     "ollama": {"name": "Ollama (local)", "base_url": f"{config.OLLAMA_URL or 'http://host.docker.internal:11434'}/v1"},
     "openai": {"name": "OpenAI", "base_url": "https://api.openai.com/v1"},
     "anthropic": {"name": "Anthropic", "base_url": "https://api.anthropic.com/v1"},
-    "openrouter": {"name": "OpenRouter", "base_url": "https://openrouter.ai/api/v1"},
+    "openrouter": {"name": "OpenRouter", "base_url": "https://openrouter.ai/api/v1",
+                   "note": "Free account key. Models ending in :free cost nothing (20 requests/min, 50/day; 1000/day once you have bought $10 of credits)."},
+    "gemini": {"name": "Google Gemini", "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+               "note": "Free tier with a key from aistudio.google.com (Flash and Flash-Lite models). Google may use free tier prompts to improve its products."},
+    # OpenCode's own free models are refused outside the OpenCode app ("Free models work in OpenCode"),
+    # so only the paid Zen and the Go subscription are offered here. Free OpenCode models: the paperclip add-on.
+    "opencode-go": {"name": "OpenCode Go", "base_url": "https://opencode.ai/inference/go/openai/v1",
+                    "note": "OpenCode Go subscription ($10/month flat). Key from opencode.ai/console."},
+    "opencode-zen": {"name": "OpenCode Zen", "base_url": "https://opencode.ai/inference/openai/v1",
+                     "note": "Pay as you go. Key from opencode.ai/console."},
 }
+
+# Model families that OpenCode serves on other endpoints than chat completions, plus models only the OpenCode app may use
+# (per opencode.ai/docs/zen and /docs/go endpoint tables)
+_OPENCODE_SKIP = re.compile(r"^(claude-|gpt-|grok-|gemini-|muse-|jev-|test$|big-pickle$)|-free$")
+_ZEN_SKIP = re.compile(r"^(qwen3\.8-flash|qwen3\.6-plus|qwen3\.5-plus)$")
+_GO_SKIP = re.compile(r"^(qwen|minimax-m3$)")
+# Gemini lists audio, image, embedding and robotics models too; only text chat models work here
+_GEMINI_SKIP = re.compile(r"(tts|embedding|live|transcribe|translate|robotics|imagen|veo|aqa|image|audio|lyria)")
+
+
+def _models_url(base_url: str) -> str:
+    base = base_url.rstrip("/")
+    if "opencode.ai/inference" in base:  # chat is served under /openai/v1, the model list under /v1
+        return base.replace("/openai/v1", "/v1") + "/models"
+    return base + "/models"
+
+
+def _keep_model(base_url: str, model: str) -> bool:
+    if "opencode.ai/inference" in base_url:
+        extra = _GO_SKIP if "/inference/go/" in base_url else _ZEN_SKIP
+        return not (_OPENCODE_SKIP.search(model) or extra.search(model))
+    if "generativelanguage.googleapis.com" in base_url:
+        return model.startswith(("gemini", "gemma")) and not _GEMINI_SKIP.search(model)
+    return True
+
+
+def is_free(p: dict, model: str) -> bool:
+    return p["kind"] == "ollama" or ("openrouter.ai" in p["base_url"] and model.endswith(":free"))
 
 THINK_RE = re.compile(r"<think>.*?</think>", re.S)
 TIMEOUT = httpx.Timeout(connect=10, read=300, write=30, pool=10)
@@ -77,7 +114,8 @@ def default_model_ref() -> str:
     if not providers:
         raise HTTPException(400, "No model provider configured. Add an API key in Settings.")
     # Sensible current defaults when the provider lists them; otherwise the first model it lists
-    preferred = {"api.anthropic.com": "claude-sonnet-5-5", "openrouter.ai": "anthropic/claude-sonnet-5.5"}
+    preferred = {"api.anthropic.com": "claude-sonnet-5-5", "openrouter.ai": "anthropic/claude-sonnet-5.5",
+                 "generativelanguage.googleapis.com": "gemini-3.8-flash"}
     for p in providers:
         want = next((m for host, m in preferred.items() if host in p["base_url"]), None)
         models = list_models_for(p["id"])
@@ -100,14 +138,15 @@ def list_models_for(pid: int, fresh: bool = False) -> list[dict]:
         return cached[1]
     names: list[str] = []
     try:
-        r = httpx.get(f"{p['base_url'].rstrip('/')}/models", headers=_headers(p), timeout=15)
+        r = httpx.get(_models_url(p["base_url"]), headers=_headers(p), timeout=15)
         r.raise_for_status()
-        names = sorted({m["id"] for m in r.json().get("data", []) if m.get("id")})
+        ids = {m["id"].removeprefix("models/") for m in r.json().get("data", []) if m.get("id")}
+        names = sorted(i for i in ids if _keep_model(p["base_url"], i))
     except (httpx.HTTPError, ValueError, KeyError):
         names = []
     manual = [m.strip() for m in p["models"].split(",") if m.strip()]
     names = sorted(set(names) | set(manual))
-    out = [{"ref": f"{pid}/{n}", "model": n, "provider": p["name"], "provider_id": pid} for n in names]
+    out = [{"ref": f"{pid}/{n}", "model": n, "provider": p["name"], "provider_id": pid, "free": is_free(p, n)} for n in names]
     _model_cache[pid] = (time.time(), out)
     return out
 

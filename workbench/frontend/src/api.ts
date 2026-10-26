@@ -93,7 +93,7 @@ export async function stream(path: string, body: unknown, onEvent: (e: StreamEve
   }
 }
 
-export type Model = { ref: string; model: string; provider: string; provider_id: number };
+export type Model = { ref: string; model: string; provider: string; provider_id: number; free?: boolean };
 
 export type Doc = {
   id: number;

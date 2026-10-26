@@ -30,6 +30,7 @@ SEED_KEYS = {
     "openai": os.getenv("OPENAI_API_KEY", ""),
     "anthropic": os.getenv("ANTHROPIC_API_KEY", ""),
     "openrouter": os.getenv("OPENROUTER_API_KEY", ""),
+    "gemini": os.getenv("GEMINI_API_KEY", ""),
 }
 
 if len(APP_SECRET) < 32:

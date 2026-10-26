@@ -5,7 +5,7 @@ import { api, stream } from "../api";
 import { ModelSelect, useModels, useToast } from "../util";
 
 type Provider = { id: number; name: string; kind: string; base_url: string; models: string; enabled: number; has_key: boolean; key_hint: string };
-type Presets = Record<string, { name: string; base_url: string }>;
+type Presets = Record<string, { name: string; base_url: string; note?: string }>;
 type MailAccount = { id: number; name: string; email: string; imap_host: string; smtp_host: string };
 
 const MAIL_PRESETS: Record<string, { imap_host: string; smtp_host: string; smtp_port: number; smtp_security: "ssl" | "starttls"; note: string }> = {
@@ -19,6 +19,7 @@ function Providers() {
   const [list, setList] = useState<Provider[]>([]);
   const [presets, setPresets] = useState<Presets>({});
   const [form, setForm] = useState({ name: "", kind: "openai", base_url: "", api_key: "", models: "" });
+  const [note, setNote] = useState("");
   const toast = useToast();
   const load = () => api<{ providers: Provider[]; presets: Presets }>("/providers").then((r) => { setList(r.providers); setPresets(r.presets); }).catch(toast.err);
   useEffect(() => { load(); }, []);
@@ -44,12 +45,13 @@ function Providers() {
   const usePreset = (k: string) => {
     const p = presets[k];
     if (p) setForm({ ...form, name: p.name, base_url: p.base_url, kind: k === "anthropic" ? "anthropic" : k === "ollama" ? "ollama" : "openai" });
+    setNote(p?.note ?? "");
   };
 
   return (
     <div className="card col gap-lg">
       <div className="row"><KeyRound size={16} /><h2>Model providers</h2></div>
-      <div className="muted small">Any OpenAI compatible endpoint works: OpenAI, Anthropic, OpenRouter, Groq, Together, Mistral, LM Studio, vLLM, LiteLLM. If a provider has no model list endpoint, type model ids in “Models”.</div>
+      <div className="muted small"><strong>Free options:</strong> local models with Ollama, OpenRouter models ending in :free (free key), and Google Gemini's free tier (free key). Free models are marked (free) in model menus. OpenCode's free models only run inside the OpenCode app, so here they are available to Company agents through the paperclip add-on. Any OpenAI compatible endpoint works: OpenAI, Anthropic, OpenRouter, Groq, Together, Mistral, LM Studio, vLLM, LiteLLM. If a provider has no model list endpoint, type model ids in “Models”.</div>
       <div className="card flush">
         {list.map((p) => (
           <div key={p.id} className="list-item" style={{ cursor: "default" }}>
@@ -67,6 +69,7 @@ function Providers() {
           <span className="small muted">Preset:</span>
           {Object.keys(presets).map((k) => <button type="button" key={k} className="btn sm" onClick={() => usePreset(k)}>{presets[k].name}</button>)}
         </div>
+        {note && <div className="muted small">{note}</div>}
         <div className="row wrap">
           <input className="input" style={{ width: 180 }} required placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           <select className="input" style={{ width: 160 }} value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })}>

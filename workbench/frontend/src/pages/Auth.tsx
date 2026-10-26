@@ -47,7 +47,7 @@ function ModelsStep({ onNext }: { onNext: () => void }) {
   const [ollama, setOllama] = useState<{ online: boolean; models: string[] } | null>(null);
   const [pulling, setPulling] = useState<string>("");
   const [progress, setProgress] = useState<{ status: string; pct: number }>({ status: "", pct: 0 });
-  const [keys, setKeys] = useState({ openai: "", anthropic: "", openrouter: "" });
+  const [keys, setKeys] = useState({ openai: "", anthropic: "", openrouter: "", gemini: "" });
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
 
@@ -130,7 +130,8 @@ function ModelsStep({ onNext }: { onNext: () => void }) {
         <div className="row"><KeyRound size={16} /><h3>Cloud providers (optional)</h3></div>
         <label className="field">OpenAI API key<input className="input" type="password" value={keys.openai} onChange={(e) => setKeys({ ...keys, openai: e.target.value })} placeholder="sk-…" /></label>
         <label className="field">Anthropic API key<input className="input" type="password" value={keys.anthropic} onChange={(e) => setKeys({ ...keys, anthropic: e.target.value })} placeholder="sk-ant-…" /></label>
-        <label className="field">OpenRouter API key<input className="input" type="password" value={keys.openrouter} onChange={(e) => setKeys({ ...keys, openrouter: e.target.value })} placeholder="sk-or-…" /></label>
+        <label className="field">OpenRouter API key<input className="input" type="password" value={keys.openrouter} onChange={(e) => setKeys({ ...keys, openrouter: e.target.value })} placeholder="sk-or-…" /><span className="faint small">Free key. Models ending in :free cost nothing.</span></label>
+        <label className="field">Google Gemini API key<input className="input" type="password" value={keys.gemini} onChange={(e) => setKeys({ ...keys, gemini: e.target.value })} placeholder="AIza…" /><span className="faint small">Free tier from aistudio.google.com. Google may use free tier prompts to improve its products.</span></label>
         <div className="row">
           <button className="btn" onClick={saveKeys} disabled={!Object.values(keys).some((k) => k.trim())}>Save keys</button>
           {saved && <span className="badge ok"><Check size={12} /> Saved</span>}

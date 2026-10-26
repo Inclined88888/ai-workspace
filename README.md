@@ -183,6 +183,14 @@ Model choice: `BROWSER_LLM_PROVIDER=auto` uses Anthropic if `ANTHROPIC_API_KEY` 
 
 **Local.** With native Ollama: `ollama pull qwen3:8b`. With the `local-models` add-on: Workbench → Settings → Local models, or `docker compose exec ollama ollama pull qwen3:8b`. Rough memory needs: 4B ≈ 4 GB, 8B ≈ 8 GB, 14B ≈ 12 GB.
 
+**Free.** Three ways to run at $0, all one click in Settings → Model providers (free models show "(free)" in every model menu):
+
+* **Ollama** on your own machine. Fully private.
+* **OpenRouter** with a free account key: every model ending in `:free` (about 17 at the time of writing, most with tool calling). Limits: 20 requests a minute and 50 a day, or 1000 a day once you have bought $10 of credits.
+* **Google Gemini** free tier with a key from aistudio.google.com (Flash and Flash-Lite models). Google may use free tier prompts to improve its products.
+
+**OpenCode.** OpenCode's free models (Big Pickle, the `-free` models) only work inside the OpenCode app; called from anything else they answer "Free models work in OpenCode". So Workbench offers **OpenCode Go** (flat $10 a month) and **OpenCode Zen** (pay as you go) as providers, and hides the models those endpoints can't serve. For OpenCode's free models, use the `paperclip` add-on: its agents run inside OpenCode itself.
+
 **Cloud.** Workbench talks to any OpenAI compatible endpoint (Settings → Model providers, with presets for OpenAI, Anthropic, OpenRouter). Groq, Together, Mistral, LM Studio, vLLM and LiteLLM also work: enter the base URL and key. If a provider does not expose `/models`, type model ids in the Models field.
 
 For Chat, keys entered during `setup.sh` are passed as `OPENAI_API_BASE_URLS`/`OPENAI_API_KEYS`. You can also add connections later in Chat → Admin Settings → Connections. Open WebUI stores settings in its database after first start, so later changes to these env vars are ignored unless you set `ENABLE_PERSISTENT_CONFIG=false`; changing them in the Admin UI is the simplest route.

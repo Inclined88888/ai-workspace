@@ -48,7 +48,7 @@ export function ModelSelect({
         <optgroup key={provider} label={provider}>
           {list.map((m) => (
             <option key={m.ref} value={m.ref}>
-              {m.model}
+              {m.model}{m.free ? "  (free)" : ""}
             </option>
           ))}
         </optgroup>
