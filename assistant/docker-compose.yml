@@ -1,0 +1,26 @@
+# Personal assistant only: Hermes Agent on a small always-on server (2 GB RAM, 20 GB disk is comfortable).
+# Run ./setup.sh for the guided first start. Upgrade: docker compose pull && docker compose up -d
+name: hermes-assistant
+
+services:
+  hermes:
+    image: nousresearch/hermes-agent:${HERMES_TAG:-latest}
+    restart: unless-stopped
+    command: ["gateway", "run"]
+    volumes:
+      # Everything that makes it yours lives here: memory, skills, sessions, schedules, keys, config
+      - hermes-data:/opt/data
+    ports:
+      # Web dashboard, localhost only. From your laptop: ssh -L 9119:localhost:9119 you@server
+      - "127.0.0.1:${HERMES_DASHBOARD_PORT:-9119}:9119"
+    environment:
+      HERMES_DASHBOARD: ${HERMES_DASHBOARD:-1}
+      HERMES_DASHBOARD_BASIC_AUTH_USERNAME: admin
+      HERMES_DASHBOARD_BASIC_AUTH_PASSWORD: ${HERMES_DASHBOARD_PASSWORD:?run ./setup.sh first}
+      HERMES_DASHBOARD_BASIC_AUTH_SECRET: ${HERMES_DASHBOARD_SECRET:?run ./setup.sh first}
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  hermes-data:

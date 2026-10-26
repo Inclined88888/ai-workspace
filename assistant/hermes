@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+# Your assistant from the terminal. Runs Hermes Agent inside the `hermes` container of this folder's stack.
+#
+#   ./hermes                          open the terminal UI (same memory and skills as Telegram/Discord)
+#   ./hermes use anthropic [MODEL]    switch model: anthropic | openai | openrouter | ollama (main stack only)
+#   ./hermes key openai               store an API key (prompted, not echoed)
+#   ./hermes connect telegram         chat from Telegram (only your account is allowed)
+#   ./hermes connect discord          chat from Discord (only your account is allowed)
+#   ./hermes daily-report 08:00 telegram   scheduled daily briefing
+#   ./hermes cron list | memory | skills list | doctor | ...   any other Hermes command, passed through
+set -euo pipefail
+cd "$(dirname "$0")"
+
+if [[ -t 0 && -t 1 ]]; then TTY=(-it); else TTY=(-T); fi
+hx() { docker compose exec "${TTY[@]}" -u hermes -e HOME=/opt/data hermes hermes "$@"; }
+hq() { docker compose exec -T -u hermes -e HOME=/opt/data hermes hermes "$@" >/dev/null; }
+ask() { local __v=$1 __q=$2 __a; read -r -p "$__q: " __a; printf -v "$__v" '%s' "$__a"; }
+ask_secret() { local __v=$1 __q=$2 __a; read -r -s -p "$__q: " __a; echo; printf -v "$__v" '%s' "$__a"; }
+restart() { docker compose restart hermes >/dev/null && echo "Restarted the gateway."; }
+
+docker compose ps --status running hermes 2>/dev/null | grep -q hermes \
+  || { echo "The hermes container is not running. Start it with: docker compose up -d hermes" >&2; exit 1; }
+
+key_env() {
+  case "$1" in
+    anthropic) echo ANTHROPIC_API_KEY ;;
+    openai) echo OPENAI_API_KEY ;;
+    openrouter) echo OPENROUTER_API_KEY ;;
+    *) echo "Unknown provider '$1' (anthropic, openai, openrouter)" >&2; return 1 ;;
+  esac
+}
+
+case "${1:-}" in
+  key)
+    var=$(key_env "${2:?usage: ./hermes key anthropic|openai|openrouter}")
+    ask_secret value "Paste your ${2} API key"
+    [[ -n "$value" ]] || { echo "Nothing entered." >&2; exit 1; }
+    hq config set "$var" "$value"
+    echo "Saved ${var}. Switch to it with: ./hermes use ${2}"
+    ;;
+
+  use)
+    provider=${2:?usage: ./hermes use anthropic|openai|openrouter|ollama [model]}
+    model=${3:-}
+    case "$provider" in
+      anthropic) model=${model:-claude-sonnet-5-5} ;;
+      openrouter) model=${model:-anthropic/claude-sonnet-5.5} ;;
+      openai) [[ -n "$model" ]] || ask model "OpenAI model id (as listed in your OpenAI dashboard)" ;;
+      ollama) model=${model:-qwen3:4b} ;;
+      *) echo "Unknown provider '$provider'" >&2; exit 1 ;;
+    esac
+    if [[ "$provider" == ollama ]]; then
+      hq config set model.provider custom
+      hq config set model.base_url http://ollama:11434/v1
+      # Hermes needs a 64K window; pin it so Ollama does not allocate the model's full window
+      hq config set model.ollama_num_ctx 65536
+    else
+      var=$(key_env "$provider")
+      docker compose exec -T -u hermes -e HOME=/opt/data hermes sh -c "grep -q '^${var}=.' /opt/data/.env || [ -n \"\$${var}\" ]" \
+        || echo "Note: no ${provider} key stored yet. Add one with: ./hermes key ${provider}"
+      hq config set model.provider "$provider"
+      hq config unset model.base_url 2>/dev/null || true
+      hq config unset model.ollama_num_ctx 2>/dev/null || true
+    fi
+    hq config set model.default "$model"
+    restart
+    echo "Now using ${provider}/${model}. Memory, skills and schedules carry over."
+    ;;
+
+  connect)
+    case "${2:-}" in
+      telegram)
+        echo "1. In Telegram, message @BotFather, send /newbot and copy the token."
+        echo "2. Message @userinfobot to get your numeric user id."
+        ask_secret token "Bot token"
+        ask uid "Your Telegram user id"
+        [[ "$uid" =~ ^[0-9]+$ ]] || { echo "The user id must be a number." >&2; exit 1; }
+        hq config set TELEGRAM_BOT_TOKEN "$token"
+        hq config set TELEGRAM_ALLOWED_USERS "$uid"
+        hq config set TELEGRAM_HOME_CHANNEL "$uid"   # your private chat receives scheduled reports
+        restart
+        echo "Done. Open your bot in Telegram and say hi. Nobody else can use it."
+        ;;
+      discord)
+        echo "1. Create an application and bot at https://discord.com/developers/applications,"
+        echo "   enable the Message Content intent, invite the bot to your server, copy the bot token."
+        echo "2. In Discord turn on Developer Mode, then right click your name > Copy User ID."
+        ask_secret token "Bot token"
+        ask uid "Your Discord user id"
+        [[ "$uid" =~ ^[0-9]+$ ]] || { echo "The user id must be a number." >&2; exit 1; }
+        ask chan "Channel id for scheduled reports (optional; or type /sethome there later)"
+        hq config set DISCORD_BOT_TOKEN "$token"
+        hq config set DISCORD_ALLOWED_USERS "$uid"
+        [[ -n "$chan" ]] && hq config set DISCORD_HOME_CHANNEL "$chan"
+        restart
+        echo "Done. Mention the bot or DM it. Nobody else can use it."
+        ;;
+      *) echo "usage: ./hermes connect telegram|discord" >&2; exit 1 ;;
+    esac
+    ;;
+
+  daily-report)
+    at=${2:?usage: ./hermes daily-report HH:MM [telegram|discord|local]}
+    deliver=${3:-telegram}
+    [[ "$at" =~ ^([01]?[0-9]|2[0-3]):([0-5][0-9])$ ]] || { echo "Time must be HH:MM, e.g. 08:00" >&2; exit 1; }
+    hour=$((10#${BASH_REMATCH[1]})); minute=$((10#${BASH_REMATCH[2]}))
+    prompt=${4:-"Write my daily briefing: today's date, anything you remember I'm working on or waiting for, \
+open loops from our recent conversations, and 3 suggested priorities for today. If you have calendar or task tools, \
+include today's events and due or overdue tasks. Keep it under 200 words."}
+    hx cron create "$minute $hour * * *" "$prompt" --name "Daily report" --deliver "$deliver"
+    echo "Scheduled for ${at} every day (timezone: $(docker compose exec -T -u hermes -e HOME=/opt/data hermes hermes config get timezone 2>/dev/null || echo server)). See: ./hermes cron list"
+    ;;
+
+  *)
+    hx "$@"
+    ;;
+esac

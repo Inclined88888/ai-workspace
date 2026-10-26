@@ -21,6 +21,8 @@ How they connect:
 
 Paperclip, Hermes and browser-use are used **unmodified** from upstream (published Docker images, browser-use from PyPI). Everything this project adds sits around them, so upgrading is a version bump, not a merge.
 
+> **Only want the personal assistant?** [`assistant/`](assistant/README.md) runs just Hermes on a small always-on server (about 430 MB RAM idle), with a terminal UI, Telegram and Discord, model switching and scheduled reports. No GPU, no open ports.
+
 ## Quick start
 
 Requirements: Linux server or desktop with Docker Engine and Docker Compose v2, 16 GB RAM recommended (8 GB works without Paperclip agents running locally), **about 40 GB of disk for the images** (Paperclip ≈ 13 GB, Ollama ≈ 8.5 GB, Open WebUI ≈ 6.5 GB, Hermes ≈ 4.3 GB, browser agent ≈ 2.5 GB) plus model sizes. NVIDIA GPU optional.
@@ -100,15 +102,27 @@ Hermes is the agent that gets better the longer you use it. What it adds over th
 * **Learning loop.** After a task it can write a reusable skill (a saved procedure) and improve it on later use. Skills live in its volume and show up in the dashboard.
 * **Memory that persists.** It keeps notes about you and your work across sessions, and full text search over its past conversations.
 * **Scheduled jobs.** "Every weekday at 8, check my agenda and overdue tasks and message me a summary" runs unattended with its built in scheduler.
-* **Reach it anywhere.** Telegram, Discord, Slack, WhatsApp, Signal and more from one gateway. Easiest setup: dashboard → Messaging → Telegram → Create with QR, which also restricts the bot to your own Telegram user.
+* **Reach it anywhere.** Telegram, Discord, Slack, WhatsApp, Signal and more from one gateway. `./hermes connect telegram` (or the dashboard's Messaging → Telegram → Create with QR) sets it up and restricts the bot to your own account.
 * **Subagents** for parallel work, context compression for long sessions, and loop guards that stop runaway tool calls when nobody is watching.
+
+Day to day, use the `./hermes` command from the repository root (same as in [`assistant/`](assistant/README.md)):
+
+```bash
+./hermes                              # terminal UI
+./hermes key openrouter               # store a key (hidden prompt)
+./hermes use openrouter <model>       # switch model; also anthropic, openai, or ollama <model>
+./hermes connect telegram             # or discord; only your account is allowed
+./hermes config set timezone Europe/London   # schedules follow this
+./hermes daily-report 08:00 telegram  # scheduled daily briefing
+./hermes cron list                    # anything else passes through to the Hermes CLI
+```
 
 How it is wired here:
 
 * **Chat:** pick the model `hermes-agent` (new installs; see the note below for existing ones).
 * **Tools:** Workbench (13 tools: notes, tasks, calendar, mail search and drafts) and the browser agent are attached as MCP servers. Hermes cannot send mail, only draft it.
 * **Dashboard** at port 3300 (user `admin`, password printed by `setup.sh`, stored as `HERMES_DASHBOARD_PASSWORD` in `.env`): memory, skills, scheduled jobs, sessions, model and messaging setup.
-* **Model:** `scripts/hermes-config.sh` picks Anthropic if `ANTHROPIC_API_KEY` is set, else OpenRouter, else your local `DEFAULT_MODEL`. It runs once; afterwards change the model in the dashboard. `--force` reapplies the defaults.
+* **Model:** `scripts/hermes-config.sh` picks Anthropic if `ANTHROPIC_API_KEY` is set, else OpenRouter, else your local `DEFAULT_MODEL`. It runs once; afterwards switch with `./hermes use ...` or the dashboard. `--force` reapplies the defaults.
 
 Requirements and limits, verified in testing:
 

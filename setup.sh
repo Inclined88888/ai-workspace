@@ -164,6 +164,7 @@ else
   info "            $PAPERCLIP_INVITE"
 fi
 info "Hermes:     http://${HOST}:$(get_env HERMES_DASHBOARD_PORT)    (login admin / $(get_env HERMES_DASHBOARD_PASSWORD)); in Chat pick model hermes-agent"
+info "            Terminal: ./hermes    Telegram: ./hermes connect telegram    Daily report: ./hermes daily-report 08:00 telegram"
 echo
 info "Do the first sign up in Chat and Paperclip right away so nobody else can claim the admin accounts."
 info "Stop: docker compose down    Update: docker compose pull && docker compose up -d --build"
