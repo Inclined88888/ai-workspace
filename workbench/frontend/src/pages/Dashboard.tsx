@@ -28,7 +28,7 @@ function dayLabel(iso: string, allDay: boolean) {
   return d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
 }
 
-export default function Dashboard({ chatUrl }: { chatUrl: string }) {
+export default function Dashboard(_: { chatUrl?: string }) {
   const [data, setData] = useState<Dash | null>(null);
   const [capture, setCapture] = useState("");
   const [mode, setMode] = useState<"task" | "note" | "research">("task");
@@ -73,7 +73,7 @@ export default function Dashboard({ chatUrl }: { chatUrl: string }) {
           <p className="muted">{new Date().toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })}</p>
         </div>
         <div className="spacer" />
-        <a className="btn primary" href={chatUrl} target="_blank" rel="noreferrer"><Sparkles size={16} /> Open chat</a>
+        <Link className="btn primary" to="/assistant"><Sparkles size={16} /> Ask your assistant</Link>
       </div>
 
       <form className="card col" onSubmit={submit} style={{ marginBottom: 16 }}>

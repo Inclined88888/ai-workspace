@@ -1,11 +1,14 @@
 import {
-  Bot, Building2, CalendarDays, CheckSquare, Globe, Columns3, ExternalLink, FileText, Home, LogOut, Mail, Menu, Moon, NotebookPen,
+  Bot, Brain, Building2, CalendarClock, CalendarDays, MessageSquare, CheckSquare, Globe, Columns3, ExternalLink, FileText, Home, LogOut, Mail, Menu, Moon, NotebookPen,
   Search, Settings as SettingsIcon, Sun, Sparkles,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { api } from "./api";
+import Assistant from "./pages/Assistant";
 import Auth from "./pages/Auth";
+import Automations from "./pages/Automations";
+import Company from "./pages/Company";
 import Browser from "./pages/Browser";
 import CalendarPage from "./pages/Calendar";
 import Compare from "./pages/Compare";
@@ -25,13 +28,18 @@ export type Status = {
   paperclip_url: string;
   hermes_url: string;
   browser_enabled: boolean;
+  local_models_enabled: boolean;
 };
 
 const NAV = [
   { section: "Workspace" },
   { to: "/", label: "Home", icon: Home },
+  { to: "/assistant", label: "Assistant", icon: MessageSquare },
+  { to: "/assistant-memory", label: "Memory & skills", icon: Brain },
+  { to: "/automations", label: "Automations", icon: CalendarClock },
+  { to: "/company", label: "Company", icon: Building2 },
   { to: "/research", label: "Research", icon: Search },
-  { to: "/browser", label: "Browser agent", icon: Globe },
+  { to: "/browser", label: "Browser agent", icon: Globe, addon: "browser" },
   { to: "/compare", label: "Compare models", icon: Columns3 },
   { section: "Your stuff" },
   { to: "/notes", label: "Notes", icon: NotebookPen },
@@ -103,9 +111,11 @@ export default function App() {
           <div className="brand-mark"><Sparkles size={16} /></div>
           <span className="truncate">{status.workspace_name}</span>
         </div>
-        <a className="nav-link" href={status.chat_url} target="_blank" rel="noreferrer">
-          <Sparkles size={16} /> Chat &amp; agents <ExternalLink size={12} style={{ marginLeft: "auto" }} />
-        </a>
+        {status.chat_url && (
+          <a className="nav-link" href={status.chat_url} target="_blank" rel="noreferrer">
+            <Sparkles size={16} /> Open WebUI <ExternalLink size={12} style={{ marginLeft: "auto" }} />
+          </a>
+        )}
         {status.paperclip_url && (
           <a className="nav-link" href={status.paperclip_url} target="_blank" rel="noreferrer">
             <Building2 size={16} /> Company (Paperclip) <ExternalLink size={12} style={{ marginLeft: "auto" }} />
@@ -116,7 +126,7 @@ export default function App() {
             <Bot size={16} /> Hermes agent <ExternalLink size={12} style={{ marginLeft: "auto" }} />
           </a>
         )}
-        {NAV.map((item, i) =>
+        {NAV.filter((item) => !("addon" in item) || (item.addon === "browser" && status.browser_enabled)).map((item, i) =>
           "section" in item ? (
             <div key={i} className="nav-section">{item.section}</div>
           ) : (
@@ -140,7 +150,14 @@ export default function App() {
           <strong className="truncate">{status.workspace_name}</strong>
         </div>
         <Routes>
-          <Route path="/" element={<Dashboard chatUrl={status.chat_url} />} />
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/assistant" element={<Assistant tab="chat" />} />
+          <Route path="/assistant/:id" element={<Assistant tab="chat" />} />
+          <Route path="/assistant-memory" element={<Assistant tab="memory" />} />
+          <Route path="/assistant-skills" element={<Assistant tab="skills" />} />
+          <Route path="/assistant-settings" element={<Assistant tab="settings" />} />
+          <Route path="/automations" element={<Automations />} />
+          <Route path="/company" element={<Company />} />
           <Route path="/research" element={<Research />} />
           <Route path="/research/:id" element={<Research />} />
           <Route path="/browser" element={<Browser />} />

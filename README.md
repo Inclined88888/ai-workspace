@@ -1,62 +1,72 @@
 # AI Workspace
 
-A self hosted AI workspace you run on your own server with Docker. One place for everyday work: chat and agents, research with sources, writing, notes, tasks, mail and calendar, a browser agent, and a company of AI employees with budgets. Runs on local models, free OpenCode models, or any cloud provider.
+A self hosted AI workspace in **one light container**. Chat with an assistant that remembers you and learns skills, plus notes, documents, tasks, calendar, mail, research with sources, scheduled reports, a company of AI agents with budgets, and model comparison. Runs on Anthropic, OpenAI, OpenRouter or any OpenAI compatible provider, or local models.
 
-| App | URL | What it does |
-| --- | --- | --- |
-| **Workbench** | `http://localhost:3100` | Home dashboard, notes, documents with AI writing assist, tasks, calendar sync, mail, deep research with citations, **browser agent**, side by side model comparison |
-| **Chat** ([Open WebUI](https://github.com/open-webui/open-webui)) | `http://localhost:3000` | Chat, agents with tools, file uploads and document Q&A (RAG), long term memory, web search, multi model chat |
-| **Company** ([Paperclip](https://github.com/paperclipai/paperclip)) | `http://localhost:3200` | You are the board: set the mission, hire AI agents as CEO, CTO, engineers, see the org chart, assign tasks, track progress and cost, monthly budget per agent |
-| **Hermes** ([Hermes Agent](https://github.com/NousResearch/hermes-agent)) | `http://localhost:3300` (dashboard) | A personal agent that learns: persistent memory, skills it writes for itself, search over past conversations, scheduled jobs, subagents, and messaging (Telegram, Discord, Slack and more). Also appears in Chat as the model `hermes-agent` |
-| Browser agent ([browser-use](https://github.com/browser-use/browser-use) + Playwright) | internal | Plain English goals become real browser actions. Used by Workbench, Chat and Paperclip employees. Also a standalone Python package and CLI in `browser-agent/` |
-| Ollama | internal | Runs local models (CPU or NVIDIA GPU) |
-| SearXNG | internal | Private metasearch used by Chat and Research |
+**The core is Workbench:** FastAPI + SQLite + React, one image (about 350 MB), about 100 MB of RAM at idle (measured on the backend process; real use depends on traffic). No GPU, no database server, no extra containers. A small VPS with 1 GB of RAM or a Mac laptop runs it.
 
-How they connect:
+Everything heavier is an **optional add-on, off by default**:
 
-* Chat can use Workbench (notes, tasks, calendar, mail drafts) and the browser agent as tools, and can talk to Hermes as a model.
-* Workbench and the browser agent are also MCP servers, so Hermes and Paperclip's OpenCode employees can use your notes, tasks, calendar, mail drafts and the browser.
-* Paperclip employees running on OpenCode get your local Ollama models, OpenCode's free tier models, and the browser agent (over MCP) out of the box.
-* Workbench links to Chat and Paperclip and has its own Browser page for running and watching browser jobs.
+| Add-on | Turn on with | Adds | Cost |
+| --- | --- | --- | --- |
+| `search` | SearXNG | Free private web search (otherwise use a Brave or Tavily key, or none) | small |
+| `browser` | browser-use + Chromium | Browser agent page and a `browse_web` tool | ≈ 2.5 GB image |
+| `local-models` | Ollama in Docker | Local models (on a Mac, native Ollama is faster and is detected by setup) | ≈ 8.5 GB image + models |
+| `openwebui` | Open WebUI | A second chat app with RAG knowledge bases and multi user accounts | ≈ 6.5 GB image |
+| `paperclip` | Paperclip | Upstream company of agents running coding CLIs (Claude Code, Codex, OpenCode) | ≈ 13 GB image |
+| `hermes` | Hermes Agent | Upstream personal agent with its own gateway (WhatsApp, Signal, Slack) | ≈ 4.3 GB image |
 
-Paperclip, Hermes and browser-use are used **unmodified** from upstream (published Docker images, browser-use from PyPI). Everything this project adds sits around them, so upgrading is a version bump, not a merge.
-
-> **Only want the personal assistant?** [`assistant/`](assistant/README.md) runs just Hermes on a small always-on server (about 430 MB RAM idle), with a terminal UI, Telegram and Discord, model switching and scheduled reports. No GPU, no open ports.
+You don't need any of them for the assistant, memory, skills, schedules, Telegram or the company of agents. Those are built into Workbench.
 
 ## Quick start
 
-Requirements: Linux server or desktop with Docker Engine and Docker Compose v2, 16 GB RAM recommended (8 GB works without Paperclip agents running locally), **about 40 GB of disk for the images** (Paperclip ≈ 13 GB, Ollama ≈ 8.5 GB, Open WebUI ≈ 6.5 GB, Hermes ≈ 4.3 GB, browser agent ≈ 2.5 GB) plus model sizes. NVIDIA GPU optional.
+Requirements: Docker with Compose v2 (Docker Desktop or OrbStack on a Mac), 1 GB RAM free, about 2 GB of disk for the build. At least one model provider key, or Ollama.
 
 ```bash
 git clone <this repo> ai-workspace && cd ai-workspace
+./setup.sh                        # core only
+./setup.sh --with search,browser  # core plus add-ons (comma separated)
+./setup.sh --with none            # turn all add-ons off again
+```
+
+`setup.sh` creates `.env` (mode 600) with generated secrets, asks for a name, your timezone (detected), LAN access and your provider keys, then builds and starts. If Ollama is already running on the host (`localhost:11434`) setup offers to connect it. It prints the URL (`http://localhost:3100`) and a one time **setup code**: open the URL, enter the code, choose a password.
+
+Re-running is safe and is how you upgrade or change add-ons: it adds new settings, keeps secrets and data, and stops add-ons you turned off. `--yes` runs unattended with defaults.
+
+### On a Mac
+
+```bash
+# 1. Install and start Docker Desktop or OrbStack.
+# 2. Optional, free local models on the Mac GPU:
+brew install ollama && brew services start ollama
+ollama pull qwen3:4b
 ./setup.sh
 ```
 
-`setup.sh` will:
+Native Ollama uses the Mac GPU; the `local-models` add-on would run on CPU inside Docker's VM, so skip it on a Mac.
 
-1. Create `.env` (mode 600) and generate every secret.
-2. Ask for a workspace name, whether to allow LAN access, the default local model, and optional OpenAI, Anthropic, OpenRouter, Gemini and OpenCode Zen keys.
-3. Turn on the GPU override if `nvidia-smi` works and Docker has the NVIDIA runtime.
-4. Build and start the stack, then download the default model (`qwen3:4b`, about 2.5 GB).
-5. Give Paperclip's OpenCode every downloaded Ollama model and the browser tool (`scripts/sync-opencode-config.sh`).
-6. Point Hermes at your model and give it the Workbench and browser tools (`scripts/hermes-config.sh`, first run only).
-7. Print the URLs, a one time Workbench **setup code**, a one time **Paperclip admin invite link** and the **Hermes dashboard login**.
+## The assistant
 
-Then, straight away (first come, first admin):
+**Assistant** is the main page: one chat that can use every part of the workspace.
 
-1. Open **Chat** and create the first account. The first sign up becomes admin; later sign ups wait for approval.
-2. Open the **Paperclip invite link** and create your account. You become the board. Lost the link or it expired (72 h)? `./scripts/paperclip-invite.sh` prints a new one while no admin exists.
-3. Open **Workbench**, enter the setup code, choose a password, and follow the setup wizard.
+* **Tools.** Notes (search, read, create, append), tasks, calendar (agenda, create event), mail (search, save draft only, never send), web search and page reading, the browser agent when that add-on is on, memory, skills and schedules. Each tool step shows live in the chat.
+* **Memory.** After a conversation it quietly extracts durable facts about you (profile, preferences, facts), at most 5 per conversation, skipping duplicates. Relevant ones are injected into every new conversation. You can also say "remember that…" or "forget…". Review and edit everything under **Memory & skills**. Turn learning off in Assistant settings.
+* **Skills.** When a task took 3 or more tool calls, it can save the procedure as a named skill and improve it on later use. Skills are listed to the model and loaded on demand, so they cost almost nothing until used.
+* **History.** Every conversation is full text searchable, by you and by the assistant (`search_history`).
+* **Models.** Switch per conversation from the model menu. Any provider in Settings works.
+* **Terminal.** `cli/ws` is a zero dependency Python CLI: `cli/ws login`, then `cli/ws` for a REPL or `cli/ws "what's on today?"` for one shot. Also `cli/ws memory`, `skills`, `inbox`, `schedules`.
+* **Telegram.** Assistant settings → Telegram: paste a bot token from @BotFather and your numeric user id. Only allowlisted ids get answers; others are told their id so you can add them. `/new` starts a fresh conversation. The token is stored encrypted.
 
-Run `./setup.sh --yes` for an unattended install with defaults. Re-running setup is safe and is also how you **upgrade**: it adds any new settings to `.env`, generates missing secrets, never rotates existing ones and never touches data.
+**Automations.** Cron schedules in your timezone ("Daily report, 8:00" is one click). Results go to the Inbox and optionally Telegram. You can also ask in chat: "every Friday at 5pm summarise my week". Scheduled runs cannot create more schedules. The next run is booked before each run, so a failing job cannot loop.
 
-## Features
+**Company.** Set a mission, hire agents (CEO, CTO, researcher…) with a model, instructions, who they report to, a **monthly budget in dollars** and a **monthly token limit**. Give a task to any agent; managers can `delegate_task` to their reports (up to 3 levels deep). The org chart shows spend bars; the board shows To do, Queued, Running, Done and Needs you. An agent over its limit is **paused automatically** until you raise the limit or the month rolls over. Limits are checked before every model call, so spend can overshoot by at most one call. OpenRouter reports real cost; for other providers set your price per 1M tokens in Settings → Usage, otherwise dollar budgets cannot be enforced (token limits always are).
 
-**Chat and agents (Open WebUI).** Streaming chat with any connected model; file uploads and knowledge bases with retrieval; memory (Settings → Personalization); web search through the bundled SearXNG (toggle per chat); multi model chat (pick several models in the model selector to get answers side by side); custom models with system prompts and tools.
+## Workspace features
 
-**Workbench tools in Chat.** The `Workbench` tool server is preconfigured. Enable it per chat from the tools button in the message box, or attach it to a model in Admin → Models. Tools: `search_notes`, `read_note`, `create_note`, `append_to_note`, `list_tasks`, `create_task`, `update_task`, `get_agenda`, `list_events`, `create_event`, `list_calendars`, `search_email`, `read_email`, `save_email_draft`, `web_search`. There is deliberately **no send email tool**: agents can only save drafts, which you review and send under Mail → Drafts. Tool calling quality depends on the model; small local models are hit and miss, larger ones (Qwen3 8B+, or cloud models) are reliable.
+**Second chat app (`openwebui` add-on).** Streaming chat with any connected model; file uploads and knowledge bases with retrieval; memory (Settings → Personalization); web search through SearXNG when the `search` add-on is on (toggle per chat); multi model chat (pick several models in the model selector to get answers side by side); custom models with system prompts and tools.
 
-**Research.** Ask a question; the model plans several searches, Workbench queries SearXNG, reads the pages (internal and private network addresses are refused), and the model writes a Markdown report with numbered inline citations and a source list. Save any report to Documents.
+**Workbench tools in Open WebUI.** The `Workbench` tool server is preconfigured. Enable it per chat from the tools button in the message box, or attach it to a model in Admin → Models. Tools: `search_notes`, `read_note`, `create_note`, `append_to_note`, `list_tasks`, `create_task`, `update_task`, `get_agenda`, `list_events`, `create_event`, `list_calendars`, `search_email`, `read_email`, `save_email_draft`, `web_search`. There is deliberately **no send email tool**: agents can only save drafts, which you review and send under Mail → Drafts. Tool calling quality depends on the model; small local models are hit and miss, larger ones (Qwen3 8B+, or cloud models) are reliable.
+
+**Research.** Ask a question; the model plans several searches, Workbench queries your search provider (SearXNG add-on, or a Brave or Tavily key in Assistant settings), reads the pages (internal and private network addresses are refused), and the model writes a Markdown report with numbered inline citations and a source list. Save any report to Documents.
 
 **Compare.** Up to four columns, each with its own model and conversation. One prompt goes to all of them; each column shows total time, time to first token, tokens and tokens per second.
 
@@ -71,7 +81,11 @@ Run `./setup.sh --yes` for an unattended install with defaults. Re-running setup
 
 **Mail.** IMAP/SMTP with app passwords: Fastmail, iCloud, Gmail (needs 2 step verification and an app password), and most self hosted servers. Read, search, reply, compose, and "Draft with AI" with your intent. AI drafts use `[placeholders]` instead of inventing facts; every send asks for confirmation. Outlook.com and Microsoft 365 are **not** supported because Microsoft requires OAuth for IMAP.
 
-## Company: Paperclip
+## Add-ons in detail
+
+The sections below only matter if you turned the add-on on.
+
+### Company of coding agents: Paperclip (`paperclip` add-on)
 
 You define the company and its goal, then hire agents into roles. Paperclip gives you the org chart, a task board, a dashboard of runs, spend and approvals, and a monthly budget per agent and per company. Per [Paperclip's docs](https://github.com/paperclipai/paperclip/blob/master/docs/guides/board-operator/costs-and-budgets.md), an agent gets a warning at 80% of its budget and is **auto paused at 100%** until you raise the budget or the month rolls over. The UI works on phones (bottom tab bar).
 
@@ -95,7 +109,7 @@ Things to know:
 * **Telemetry.** Paperclip enables anonymous telemetry by default (`telemetry.enabled` in `/paperclip/instances/default/config.json` inside the `paperclip` volume). Set it to `false` there and restart if you want it off.
 * **Data** lives in the `ai-workspace_paperclip` volume (embedded Postgres with hourly backups, agent workspaces, uploads, secrets key).
 
-## Hermes Agent
+### Hermes Agent (`hermes` add-on)
 
 Hermes is the agent that gets better the longer you use it. What it adds over the other agents here:
 
@@ -132,7 +146,7 @@ Requirements and limits, verified in testing:
 * **Hiring Hermes in Paperclip** (adapter "Hermes Gateway", API URL `http://hermes:8642`, key `HERMES_API_KEY`, Paperclip API URL `http://paperclip:3100`) is **not preconfigured**. Paperclip refuses plain HTTP to any host other than localhost. Your two options: put TLS in front of Hermes, or tick Paperclip's `dangerouslyAllowInsecureRemoteHttp` for that agent, accepting that the traffic is unencrypted on the Docker network between the two containers (it never leaves the machine). That is your call; this setup does not set it for you.
 * Hermes' own browser tools are disabled in this image (no browser installed); it uses the browser agent over MCP instead.
 
-## Browser agent
+### Browser agent (`browser` add-on)
 
 Give a goal in plain English, for example "Go to weworkremotely.com and find three remote software engineer roles" or "On PCPartPicker find a compatible CPU, motherboard and RAM for an AM5 build". The agent opens a headless Chromium, decides each step with your chosen model, and reports back with the pages it visited.
 
@@ -149,7 +163,7 @@ Model choice: `BROWSER_LLM_PROVIDER=auto` uses Anthropic if `ANTHROPIC_API_KEY` 
 
 ## Models and providers
 
-**Local.** Download models in Workbench → Settings → Local models, or `docker compose exec ollama ollama pull qwen3:8b`. Both apps share the same Ollama, so a model pulled once appears in both. Rough memory needs: 4B ≈ 4 GB, 8B ≈ 8 GB, 14B ≈ 12 GB.
+**Local.** With native Ollama: `ollama pull qwen3:8b`. With the `local-models` add-on: Workbench → Settings → Local models, or `docker compose exec ollama ollama pull qwen3:8b`. Rough memory needs: 4B ≈ 4 GB, 8B ≈ 8 GB, 14B ≈ 12 GB.
 
 **Cloud.** Workbench talks to any OpenAI compatible endpoint (Settings → Model providers, with presets for OpenAI, Anthropic, OpenRouter). Groq, Together, Mistral, LM Studio, vLLM and LiteLLM also work: enter the base URL and key. If a provider does not expose `/models`, type model ids in the Models field.
 
@@ -177,7 +191,7 @@ docker compose down                   # stop (data is kept in volumes)
 docker compose pull && docker compose up -d --build   # pull newer images (Paperclip, Open WebUI, Ollama, SearXNG)
 ```
 
-Data lives in Docker volumes `ai-workspace_open-webui`, `ai-workspace_workbench`, `ai-workspace_paperclip`, `ai-workspace_hermes`, `ai-workspace_browser` and `ai-workspace_ollama`. Back up the first four plus `.env`; models can always be downloaded again. Hermes' memory, skills and schedules live in `ai-workspace_hermes`; don't run two Hermes containers against it.
+Data lives in Docker volumes. The core uses only `ai-workspace_workbench` (assistant memory, skills, schedules, company and everything else). Add-ons use `ai-workspace_open-webui`, `ai-workspace_paperclip`, `ai-workspace_hermes`, `ai-workspace_browser` and `ai-workspace_ollama`. Back up `ai-workspace_workbench` plus `.env`, and the volumes of any add-on you use; models can always be downloaded again. Hermes' memory, skills and schedules live in `ai-workspace_hermes`; don't run two Hermes containers against it.
 
 ```bash
 docker run --rm -v ai-workspace_workbench:/data -v "$PWD":/backup alpine tar czf /backup/workbench.tgz -C /data .
@@ -199,9 +213,11 @@ Backend: FastAPI + SQLite. Frontend: React + Vite + TypeScript. The tool server 
 
 ## Known limits
 
-- Single user Workbench (Chat supports multiple users).
+- Single user Workbench (the `openwebui` add-on supports multiple users).
+- Telegram is the only built in messaging channel. Discord, Slack, WhatsApp and Signal need the `hermes` add-on.
+- Memory extraction and skill saving cost one extra small model call after a conversation. Turn learning off if that matters.
 - Calendar: ICS feeds are read only; CalDAV supports reading and creating, not editing or deleting remote events.
 - Mail: password/app password IMAP only, no OAuth providers, plain text sending, no attachments.
-- Research quality depends on the model and on what SearXNG's upstream engines return. Verify claims against the sources.
-- Paperclip runs in its own login. Workbench links to it but does not share a sign in.
+- Web search needs the `search` add-on or a Brave or Tavily key. Research quality depends on the model and the search results. Verify claims against the sources.
+- The Paperclip add-on runs in its own login. Workbench links to it but does not share a sign in.
 - Browser agent results are the agent's own report. Small local models are unreliable at browsing.

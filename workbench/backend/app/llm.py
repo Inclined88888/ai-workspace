@@ -15,7 +15,8 @@ from . import config, db
 from .security import decrypt, encrypt
 
 PRESETS = {
-    "ollama": {"name": "Ollama (local)", "base_url": f"{config.OLLAMA_URL}/v1"},
+    # Native Ollama app on the host (fast on Mac: uses the GPU) unless the ollama add-on container is configured
+    "ollama": {"name": "Ollama (local)", "base_url": f"{config.OLLAMA_URL or 'http://host.docker.internal:11434'}/v1"},
     "openai": {"name": "OpenAI", "base_url": "https://api.openai.com/v1"},
     "anthropic": {"name": "Anthropic", "base_url": "https://api.anthropic.com/v1"},
     "openrouter": {"name": "OpenRouter", "base_url": "https://openrouter.ai/api/v1"},
@@ -28,10 +29,11 @@ TIMEOUT = httpx.Timeout(connect=10, read=300, write=30, pool=10)
 def seed_providers() -> None:
     if db.one("SELECT id FROM providers LIMIT 1"):
         return
-    db.run(
-        "INSERT INTO providers(name, kind, base_url, created_at) VALUES (?, 'ollama', ?, ?)",
-        PRESETS["ollama"]["name"], PRESETS["ollama"]["base_url"], db.now(),
-    )
+    if config.OLLAMA_URL:
+        db.run(
+            "INSERT INTO providers(name, kind, base_url, created_at) VALUES (?, 'ollama', ?, ?)",
+            PRESETS["ollama"]["name"], PRESETS["ollama"]["base_url"], db.now(),
+        )
     for kind, key in config.SEED_KEYS.items():
         if key:
             p = PRESETS[kind]
@@ -71,13 +73,21 @@ def default_model_ref() -> str:
     p = db.one("SELECT id FROM providers WHERE kind = 'ollama' AND enabled = 1 ORDER BY id LIMIT 1")
     if p:
         return f"{p['id']}/{config.DEFAULT_MODEL}"
-    p = db.one("SELECT id FROM providers WHERE enabled = 1 ORDER BY id LIMIT 1")
-    if not p:
-        raise HTTPException(400, "No model provider configured. Add one in Settings.")
-    models = list_models_for(p["id"])
-    if not models:
-        raise HTTPException(400, "No models available. Pick a default model in Settings.")
-    return models[0]["ref"]
+    providers = db.all("SELECT id, base_url FROM providers WHERE enabled = 1 ORDER BY id")
+    if not providers:
+        raise HTTPException(400, "No model provider configured. Add an API key in Settings.")
+    # Sensible current defaults when the provider lists them; otherwise the first model it lists
+    preferred = {"api.anthropic.com": "claude-sonnet-5-5", "openrouter.ai": "anthropic/claude-sonnet-5.5"}
+    for p in providers:
+        want = next((m for host, m in preferred.items() if host in p["base_url"]), None)
+        models = list_models_for(p["id"])
+        if want and any(m["model"] == want for m in models):
+            return f"{p['id']}/{want}"
+    for p in providers:
+        models = list_models_for(p["id"])
+        if models:
+            return models[0]["ref"]
+    raise HTTPException(400, "No models available. Pick a default model in Settings.")
 
 
 _model_cache: dict[int, tuple[float, list[dict]]] = {}
@@ -167,6 +177,38 @@ async def stream(ref: str | None, messages: list[dict]) -> AsyncIterator[dict]:
                             first_token_ms = int((time.monotonic() - started) * 1000)
                         yield {"delta": delta}
     yield {"done": True, "usage": usage, "ms": int((time.monotonic() - started) * 1000), "first_token_ms": first_token_ms}
+
+
+async def chat(ref: str | None, messages: list[dict], tools: list[dict] | None = None) -> dict:
+    """One non-streaming turn with optional tool calling.
+
+    Returns {"message": {...assistant message...}, "usage": {...}, "ref": str, "cost_usd": float | None}.
+    OpenRouter reports the real cost of each call; other providers are priced from Settings (usage.py).
+    """
+    ref = ref or default_model_ref()
+    p, model = split_ref(ref)
+    body = _body(p, model, messages, False)
+    if tools:
+        body["tools"] = tools  # tool_choice left to the default ("auto"): some Claude models reject forced choice
+    if "openrouter.ai" in p["base_url"]:
+        body["usage"] = {"include": True}
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+        r = await client.post(f"{p['base_url'].rstrip('/')}/chat/completions", headers=_headers(p), json=body)
+    if r.status_code >= 400:
+        raise HTTPException(502, f"{p['name']} error {r.status_code}: {r.text[:400]}")
+    data = r.json()
+    msg = (data.get("choices") or [{}])[0].get("message") or {}
+    content = THINK_RE.sub("", msg.get("content") or "").strip()
+    out = {"role": "assistant", "content": content}
+    if msg.get("tool_calls"):
+        out["tool_calls"] = [
+            {"id": tc.get("id") or f"call_{i}", "type": "function",
+             "function": {"name": tc["function"]["name"], "arguments": tc["function"].get("arguments") or "{}"}}
+            for i, tc in enumerate(msg["tool_calls"]) if tc.get("function", {}).get("name")
+        ]
+    usage = data.get("usage") or {}
+    cost = usage.get("cost") if isinstance(usage.get("cost"), (int, float)) else None
+    return {"message": out, "usage": usage, "ref": ref, "model": model, "cost_usd": cost}
 
 
 def parse_json(text: str):

@@ -50,7 +50,8 @@ def status(request: Request):
         "chat_url": config.CHAT_URL,
         "paperclip_url": config.PAPERCLIP_URL,
         "hermes_url": config.HERMES_URL,
-        "browser_enabled": bool(config.BROWSER_API_KEY),
+        "browser_enabled": bool(config.BROWSER_URL and config.BROWSER_API_KEY),
+        "local_models_enabled": bool(config.OLLAMA_URL),
     }
 
 
@@ -201,6 +202,8 @@ def models(fresh: bool = False):
 async def ollama_status():
     import httpx
 
+    if not config.OLLAMA_URL:
+        return {"online": False, "models": [], "configured": False}
     try:
         async with httpx.AsyncClient(timeout=5) as c:
             r = await c.get(f"{config.OLLAMA_URL}/api/tags")
@@ -216,6 +219,9 @@ class PullIn(BaseModel):
 @api.post("/ollama/pull")
 async def ollama_pull(data: PullIn):
     import httpx
+
+    if not config.OLLAMA_URL:
+        raise HTTPException(400, "Local models are not enabled. Run setup with --with local-models, or set OLLAMA_URL.")
 
     async def gen():
         async with httpx.AsyncClient(timeout=httpx.Timeout(None, connect=10)) as c:

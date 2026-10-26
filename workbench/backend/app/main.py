@@ -5,7 +5,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import api, browser_proxy, config, db, llm
+from . import api, assistant_api, browser_proxy, company, config, db, llm, scheduler, telegram
 from .mcp_server import mcp, mcp_app
 from .security import check_bearer
 from .tools import tools
@@ -16,10 +16,12 @@ async def lifespan(_: FastAPI):
     db.init()
     llm.seed_providers()
     api.recover_interrupted()
-    loop_task = asyncio.create_task(api.calendar_loop())
+    company.recover()
+    loops = [asyncio.create_task(fn()) for fn in (api.calendar_loop, scheduler.loop, telegram.loop, company.loop)]
     async with mcp.session_manager.run():
         yield
-    loop_task.cancel()
+    for t in loops:
+        t.cancel()
 
 
 app = FastAPI(title="Workbench", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
@@ -48,6 +50,7 @@ def healthz():
 
 app.include_router(api.public)
 app.include_router(api.api)
+app.include_router(assistant_api.router)
 app.include_router(browser_proxy.router)
 app.mount("/tools", tools)
 app.mount("/mcp", mcp_app)  # MCP clients use http://workbench:8000/mcp/

@@ -11,8 +11,8 @@ router = APIRouter(prefix="/api/browser", dependencies=[Depends(require_user)])
 
 
 async def _call(method: str, path: str, json: dict | None = None, params: dict | None = None) -> httpx.Response:
-    if not config.BROWSER_API_KEY:
-        raise HTTPException(503, "Browser agent is not configured (BROWSER_API_KEY missing)")
+    if not config.BROWSER_URL or not config.BROWSER_API_KEY:
+        raise HTTPException(503, "The browser agent add-on is not enabled. Run setup with --with browser.")
     try:
         async with httpx.AsyncClient(timeout=30) as c:
             r = await c.request(method, f"{config.BROWSER_URL}{path}", json=json, params=params,

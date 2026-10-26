@@ -8,3 +8,5 @@ caldav==1.4.0
 trafilatura==2.0.0
 python-dateutil==2.9.0.post0
 mcp==2.1.1
+croniter==6.2.4
+tzdata==2026.5

@@ -8,8 +8,9 @@ from urllib.parse import urlparse
 
 import httpx
 import trafilatura
+from fastapi import HTTPException
 
-from . import config, db, llm
+from . import db, llm, search
 
 MAX_SOURCES = 8
 PAGE_CHARS = 6000
@@ -17,14 +18,7 @@ UA = "Mozilla/5.0 (X11; Linux x86_64) AIWorkspace/1.0 (+self-hosted research)"
 
 
 async def web_search(query: str, count: int = 6) -> list[dict]:
-    async with httpx.AsyncClient(timeout=20) as client:
-        r = await client.get(f"{config.SEARXNG_URL}/search", params={"q": query, "format": "json"})
-    r.raise_for_status()
-    out = []
-    for item in r.json().get("results", [])[:count]:
-        if item.get("url", "").startswith(("http://", "https://")):
-            out.append({"title": item.get("title", ""), "url": item["url"], "snippet": item.get("content", "")})
-    return out
+    return await search.web_search(query, count)
 
 
 def _public_host(url: str) -> bool:
@@ -85,11 +79,11 @@ async def run(rid: int, question: str, model: str, depth: int) -> None:
             try:
                 for hit in await web_search(q):
                     seen.setdefault(hit["url"], hit)
-            except httpx.HTTPError as e:
-                _update(rid, progress=f"Search failed for '{q}': {e}")
+            except (httpx.HTTPError, HTTPException) as e:
+                _update(rid, progress=f"Search failed for '{q}': {getattr(e, 'detail', e)}")
         candidates = list(seen.values())[: MAX_SOURCES * 2]
         if not candidates:
-            raise RuntimeError("Web search returned no results. Check that the searxng container is running.")
+            raise RuntimeError("Web search returned no results. Check the search setup in Settings.")
 
         _update(rid, progress=f"Reading {len(candidates)} pages")
         async with httpx.AsyncClient(timeout=15, headers={"User-Agent": UA}) as client:

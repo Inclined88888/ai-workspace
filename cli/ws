@@ -1,0 +1,160 @@
+#!/usr/bin/env python3
+"""ws: your workspace assistant in the terminal. Same assistant, memory and skills as the web app and Telegram.
+
+Setup once (token from Workbench > Assistant > Settings > Terminal access):
+    ws login http://localhost:3100
+
+Use:
+    ws                       interactive chat (continues your last terminal conversation)
+    ws "what's on today?"    one question
+    ws new                   start a fresh conversation
+    ws memory [search]       what it remembers about you
+    ws skills                skills it has learned
+    ws inbox                 scheduled reports and agent results
+    ws schedules             scheduled tasks
+Only the Python standard library is used: copy this file anywhere on your PATH.
+"""
+
+import getpass
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+
+CONFIG = os.path.join(os.path.expanduser("~"), ".config", "ai-workspace", "cli.json")
+TTY = sys.stdout.isatty()
+C = {"dim": "\033[2m", "bold": "\033[1m", "cyan": "\033[36m", "red": "\033[31m", "green": "\033[32m", "reset": "\033[0m"}
+
+
+def c(style: str, text: str) -> str:
+    return f"{C[style]}{text}{C['reset']}" if TTY else text
+
+
+def load() -> dict:
+    try:
+        with open(CONFIG) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def save(cfg: dict) -> None:
+    os.makedirs(os.path.dirname(CONFIG), exist_ok=True)
+    with open(CONFIG, "w") as f:
+        json.dump(cfg, f)
+    os.chmod(CONFIG, 0o600)
+
+
+def request(cfg: dict, method: str, path: str, body: dict | None = None, stream: bool = False):
+    req = urllib.request.Request(
+        cfg["url"].rstrip("/") + "/api" + path, method=method,
+        data=json.dumps(body).encode() if body is not None else None,
+        headers={"Authorization": f"Bearer {cfg['token']}", "Content-Type": "application/json", "X-Workbench": "1"},
+    )
+    try:
+        resp = urllib.request.urlopen(req, timeout=600)
+    except urllib.error.HTTPError as e:
+        try:
+            detail = json.loads(e.read()).get("detail", e.reason)
+        except ValueError:
+            detail = e.reason
+        sys.exit(c("red", f"Error {e.code}: {detail}"))
+    except urllib.error.URLError as e:
+        sys.exit(c("red", f"Cannot reach {cfg['url']}: {e.reason}"))
+    return resp if stream else json.loads(resp.read() or b"null")
+
+
+def ask(cfg: dict, text: str) -> None:
+    body = {"message": text, "channel": "cli"}
+    if cfg.get("conversation_id"):
+        body["conversation_id"] = cfg["conversation_id"]
+    resp = request(cfg, "POST", "/assistant/chat", body, stream=True)
+    for raw in resp:
+        line = raw.decode("utf-8", "replace").strip()
+        if not line.startswith("data:"):
+            continue
+        e = json.loads(line[5:])
+        t = e.get("type")
+        if t == "start" and cfg.get("conversation_id") != e["conversation_id"]:
+            cfg["conversation_id"] = e["conversation_id"]
+            save(cfg)
+        elif t == "tool_call":
+            print(c("dim", f"  ↳ {e['name']} {e['args'][:120]}"), flush=True)
+        elif t == "tool_result" and not e["ok"]:
+            print(c("dim", f"    {e['preview'][:160]}"), flush=True)
+        elif t == "message":
+            print("\n" + e["content"].strip() + "\n")
+        elif t == "error" or (t is None and "error" in e):
+            print(c("red", e["error"]))
+        elif t == "done" and e.get("cost_cents"):
+            print(c("dim", f"  ({e['cost_cents']:.2f}¢)"))
+
+
+def repl(cfg: dict) -> None:
+    try:
+        import readline  # noqa: F401 - arrow keys and history
+    except ImportError:
+        pass
+    print(c("bold", "Workspace assistant") + c("dim", "  (/new fresh chat, /exit quit)"))
+    while True:
+        try:
+            text = input(c("cyan", "› ")).strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return
+        if not text:
+            continue
+        if text in ("/exit", "/quit"):
+            return
+        if text == "/new":
+            cfg.pop("conversation_id", None)
+            save(cfg)
+            print(c("dim", "New conversation."))
+            continue
+        ask(cfg, text)
+
+
+def main(argv: list[str]) -> None:
+    cfg = load()
+    if argv[:1] == ["login"]:
+        url = argv[1] if len(argv) > 1 else input("Workspace URL [http://localhost:3100]: ").strip() or "http://localhost:3100"
+        token = getpass.getpass("Terminal token (Assistant > Settings > Terminal access): ").strip()
+        save({"url": url, "token": token})
+        request(load(), "GET", "/memories")
+        print(c("green", "Logged in."))
+        return
+    if not cfg.get("token"):
+        sys.exit("Run: ws login http://your-workspace:3100")
+    cmd = argv[0] if argv else ""
+    if cmd == "new":
+        cfg.pop("conversation_id", None)
+        save(cfg)
+        print("New conversation.")
+    elif cmd == "memory":
+        q = " ".join(argv[1:])
+        for m in request(cfg, "GET", "/memories" + (f"?q={urllib.request.quote(q)}" if q else "")):
+            print(f"{c('dim', str(m['id']).rjust(4))}  {c('bold', m['kind'][:4])}  {m['content']}")
+    elif cmd == "skills":
+        for s in request(cfg, "GET", "/skills"):
+            uses = c("dim", f"used {s['uses']}x")
+            print(f"{c('bold', s['name'])}  {uses}\n  {s['description']}")
+    elif cmd == "inbox":
+        for i in request(cfg, "GET", "/inbox")["items"][:10]:
+            print(c("bold", i["title"]) + c("dim", f"  {i['created_at']}") + "\n" + i["body"].strip() + "\n")
+    elif cmd == "schedules":
+        data = request(cfg, "GET", "/schedules")
+        print(c("dim", f"timezone {data['timezone']}"))
+        for s in data["schedules"]:
+            state = "on " if s["enabled"] else "off"
+            print(f"{state}  {s['cron']:<15} {c('bold', s['name'])}  next {s['next_run'] or '-'}  {s['last_status']}")
+    elif cmd in ("-h", "--help", "help"):
+        print(__doc__)
+    elif argv:
+        ask(cfg, " ".join(argv))
+    else:
+        repl(cfg)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

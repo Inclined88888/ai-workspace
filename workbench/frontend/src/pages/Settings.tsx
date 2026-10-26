@@ -173,6 +173,49 @@ function MailAccounts() {
   );
 }
 
+type UsageSummary = { month_cents: number; month_tokens: number; prices: Record<string, { in: number; out: number }>;
+  by_model: { model: string; tokens: number; cents: number; unpriced_calls: number }[]; by_channel: { channel: string; cents: number; tokens: number }[] };
+
+function Usage() {
+  const [u, setU] = useState<UsageSummary | null>(null);
+  const [row, setRow] = useState({ model: "", in: "", out: "" });
+  const toast = useToast();
+  const load = () => api<UsageSummary>("/usage").then(setU).catch(toast.err);
+  useEffect(() => { load(); }, []);
+  const savePrices = async (prices: UsageSummary["prices"]) => {
+    try { setU(await api<UsageSummary>("/usage/prices", { method: "PUT", body: { prices } })); toast.ok("Prices saved"); } catch (e) { toast.err(e); }
+  };
+  if (!u) return null;
+  return (
+    <div className="card col gap-lg">
+      <div className="row"><h2 className="grow">Usage this month</h2><span className="badge">${(u.month_cents / 100).toFixed(2)} · {u.month_tokens.toLocaleString()} tokens</span></div>
+      <div className="muted small">Every model call is counted (chat, Terminal, Telegram, schedules, agents, learning). OpenRouter reports real cost. For other providers enter prices per million tokens from your provider's pricing page, or cost shows as $0.</div>
+      <div className="card flush">
+        {u.by_model.length === 0 && <div className="list-item muted">No usage yet.</div>}
+        {u.by_model.map((m) => (
+          <div key={m.model} className="list-item" style={{ cursor: "default" }}>
+            <span className="mono grow truncate">{m.model}</span>
+            <span className="small">{Number(m.tokens).toLocaleString()} tokens</span>
+            <span className="small">${(m.cents / 100).toFixed(2)}</span>
+            {m.unpriced_calls > 0 && !u.prices[m.model] && <button className="btn sm" onClick={() => setRow({ model: m.model, in: "", out: "" })}>Set price</button>}
+          </div>
+        ))}
+      </div>
+      <div className="row wrap">
+        <input className="input mono grow" placeholder="model id" value={row.model} onChange={(e) => setRow({ ...row, model: e.target.value })} />
+        <input className="input" style={{ width: 130 }} type="number" min={0} step="any" placeholder="$ in / 1M" value={row.in} onChange={(e) => setRow({ ...row, in: e.target.value })} />
+        <input className="input" style={{ width: 130 }} type="number" min={0} step="any" placeholder="$ out / 1M" value={row.out} onChange={(e) => setRow({ ...row, out: e.target.value })} />
+        <button className="btn" disabled={!row.model || row.in === "" || row.out === ""} onClick={() => { savePrices({ ...u.prices, [row.model]: { in: Number(row.in), out: Number(row.out) } }); setRow({ model: "", in: "", out: "" }); }}>Save price</button>
+      </div>
+      {Object.entries(u.prices).map(([m, p]) => (
+        <div key={m} className="row small"><span className="mono grow">{m}</span><span>${p.in} in · ${p.out} out per 1M</span>
+          <button className="btn ghost sm icon" onClick={() => { const n = { ...u.prices }; delete n[m]; savePrices(n); }}><Trash2 size={12} /></button></div>
+      ))}
+      {toast.node}
+    </div>
+  );
+}
+
 export default function Settings({ onChanged }: { onChanged: () => void }) {
   const { models, reload } = useModels();
   const [s, setS] = useState({ workspace_name: "", default_model: "", chat_url: "", tools_url: "" });
@@ -202,6 +245,7 @@ export default function Settings({ onChanged }: { onChanged: () => void }) {
           </label>
           <div><button className="btn primary" onClick={save}>Save</button></div>
         </div>
+        <Usage />
         <LocalModels />
         <Providers />
         <MailAccounts />

@@ -1,15 +1,16 @@
-# AI Workspace stack.
-# Run ./setup.sh for a guided first start, or: cp .env.example .env && docker compose up -d
+# AI Workspace: one light container by default. Everything else is an optional add-on (Compose profile).
+# Run ./setup.sh for a guided first start. Add-ons: ./setup.sh --with search,browser,local-models,openwebui,paperclip,hermes
 #
-#   Workbench  (notes, docs, tasks, research, mail, calendar, browser agent, compare)  http://localhost:${WORKBENCH_PORT:-3100}
-#   Chat       (Open WebUI: chat, agents, files/RAG, memory, web search)                http://localhost:${WEBUI_PORT:-3000}
-#   Company    (Paperclip: AI org chart, roles, tasks, per agent budgets)               http://localhost:${PAPERCLIP_PORT:-3200}
-#   Hermes     (Hermes Agent dashboard: memory, skills, scheduled jobs, messaging)      http://localhost:${HERMES_DASHBOARD_PORT:-3300}
+#   Workspace (assistant, memory, skills, automations, company, notes, tasks, calendar, mail, research)
+#             http://localhost:${WORKBENCH_PORT:-3100}
+#   Add-ons: search (SearXNG), browser (Chromium agent), local-models (Ollama in Docker; on a Mac prefer the
+#            native Ollama app), openwebui :3000, paperclip :3200, hermes :3300
 
 name: ai-workspace
 
 services:
   ollama:
+    profiles: ["local-models"]
     image: ollama/ollama:${OLLAMA_TAG:-latest}
     restart: unless-stopped
     volumes:
@@ -26,6 +27,7 @@ services:
       retries: 10
 
   searxng:
+    profiles: ["search"]
     image: searxng/searxng:${SEARXNG_TAG:-latest}
     restart: unless-stopped
     volumes:
@@ -33,18 +35,18 @@ services:
       - ./searxng/limiter.toml:/etc/searxng/limiter.toml:ro
     environment:
       SEARXNG_BASE_URL: http://searxng:8080/
-      SEARXNG_SECRET: ${SEARXNG_SECRET:?run ./setup.sh or set SEARXNG_SECRET in .env}
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-}
       # Bind IPv4: the image default (::) crashes on hosts with IPv6 disabled
       GRANIAN_HOST: 0.0.0.0
 
   open-webui:
+    profiles: ["openwebui"]
     image: ghcr.io/open-webui/open-webui:${OPEN_WEBUI_TAG:-main}
     restart: unless-stopped
     depends_on:
-      - ollama
-      - searxng
       - workbench
-      - browser
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${WEBUI_PORT:-3000}:8080"
     volumes:
@@ -52,19 +54,19 @@ services:
     environment:
       WEBUI_NAME: ${WORKSPACE_NAME:-AI Workspace}
       WEBUI_URL: ${WEBUI_PUBLIC_URL:-http://localhost:3000}
-      WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY:?run ./setup.sh or set WEBUI_SECRET_KEY in .env}
+      WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY:-}
       # First account created becomes admin. Later sign ups wait for approval.
       ENABLE_SIGNUP: ${WEBUI_ENABLE_SIGNUP:-true}
       DEFAULT_USER_ROLE: pending
       # Local models
-      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_BASE_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
       # External OpenAI compatible providers (semicolon separated, keys in the same order)
-      # Hermes Agent is always the first connection (model "hermes-agent"); cloud providers follow
-      ENABLE_OPENAI_API: "true"
-      OPENAI_API_BASE_URLS: http://hermes:8642/v1${WEBUI_OPENAI_API_BASE_URLS:+;${WEBUI_OPENAI_API_BASE_URLS}}
-      OPENAI_API_KEYS: ${HERMES_API_KEY}${WEBUI_OPENAI_API_KEYS:+;${WEBUI_OPENAI_API_KEYS}}
-      # Web search through the bundled SearXNG
-      ENABLE_WEB_SEARCH: "true"
+      # setup.sh fills these (cloud providers, plus Hermes when that add-on is on)
+      ENABLE_OPENAI_API: ${WEBUI_ENABLE_OPENAI_API:-false}
+      OPENAI_API_BASE_URLS: ${WEBUI_OPENAI_API_BASE_URLS:-}
+      OPENAI_API_KEYS: ${WEBUI_OPENAI_API_KEYS:-}
+      # Web search through the SearXNG add-on, when enabled
+      ENABLE_WEB_SEARCH: ${WEBUI_ENABLE_WEB_SEARCH:-false}
       WEB_SEARCH_ENGINE: searxng
       SEARXNG_QUERY_URL: http://searxng:8080/search?q=<query>
       WEB_SEARCH_RESULT_COUNT: "5"
@@ -84,9 +86,9 @@ services:
     build: ./workbench
     image: ai-workspace/workbench:local
     restart: unless-stopped
-    depends_on:
-      - ollama
-      - searxng
+    extra_hosts:
+      # Lets the workspace reach a native Ollama app on the host (OLLAMA_URL=http://host.docker.internal:11434)
+      - "host.docker.internal:host-gateway"
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${WORKBENCH_PORT:-3100}:8000"
     volumes:
@@ -95,24 +97,26 @@ services:
       APP_SECRET: ${APP_SECRET:?run ./setup.sh or set APP_SECRET in .env}
       TOOLS_API_KEY: ${TOOLS_API_KEY:?run ./setup.sh or set TOOLS_API_KEY in .env}
       WORKSPACE_NAME: ${WORKSPACE_NAME:-AI Workspace}
-      CHAT_URL: ${WEBUI_PUBLIC_URL:-http://localhost:3000}
-      SEARXNG_URL: http://searxng:8080
-      OLLAMA_URL: http://ollama:11434
+      WORKSPACE_TIMEZONE: ${WORKSPACE_TIMEZONE:-UTC}
       DEFAULT_MODEL: ${DEFAULT_MODEL:-qwen3:4b}
+      # Add-ons: empty unless enabled by setup.sh --with ...
+      CHAT_URL: ${CHAT_URL:-}
+      SEARXNG_URL: ${SEARXNG_URL:-}
+      OLLAMA_URL: ${OLLAMA_URL:-}
       # Set to true when Workbench is served over HTTPS (reverse proxy)
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       # Seed external providers on first start (also editable in Settings)
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
-      # Browser agent (proxied for the Browser page) and Paperclip link
-      BROWSER_URL: http://browser:8100
-      BROWSER_API_KEY: ${BROWSER_API_KEY:?run ./setup.sh or set BROWSER_API_KEY in .env}
-      PAPERCLIP_URL: ${PAPERCLIP_PUBLIC_URL:-http://localhost:3200}
-      HERMES_URL: ${HERMES_PUBLIC_URL:-http://localhost:3300}
+      BROWSER_URL: ${BROWSER_URL:-}
+      BROWSER_API_KEY: ${BROWSER_API_KEY:-}
+      PAPERCLIP_URL: ${PAPERCLIP_URL:-}
+      HERMES_URL: ${HERMES_URL:-}
 
   # Browser agent (browser-use + Playwright). Internal only: reached by Workbench, Chat and Paperclip.
   browser:
+    profiles: ["browser"]
     build: ./browser-agent
     image: ai-workspace/browser-agent:local
     restart: unless-stopped
@@ -120,7 +124,7 @@ services:
     volumes:
       - browser:/data
     environment:
-      BROWSER_API_KEY: ${BROWSER_API_KEY:?run ./setup.sh or set BROWSER_API_KEY in .env}
+      BROWSER_API_KEY: ${BROWSER_API_KEY:-}
       BROWSER_MAX_CONCURRENT: ${BROWSER_MAX_CONCURRENT:-2}
       BROWSER_MAX_STEPS_LIMIT: ${BROWSER_MAX_STEPS_LIMIT:-50}
       # Spend guard for every caller (Workbench, Chat, Paperclip employees): steps per UTC month, 0 = unlimited
@@ -131,7 +135,7 @@ services:
       # Model providers (auto picks Anthropic, then Gemini, then local Ollama)
       BROWSER_LLM_PROVIDER: ${BROWSER_LLM_PROVIDER:-auto}
       BROWSER_LLM_MODEL: ${BROWSER_LLM_MODEL:-}
-      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_HOST: ${OLLAMA_URL:-http://host.docker.internal:11434}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -140,13 +144,11 @@ services:
   # Paperclip: run a company of AI agents (org chart, goals, tasks, per agent monthly budgets).
   # Upstream image, unmodified: upgrade with `docker compose pull paperclip && docker compose up -d paperclip`.
   paperclip:
+    profiles: ["paperclip"]
     image: ghcr.io/paperclipai/paperclip:${PAPERCLIP_TAG:-latest}
     restart: unless-stopped
     pids_limit: 2048
     stop_grace_period: 90s
-    depends_on:
-      - ollama
-      - browser
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${PAPERCLIP_PORT:-3200}:3100"
     volumes:
@@ -159,9 +161,9 @@ services:
       PAPERCLIP_DEPLOYMENT_EXPOSURE: private
       PAPERCLIP_PUBLIC_URL: ${PAPERCLIP_PUBLIC_URL:-http://localhost:3200}
       PAPERCLIP_ALLOWED_HOSTNAMES: ${PAPERCLIP_ALLOWED_HOSTNAMES:-}
-      BETTER_AUTH_SECRET: ${PAPERCLIP_AUTH_SECRET:?run ./setup.sh or set PAPERCLIP_AUTH_SECRET in .env}
-      PAPERCLIP_TOOL_ACTION_SIGNING_SECRET: ${PAPERCLIP_TOOL_ACTION_SECRET:?run ./setup.sh or set PAPERCLIP_TOOL_ACTION_SECRET in .env}
-      PAPERCLIP_AGENT_JWT_SECRET: ${PAPERCLIP_AGENT_JWT_SECRET:?run ./setup.sh or set PAPERCLIP_AGENT_JWT_SECRET in .env}
+      BETTER_AUTH_SECRET: ${PAPERCLIP_AUTH_SECRET:-}
+      PAPERCLIP_TOOL_ACTION_SIGNING_SECRET: ${PAPERCLIP_TOOL_ACTION_SECRET:-}
+      PAPERCLIP_AGENT_JWT_SECRET: ${PAPERCLIP_AGENT_JWT_SECRET:-}
       # OpenCode employees: local Ollama models + browser MCP from this config; Zen free models with OPENCODE_API_KEY
       OPENCODE_CONFIG: /etc/ai-workspace/opencode.json
       OPENCODE_API_KEY: ${OPENCODE_API_KEY:-}
@@ -175,14 +177,13 @@ services:
   # Hermes Agent (Nous Research): persistent memory, self written skills, scheduled jobs, subagents,
   # messaging (Telegram, Discord, Slack, ...). Upstream image, unmodified. All state lives in the volume.
   hermes:
+    profiles: ["hermes"]
     image: nousresearch/hermes-agent:${HERMES_TAG:-latest}
     restart: unless-stopped
     command: ["gateway", "run"]
     shm_size: 1gb
     depends_on:
-      - ollama
       - workbench
-      - browser
     ports:
       # Dashboard (memory, skills, cron, sessions, messaging setup), behind basic auth
       - "${BIND_ADDRESS:-127.0.0.1}:${HERMES_DASHBOARD_PORT:-3300}:9119"
@@ -192,11 +193,11 @@ services:
       # OpenAI compatible API used by Chat and by Paperclip's hermes_gateway employees (internal only)
       API_SERVER_ENABLED: "true"
       API_SERVER_HOST: 0.0.0.0
-      API_SERVER_KEY: ${HERMES_API_KEY:?run ./setup.sh or set HERMES_API_KEY in .env}
+      API_SERVER_KEY: ${HERMES_API_KEY:-}
       HERMES_DASHBOARD: "1"
       HERMES_DASHBOARD_BASIC_AUTH_USERNAME: ${HERMES_DASHBOARD_USER:-admin}
-      HERMES_DASHBOARD_BASIC_AUTH_PASSWORD: ${HERMES_DASHBOARD_PASSWORD:?run ./setup.sh or set HERMES_DASHBOARD_PASSWORD in .env}
-      HERMES_DASHBOARD_BASIC_AUTH_SECRET: ${HERMES_DASHBOARD_SECRET:?run ./setup.sh or set HERMES_DASHBOARD_SECRET in .env}
+      HERMES_DASHBOARD_BASIC_AUTH_PASSWORD: ${HERMES_DASHBOARD_PASSWORD:-}
+      HERMES_DASHBOARD_BASIC_AUTH_SECRET: ${HERMES_DASHBOARD_SECRET:-}
       # Model keys (keys saved in the Hermes dashboard take precedence)
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}

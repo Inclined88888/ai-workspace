@@ -127,6 +127,138 @@ CREATE TABLE IF NOT EXISTS research (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+
+-- Assistant: conversations from every channel share one memory
+CREATE TABLE IF NOT EXISTS conversations (
+  id INTEGER PRIMARY KEY,
+  title TEXT NOT NULL DEFAULT 'New chat',
+  channel TEXT NOT NULL DEFAULT 'web',          -- web | cli | telegram | schedule | agent
+  external_id TEXT NOT NULL DEFAULT '',         -- telegram chat id, agent task id, ...
+  agent_id INTEGER,
+  model TEXT NOT NULL DEFAULT '',
+  memory_cursor INTEGER NOT NULL DEFAULT 0,     -- last message id already mined for memories
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS conversations_channel ON conversations(channel, external_id);
+
+CREATE TABLE IF NOT EXISTS messages (
+  id INTEGER PRIMARY KEY,
+  conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  role TEXT NOT NULL,                           -- user | assistant | tool
+  content TEXT NOT NULL DEFAULT '',
+  tool_calls TEXT NOT NULL DEFAULT '',          -- JSON (assistant)
+  tool_call_id TEXT NOT NULL DEFAULT '',        -- (tool)
+  name TEXT NOT NULL DEFAULT '',                -- tool name (tool)
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS messages_conv ON messages(conversation_id, id);
+CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(content, content='messages', content_rowid='id', tokenize='porter unicode61');
+CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages WHEN new.role IN ('user', 'assistant') BEGIN
+  INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content);
+END;
+CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages WHEN old.role IN ('user', 'assistant') BEGIN
+  INSERT INTO messages_fts(messages_fts, rowid, content) VALUES ('delete', old.id, old.content);
+END;
+
+CREATE TABLE IF NOT EXISTS memories (
+  id INTEGER PRIMARY KEY,
+  content TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'fact',            -- profile (always shown) | fact | preference
+  source TEXT NOT NULL DEFAULT 'auto',          -- auto | user | agent
+  conversation_id INTEGER,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(content, content='memories', content_rowid='id', tokenize='porter unicode61');
+CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN
+  INSERT INTO memories_fts(rowid, content) VALUES (new.id, new.content);
+END;
+CREATE TRIGGER IF NOT EXISTS memories_ad AFTER DELETE ON memories BEGIN
+  INSERT INTO memories_fts(memories_fts, rowid, content) VALUES ('delete', old.id, old.content);
+END;
+CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON memories BEGIN
+  INSERT INTO memories_fts(memories_fts, rowid, content) VALUES ('delete', old.id, old.content);
+  INSERT INTO memories_fts(rowid, content) VALUES (new.id, new.content);
+END;
+
+CREATE TABLE IF NOT EXISTS skills (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  description TEXT NOT NULL,                    -- when to use it
+  steps TEXT NOT NULL,                          -- Markdown procedure
+  uses INTEGER NOT NULL DEFAULT 0,
+  source TEXT NOT NULL DEFAULT 'auto',          -- auto | user
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS schedules (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  cron TEXT NOT NULL,                           -- 5 field cron in the workspace timezone
+  prompt TEXT NOT NULL,
+  deliver TEXT NOT NULL DEFAULT 'inbox',        -- inbox | telegram
+  agent_id INTEGER,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  next_run TEXT,                                -- UTC ISO
+  last_run TEXT,
+  last_status TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS inbox (
+  id INTEGER PRIMARY KEY,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT '',
+  read INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+
+-- Company: agents in an org chart working on tasks, each with a monthly budget
+CREATE TABLE IF NOT EXISTS agents (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  title TEXT NOT NULL DEFAULT '',
+  reports_to INTEGER REFERENCES agents(id) ON DELETE SET NULL,
+  model TEXT NOT NULL DEFAULT '',               -- model ref; empty = workspace default
+  instructions TEXT NOT NULL DEFAULT '',
+  monthly_budget_cents INTEGER NOT NULL DEFAULT 0,  -- 0 = no money limit
+  monthly_token_limit INTEGER NOT NULL DEFAULT 0,   -- 0 = no token limit
+  status TEXT NOT NULL DEFAULT 'active',        -- active | paused
+  paused_reason TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS agent_tasks (
+  id INTEGER PRIMARY KEY,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  agent_id INTEGER REFERENCES agents(id) ON DELETE SET NULL,
+  parent_id INTEGER REFERENCES agent_tasks(id) ON DELETE SET NULL,
+  created_by TEXT NOT NULL DEFAULT 'board',     -- board | agent:<id>
+  status TEXT NOT NULL DEFAULT 'todo',          -- todo | running | done | failed | blocked
+  result TEXT NOT NULL DEFAULT '',
+  conversation_id INTEGER,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS usage (
+  id INTEGER PRIMARY KEY,
+  ts TEXT NOT NULL,
+  model TEXT NOT NULL,
+  agent_id INTEGER,
+  conversation_id INTEGER,
+  channel TEXT NOT NULL DEFAULT '',
+  prompt_tokens INTEGER NOT NULL DEFAULT 0,
+  completion_tokens INTEGER NOT NULL DEFAULT 0,
+  cost_cents REAL NOT NULL DEFAULT 0,
+  priced INTEGER NOT NULL DEFAULT 0             -- 1 when a price was known for the model
+);
+CREATE INDEX IF NOT EXISTS usage_ts ON usage(ts);
 """
 
 
