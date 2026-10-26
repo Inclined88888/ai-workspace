@@ -1,13 +1,55 @@
-import { Brain, Check, Copy, KeyRound, Loader2, MessageSquare, Plus, Search, Send, Sparkles, Trash2, Wrench } from "lucide-react";
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { Brain, Check, Copy, Download, KeyRound, Loader2, MessageSquare, Plus, Search, Send, ShieldAlert, Sparkles, Square, Trash2, Upload, Wrench, X } from "lucide-react";
+import { FormEvent, Fragment, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, stream } from "../api";
 import { Empty, Markdown, ModelSelect, relTime, useModels, useToast } from "../util";
 
 type Conv = { id: number; title: string; channel: string; updated_at: string; model: string };
 type Msg = { id: number; role: string; content: string; tool_calls: string[]; name: string };
-type Step = { kind: "call" | "result"; name: string; text: string; ok?: boolean };
-type Memory = { id: number; content: string; kind: string; source: string; updated_at: string };
+type Step = { name: string; args: string; status: "running" | "ok" | "error" | "approval"; preview?: string; ms?: number; startedAt: number };
+type Memory = { id: number; content: string; kind: string; source: string; updated_at: string; created_at?: string; conversation_id?: number | null };
+type Used = { id: number; content: string; kind: string };
+type Approval = { id: number; tool: string; args: string; reason: string; channel: string; conversation_id: number | null; status: string; created_at: string };
+
+const SOURCE: Record<string, string> = { auto: "learned", user: "added by you", agent: "saved by assistant", import: "imported" };
+
+function argSummary(raw: string): string {
+  try {
+    const a = JSON.parse(raw) as Record<string, unknown>;
+    return Object.entries(a).map(([k, v]) => `${k}: ${String(v).slice(0, 120)}`).join(" · ");
+  } catch {
+    return raw.slice(0, 200);
+  }
+}
+
+function Approvals({ items, onDone, toast }: { items: Approval[]; onDone: () => void; toast: ReturnType<typeof useToast> }) {
+  const [busy, setBusy] = useState(0);
+  if (!items.length) return null;
+  const decide = async (a: Approval, approve: boolean) => {
+    setBusy(a.id);
+    try {
+      const r = await api<Approval & { result: string }>(`/approvals/${a.id}`, { body: { approve } });
+      if (r.status === "failed") toast.err(r.result);
+      else toast.ok(approve ? `${a.tool} done` : "Denied");
+    } catch (e) { toast.err(e); } finally { setBusy(0); onDone(); }
+  };
+  return (
+    <div className="card col" style={{ gap: 8, borderColor: "var(--warn, var(--accent))" }}>
+      <div className="row"><ShieldAlert size={15} /><strong className="grow">{items.length} waiting for your approval</strong></div>
+      <div className="muted small">These were requested in a conversation that read outside content (web, search or email), which can carry planted instructions. Check them before allowing.</div>
+      {items.map((a) => (
+        <div key={a.id} className="row wrap" style={{ alignItems: "flex-start", borderTop: "1px solid var(--border)", paddingTop: 8 }}>
+          <div className="grow" style={{ minWidth: 200 }}>
+            <span className="mono">{a.tool}</span> <span className="faint small">#{a.id} · {a.channel} · {relTime(a.created_at)}</span>
+            <div className="small" style={{ wordBreak: "break-word" }}>{argSummary(a.args)}</div>
+          </div>
+          <button className="btn sm primary" disabled={busy === a.id} onClick={() => decide(a, true)}><Check size={13} /> Allow</button>
+          <button className="btn sm ghost" disabled={busy === a.id} onClick={() => decide(a, false)}><X size={13} /> Deny</button>
+        </div>
+      ))}
+    </div>
+  );
+}
 type Skill = { id: number; name: string; description: string; steps: string; uses: number; source: string; enabled: number };
 
 const CHANNEL: Record<string, string> = { web: "Web", cli: "Terminal", telegram: "Telegram", schedule: "Schedule" };
@@ -22,15 +64,24 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [model, setModel] = useState("");
+  const [used, setUsed] = useState<Used[]>([]);
+  const [showUsed, setShowUsed] = useState(false);
+  const [pending, setPending] = useState<Approval[]>([]);
+  const [running, setRunning] = useState<number | null>(null);
   const { models } = useModels();
   const endRef = useRef<HTMLDivElement>(null);
+  const keepTurn = useRef(false); // set when a new chat's first turn moves us to its URL: keep its steps on screen
   const toast = useToast();
   const cid = id ? Number(id) : null;
 
   const loadConvs = () => api<Conv[]>(`/conversations${q ? `?q=${encodeURIComponent(q)}` : ""}`).then(setConvs).catch(toast.err);
+  const loadPending = () => api<Approval[]>("/approvals").then(setPending).catch(() => setPending([]));
   useEffect(() => { const t = setTimeout(loadConvs, 200); return () => clearTimeout(t); }, [q]);
+  useEffect(() => { loadPending(); }, []);
   useEffect(() => {
+    if (keepTurn.current) { keepTurn.current = false; return; }
     setSteps([]);
+    setUsed([]);
     if (!cid) return setMessages([]);
     api<{ messages: Msg[]; model: string }>(`/conversations/${cid}`).then((c) => { setMessages(c.messages); setModel(c.model || ""); }).catch(toast.err);
   }, [cid]);
@@ -43,19 +94,29 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
     setText("");
     setBusy(true);
     setSteps([]);
+    setUsed([]);
     setMessages((m) => [...m, { id: Date.now(), role: "user", content: msg, tool_calls: [], name: "" }]);
     let newId = cid;
+    // Update the newest step with this name that is still open
+    const settle = (name: string, patch: Partial<Step>) => setSteps((s) => {
+      const i = s.map((x) => x.name === name && (x.status === "running" || x.status === "approval")).lastIndexOf(true);
+      return i < 0 ? s : s.map((x, j) => (j === i ? { ...x, ...patch, status: x.status === "approval" && patch.status !== "approval" ? "approval" : patch.status ?? x.status } : x));
+    });
     await stream("/assistant/chat", { message: msg, conversation_id: cid, model: model || null }, (ev) => {
       const t = ev.type as string | undefined;
-      if (t === "start") newId = Number(ev.conversation_id);
-      if (t === "tool_call") setSteps((s) => [...s, { kind: "call", name: String(ev.name), text: String(ev.args) }]);
-      if (t === "tool_result") setSteps((s) => [...s, { kind: "result", name: String(ev.name), text: String(ev.preview), ok: Boolean(ev.ok) }]);
+      if (t === "start") { newId = Number(ev.conversation_id); setRunning(newId); }
+      if (t === "memories") setUsed((ev.items as Used[]) ?? []);
+      if (t === "tool_call") setSteps((s) => [...s, { name: String(ev.name), args: String(ev.args), status: "running", startedAt: Date.now() }]);
+      if (t === "approval") { settle(String(ev.name), { status: "approval" }); loadPending(); }
+      if (t === "tool_result") settle(String(ev.name), { status: ev.ok ? "ok" : "error", preview: String(ev.preview), ms: Number(ev.ms) || undefined });
       if (t === "message") setMessages((m) => [...m, { id: Date.now() + 1, role: "assistant", content: String(ev.content), tool_calls: [], name: "" }]);
       if (t === "error" || (!t && ev.error)) toast.err(String(ev.error));
     });
     setBusy(false);
+    setRunning(null);
     loadConvs();
-    if (newId && newId !== cid) navigate(`/assistant/${newId}`, { replace: true });
+    loadPending();
+    if (newId && newId !== cid) { keepTurn.current = true; navigate(`/assistant/${newId}`, { replace: true }); }
   };
 
   const remove = async (c: Conv) => {
@@ -65,7 +126,34 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
     loadConvs();
   };
 
+  const stop = async () => {
+    if (!running) return;
+    try { await api(`/assistant/stop/${running}`, { method: "POST" }); toast.ok("Stopping after the current step"); } catch (e) { toast.err(e); }
+  };
+  const forgetUsed = async (m: Used) => {
+    try { await api(`/memories/${m.id}`, { method: "DELETE" }); setUsed((u) => u.filter((x) => x.id !== m.id)); toast.ok("Forgotten"); } catch (e) { toast.err(e); }
+  };
+
   const visible = messages.filter((m) => m.role === "user" || (m.role === "assistant" && (m.content || m.tool_calls.length)));
+  const lastUser = visible.map((m) => m.role).lastIndexOf("user");
+  const timeline = steps.length > 0 && (
+              <ol className="col" style={{ gap: 6, listStyle: "none", padding: 0, margin: 0 }} aria-label="Steps">
+                {steps.map((s, i) => (
+                  <li key={i} className="small" style={{ borderLeft: `2px solid ${s.status === "error" ? "var(--danger)" : s.status === "approval" ? "var(--accent)" : "var(--border)"}`, paddingLeft: 10 }}>
+                    <div className="row" style={{ gap: 6 }}>
+                      {s.status === "running" ? <Loader2 size={12} className="spin" /> : s.status === "ok" ? <Check size={12} /> : s.status === "approval" ? <ShieldAlert size={12} /> : <X size={12} style={{ color: "var(--danger)" }} />}
+                      <span className="mono">{s.name}</span>
+                      <span className="faint">{s.status === "approval" ? "waiting for your approval" : s.status === "running" ? "running" : s.status === "error" ? "failed" : "done"}{s.ms !== undefined ? ` · ${s.ms < 1000 ? `${s.ms} ms` : `${(s.ms / 1000).toFixed(1)} s`}` : ""}</span>
+                    </div>
+                    <details>
+                      <summary className="faint truncate" style={{ cursor: "pointer" }}>{argSummary(s.args) || "no arguments"}</summary>
+                      {s.preview && <div className="mono faint" style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", marginTop: 4 }}>{s.preview}</div>}
+                    </details>
+                  </li>
+                ))}
+              </ol>
+            );
+
   return (
     <div className={`split ${cid !== null ? "has-selection" : ""}`} style={{ height: "calc(100vh - 0px)" }}>
       <div className="split-list">
@@ -101,23 +189,34 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
               <Empty icon={<Sparkles size={26} />} title="What can I do for you?"
                 hint="I remember what matters across conversations, use your notes, tasks, calendar and mail, search the web, and can schedule things like a daily report." />
             )}
-            {visible.map((m) => m.role === "user"
-              ? <div key={m.id} className="bubble-user" style={{ alignSelf: "flex-end", maxWidth: "85%" }}>{m.content}</div>
-              : <div key={m.id} className="col" style={{ gap: 4 }}>
-                  {m.tool_calls.length > 0 && <div className="small mono faint row"><Wrench size={12} /> {m.tool_calls.join(", ")}</div>}
-                  {m.content && <Markdown text={m.content} />}
-                </div>)}
-            {steps.length > 0 && (
-              <div className="col" style={{ gap: 4 }}>
-                {steps.map((s, i) => (
-                  <div key={i} className="small mono faint row" style={{ alignItems: "flex-start" }}>
-                    {s.kind === "call" ? <Wrench size={12} style={{ marginTop: 3 }} /> : s.ok ? <Check size={12} style={{ marginTop: 3 }} /> : <span style={{ color: "var(--danger)" }}>✕</span>}
-                    <span className="truncate">{s.kind === "call" ? `${s.name} ${s.text}` : s.text}</span>
+            {visible.map((m, i) => (
+              <Fragment key={m.id}>
+                {m.role === "user"
+                  ? <div className="bubble-user" style={{ alignSelf: "flex-end", maxWidth: "85%" }}>{m.content}</div>
+                  : <div className="col" style={{ gap: 4 }}>
+                      {m.tool_calls.length > 0 && <div className="small mono faint row"><Wrench size={12} /> {m.tool_calls.join(", ")}</div>}
+                      {m.content && <Markdown text={m.content} />}
+                    </div>}
+                {i === lastUser && timeline}
+              </Fragment>
+            ))}
+            {used.length > 0 && !busy && (
+              <div className="small">
+                <button type="button" className="btn ghost sm" onClick={() => setShowUsed(!showUsed)} aria-expanded={showUsed}><Brain size={13} /> Used {used.length} {used.length === 1 ? "memory" : "memories"}</button>
+                {showUsed && (
+                  <div className="card flush" style={{ marginTop: 6 }}>
+                    {used.map((m) => (
+                      <div key={m.id} className="list-item" style={{ cursor: "default" }}>
+                        <div className="grow">{m.content}<div className="faint small">{m.kind}</div></div>
+                        <button className="btn ghost sm icon" title="Forget this" aria-label="Forget this memory" onClick={() => forgetUsed(m)}><Trash2 size={13} /></button>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                )}
               </div>
             )}
-            {busy && <div className="row muted"><Loader2 size={15} className="spin" /> Working…</div>}
+            {busy && <div className="row muted"><Loader2 size={15} className="spin" /> Working…<div className="spacer" />{running && <button type="button" className="btn sm" onClick={stop}><Square size={12} /> Stop</button>}</div>}
+            <Approvals items={pending} onDone={loadPending} toast={toast} />
             <div ref={endRef} />
           </div>
         </div>
@@ -143,10 +242,32 @@ function MemoryTab() {
     e.preventDefault();
     try { await api("/memories", { body: form }); setForm({ content: "", kind: "fact" }); load(); } catch (err) { toast.err(err); }
   };
+  const exportAll = async () => {
+    try {
+      const data = await api<unknown>("/memories/export");
+      const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+      const a = document.createElement("a");
+      a.href = url; a.download = `memories-${new Date().toISOString().slice(0, 10)}.json`; a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) { toast.err(e); }
+  };
+  const importFile = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      const parsed = JSON.parse(await file.text()) as { memories?: { content: string; kind: string }[] };
+      const memories = (parsed.memories ?? []).filter((m) => typeof m?.content === "string").map((m) => ({ content: m.content.slice(0, 1000), kind: ["profile", "preference", "fact"].includes(m.kind) ? m.kind : "fact" }));
+      const r = await api<{ added: number; skipped: number }>("/memories/import", { body: { memories } });
+      toast.ok(`Imported ${r.added}, skipped ${r.skipped} already known`); load();
+    } catch (e) { toast.err(e instanceof SyntaxError ? "That file is not valid JSON" : e); }
+  };
   const groups: [string, Memory[]][] = [["Who you are", items.filter((m) => m.kind === "profile")], ["Preferences", items.filter((m) => m.kind === "preference")], ["Facts", items.filter((m) => m.kind === "fact")]];
   return (
     <div className="col gap-lg">
-      <p className="muted" style={{ margin: 0 }}>Learned automatically from your conversations on every channel. "Who you are" is always in context; the rest is recalled when relevant. Edit or delete anything.</p>
+      <div className="row wrap">
+        <p className="muted grow" style={{ margin: 0, minWidth: 240 }}>Learned automatically from your conversations on every channel. "Who you are" is always in context; the rest is recalled when relevant. Deleted memories are never recalled again.</p>
+        <button className="btn sm" onClick={exportAll}><Download size={13} /> Export</button>
+        <label className="btn sm" style={{ cursor: "pointer" }}><Upload size={13} /> Import<input type="file" accept="application/json,.json" hidden onChange={(e) => { importFile(e.target.files?.[0]); e.target.value = ""; }} /></label>
+      </div>
       <form className="card row wrap" onSubmit={add}>
         <input className="input grow" style={{ minWidth: 220 }} value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} placeholder="Teach it something, e.g. I prefer short answers" />
         <select className="input" style={{ width: 150 }} value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })}>
@@ -162,8 +283,13 @@ function MemoryTab() {
           <div className="card flush">
             {list.map((m) => (
               <div key={m.id} className="list-item" style={{ cursor: "default" }}>
-                <div className="grow">{m.content}<div className="faint small">{m.source === "auto" ? "learned" : m.source === "user" ? "added by you" : "saved by assistant"} · {relTime(m.updated_at)}</div></div>
-                <button className="btn ghost sm icon" onClick={async () => { await api(`/memories/${m.id}`, { method: "DELETE" }); load(); }}><Trash2 size={13} /></button>
+                <div className="grow">{m.content}<div className="faint small">
+                  {SOURCE[m.source] ?? m.source}
+                  {m.created_at && <> · <span title={new Date(m.created_at).toLocaleString()}>added {relTime(m.created_at)}</span></>}
+                  {m.created_at && m.updated_at !== m.created_at && <> · edited {relTime(m.updated_at)}</>}
+                  {m.conversation_id ? <> · <a href={`/assistant/${m.conversation_id}`}>from this chat</a></> : null}
+                </div></div>
+                <button className="btn ghost sm icon" aria-label="Delete memory" onClick={async () => { await api(`/memories/${m.id}`, { method: "DELETE" }); load(); }}><Trash2 size={13} /></button>
               </div>
             ))}
           </div>
