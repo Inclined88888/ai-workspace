@@ -57,6 +57,30 @@ def chat(data: ChatIn):
     return sse(events())
 
 
+@router.post("/assistant/stop/{cid}")
+def stop(cid: int):
+    """Stop a running turn after its current step. Steps already done are not undone."""
+    assistant.request_stop(cid)
+    return {"ok": True}
+
+
+# Approvals: persistent actions requested in conversations that contain outside content
+@router.get("/approvals")
+def approvals(status: str = "pending"):
+    if status == "all":
+        return db.all("SELECT * FROM approvals ORDER BY id DESC LIMIT 200")
+    return db.all("SELECT * FROM approvals WHERE status = ? ORDER BY id DESC LIMIT 200", status)
+
+
+class Decision(BaseModel):
+    approve: bool
+
+
+@router.post("/approvals/{aid}")
+async def decide(aid: int, data: Decision):
+    return await assistant.decide_approval(aid, data.approve)
+
+
 @router.get("/conversations")
 def conversations(channel: str | None = None, q: str = ""):
     if q:
@@ -112,6 +136,31 @@ def memories(q: str = ""):
     if q:
         return assistant.search_memories(q, 50)
     return db.all("SELECT * FROM memories ORDER BY kind = 'profile' DESC, updated_at DESC LIMIT 500")
+
+
+@router.get("/memories/export")
+def export_memories():
+    rows = db.all("SELECT content, kind, source, conversation_id, created_at, updated_at FROM memories ORDER BY id")
+    return {"format": "ai-workspace-memories", "version": 1, "exported_at": db.now(), "memories": rows}
+
+
+class MemoryImport(BaseModel):
+    memories: list[MemoryIn] = Field(..., max_length=5000)
+
+
+@router.post("/memories/import")
+def import_memories(data: MemoryImport):
+    known = {learn._norm(m["content"]) for m in db.all("SELECT content FROM memories")}
+    added = 0
+    for m in data.memories:
+        n = learn._norm(m.content)
+        if not n or n in known:
+            continue
+        db.run("INSERT INTO memories(content, kind, source, created_at, updated_at) VALUES (?, ?, 'import', ?, ?)",
+               m.content.strip(), m.kind, db.now(), db.now())
+        known.add(n)
+        added += 1
+    return {"added": added, "skipped": len(data.memories) - added}
 
 
 @router.post("/memories")

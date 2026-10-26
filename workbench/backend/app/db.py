@@ -161,11 +161,25 @@ CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages WHEN old.role 
   INSERT INTO messages_fts(messages_fts, rowid, content) VALUES ('delete', old.id, old.content);
 END;
 
+CREATE TABLE IF NOT EXISTS approvals (
+  id INTEGER PRIMARY KEY,
+  tool TEXT NOT NULL,
+  args TEXT NOT NULL DEFAULT '{}',
+  reason TEXT NOT NULL DEFAULT '',
+  channel TEXT NOT NULL DEFAULT 'web',
+  conversation_id INTEGER,
+  agent_id INTEGER,
+  status TEXT NOT NULL DEFAULT 'pending',      -- pending | running | approved | denied | failed
+  result TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  decided_at TEXT
+);
+
 CREATE TABLE IF NOT EXISTS memories (
   id INTEGER PRIMARY KEY,
   content TEXT NOT NULL,
   kind TEXT NOT NULL DEFAULT 'fact',            -- profile (always shown) | fact | preference
-  source TEXT NOT NULL DEFAULT 'auto',          -- auto | user | agent
+  source TEXT NOT NULL DEFAULT 'auto',          -- auto | user | agent | import
   conversation_id INTEGER,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -307,6 +321,11 @@ def one(sql: str, *args: Any) -> dict | None:
 def run(sql: str, *args: Any) -> int:
     cur = conn().execute(sql, args)
     return cur.lastrowid or cur.rowcount
+
+
+def changed(sql: str, *args: Any) -> int:
+    """Rows changed by an UPDATE or DELETE (run() returns the last insert id, which goes stale after updates)."""
+    return conn().execute(sql, args).rowcount
 
 
 def get_setting(key: str, default: str | None = None) -> str | None:

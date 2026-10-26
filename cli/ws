@@ -81,6 +81,8 @@ def ask(cfg: dict, text: str) -> None:
             save(cfg)
         elif t == "tool_call":
             print(c("dim", f"  ↳ {e['name']} {e['args'][:120]}"), flush=True)
+        elif t == "approval":
+            print(c("dim", f"    needs your approval (#{e['id']}): allow or deny it in the web app under Assistant"), flush=True)
         elif t == "tool_result" and not e["ok"]:
             print(c("dim", f"    {e['preview'][:160]}"), flush=True)
         elif t == "message":

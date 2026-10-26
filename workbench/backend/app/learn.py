@@ -66,8 +66,13 @@ async def mine_memories(conv_id: int) -> int:
     conv = db.one("SELECT * FROM conversations WHERE id = ?", conv_id)
     if not conv:
         return 0
-    rows = db.all("SELECT id, role, content FROM messages WHERE conversation_id = ? AND id > ? AND role IN ('user', 'assistant') "
-                  "ORDER BY id", conv_id, conv["memory_cursor"])
+    from .assistant import has_external_content
+
+    # With outside content (web, email) in the conversation, assistant replies may repeat planted text: learn from
+    # the user's own words only.
+    roles = ("user",) if has_external_content(conv_id) else ("user", "assistant")
+    rows = db.all(f"SELECT id, role, content FROM messages WHERE conversation_id = ? AND id > ? AND role IN ({','.join('?' * len(roles))}) "
+                  "ORDER BY id", conv_id, conv["memory_cursor"], *roles)
     user_chars = sum(len(r["content"]) for r in rows if r["role"] == "user")
     if not rows or user_chars < 40:
         return 0
@@ -125,6 +130,15 @@ async def mine_skill(conv_id: int) -> str:
                "\n\nTranscript:\n" + "\n".join(lines))
     out = await _model_json(conv, SKILL_PROMPT, payload[:24000], "skill")
     if isinstance(out, dict) and out.get("save") is True:
+        from .assistant import EXTERNAL_TOOLS, Ctx, request_approval
+
+        if any(r["role"] == "tool" and r["name"] in EXTERNAL_TOOLS for r in rows):
+            # The procedure was written from outside content: a skill is loaded into every later prompt, so the
+            # user reviews it first.
+            args = json.dumps({k: str(out.get(k, "")) for k in ("name", "description", "steps")})
+            request_approval("save_skill", args, Ctx(channel="learn", conversation_id=conv_id),
+                             "Learned from a task that read outside content (web, search or email).")
+            return ""
         try:
             r = upsert_skill(str(out.get("name", "")), str(out.get("description", "")), str(out.get("steps", "")))
             return next(iter(r.values()))
