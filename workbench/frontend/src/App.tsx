@@ -27,6 +27,8 @@ import Computer from "./pages/Computer";
 import ComputerBar from "./components/ComputerBar";
 import CallInvites from "./components/CallInvites";
 import NeedsYou, { NeedsYouIcon, useAttentionCount } from "./pages/NeedsYou";
+import Capabilities from "./pages/Capabilities";
+import CommandPalette, { openPalette } from "./components/CommandPalette";
 
 export type Status = {
   setup_complete: boolean;
@@ -51,6 +53,7 @@ const NAV = [
   { to: "/research", label: "Research", icon: Search },
   { to: "/computer", label: "Computer", icon: MonitorPlay },
   { to: "/automations", label: "Automations", icon: CalendarClock },
+  { to: "/capabilities", label: "What ROOKS can do", icon: Sparkles },
   { section: "Your workspace" },
   { to: "/tasks", label: "Tasks", icon: CheckSquare },
   { to: "/calendar", label: "Calendar", icon: CalendarDays },
@@ -162,6 +165,9 @@ export default function App() {
           </div>
           <button className="btn ghost sm icon mobile-only" style={{ marginLeft: "auto" }} onClick={() => setMenuOpen(false)} aria-label="Close menu" title="Close menu"><X size={16} /></button>
         </div>
+        <button type="button" className="nav-search" onClick={openPalette} title="Search and jump (Ctrl+K)" aria-label="Search and jump (Ctrl+K)">
+          <Search size={15} aria-hidden="true" /><span className="nav-label grow">Search</span><kbd className="kbd nav-label">Ctrl K</kbd>
+        </button>
         <nav aria-label="Main" className="col" style={{ gap: 2 }}>
           {NAV.filter((item) => !("addon" in item) || (item.addon === "browser" && status.browser_enabled)).map((item, i) =>
             "section" in item ? (
@@ -207,11 +213,13 @@ export default function App() {
       <main className="main" id="main" tabIndex={-1}>
         <ComputerBar />
         <CallInvites />
+        <CommandPalette />
         <div className="mobile-bar">
           <button className="btn ghost icon" onClick={() => setMenuOpen(true)} aria-label="Open menu" title="Open menu" aria-expanded={menuOpen}><Menu size={18} /></button>
           <RookMark size={18} />
           <strong className={`truncate ${status.workspace_name === "ROOKS" ? "wordmark" : ""}`}>{status.workspace_name}</strong>
           <div className="spacer" />
+          <button type="button" className="btn ghost icon" onClick={openPalette} aria-label="Search and jump" title="Search and jump"><Search size={18} /></button>
           <Link to="/assistant" className="btn ghost icon" aria-label="Ask ROOKS" title="Ask ROOKS"><MessageSquare size={18} /></Link>
         </div>
         <Routes>
@@ -228,6 +236,7 @@ export default function App() {
           <Route path="/missions/:id" element={<Missions />} />
           <Route path="/automations" element={<Automations />} />
           <Route path="/needs-you" element={<NeedsYou />} />
+          <Route path="/capabilities" element={<Capabilities />} />
           <Route path="/company" element={<Company />} />
           <Route path="/research" element={<Research />} />
           <Route path="/research/:id" element={<Research />} />

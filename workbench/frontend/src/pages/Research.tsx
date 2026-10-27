@@ -1,6 +1,6 @@
 import { BellOff, BellRing, ExternalLink, FileText, Loader2, RotateCcw, Search, Trash2, X } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import { Empty, Markdown, ModelSelect, relTime, useModels, useToast } from "../util";
 
@@ -93,7 +93,8 @@ export default function Research() {
   useEffect(() => { api<{ search_provider: string }>("/getting-started").then((r) => setSearchProvider(r.search_provider)).catch(() => setSearchProvider(null)); }, []);
   const [current, setCurrent] = useState<Full | null>(null);
   const [runs, setRuns] = useState(0);
-  const [question, setQuestion] = useState("");
+  const location = useLocation();
+  const [question, setQuestion] = useState(() => (location.state as { question?: string } | null)?.question ?? "");
   const [depth, setDepth] = useState(3);
   const [model, setModel] = useState("");
   const [projectId, setProjectId] = useState<number | "">("");

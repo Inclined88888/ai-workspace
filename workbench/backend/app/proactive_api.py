@@ -188,3 +188,11 @@ class DeferIn(BaseModel):
 @router.post("/needs-you/defer")
 def needs_you_defer(data: DeferIn):
     return attention.defer(data.id, data.hours)
+
+
+# What ROOKS can do (capabilities.py)
+@router.get("/capabilities")
+def capabilities_catalog():
+    from . import capabilities
+
+    return capabilities.catalog()

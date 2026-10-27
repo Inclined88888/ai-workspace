@@ -1,5 +1,5 @@
 import { Check, Cpu, Download, Loader2, Mail, Plug, RefreshCw, Shield, Trash2 } from "lucide-react";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { api, stream } from "../api";
 import { useModels, useToast } from "../util";
@@ -164,12 +164,71 @@ function Usage() {
   );
 }
 
+const SECTIONS: [string, string][] = [["s-models", "AI models"], ["s-voice", "Voice and calls"], ["s-computer", "Computer Use"], ["s-connections", "Connections"],
+  ["s-privacy", "Memory and privacy"], ["s-automations", "Automations"], ["s-security", "Security and permissions"], ["s-usage", "Usage and budgets"],
+  ["s-appearance", "Appearance"], ["s-advanced", "Advanced"]];
+
+function Section({ id, title, about, children }: { id: string; title: string; about: string; children: React.ReactNode }) {
+  return (
+    <section id={id} className="settings-section col gap-lg" aria-labelledby={`${id}-h`}>
+      <div><h2 id={`${id}-h`} className="settings-title">{title}</h2><p className="muted small" style={{ margin: "2px 0 0" }}>{about}</p></div>
+      {children}
+    </section>
+  );
+}
+
+type CU = { settings: { enabled: boolean; mode: string }; devices: { id: number; name: string; os: string; online: boolean; last_seen: string }[]; vision: { enabled?: boolean } };
+
+/** Where Computer Use stands, and the difference between the three ways ROOKS can act. The controls are on the Computer page. */
+function ComputerSummary() {
+  const [c, setC] = useState<CU | null>(null);
+  useEffect(() => { api<CU>("/computer").then(setC).catch(() => setC(null)); }, []);
+  const device = c?.devices.find((d) => d.online) ?? c?.devices[0];
+  return (
+    <div className="card col">
+      <div className="row wrap">
+        <span className={`badge ${c?.settings.enabled && device?.online ? "ok" : ""}`}>{!c ? "Checking…" : c.settings.enabled ? (device?.online ? "On" : "On, but no computer is connected") : "Off"}</span>
+        {c && <span className="badge">{{ read_only: "Look only", ask: "Ask before changes", allowed: "Allowed" }[c.settings.mode] ?? c.settings.mode}</span>}
+        {device && <span className="small muted">{device.name} ({device.os}) · {device.online ? "connected" : "not connected"}</span>}
+      </div>
+      <ol className="settings-facts">
+        <li><strong>Connections</strong> (mail, calendar, GitHub): ROOKS uses the service's own interface. Safest and most reliable.</li>
+        <li><strong>Browser agent</strong> (optional add-on): a separate browser on the server that completes goals on websites.</li>
+        <li><strong>Desktop control</strong> (ROOKS Companion): uses apps, its own browser and folders you allow on your computer. Always visible, stoppable, and it asks before sending, buying, deleting or installing.</li>
+      </ol>
+      <div className="row wrap"><Link className="btn primary" to="/computer">{device ? "Open Computer controls" : "Pair a computer"}</Link></div>
+    </div>
+  );
+}
+
 export default function Settings({ onChanged }: { onChanged: () => void }) {
   const { models, reload } = useModels();
   const [s, setS] = useState({ workspace_name: "", default_model: "", chat_url: "", tools_url: "" });
   const [pw, setPw] = useState({ current: "", new: "" });
   const [localAvailable, setLocalAvailable] = useState(false);
   const location = useLocation();
+  const [active, setActive] = useState(SECTIONS[0][0]);
+  const lock = useRef(0);
+  useEffect(() => {  // the section in view is highlighted: the last one whose top has passed the top of the view
+    const scroller = document.querySelector(".main");
+    const onScroll = () => {
+      if (Date.now() < lock.current) return;
+      let cur = SECTIONS[0][0];
+      for (const [id] of SECTIONS) {
+        const el = document.getElementById(id);
+        if (el && el.getBoundingClientRect().top <= 140) cur = id;
+      }
+      setActive(cur);
+    };
+    scroller?.addEventListener("scroll", onScroll, { passive: true });
+    return () => scroller?.removeEventListener("scroll", onScroll);
+  }, []);
+  const jump = (id: string, smooth = true) => {
+    lock.current = Date.now() + 900;  // a click decides; the scroll it causes does not override it
+    setActive(id);
+    document.getElementById(id)?.scrollIntoView({ block: "start", behavior: smooth ? "smooth" : "auto" });
+    history.replaceState(null, "", `#${id}`);
+  };
   // Links like /settings#models (from chat errors) land on the right section once it has rendered
   useEffect(() => {
     if (!location.hash) return;
@@ -198,72 +257,112 @@ export default function Settings({ onChanged }: { onChanged: () => void }) {
   };
 
   return (
-    <div className="page" style={{ maxWidth: 900 }}>
-      <div className="page-head"><div><h1>Settings</h1><p className="muted">Essentials first. Everything under Advanced is optional.</p></div></div>
-      <div className="col gap-lg">
-        <h2 className="settings-group">Essentials</h2>
-        <div className="card col gap-lg">
-          <h2>Workspace</h2>
-          <label className="field">Workspace name <span className="hint">Shown in the sidebar and browser tab.</span><input className="input" value={s.workspace_name} onChange={(e) => setS({ ...s, workspace_name: e.target.value })} /></label>
-          <div className="row wrap"><button className="btn primary" onClick={save}>Save</button></div>
-        </div>
-        <div id="models" style={{ scrollMarginTop: 16 }}><ModelsPanel models={models} reloadModels={() => reload(true)} localAvailable={localAvailable} /></div>
-        {models.length > 0 && <div className="card col"><h3>Quick check</h3><p className="muted small" style={{ margin: 0 }}>Sends one tiny message through the default model (and its backups if needed).</p><ModelTest /></div>}
-        {models.length > 0 && <ModelRoles models={models} />}
-        {localAvailable && <LocalModels />}
+    <div className="page settings-page">
+      <div className="page-head"><div><h1>Settings</h1><p className="muted">Everything ROOKS needs, in plain words. Only an AI model is required; the rest is optional.</p></div></div>
+      <div className="settings-layout">
+        <nav className="settings-nav" aria-label="Settings sections">
+          {SECTIONS.map(([id, label]) => <a key={id} href={`#${id}`} className={active === id ? "active" : ""} aria-current={active === id ? "true" : undefined}
+            onClick={(e) => { e.preventDefault(); jump(id); }}>{label}</a>)}
+        </nav>
+        <select className="input settings-jump" aria-label="Jump to a settings section" value={active} onChange={(e) => jump(e.target.value, false)}>
+          {SECTIONS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+        </select>
+        <div className="col gap-lg settings-body">
+          <Section id="s-models" title="AI models" about="Connect at least one provider. ROOKS checks each key with a tiny free request when it can, and never tests paid models without asking.">
+            <div id="models" style={{ scrollMarginTop: 16 }}><ModelsPanel models={models} reloadModels={() => reload(true)} localAvailable={localAvailable} /></div>
+            {models.length > 0 && <div className="card col"><h3>Quick check</h3><p className="muted small" style={{ margin: 0 }}>Sends one tiny message through the default model (and its backups if needed).</p><ModelTest /></div>}
+            {models.length > 0 && <ModelRoles models={models} />}
+            {localAvailable && <LocalModels />}
+          </Section>
 
-        <h2 className="settings-group">Appearance</h2>
-        <AppearancePanel />
+          <Section id="s-voice" title="Voice and calls" about="Talk with ROOKS, and choose when it may ask to talk to you. Phone calls are optional and off until you set them up.">
+            <VoiceSettingsPanel />
+            <CallsPanel />
+          </Section>
 
-        <h2 className="settings-group">Connections</h2>
-        <ConnectionsHealth />
-        <WebSearchPanel />
-        <MailAccounts />
-        <GitHubPanel />
-        <div className="card col">
-          <h2>Calendars</h2>
-          <div className="muted small">Subscribe to a calendar link (Google, Outlook, iCloud) or connect CalDAV from the Calendar page.</div>
-          <div><Link className="btn" to="/calendar">Open calendar</Link></div>
-        </div>
-        <div className="card col">
-          <h2>Telegram and terminal</h2>
-          <div className="muted small">Chat with ROOKS from Telegram, or create a token for the <span className="mono">ws</span> terminal command.</div>
-          <div><Link className="btn" to="/assistant-settings">Open assistant settings</Link></div>
-        </div>
-        {s.chat_url && (
-          <div className="card col">
-            <div className="row"><Plug size={16} aria-hidden="true" /><h2>Open WebUI add-on</h2></div>
-            <div className="muted small">Open WebUI is preconfigured with the ROOKS tool server at <span className="mono">{s.tools_url}</span>, so its agents can search notes, manage tasks and events, search mail and save drafts. They can never send mail. Turn it on per chat from the tools button in the message box, or for a model under Admin, Models.</div>
-            <div><a className="btn" href={s.chat_url} target="_blank" rel="noreferrer">Open Open WebUI</a></div>
-          </div>
-        )}
+          <Section id="s-computer" title="Computer Use" about="Three different ways ROOKS can act for you, from safest to most powerful.">
+            <ComputerSummary />
+          </Section>
 
-        <h2 className="settings-group">Voice and calls</h2>
-        <VoiceSettingsPanel />
-        <CallsPanel />
+          <Section id="s-connections" title="Connections" about="Services ROOKS can use. A connection shows as working only after a real check, not because a key was saved.">
+            <ConnectionsHealth />
+            <WebSearchPanel />
+            <MailAccounts />
+            <GitHubPanel />
+            <div className="card col">
+              <h2>Calendars</h2>
+              <div className="muted small">Subscribe to a calendar link (Google, Outlook, iCloud) or connect CalDAV from the Calendar page.</div>
+              <div><Link className="btn" to="/calendar">Open calendar</Link></div>
+            </div>
+            {s.chat_url && (
+              <div className="card col">
+                <div className="row"><Plug size={16} aria-hidden="true" /><h2>Open WebUI add-on</h2></div>
+                <div className="muted small">Open WebUI is preconfigured with the ROOKS tool server at <span className="mono">{s.tools_url}</span>, so its agents can search notes, manage tasks and events, search mail and save drafts. They can never send mail. Turn it on per chat from the tools button in the message box, or for a model under Admin, Models.</div>
+                <div><a className="btn" href={s.chat_url} target="_blank" rel="noreferrer">Open Open WebUI</a></div>
+              </div>
+            )}
+          </Section>
 
-        <h2 className="settings-group">Security</h2>
-        <PermissionsPanel />
-        <WorkspacePanel />
-        <form className="card col" onSubmit={changePw}>
-          <div className="row"><Shield size={16} aria-hidden="true" /><h2>Password</h2></div>
-          <div className="muted small">Changing it signs out every other browser and device.</div>
-          <div className="grid two">
-            <div className="col" style={{ gap: 5 }}><label htmlFor="pw-current" className="field">Current password</label><PasswordInput id="pw-current" value={pw.current} onChange={(v) => setPw({ ...pw, current: v })} autoComplete="current-password" /></div>
-            <div className="col" style={{ gap: 5 }}><label htmlFor="pw-new" className="field">New password <span className="hint">at least 10 characters</span></label><PasswordInput id="pw-new" value={pw.new} onChange={(v) => setPw({ ...pw, new: v })} autoComplete="new-password" invalid={pw.new.length > 0 && pw.new.length < 10} /></div>
-          </div>
-          <div><button className="btn" disabled={!pw.current || pw.new.length < 10}>Change password</button></div>
-        </form>
+          <Section id="s-privacy" title="Memory and privacy" about="What ROOKS keeps, and how to review or remove it.">
+            <div className="card col">
+              <ul className="settings-facts">
+                <li><strong>Memory.</strong> ROOKS learns lasting facts from conversations (never keys, passwords or card numbers). <Link to="/assistant-memory">Review and correct memories</Link> or turn learning off in <Link to="/assistant-settings">Assistant settings</Link>.</li>
+                <li><strong>Projects.</strong> A project set to local models only never sends its content to a cloud model, including for voice and research.</li>
+                <li><strong>Voice.</strong> Audio is never stored. You choose at the end of each voice session whether to keep the transcript.</li>
+                <li><strong>Screenshots.</strong> Computer Use screenshots stay in memory and are never written to disk or logs; sending them to a model is a separate permission on the Computer page.</li>
+                <li><strong>Activity.</strong> Every change ROOKS makes is in the activity log under Security, without typed text or secrets.</li>
+              </ul>
+            </div>
+          </Section>
 
-        <ActivityLog />
+          <Section id="s-automations" title="Automations and notifications" about="Scheduled jobs, check-ins, quiet hours and where ROOKS tells you things.">
+            <div className="card col">
+              <div className="muted small">Check-ins, their quiet hours and daily limits are on the Automations page. Briefings go to the ROOKS inbox, and to Telegram if you connect it. Calls follow the contact hours above.</div>
+              <div className="row wrap"><Link className="btn" to="/automations">Open automations</Link><Link className="btn ghost" to="/needs-you">See what needs you</Link></div>
+            </div>
+            <div className="card col">
+              <h2>Telegram and terminal</h2>
+              <div className="muted small">Chat with ROOKS from Telegram, or create a token for the <span className="mono">ws</span> terminal command.</div>
+              <div><Link className="btn" to="/assistant-settings">Open assistant settings</Link></div>
+            </div>
+          </Section>
 
-        <h2 className="settings-group">Advanced</h2>
-        <ToolsPanel />
-        <Usage />
-        <div className="card col">
-          <h2>Getting started</h2>
-          <div className="muted small">The checklist on Home tracks your first steps. {gs ? "It is hidden right now." : "It is showing on Home."}</div>
-          {gs && <div><button className="btn" onClick={showChecklist}>Show it again</button></div>}
+          <Section id="s-security" title="Security and permissions" about="What the assistant may do on its own, the isolated workspace, your password and the activity log.">
+            <PermissionsPanel />
+            <WorkspacePanel />
+            <form className="card col" onSubmit={changePw}>
+              <div className="row"><Shield size={16} aria-hidden="true" /><h2>Password</h2></div>
+              <div className="muted small">Changing it signs out every other browser and device.</div>
+              <div className="grid two">
+                <div className="col" style={{ gap: 5 }}><label htmlFor="pw-current" className="field">Current password</label><PasswordInput id="pw-current" value={pw.current} onChange={(v) => setPw({ ...pw, current: v })} autoComplete="current-password" /></div>
+                <div className="col" style={{ gap: 5 }}><label htmlFor="pw-new" className="field">New password <span className="hint">at least 10 characters</span></label><PasswordInput id="pw-new" value={pw.new} onChange={(v) => setPw({ ...pw, new: v })} autoComplete="new-password" invalid={pw.new.length > 0 && pw.new.length < 10} /></div>
+              </div>
+              <div><button className="btn" disabled={!pw.current || pw.new.length < 10}>Change password</button></div>
+            </form>
+            <ActivityLog />
+          </Section>
+
+          <Section id="s-usage" title="Usage and budgets" about="What ROOKS has spent, your monthly limit and your prices per model.">
+            <Usage />
+          </Section>
+
+          <Section id="s-appearance" title="Appearance" about="Theme, accent colour, font, text size and spacing. Light, dark or following your device.">
+            <AppearancePanel />
+          </Section>
+
+          <Section id="s-advanced" title="Advanced" about="You can leave these alone.">
+            <div className="card col gap-lg">
+              <h2>Workspace</h2>
+              <label className="field">Workspace name <span className="hint">Shown in the sidebar and browser tab.</span><input className="input" value={s.workspace_name} onChange={(e) => setS({ ...s, workspace_name: e.target.value })} /></label>
+              <div className="row wrap"><button className="btn primary" onClick={save}>Save</button></div>
+            </div>
+            <ToolsPanel />
+            <div className="card col">
+              <h2>Getting started</h2>
+              <div className="muted small">The checklist on Home tracks your first steps. {gs ? "It is hidden right now." : "It is showing on Home."}</div>
+              {gs && <div><button className="btn" onClick={showChecklist}>Show it again</button></div>}
+            </div>
+          </Section>
         </div>
       </div>
       {toast.node}
