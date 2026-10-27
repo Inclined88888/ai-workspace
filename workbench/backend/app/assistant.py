@@ -34,7 +34,7 @@ EXTERNAL_TOOLS = {"web_search", "read_page", "browse_web", "search_email", "read
                   "computer_locate"}
 # Tools whose effects outlive the conversation. In a conversation with outside content they wait for the user's
 # approval instead of running: this is enforced here, not left to the model.
-GATED_TOOLS = {"remember", "forget", "save_skill", "schedule_task"}
+GATED_TOOLS = {"remember", "forget", "save_skill", "schedule_task", "project_note"}
 UNATTENDED = {"schedule", "agent", "telegram", "learn", "mission"}
 _stop_requested: set[int] = set()
 
