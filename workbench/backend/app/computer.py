@@ -367,13 +367,15 @@ async def request(kind: str, args: dict, *, conversation_id: int | None = None, 
     if "text" in args:
         safe_args["text_length"] = len(str(args["text"]))
     aid = db.run("INSERT INTO computer_actions(device_id, kind, args, risk, status, approved, conversation_id, mission_id, idem_key, timeout, created_at) "
-                 "VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?)", dev["id"], kind, json.dumps(safe_args), risk, int(approved), conversation_id, mission_id, key,
+                 "VALUES (?, ?, ?, ?, 'preparing', ?, ?, ?, ?, ?, ?)", dev["id"], kind, json.dumps(safe_args), risk, int(approved), conversation_id, mission_id, key,
                  int(timeout or args.get("timeout") or DEFAULT_TIMEOUT), db.now())
     _pending_args[aid] = args
-    if risk != "read":
-        audit.record("assistant", "computer", kind, _summary(kind, args))
     ev = asyncio.Event()
     _events[aid] = (asyncio.get_running_loop(), ev)
+    # Publish the action only after its ephemeral payload and waiter exist.
+    db.run("UPDATE computer_actions SET status = 'queued' WHERE id = ? AND status = 'preparing'", aid)
+    if risk != "read":
+        audit.record("assistant", "computer", kind, _summary(kind, args))
     limit = (timeout or args.get("timeout") or DEFAULT_TIMEOUT) + 15
     try:
         await asyncio.wait_for(ev.wait(), limit)
@@ -413,9 +415,8 @@ def next_action(device: dict) -> dict | None:
     # Fail closed after a backend restart: queued actions no longer have
     # their ephemeral payload, so they cannot be dispatched or replayed.
     for stale in db.all("SELECT id FROM computer_actions WHERE device_id = ? AND status = 'queued' ORDER BY id", device["id"]):
-        if stale["id"] in _pending_args:
-            break
-        _finish(stale["id"], "failed", error="Action interrupted by restart; review before retrying.")
+        if stale["id"] not in _pending_args:
+            _finish(stale["id"], "failed", error="Action interrupted by restart; review before retrying.")
     a = db.one("SELECT * FROM computer_actions WHERE device_id = ? AND status = 'queued' ORDER BY id LIMIT 1", device["id"])
     if not a:
         return None
@@ -439,7 +440,7 @@ def report(device: dict, r: dict) -> None:
         _shots[device["id"]] = (time.time(), shot)
     if a["status"] == "uncertain":
         db.run("UPDATE computer_actions SET recovered = 1 WHERE id = ?", a["id"])  # the answer arrived after a restart
-    _finish(a["id"], status, result=result, error=str(r.get("error") or "")[:1000])
+    _finish(a["id"], status, result=result, error=sensitive.redact(str(r.get("error") or ""))[:300])
 
 
 def _finish(aid: int, status: str, result=None, error: str = "") -> None:
@@ -485,7 +486,7 @@ def history(limit: int = 100) -> list[dict]:
 
 def recover() -> None:
     """After a restart: queued actions are cancelled (whoever asked is gone); sent but unconfirmed ones are uncertain."""
-    db.run("UPDATE computer_actions SET status = 'cancelled', error = 'ROOKS restarted before this was sent' WHERE status = 'queued'")
+    db.run("UPDATE computer_actions SET status = 'cancelled', error = 'ROOKS restarted before this was sent' WHERE status IN ('queued', 'preparing')")
     db.run("UPDATE computer_actions SET status = 'uncertain', error = 'ROOKS restarted while this was running' WHERE status = 'dispatched'")
 
 
