@@ -517,7 +517,7 @@ async def key_status(p: dict) -> dict:
     return {"free_tier": d.get("is_free_tier"), "limit_remaining": d.get("limit_remaining")}
 
 
-async def check_provider(pid: int, max_tries: int = 4) -> dict:
+async def check_provider(pid: int, max_tries: int = 4, allow_paid: bool = False) -> dict:
     """List the provider's models, check the key, then send a tiny real request (with a tool attached, as the
     assistant does) to the most suitable models until one answers. Only a model that answered is recommended."""
     import asyncio
@@ -538,7 +538,11 @@ async def check_provider(pid: int, max_tries: int = 4) -> dict:
             explain(p, 0, text) if text != "The provider listed no models." else
             f"{p['name']} listed no models. For local models, download one first; for other endpoints, type model names under Advanced.")
     else:
-        for name in candidates(p, models, key.get("free_tier"))[:max_tries]:
+        # Automatic and startup verification must never send a paid request.
+        # A user must deliberately opt in to a bounded paid connection check.
+        choices = [n for n in candidates(p, models, key.get("free_tier"))
+                   if allow_paid or is_free(p, n)]
+        for name in choices[:max_tries]:
             if time.monotonic() > deadline:
                 report["tried"].append({"model": name, "error": f"Not tried: the check's {CHECK_BUDGET} second limit was reached."})
                 break
@@ -552,7 +556,8 @@ async def check_provider(pid: int, max_tries: int = 4) -> dict:
             report.update(ok=True, recommended=name)
             break
         if not report["ok"]:
-            report["error"] = report["tried"][0]["error"] if report["tried"] else "No suitable model found."
+            report["error"] = (report["tried"][0]["error"] if report["tried"] else
+                               "No free model available for automatic verification. Use Check and explicitly approve a paid verification request.")
     db.set_setting(f"provider_check:{pid}", json.dumps(report))
     return report
 
