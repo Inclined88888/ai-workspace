@@ -362,7 +362,9 @@ async def request(kind: str, args: dict, *, conversation_id: int | None = None, 
                                      "Observe the screen first to check the current state, then decide.")
     # Only non-content metadata goes on disk. In particular no typed strings,
     # document contents, or form values are persisted as action arguments.
-    safe_args = {k: args[k] for k in ("app", "target", "label", "path", "src", "dst", "url", "direction", "keys")
+    # Labels, URLs and paths can contain private document names or credentials.
+    # Keep only minimal operational metadata; history remains useful by action type.
+    safe_args = {k: args[k] for k in ("app", "direction", "keys")
                  if k in args and isinstance(args[k], (str, int, float, bool))}
     if "text" in args:
         safe_args["text_length"] = len(str(args["text"]))
