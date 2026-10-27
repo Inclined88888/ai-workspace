@@ -1,7 +1,8 @@
-import { ChevronLeft, ChevronRight, Loader2, Plus, RefreshCw, Trash2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { api, Calendar, CalEvent } from "../api";
 import { fmtTime, localDateISO, useToast } from "../util";
+import { Modal } from "../components/ui";
 
 function eventDays(ev: CalEvent): [string, string] {
   if (ev.all_day) {
@@ -47,9 +48,8 @@ function AddCalendar({ onClose, onAdded }: { onClose: () => void; onAdded: () =>
   };
 
   return (
-    <div className="modal-back" onClick={onClose}>
-      <form className="modal col gap-lg" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
-        <div className="row"><h2 className="grow">Add calendar</h2><button type="button" className="btn ghost icon sm" onClick={onClose}><X size={16} /></button></div>
+    <Modal title="Add a calendar" onClose={onClose}>
+      <form className="col gap-lg" onSubmit={submit}>
         {error && <div className="alert err">{error}</div>}
         <div className="tabs">
           {(["ics", "caldav", "local"] as const).map((k) => (
@@ -77,7 +77,7 @@ function AddCalendar({ onClose, onAdded }: { onClose: () => void; onAdded: () =>
         <label className="field">Color<input type="color" value={form.color} onChange={(e) => setForm({ ...form, color: e.target.value })} /></label>
         <button className="btn primary" disabled={busy}>{busy ? <Loader2 size={16} className="spin" /> : "Add calendar"}</button>
       </form>
-    </div>
+    </Modal>
   );
 }
 
@@ -108,9 +108,8 @@ function AddEvent({ date, calendars, onClose, onAdded }: { date: string; calenda
     }
   };
   return (
-    <div className="modal-back" onClick={onClose}>
-      <form className="modal col gap-lg" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
-        <div className="row"><h2 className="grow">New event</h2><button type="button" className="btn ghost icon sm" onClick={onClose}><X size={16} /></button></div>
+    <Modal title="New event" onClose={onClose}>
+      <form className="col gap-lg" onSubmit={submit}>
         {error && <div className="alert err">{error}</div>}
         <input className="input" required autoFocus placeholder="Title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
         <div className="row wrap">
@@ -131,7 +130,7 @@ function AddEvent({ date, calendars, onClose, onAdded }: { date: string; calenda
         </select>
         <button className="btn primary" disabled={busy}>{busy ? <Loader2 size={16} className="spin" /> : "Create event"}</button>
       </form>
-    </div>
+    </Modal>
   );
 }
 
@@ -180,7 +179,7 @@ export default function CalendarPage() {
     loadCalendars(); loadEvents();
   };
   const removeCal = async (c: Calendar) => {
-    if (!confirm(`Remove calendar "${c.name}" and its synced events from Workbench?`)) return;
+    if (!confirm(`Remove calendar "${c.name}" and its synced events from ROOKS?`)) return;
     await api(`/calendars/${c.id}`, { method: "DELETE" }); loadCalendars(); loadEvents();
   };
   const removeEvent = async (ev: CalEvent) => {
@@ -235,7 +234,7 @@ export default function CalendarPage() {
                   <div>{ev.title || "(untitled)"}</div>
                   <div className="muted small">{ev.all_day ? "All day" : `${fmtTime(ev.start)} to ${fmtTime(ev.end)}`}{ev.location ? ` · ${ev.location}` : ""} · {ev.calendar_name}</div>
                 </div>
-                {ev.calendar_kind === "local" && <button className="btn ghost sm icon" onClick={() => removeEvent(ev)}><Trash2 size={13} /></button>}
+                {ev.calendar_kind === "local" && <button className="btn ghost sm icon" aria-label={`Delete event ${ev.title}`} title="Delete event" onClick={() => removeEvent(ev)}><Trash2 size={13} /></button>}
               </div>
             ))}
           </div>
@@ -249,8 +248,8 @@ export default function CalendarPage() {
                   <div className="faint small truncate">{c.kind === "local" ? "Local" : c.kind === "ics" ? "ICS subscription" : "CalDAV"}{c.last_synced ? ` · synced ${new Date(c.last_synced).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}</div>
                   {c.last_error && <div className="small" style={{ color: "var(--danger)" }}>{c.last_error}</div>}
                 </div>
-                {c.kind !== "local" && <button className="btn ghost sm icon" onClick={() => sync(c)} title="Sync now">{syncing === c.id ? <Loader2 size={13} className="spin" /> : <RefreshCw size={13} />}</button>}
-                <button className="btn ghost sm icon" onClick={() => removeCal(c)} title="Remove"><Trash2 size={13} /></button>
+                {c.kind !== "local" && <button className="btn ghost sm icon" onClick={() => sync(c)} title="Sync now" aria-label={`Sync ${c.name} now`}>{syncing === c.id ? <Loader2 size={13} className="spin" /> : <RefreshCw size={13} />}</button>}
+                <button className="btn ghost sm icon" onClick={() => removeCal(c)} title="Remove calendar" aria-label={`Remove calendar ${c.name}`}><Trash2 size={13} /></button>
               </div>
             ))}
           </div>

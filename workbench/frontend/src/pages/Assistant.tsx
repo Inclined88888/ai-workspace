@@ -1,17 +1,66 @@
-import { Brain, Check, Copy, Download, KeyRound, Loader2, MessageSquare, Plus, Search, Send, ShieldAlert, Sparkles, Square, Trash2, Upload, Wrench, X } from "lucide-react";
+import { Brain, Check, Copy, Download, Paperclip, KeyRound, Loader2, MessageSquare, Pencil, Plus, RotateCcw, Search, Send, ShieldAlert, Sparkles, Square, Trash2, Upload, Wrench, X } from "lucide-react";
 import { FormEvent, Fragment, useEffect, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
-import { api, stream } from "../api";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { api, FileMeta, stream, uploadFile } from "../api";
 import { Empty, Markdown, ModelSelect, relTime, useModels, useToast } from "../util";
+import { shortRef } from "../components/Models";
+import WebSearchPanel from "../components/WebSearch";
 
-type Conv = { id: number; title: string; channel: string; updated_at: string; model: string };
-type Msg = { id: number; role: string; content: string; tool_calls: string[]; name: string };
+type Conv = { id: number; title: string; channel: string; updated_at: string; model: string; project_id?: number | null };
+type ProjectRef = { id: number; name: string };
+type Msg = { id: number; role: string; content: string; tool_calls: string[]; name: string; files?: string[] };
 type Step = { name: string; args: string; status: "running" | "ok" | "error" | "approval"; preview?: string; ms?: number; startedAt: number };
-type Memory = { id: number; content: string; kind: string; source: string; updated_at: string; created_at?: string; conversation_id?: number | null };
+type Memory = { id: number; content: string; kind: string; source: string; updated_at: string; created_at?: string; conversation_id?: number | null;
+  confidence?: number; previous?: string; matched_by?: string[] };
+type MemStatus = { embed_model: string; memories: number; indexed: number; error: string };
 type Used = { id: number; content: string; kind: string };
 type Approval = { id: number; tool: string; args: string; reason: string; channel: string; conversation_id: number | null; status: string; created_at: string };
 
+// Plain English for each real tool event the backend sends; unknown tools fall back to their name
+const STEP_LABEL: Record<string, string> = {
+  search_notes: "Searching your notes", read_note: "Reading a note", create_note: "Saving a note", append_to_note: "Adding to a note",
+  list_tasks: "Checking your tasks", create_task: "Creating a task", update_task: "Updating a task",
+  get_agenda: "Checking your calendar", create_event: "Adding a calendar event",
+  search_email: "Searching your email", save_email_draft: "Preparing an email draft",
+  web_search: "Searching the web", read_page: "Reading a web page", browse_web: "Browsing websites",
+  remember: "Saving a memory", forget: "Forgetting a memory", search_memory: "Checking what it remembers", search_history: "Searching past conversations",
+  load_skill: "Using a saved skill", save_skill: "Saving a reusable skill",
+  schedule_task: "Setting up an automation", list_schedules: "Checking automations",
+  delegate_task: "Handing work to a teammate", list_team: "Checking the team",
+};
+type Note = { id: number; kind: "info" | "warn" | "err"; text: string; fix?: boolean; retry?: string; search?: boolean };
+type MStatus = { default: { ref: string; source: string; error: string }; fallbacks: string[]; providers: { name: string; ok: boolean; checked: boolean; error: string }[] };
+
+// Chat commands, in the style of Hermes and OpenClaw. They run here and are never sent to the model.
+const COMMANDS: [string, string][] = [
+  ["/help", "List commands"],
+  ["/new", "Start a new conversation"],
+  ["/mission", "Hand ROOKS a bigger job: /mission plan the team offsite and draft the invite"],
+  ["/model", "Show the model, or switch: /model gemini-3.8-flash, /model auto"],
+  ["/models", "Free and available models"],
+  ["/status", "Which model answers, its backups and provider health"],
+  ["/retry", "Send your last message again"],
+  ["/stop", "Stop the current answer after this step"],
+  ["/usage", "This month's tokens and cost"],
+];
+
+const STARTERS = [
+  { text: "Plan my week from my calendar and tasks", hint: "Uses your calendar and tasks" },
+  { text: "Remind me to send the invoice on Friday", hint: "Creates a task" },
+  { text: "Draft a polite follow-up email to a client who hasn't replied", hint: "Saves a draft; never sends" },
+  { text: "Every weekday at 8am, give me a short briefing", hint: "Creates an automation" },
+  { text: "/mission Compare three CRM tools for a small team and save a summary note", hint: "A bigger job: ROOKS plans it, you approve, then it works step by step" },
+];
+
 const SOURCE: Record<string, string> = { auto: "learned", user: "added by you", agent: "saved by assistant", import: "imported" };
+
+// Attached files are stored inside the user's message; show them as chips instead of the extracted text
+const ATTACH_RE = /\n*\[Attached file: (.+?) \(file #(\d+)\)[\].][\s\S]*?(?=\n*\[Attached file: |$)/g;
+function splitAttachments(content: string): { text: string; files: string[] } {
+  const files: string[] = [];
+  const text = content.replace(ATTACH_RE, (_m, name: string) => { files.push(name); return ""; }).trim();
+  return { text, files };
+}
 
 function argSummary(raw: string): string {
   try {
@@ -50,13 +99,36 @@ function Approvals({ items, onDone, toast }: { items: Approval[]; onDone: () => 
     </div>
   );
 }
-type Skill = { id: number; name: string; description: string; steps: string; uses: number; source: string; enabled: number };
+type Skill = { id: number; name: string; description: string; steps: string; uses: number; source: string; enabled: number; warnings?: string[] };
 
 const CHANNEL: Record<string, string> = { web: "Web", cli: "Terminal", telegram: "Telegram", schedule: "Schedule" };
 
 function Chat({ tabs }: { tabs: React.ReactNode }) {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [noModel, setNoModel] = useState(false);
+  const [notes, setNotes] = useState<Note[]>([]);
+  const [autoRef, setAutoRef] = useState("");
+  const [menuIdx, setMenuIdx] = useState(0);
+  const [attached, setAttached] = useState<FileMeta[]>([]);
+  const [uploading, setUploading] = useState(0);
+  const [dragOver, setDragOver] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const attach = async (list: FileList | File[]) => {
+    const arr = [...list].slice(0, 10 - attached.length);
+    setUploading((n) => n + arr.length);
+    for (const f of arr) {
+      try {
+        const meta = await uploadFile(f);
+        setAttached((a) => [...a, meta]);
+        if (!meta.chars) note("warn", `${f.name}: ${meta.note}`);
+      } catch (e) { note("err", `${f.name}: ${(e as Error).message}`); }
+      setUploading((n) => n - 1);
+    }
+  };
+  const note = (kind: Note["kind"], text: string, extra: Partial<Note> = {}) => setNotes((n) => [...n, { id: Date.now() + Math.random(), kind, text, ...extra }]);
+  const autoAsked = useRef(false);
   const [convs, setConvs] = useState<Conv[]>([]);
   const [q, setQ] = useState("");
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -73,50 +145,133 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   const keepTurn = useRef(false); // set when a new chat's first turn moves us to its URL: keep its steps on screen
   const toast = useToast();
   const cid = id ? Number(id) : null;
+  // A new chat can start inside a project (/assistant?project=3); an existing one belongs to the project it was started in
+  const startProject = Number(new URLSearchParams(location.search).get("project")) || null;
+  const [convProject, setConvProject] = useState<number | null>(null);
+  const [projectList, setProjectList] = useState<ProjectRef[]>([]);
+  useEffect(() => { api<ProjectRef[]>("/projects?archived=true").then(setProjectList).catch(() => setProjectList([])); }, []);
+  const projectId = cid ? convProject : startProject;
+  const project = projectList.find((p) => p.id === projectId);
 
   const loadConvs = () => api<Conv[]>(`/conversations${q ? `?q=${encodeURIComponent(q)}` : ""}`).then(setConvs).catch(toast.err);
   const loadPending = () => api<Approval[]>("/approvals").then(setPending).catch(() => setPending([]));
   useEffect(() => { const t = setTimeout(loadConvs, 200); return () => clearTimeout(t); }, [q]);
   useEffect(() => { loadPending(); }, []);
+  const [searchOn, setSearchOn] = useState(true);
+  useEffect(() => { api<{ providers: number; search_provider: string }>("/getting-started").then((r) => { setNoModel(r.providers === 0); setSearchOn(!!r.search_provider); }).catch(() => setNoModel(false)); }, []);
+  useEffect(() => { api<MStatus>("/models/status").then((r) => setAutoRef(r.default.ref)).catch(() => setAutoRef("")); }, []);
   useEffect(() => {
     if (keepTurn.current) { keepTurn.current = false; return; }
     setSteps([]);
     setUsed([]);
-    if (!cid) return setMessages([]);
-    api<{ messages: Msg[]; model: string }>(`/conversations/${cid}`).then((c) => { setMessages(c.messages); setModel(c.model || ""); }).catch(toast.err);
+    setNotes([]);
+    if (!cid) { setConvProject(null); return setMessages([]); }
+    api<{ messages: Msg[]; model: string; project_id: number | null }>(`/conversations/${cid}`)
+      .then((c) => { setMessages(c.messages); setModel(c.model || ""); setConvProject(c.project_id); }).catch(toast.err);
   }, [cid]);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, steps]);
+  // A question typed on Home arrives here and is sent once. Declared after the effect that resets the chat for a
+  // new conversation, so that reset runs first and cannot wipe the question.
+  useEffect(() => {
+    const st = location.state as { ask?: string; files?: number[]; fileNames?: string[] } | null;
+    const asked = st?.ask;
+    if (asked && !autoAsked.current && !cid) {
+      autoAsked.current = true;
+      navigate(location.pathname, { replace: true, state: null });
+      send(undefined, asked, st?.files, st?.fileNames);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const send = async (e?: FormEvent) => {
+
+  const send = async (e?: FormEvent, override?: string, fileIds?: number[], fileNames?: string[]) => {
     e?.preventDefault();
-    const msg = text.trim();
-    if (!msg || busy) return;
+    let msg = (override ?? text).trim();
+    if (!msg && !override && attached.length) msg = attached.length > 1 ? "Summarise the attached files." : "Summarise the attached file.";
+    if (!msg) return;
+    const cmd = msg.split(/\s+/)[0].toLowerCase();
+    if (COMMANDS.some(([c]) => c === cmd)) { setText(""); await runCommand(cmd, msg.slice(cmd.length).trim()); return; }
+    if (busy) return;
     setText("");
     setBusy(true);
     setSteps([]);
     setUsed([]);
-    setMessages((m) => [...m, { id: Date.now(), role: "user", content: msg, tool_calls: [], name: "" }]);
+    setNotes([]);
+    const files = fileIds ? fileIds.map((id, i) => ({ id, name: fileNames?.[i] ?? `file #${id}` })) : attached;
+    setAttached([]);
+    setMessages((m) => [...m, { id: Date.now(), role: "user", content: msg, tool_calls: [], name: "", files: files.map((f) => f.name) }]);
     let newId = cid;
     // Update the newest step with this name that is still open
     const settle = (name: string, patch: Partial<Step>) => setSteps((s) => {
       const i = s.map((x) => x.name === name && (x.status === "running" || x.status === "approval")).lastIndexOf(true);
       return i < 0 ? s : s.map((x, j) => (j === i ? { ...x, ...patch, status: x.status === "approval" && patch.status !== "approval" ? "approval" : patch.status ?? x.status } : x));
     });
-    await stream("/assistant/chat", { message: msg, conversation_id: cid, model: model || null }, (ev) => {
+    await stream("/assistant/chat", { message: msg, conversation_id: cid, model: model || null, file_ids: files.map((f) => f.id), project_id: cid ? null : startProject }, (ev) => {
       const t = ev.type as string | undefined;
       if (t === "start") { newId = Number(ev.conversation_id); setRunning(newId); }
       if (t === "memories") setUsed((ev.items as Used[]) ?? []);
       if (t === "tool_call") setSteps((s) => [...s, { name: String(ev.name), args: String(ev.args), status: "running", startedAt: Date.now() }]);
       if (t === "approval") { settle(String(ev.name), { status: "approval" }); loadPending(); }
-      if (t === "tool_result") settle(String(ev.name), { status: ev.ok ? "ok" : "error", preview: String(ev.preview), ms: Number(ev.ms) || undefined });
-      if (t === "message") setMessages((m) => [...m, { id: Date.now() + 1, role: "assistant", content: String(ev.content), tool_calls: [], name: "" }]);
-      if (t === "error" || (!t && ev.error)) toast.err(String(ev.error));
+      if (t === "tool_result") {
+        settle(String(ev.name), { status: ev.ok ? "ok" : "error", preview: String(ev.preview), ms: Number(ev.ms) || undefined });
+        if (ev.name === "web_search" && !ev.ok && /not set up/i.test(String(ev.preview)))
+          setNotes((n) => n.some((x) => x.search) ? n : [...n, { id: Date.now(), kind: "warn", text: "Web search isn't turned on yet, so ROOKS couldn't look this up. A free Tavily key takes a minute (1,000 searches a month, no card).", search: true }]);
+      }
+      if (t === "message") {
+        setMessages((m) => [...m, { id: Date.now() + 1, role: "assistant", content: String(ev.content), tool_calls: [], name: "" }]);
+        if (!searchOn && /web search/i.test(String(ev.content)))
+          setNotes((n) => n.some((x) => x.search) ? n : [...n, { id: Date.now() + 2, kind: "warn", text: "Web search isn't turned on yet. A free Tavily key takes a minute (1,000 searches a month, no card).", search: true }]);
+      }
+      if (t === "notice") note("warn", String(ev.text));
+      if (t === "error" || (!t && ev.error)) {
+        const text = String(ev.error);
+        const fixable = /key|credit|model|provider|Settings|tools|connected|reach/i.test(text);
+        note("err", text, { fix: fixable, retry: msg });
+      }
     });
     setBusy(false);
     setRunning(null);
     loadConvs();
     loadPending();
-    if (newId && newId !== cid) { keepTurn.current = true; navigate(`/assistant/${newId}`, { replace: true }); }
+    if (newId && newId !== cid) { keepTurn.current = true; setConvProject(startProject); navigate(`/assistant/${newId}`, { replace: true }); }
+  };
+
+  const lastUserText = () => [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
+  const runCommand = async (cmd: string, arg: string) => {
+    try {
+      if (cmd === "/help") note("info", COMMANDS.map(([c, d]) => `${c}  ${d}`).join("\n"));
+      else if (cmd === "/mission") {
+        if (arg.length < 5) { note("info", "Describe the job after /mission, e.g. /mission compare three CRM tools and save a summary note. ROOKS plans it first; nothing runs until you approve the plan."); return; }
+        const m = await api<{ id: number }>("/missions", { body: { goal: arg, model: model || null } });
+        navigate(`/missions/${m.id}`);
+      }
+      else if (cmd === "/new") { navigate("/assistant"); setMessages([]); setNotes([]); }
+      else if (cmd === "/stop") { if (running) await stop(); else note("info", "Nothing is running."); }
+      else if (cmd === "/retry") { const last = lastUserText(); if (last) await send(undefined, last); else note("info", "There's no earlier message to send again."); }
+      else if (cmd === "/model") {
+        if (!arg) {
+          note("info", model ? `This chat uses ${shortRef(model, models)} (picked by you; it won't switch on failure). /model auto goes back to the default.`
+            : autoRef ? `This chat uses the default: ${shortRef(autoRef, models)}, with automatic backups. Switch with /model <name>.` : "No model is connected yet.", { fix: !autoRef });
+          return;
+        }
+        if (arg === "auto") { setModel(""); if (cid) await api(`/conversations/${cid}`, { method: "PATCH", body: { model: "" } }); note("info", "Back to the default model, with automatic backups."); return; }
+        const exact = models.filter((m) => m.ref === arg || m.model === arg);
+        const found = exact.length ? exact : models.filter((m) => m.model.toLowerCase().includes(arg.toLowerCase()));
+        if (found.length !== 1) { note("warn", found.length ? `${found.length} models match "${arg}": ${found.slice(0, 8).map((m) => m.model).join(", ")}${found.length > 8 ? "…" : ""}` : `No model matches "${arg}". Try /models.`); return; }
+        setModel(found[0].ref);
+        if (cid) await api(`/conversations/${cid}`, { method: "PATCH", body: { model: found[0].ref } });
+        note("info", `This chat now uses ${found[0].model} (${found[0].provider}). /model auto switches back.`);
+      } else if (cmd === "/models") {
+        const free = models.filter((m) => m.free);
+        note("info", models.length ? `${models.length} models available, ${free.length} free.${free.length ? `\nFree: ${free.slice(0, 12).map((m) => m.model).join(", ")}${free.length > 12 ? "…" : ""}` : ""}\nSwitch with /model <name>.` : "No models yet.", { fix: true });
+      } else if (cmd === "/status") {
+        const st = await api<MStatus>("/models/status");
+        const prov = st.providers.map((p) => `${p.name}: ${!p.checked ? "not checked" : p.ok ? "working" : `problem (${p.error.slice(0, 100)})`}`).join("\n");
+        note(st.default.error ? "warn" : "info", `${st.default.ref ? `Default: ${shortRef(st.default.ref, models)} (${st.default.source === "chosen" ? "your choice" : "automatic"})` : st.default.error}${model ? `\nThis chat: ${shortRef(model, models)}` : ""}\nBackups: ${st.fallbacks.map((r) => shortRef(r, models)).join(", ") || "none"}\n${prov}`, { fix: true });
+      } else if (cmd === "/usage") {
+        const u = await api<{ month_cents: number; month_tokens: number }>("/usage");
+        note("info", `This month: ${u.month_tokens.toLocaleString()} tokens, $${(u.month_cents / 100).toFixed(2)} where prices are known.`);
+      }
+    } catch (e) { note("err", (e as Error).message); }
   };
 
   const remove = async (c: Conv) => {
@@ -131,9 +286,12 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
     try { await api(`/assistant/stop/${running}`, { method: "POST" }); toast.ok("Stopping after the current step"); } catch (e) { toast.err(e); }
   };
   const forgetUsed = async (m: Used) => {
+    if (!confirm(`Forget "${m.content.slice(0, 80)}"? ROOKS will no longer recall it.`)) return;
     try { await api(`/memories/${m.id}`, { method: "DELETE" }); setUsed((u) => u.filter((x) => x.id !== m.id)); toast.ok("Forgotten"); } catch (e) { toast.err(e); }
   };
 
+  const slashMatches = text.startsWith("/") && !text.includes(" ") ? COMMANDS.filter(([c]) => c.startsWith(text.toLowerCase())) : [];
+  const slashOpen = slashMatches.length > 0 && !(slashMatches.length === 1 && slashMatches[0][0] === text.trim());
   const visible = messages.filter((m) => m.role === "user" || (m.role === "assistant" && (m.content || m.tool_calls.length)));
   const lastUser = visible.map((m) => m.role).lastIndexOf("user");
   const timeline = steps.length > 0 && (
@@ -142,8 +300,8 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
                   <li key={i} className="small" style={{ borderLeft: `2px solid ${s.status === "error" ? "var(--danger)" : s.status === "approval" ? "var(--accent)" : "var(--border)"}`, paddingLeft: 10 }}>
                     <div className="row" style={{ gap: 6 }}>
                       {s.status === "running" ? <Loader2 size={12} className="spin" /> : s.status === "ok" ? <Check size={12} /> : s.status === "approval" ? <ShieldAlert size={12} /> : <X size={12} style={{ color: "var(--danger)" }} />}
-                      <span className="mono">{s.name}</span>
-                      <span className="faint">{s.status === "approval" ? "waiting for your approval" : s.status === "running" ? "running" : s.status === "error" ? "failed" : "done"}{s.ms !== undefined ? ` · ${s.ms < 1000 ? `${s.ms} ms` : `${(s.ms / 1000).toFixed(1)} s`}` : ""}</span>
+                      <span>{STEP_LABEL[s.name] ?? s.name}</span>
+                      <span className="faint">{s.status === "approval" ? "waiting for your approval" : s.status === "running" ? "working…" : s.status === "error" ? "needs attention" : "done"}{s.ms !== undefined ? ` · ${s.ms < 1000 ? `${s.ms} ms` : `${(s.ms / 1000).toFixed(1)} s`}` : ""}</span>
                     </div>
                     <details>
                       <summary className="faint truncate" style={{ cursor: "pointer" }}>{argSummary(s.args) || "no arguments"}</summary>
@@ -170,35 +328,70 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
             <div key={c.id} className={`list-item ${c.id === cid ? "active" : ""}`} onClick={() => navigate(`/assistant/${c.id}`)}>
               <div className="grow">
                 <div className="truncate">{c.title}</div>
-                <div className="faint small">{CHANNEL[c.channel] ?? c.channel} · {relTime(c.updated_at)}</div>
+                <div className="faint small">{CHANNEL[c.channel] ?? c.channel} · {relTime(c.updated_at)}
+                  {c.project_id ? ` · ${projectList.find((p) => p.id === c.project_id)?.name ?? "project"}` : ""}</div>
               </div>
-              <button className="btn ghost sm icon" onClick={(e) => { e.stopPropagation(); remove(c); }}><Trash2 size={13} /></button>
+              <button className="btn ghost sm icon" aria-label={`Delete conversation ${c.title}`} title="Delete conversation" onClick={(e) => { e.stopPropagation(); remove(c); }}><Trash2 size={13} /></button>
             </div>
           ))}
         </div>
       </div>
-      <div className="split-main" style={{ display: "flex", flexDirection: "column" }}>
+      <div className="split-main" style={{ display: "flex", flexDirection: "column" }}
+        onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setDragOver(true); } }}
+        onDragLeave={(e) => { if (e.currentTarget === e.target) setDragOver(false); }}
+        onDrop={(e) => { if (e.dataTransfer.files.length) { e.preventDefault(); setDragOver(false); attach(e.dataTransfer.files); } }}>
+        {dragOver && <div className="drop-hint" aria-hidden="true">Drop to attach</div>}
         <div className="toolbar">
-          <div style={{ width: 240 }}><ModelSelect value={model} onChange={setModel} models={models} /></div>
+          <div style={{ width: 260, maxWidth: "100%" }}><ModelSelect value={model} onChange={setModel} models={models} defaultLabel={autoRef ? `Automatic (${shortRef(autoRef, models)})` : "Automatic"} /></div>
+          {project && <Link to={`/projects/${project.id}`} className="badge accent" title="This conversation works in a project: its brief, memories and rules apply">Project: {project.name}</Link>}
           <div className="spacer" />
           {tabs}
         </div>
         <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
           <div style={{ maxWidth: 820, margin: "0 auto" }} className="col gap-lg">
             {visible.length === 0 && !busy && (
-              <Empty icon={<Sparkles size={26} />} title="What can I do for you?"
-                hint="I remember what matters across conversations, use your notes, tasks, calendar and mail, search the web, and can schedule things like a daily report." />
+              <Empty icon={<Sparkles size={26} />} title="What can ROOKS do for you?"
+                hint="Ask in plain English. ROOKS can use your notes, tasks, calendar and mail, search the web, remember what matters, and set up recurring jobs. Anything with lasting effects after reading the web waits for your approval.">
+                {!noModel && STARTERS.map((s) => (
+                  <button key={s.text} type="button" className="chip" title={s.hint} onClick={() => send(undefined, s.text)}>{s.text}</button>
+                ))}
+              </Empty>
+            )}
+            {noModel && visible.length === 0 && (
+              <div className="alert" role="status">ROOKS needs an AI model before it can answer. <Link to="/settings">Connect one in Settings</Link>; a free OpenRouter or Gemini key works.</div>
             )}
             {visible.map((m, i) => (
               <Fragment key={m.id}>
                 {m.role === "user"
-                  ? <div className="bubble-user" style={{ alignSelf: "flex-end", maxWidth: "85%" }}>{m.content}</div>
+                  ? (() => {
+                      const parsed = splitAttachments(m.content);
+                      const names = m.files ?? parsed.files;
+                      return (
+                        <div className="bubble-user" style={{ alignSelf: "flex-end", maxWidth: "85%" }}>
+                          {parsed.text}
+                          {names.length > 0 && <div className="row wrap" style={{ marginTop: 6, gap: 6 }}>{names.map((n, i) => <span key={i} className="attach-chip"><Paperclip size={12} aria-hidden="true" /><span className="name">{n}</span></span>)}</div>}
+                        </div>
+                      );
+                    })()
                   : <div className="col" style={{ gap: 4 }}>
                       {m.tool_calls.length > 0 && <div className="small mono faint row"><Wrench size={12} /> {m.tool_calls.join(", ")}</div>}
                       {m.content && <Markdown text={m.content} />}
                     </div>}
                 {i === lastUser && timeline}
               </Fragment>
+            ))}
+            {lastUser === -1 && timeline}
+            {notes.map((n) => (
+              <div key={n.id} className={`chat-note ${n.kind === "err" ? "err" : n.kind === "warn" ? "warn" : ""}`} role={n.kind === "err" ? "alert" : "status"}>
+                <div style={{ whiteSpace: "pre-wrap" }}>{n.text}</div>
+                {(n.fix || n.retry || n.search) && (
+                  <div className="row wrap" style={{ marginTop: 8 }}>
+                    {n.search && <Link className="btn sm primary" to="/settings#search">Set up web search</Link>}
+                    {n.fix && <Link className="btn sm" to="/settings#models">Open AI model settings</Link>}
+                    {n.retry && !busy && <button type="button" className="btn sm" onClick={() => send(undefined, n.retry)}>Try again</button>}
+                  </div>
+                )}
+              </div>
             ))}
             {used.length > 0 && !busy && (
               <div className="small">
@@ -220,10 +413,42 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
             <div ref={endRef} />
           </div>
         </div>
-        <form className="row" onSubmit={send} style={{ padding: "12px 24px 20px", borderTop: "1px solid var(--border)", background: "var(--panel)" }}>
-          <textarea className="input grow" rows={2} value={text} onChange={(e) => setText(e.target.value)} placeholder="Message your assistant (Enter to send, Shift+Enter for a new line)"
-            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} />
-          <button className="btn primary" disabled={busy || !text.trim()}><Send size={15} /></button>
+        <form className="row" onSubmit={send} style={{ padding: "12px 24px 20px", borderTop: "1px solid var(--border)", background: "var(--panel)", position: "relative" }}>
+          {slashOpen && (
+            <div className="slash-menu" role="listbox" aria-label="Commands" style={{ left: 24, right: 24 }}>
+              {slashMatches.map(([c, d], i) => (
+                <button type="button" key={c} role="option" aria-selected={i === menuIdx} onMouseDown={(e) => { e.preventDefault(); setText(`${c} `); }}>
+                  <span className="mono">{c}</span><span className="muted small">{d}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="col" style={{ gap: 6, flex: "none", alignSelf: "stretch", justifyContent: "flex-end" }}>
+            <button type="button" className="btn ghost icon" onClick={() => fileInput.current?.click()} aria-label="Attach files" title="Attach files (PDF, Word, text)" disabled={uploading > 0 || attached.length >= 10}>
+              {uploading ? <Loader2 size={16} className="spin" /> : <Paperclip size={16} />}
+            </button>
+            <input ref={fileInput} type="file" multiple hidden onChange={(e) => { if (e.target.files) attach(e.target.files); e.target.value = ""; }} />
+          </div>
+          <div className="col grow" style={{ gap: 6 }}>
+            {attached.length > 0 && (
+              <div className="row wrap" style={{ gap: 6 }} aria-label="Attached files">
+                {attached.map((f) => (
+                  <span key={f.id} className="attach-chip"><Paperclip size={12} aria-hidden="true" /><span className="name">{f.name}</span>
+                    <button type="button" className="btn ghost sm icon" style={{ height: 20, width: 20, minHeight: 0, minWidth: 0 }} onClick={() => setAttached((a) => a.filter((x) => x.id !== f.id))} aria-label={`Remove ${f.name}`} title="Remove"><X size={11} /></button></span>
+                ))}
+              </div>
+            )}
+          <textarea className="input grow" rows={2} value={text} onChange={(e) => { setText(e.target.value); setMenuIdx(0); }} aria-label="Message ROOKS"
+            placeholder="Message ROOKS (Enter to send, Shift+Enter for a new line, / for commands)"
+            aria-autocomplete="list" aria-expanded={slashOpen}
+            onKeyDown={(e) => {
+              if (slashOpen && (e.key === "ArrowDown" || e.key === "ArrowUp")) { e.preventDefault(); setMenuIdx((i) => (i + (e.key === "ArrowDown" ? 1 : slashMatches.length - 1)) % slashMatches.length); return; }
+              if (slashOpen && (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey && text.trim() !== slashMatches[menuIdx][0]))) { e.preventDefault(); setText(`${slashMatches[menuIdx][0]} `); return; }
+              if (slashOpen && e.key === "Escape") { e.preventDefault(); setText(""); return; }
+              if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+            }} />
+          </div>
+          <button className="btn primary" disabled={busy || uploading > 0 || (!text.trim() && !attached.length)} aria-label="Send message" title="Send" style={{ alignSelf: "flex-end" }}><Send size={15} /></button>
         </form>
       </div>
       {toast.node}
@@ -235,8 +460,16 @@ function MemoryTab() {
   const [items, setItems] = useState<Memory[]>([]);
   const [q, setQ] = useState("");
   const [form, setForm] = useState({ content: "", kind: "fact" });
+  const [editing, setEditing] = useState<{ id: number; text: string } | null>(null);
   const toast = useToast();
   const load = () => api<Memory[]>(`/memories${q ? `?q=${encodeURIComponent(q)}` : ""}`).then(setItems).catch(toast.err);
+  const correct = async (m: Memory) => {
+    try { await api(`/memories/${m.id}`, { method: "PUT", body: { content: editing!.text, kind: m.kind } }); setEditing(null); toast.ok("Corrected. The earlier wording is kept in case you want it back."); load(); }
+    catch (e) { toast.err(e); }
+  };
+  const revert = async (m: Memory) => {
+    try { await api(`/memories/${m.id}/revert`, { method: "POST" }); toast.ok("Change undone"); load(); } catch (e) { toast.err(e); }
+  };
   useEffect(() => { const t = setTimeout(load, 200); return () => clearTimeout(t); }, [q]);
   const add = async (e: FormEvent) => {
     e.preventDefault();
@@ -275,28 +508,67 @@ function MemoryTab() {
         </select>
         <button className="btn primary" disabled={form.content.trim().length < 3}>Add</button>
       </form>
-      <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search memories" />
+      <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search memories (try everyday words: partner, doctor, holiday)" aria-label="Search memories" />
+      {q && <div className="small muted">Best matches first. Each shows how it was found.</div>}
       {items.length === 0 && <Empty icon={<Brain size={24} />} title="Nothing remembered yet" hint="Chat normally; it learns as you go." />}
       {groups.filter(([, l]) => l.length).map(([title, list]) => (
         <div key={title}>
           <h3 style={{ marginBottom: 6 }}>{title}</h3>
           <div className="card flush">
             {list.map((m) => (
-              <div key={m.id} className="list-item" style={{ cursor: "default" }}>
-                <div className="grow">{m.content}<div className="faint small">
+              <div key={m.id} className="list-item" style={{ cursor: "default", alignItems: "flex-start" }}>
+                <div className="grow">{editing?.id === m.id ? (
+                  <form className="row wrap" onSubmit={(e) => { e.preventDefault(); correct(m); }}>
+                    <input className="input grow" aria-label="Corrected memory" value={editing.text} onChange={(e) => setEditing({ id: m.id, text: e.target.value })} autoFocus />
+                    <button className="btn primary sm" disabled={editing.text.trim().length < 3}>Save</button><button type="button" className="btn ghost sm" onClick={() => setEditing(null)}>Cancel</button>
+                  </form>) : m.content}
+                {m.matched_by && <div style={{ marginTop: 3 }}>{m.matched_by.map((x) => <span key={x} className="tag">found by {x}</span>)}</div>}
+                {m.previous && <div className="small muted" style={{ marginTop: 3 }}>Before the last change: <s>{m.previous}</s> <button className="btn ghost sm" onClick={() => revert(m)}><RotateCcw size={11} /> Undo change</button></div>}
+                <div className="faint small">
                   {SOURCE[m.source] ?? m.source}
+                  {m.confidence !== undefined && <> · <span title="How sure ROOKS is: 100% for what you told it, lower for what it inferred">{Math.round(m.confidence * 100)}% sure</span></>}
                   {m.created_at && <> · <span title={new Date(m.created_at).toLocaleString()}>added {relTime(m.created_at)}</span></>}
                   {m.created_at && m.updated_at !== m.created_at && <> · edited {relTime(m.updated_at)}</>}
                   {m.conversation_id ? <> · <a href={`/assistant/${m.conversation_id}`}>from this chat</a></> : null}
                 </div></div>
-                <button className="btn ghost sm icon" aria-label="Delete memory" onClick={async () => { await api(`/memories/${m.id}`, { method: "DELETE" }); load(); }}><Trash2 size={13} /></button>
+                <button className="btn ghost sm icon" aria-label="Correct memory" title="Correct it" onClick={() => setEditing({ id: m.id, text: m.content })}><Pencil size={13} /></button>
+                <button className="btn ghost sm icon" aria-label="Delete memory" title="Delete memory" onClick={async () => { if (!confirm(`Delete this memory? ROOKS will no longer recall it.\n\n${m.content.slice(0, 120)}`)) return; await api(`/memories/${m.id}`, { method: "DELETE" }); load(); }}><Trash2 size={13} /></button>
               </div>
             ))}
           </div>
         </div>
       ))}
+      <MeaningSearch />
       {toast.node}
     </div>
+  );
+}
+
+function MeaningSearch() {
+  const [st, setSt] = useState<MemStatus | null>(null);
+  const [ref, setRef] = useState("");
+  const [busy, setBusy] = useState(false);
+  const toast = useToast();
+  useEffect(() => { api<MemStatus>("/memory/status").then((s) => { setSt(s); setRef(s.embed_model); }).catch(() => undefined); }, []);
+  const save = async (value: string) => {
+    setBusy(true);
+    try { const s = await api<MemStatus>("/memory/embeddings", { method: "PUT", body: { model: value } }); setSt(s); setRef(s.embed_model); toast.ok(value ? "Search by meaning is on" : "Search by meaning is off"); }
+    catch (e) { toast.err(e); } finally { setBusy(false); }
+  };
+  if (!st) return null;
+  return (
+    <details className="card">
+      <summary style={{ cursor: "pointer" }}><strong>Search by meaning</strong> <span className="muted small">(optional) {st.embed_model ? `on, ${st.indexed} of ${st.memories} indexed` : "off"}</span></summary>
+      <div className="col" style={{ marginTop: 8 }}>
+        <p className="muted small" style={{ margin: 0 }}>Keyword search already understands common everyday wording and typos. For wording it does not know, connect an embedding model from a provider you already use, for example <span className="mono">nomic-embed-text</span> in Ollama. Memories are sent to that provider to be indexed, so pick a local one if they must stay on this computer.</p>
+        <label className="field">Embedding model <span className="hint">provider id/model, as in Settings, Models</span>
+          <input className="input mono" value={ref} onChange={(e) => setRef(e.target.value)} placeholder="1/nomic-embed-text" /></label>
+        {st.error && <div className="alert err">{st.error}</div>}
+        <div className="row"><button className="btn sm" disabled={busy || !ref.trim()} onClick={() => save(ref.trim())}>{busy ? "Testing…" : "Test and turn on"}</button>
+          {st.embed_model && <button className="btn ghost sm" disabled={busy} onClick={() => save("")}>Turn off</button>}</div>
+      </div>
+      {toast.node}
+    </details>
   );
 }
 
@@ -337,6 +609,7 @@ function SkillsTab() {
               <span className="faint small">used {s.uses}×</span>
             </div>
             <div className="muted small">{s.description}</div>
+            {s.warnings && s.warnings.length > 0 && <div className="alert" style={{ padding: "4px 8px" }}>May not work: {s.warnings.join("; ")}.</div>}
             {open === s.id && (
               <>
                 <Markdown text={s.steps} />
@@ -385,15 +658,7 @@ function SettingsTab() {
         </div>
         <label className="check"><input type="checkbox" checked={s.learning_enabled} onChange={(e) => put({ learning_enabled: e.target.checked })} /> Learn memories and skills automatically (uses extra model calls)</label>
       </div>
-      <div className="card col">
-        <h3>Web search</h3>
-        <div className="muted small">Currently: {s.search_provider || "not set up"}. Add a Brave Search or Tavily API key, or enable the SearXNG add-on.</div>
-        <div className="row wrap">
-          <input className="input grow" type="password" placeholder="Brave Search API key" value={f.brave} onChange={(e) => setF({ ...f, brave: e.target.value })} />
-          <input className="input grow" type="password" placeholder="Tavily API key" value={f.tavily} onChange={(e) => setF({ ...f, tavily: e.target.value })} />
-          <button className="btn" onClick={() => put({ ...(f.brave ? { brave_api_key: f.brave } : {}), ...(f.tavily ? { tavily_api_key: f.tavily } : {}) }, "Search key saved")}>Save</button>
-        </div>
-      </div>
+      <WebSearchPanel />
       <div className="card col">
         <div className="row"><h3 className="grow">Telegram</h3>{s.telegram.running ? <span className="badge ok">@{s.telegram.bot} online</span> : s.telegram.configured ? <span className="badge danger">offline</span> : <span className="badge">not set up</span>}</div>
         {s.telegram.error && <div className="alert err">{s.telegram.error}</div>}

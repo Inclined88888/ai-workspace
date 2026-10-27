@@ -3,6 +3,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
 import { Empty, Markdown, ModelSelect, relTime, useModels, useToast } from "../util";
+import { Modal } from "../components/ui";
 
 type Agent = { id: number; name: string; title: string; reports_to: number | null; model: string; instructions: string; monthly_budget_cents: number;
   monthly_token_limit: number; status: string; paused_reason: string; month: { cents: number; tokens: number; unpriced_calls: number } };
@@ -70,7 +71,7 @@ export default function Company() {
   return (
     <div className="page wide" style={{ maxWidth: 1400 }}>
       <div className="page-head">
-        <div><h1>Company</h1><p className="muted">You are the board. Set the mission, hire agents, assign work, cap spend. One task runs at a time.</p></div>
+        <div><h1>Agent team</h1><p className="muted">Agents are AI teammates with a role, instructions and a monthly budget. Give one a task and it works on it with the same tools as ROOKS, handing parts to the people who report to it. You stay in charge: one task runs at a time, and an agent pauses when it reaches its budget.</p></div>
         <div className="spacer" />
         <span className="badge">${(spend / 100).toFixed(2)} this month</span>
         <button className="btn primary" onClick={() => setEdit({ ...blank })}><UserPlus size={15} /> Hire</button>
@@ -118,7 +119,7 @@ export default function Company() {
                 <div key={t.id} className="card col" style={{ padding: 10, gap: 6 }}>
                   <div className="row" style={{ alignItems: "flex-start" }}>
                     <strong className="grow" style={{ cursor: "pointer" }} onClick={() => setOpen(open === t.id ? null : t.id)}>{t.title}</strong>
-                    <button className="btn ghost sm icon" onClick={async () => { await api(`/company/tasks/${t.id}`, { method: "DELETE" }); load(); }}><X size={12} /></button>
+                    <button className="btn ghost sm icon" aria-label={`Delete task ${t.title}`} title="Delete task" onClick={async () => { if (!confirm(`Delete the task "${t.title}"?`)) return; await api(`/company/tasks/${t.id}`, { method: "DELETE" }); load(); }}><X size={12} /></button>
                   </div>
                   <div className="faint small">{t.agent_name ?? "unassigned"} · {t.created_by === "board" ? "from you" : "delegated"} · {relTime(t.updated_at)}</div>
                   {open === t.id && (t.result ? <Markdown text={t.result} /> : <div className="muted small">{t.description || "No details."}</div>)}
@@ -134,9 +135,8 @@ export default function Company() {
       </div>
 
       {edit && (
-        <div className="modal-back" onClick={() => setEdit(null)}>
-          <form className="modal col gap-lg" onClick={(e) => e.stopPropagation()} onSubmit={saveAgent}>
-            <div className="row"><h2 className="grow">{edit.id ? `Edit ${edit.name}` : "Hire an agent"}</h2><button type="button" className="btn ghost sm icon" onClick={() => setEdit(null)}><X size={15} /></button></div>
+        <Modal title={edit.id ? `Edit ${edit.name}` : "Hire an agent"} onClose={() => setEdit(null)} width={600}>
+          <form className="col gap-lg" onSubmit={saveAgent}>
             <div className="row">
               <label className="field grow">Name<input className="input" required value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} /></label>
               <label className="field grow">Role<input className="input" placeholder="CEO, CTO, Engineer…" value={edit.title} onChange={(e) => setEdit({ ...edit, title: e.target.value })} /></label>
@@ -164,7 +164,7 @@ export default function Company() {
             </div>
             {edit.id && data.agents.find((x) => x.id === edit.id)?.paused_reason && <div className="alert err">{data.agents.find((x) => x.id === edit.id)?.paused_reason}</div>}
           </form>
-        </div>
+        </Modal>
       )}
       {toast.node}
     </div>

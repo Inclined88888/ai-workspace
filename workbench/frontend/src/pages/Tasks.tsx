@@ -16,32 +16,32 @@ function TaskRow({ task, onChange, onDelete }: { task: Task; onChange: (t: Task)
 
   return (
     <div className={`task ${task.status === "done" ? "done" : ""}`}>
-      <button className={`circle ${task.status === "done" ? "done" : ""}`} onClick={() => patch({ status: task.status === "done" ? "todo" : "done" })} aria-label="Toggle done">
+      <button className={`circle ${task.status === "done" ? "done" : ""}`} onClick={() => patch({ status: task.status === "done" ? "todo" : "done" })} aria-label={task.status === "done" ? `Mark "${task.title}" as not done` : `Mark "${task.title}" as done`} title={task.status === "done" ? "Mark as not done" : "Mark as done"}>
         {task.status === "done" && <Check size={12} />}
       </button>
       <div className="grow col" style={{ gap: 4 }}>
-        <div className="row" onClick={() => setOpen(!open)} style={{ cursor: "pointer" }}>
+        <button type="button" className="row task-open" onClick={() => setOpen(!open)} aria-expanded={open} title={open ? "Close" : "Edit task"}>
           <span className="title grow">{task.title}</span>
-          {task.priority > 0 && <Flag size={13} className={`prio-${task.priority}`} />}
+          {task.priority > 0 && <Flag size={13} className={`prio-${task.priority}`} aria-label={`${PRIO[task.priority]} priority`} />}
           {task.project && <span className="badge">{task.project}</span>}
-          {task.due && <span className={`badge ${task.status !== "done" && task.due < today ? "danger" : task.due === today ? "warn" : ""}`}>{task.due === today ? "Today" : task.due}</span>}
-        </div>
+          {task.due && <span className={`badge ${task.status !== "done" && task.due < today ? "danger" : task.due === today ? "warn" : ""}`}>{task.status !== "done" && task.due < today ? `Overdue · ${task.due}` : task.due === today ? "Today" : task.due}</span>}
+        </button>
         {task.notes && !open && <div className="muted small truncate">{task.notes}</div>}
         {open && (
           <div className="col" style={{ paddingTop: 6 }}>
-            <input className="input" value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
-            <textarea className="input" rows={3} value={draft.notes} placeholder="Notes" onChange={(e) => setDraft({ ...draft, notes: e.target.value })} />
+            <input className="input" aria-label="Task title" value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
+            <textarea className="input" rows={3} aria-label="Notes" value={draft.notes} placeholder="Notes" onChange={(e) => setDraft({ ...draft, notes: e.target.value })} />
             <div className="row wrap">
-              <input className="input" type="date" style={{ width: 160 }} value={draft.due ?? ""} onChange={(e) => setDraft({ ...draft, due: e.target.value || null })} />
-              <select className="input" style={{ width: 130 }} value={draft.priority} onChange={(e) => setDraft({ ...draft, priority: Number(e.target.value) })}>
+              <input className="input" type="date" aria-label="Due date" style={{ width: 160 }} value={draft.due ?? ""} onChange={(e) => setDraft({ ...draft, due: e.target.value || null })} />
+              <select className="input" aria-label="Priority" style={{ width: 130 }} value={draft.priority} onChange={(e) => setDraft({ ...draft, priority: Number(e.target.value) })}>
                 {PRIO.map((p, i) => <option key={p} value={i}>{p} priority</option>)}
               </select>
-              <input className="input" style={{ width: 160 }} placeholder="Project" value={draft.project} onChange={(e) => setDraft({ ...draft, project: e.target.value })} />
-              <select className="input" style={{ width: 130 }} value={task.status} onChange={(e) => patch({ status: e.target.value as Task["status"] })}>
+              <input className="input" aria-label="Project" style={{ width: 160 }} placeholder="Project" value={draft.project} onChange={(e) => setDraft({ ...draft, project: e.target.value })} />
+              <select className="input" aria-label="Status" style={{ width: 130 }} value={task.status} onChange={(e) => patch({ status: e.target.value as Task["status"] })}>
                 <option value="todo">To do</option><option value="doing">In progress</option><option value="done">Done</option>
               </select>
               <div className="spacer" />
-              <button className="btn ghost sm danger" onClick={onDelete}><Trash2 size={14} /></button>
+              <button className="btn ghost sm danger" onClick={onDelete} aria-label={`Delete task ${task.title}`} title="Delete task"><Trash2 size={14} /></button>
               <button className="btn primary sm" onClick={async () => { await save(); setOpen(false); }}>Save</button>
             </div>
           </div>
@@ -110,14 +110,18 @@ export default function Tasks() {
 
   const update = (t: Task) => setTasks((l) => l.map((x) => (x.id === t.id ? t : x)));
   const remove = async (id: number) => {
-    await api(`/tasks/${id}`, { method: "DELETE" });
-    setTasks((l) => l.filter((x) => x.id !== id));
+    const t = tasks.find((x) => x.id === id);
+    if (!confirm(`Delete the task "${t?.title ?? ""}"? This can't be undone.`)) return;
+    try {
+      await api(`/tasks/${id}`, { method: "DELETE" });
+      setTasks((l) => l.filter((x) => x.id !== id));
+    } catch (e) { toast.err(e); }
   };
 
   return (
     <div className="page">
       <div className="page-head">
-        <div><h1>Tasks</h1><p className="muted">Agents in Chat can read, add and complete these.</p></div>
+        <div><h1>Tasks</h1><p className="muted">Your to-dos, with due dates and priorities. You can also ask ROOKS to add, plan or complete them.</p></div>
         <div className="spacer" />
         <div className="tabs">
           {(["open", "done", "all"] as const).map((f) => <button key={f} className={`tab ${filter === f ? "active" : ""}`} onClick={() => setFilter(f)}>{f[0].toUpperCase() + f.slice(1)}</button>)}

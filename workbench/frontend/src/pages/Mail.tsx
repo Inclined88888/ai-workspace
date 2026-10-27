@@ -47,7 +47,7 @@ function Composer({ account, initial, onClose, onSent }: { account: Account; ini
 
   return (
     <div className="card col" style={{ margin: 20 }}>
-      <div className="row"><h3 className="grow">{c.in_reply_to ? "Reply" : "New message"} <span className="faint small">from {account.email}</span></h3><button className="btn ghost sm icon" onClick={onClose}><X size={15} /></button></div>
+      <div className="row"><h3 className="grow">{c.in_reply_to ? "Reply" : "New message"} <span className="faint small">from {account.email}</span></h3><button className="btn ghost sm icon" aria-label="Close" title="Close" onClick={onClose}><X size={15} /></button></div>
       <input className="input" placeholder="To" value={c.to} onChange={(e) => setC({ ...c, to: e.target.value })} />
       <input className="input" placeholder="Subject" value={c.subject} onChange={(e) => setC({ ...c, subject: e.target.value })} />
       <div className="row wrap">
@@ -113,7 +113,7 @@ export default function MailPage() {
   if (!account) {
     return (
       <div className="page">
-        <Empty icon={<Mail size={28} />} title="No mail account connected" hint="Add an IMAP/SMTP account in Settings. Gmail and Outlook need an app password." />
+        <Empty icon={<Mail size={28} />} title="No mail account connected" hint="Connect an account in Settings to read mail and let ROOKS prepare drafts. Gmail, iCloud and Fastmail work with an app password. Outlook.com and Microsoft 365 are not supported (they require OAuth)." />
         <div className="row" style={{ justifyContent: "center" }}><Link className="btn primary" to="/settings#mail">Connect mail</Link></div>
       </div>
     );
@@ -130,7 +130,7 @@ export default function MailPage() {
                 {accounts.map((a) => <option key={a.id} value={a.id}>{a.email}</option>)}
               </select>
             ) : <strong className="grow truncate">{account.email}</strong>}
-            <button className="btn ghost sm icon" onClick={load} title="Refresh">{loading ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />}</button>
+            <button className="btn ghost sm icon" onClick={load} title="Refresh" aria-label="Refresh mail">{loading ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />}</button>
             <button className="btn primary sm" onClick={() => { setMsg(null); setCompose({ to: "", subject: "", body: "", in_reply_to: "" }); }}><PenSquare size={14} /></button>
           </div>
           <div className="tabs">
@@ -155,14 +155,14 @@ export default function MailPage() {
               </div>
             </div>
           ))}
-          {view === "drafts" && drafts.length === 0 && <Empty icon={<PenSquare size={22} />} title="No drafts" hint="Agents in Chat save drafts here. They never send on their own." />}
+          {view === "drafts" && drafts.length === 0 && <Empty icon={<PenSquare size={22} />} title="No drafts" hint="Drafts written by ROOKS land here for you to review. Nothing is ever sent without you." />}
           {view === "drafts" && drafts.map((d) => (
             <div key={d.id} className="list-item" style={{ alignItems: "flex-start" }} onClick={() => { setMsg(null); setCompose({ to: d.to_addr, subject: d.subject, body: d.body, in_reply_to: d.in_reply_to, draft_id: d.id }); }}>
               <div className="grow">
                 <div className="truncate"><strong>{d.subject || "(no subject)"}</strong></div>
                 <div className="muted small truncate">To {d.to_addr} · {relTime(d.updated_at)}</div>
               </div>
-              <button className="btn ghost sm icon" onClick={async (e) => { e.stopPropagation(); await api(`/mail/drafts/${d.id}`, { method: "DELETE" }); load(); }}><Trash2 size={13} /></button>
+              <button className="btn ghost sm icon" aria-label="Delete draft" title="Delete draft" onClick={async (e) => { e.stopPropagation(); if (!confirm("Delete this draft?")) return; await api(`/mail/drafts/${d.id}`, { method: "DELETE" }); load(); }}><Trash2 size={13} /></button>
             </div>
           ))}
         </div>

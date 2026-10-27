@@ -33,17 +33,19 @@ export function ModelSelect({
   onChange,
   models,
   allowDefault = true,
+  defaultLabel = "Default model",
 }: {
   value: string;
   onChange: (v: string) => void;
   models: Model[];
   allowDefault?: boolean;
+  defaultLabel?: string;
 }) {
   const groups = new Map<string, Model[]>();
   models.forEach((m) => groups.set(m.provider, [...(groups.get(m.provider) ?? []), m]));
   return (
-    <select className="input" value={value} onChange={(e) => onChange(e.target.value)}>
-      {allowDefault && <option value="">Default model</option>}
+    <select className="input" aria-label="AI model" title="AI model" value={value} onChange={(e) => onChange(e.target.value)}>
+      {allowDefault && <option value="">{defaultLabel}</option>}
       {[...groups.entries()].map(([provider, list]) => (
         <optgroup key={provider} label={provider}>
           {list.map((m) => (
@@ -87,7 +89,8 @@ export function useToast() {
     const t = setTimeout(() => setMsg(null), 4000);
     return () => clearTimeout(t);
   }, [msg]);
-  const node = msg ? <div className={`toast ${msg.kind}`}>{msg.text}</div> : null;
+  // Announced to screen readers: errors interrupt, confirmations wait their turn
+  const node = msg ? <div className={`toast ${msg.kind}`} role={msg.kind === "err" ? "alert" : "status"} aria-live={msg.kind === "err" ? "assertive" : "polite"}>{msg.text}</div> : null;
   return {
     node,
     ok: (text: string) => setMsg({ text, kind: "ok" }),
@@ -95,12 +98,13 @@ export function useToast() {
   };
 }
 
-export function Empty({ icon, title, hint }: { icon: React.ReactNode; title: string; hint?: string }) {
+export function Empty({ icon, title, hint, children }: { icon: React.ReactNode; title: string; hint?: string; children?: React.ReactNode }) {
   return (
     <div className="empty">
-      <div className="empty-icon">{icon}</div>
+      <div className="empty-icon" aria-hidden="true">{icon}</div>
       <div className="empty-title">{title}</div>
-      {hint && <div className="muted">{hint}</div>}
+      {hint && <div className="muted" style={{ maxWidth: 420 }}>{hint}</div>}
+      {children && <div className="row wrap" style={{ justifyContent: "center", marginTop: 8 }}>{children}</div>}
     </div>
   );
 }

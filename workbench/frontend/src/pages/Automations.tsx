@@ -81,10 +81,10 @@ export default function Automations() {
             {data.schedules.map((s) => (
               <div key={s.id} className="col" style={{ padding: "10px 14px", borderBottom: "1px solid var(--border)", gap: 4 }}>
                 <div className="row">
-                  <input type="checkbox" checked={!!s.enabled} onChange={async () => { await api(`/schedules/${s.id}`, { method: "PATCH", body: { enabled: !s.enabled } }); load(); }} />
+                  <input type="checkbox" aria-label={`${s.enabled ? "Pause" : "Turn on"} ${s.name}`} title={s.enabled ? "On: click to pause" : "Paused: click to turn on"} checked={!!s.enabled} onChange={async () => { await api(`/schedules/${s.id}`, { method: "PATCH", body: { enabled: !s.enabled } }); load(); }} />
                   <strong className="grow truncate">{s.name}</strong>
                   <button className="btn sm" disabled={running === s.id} onClick={() => runNow(s)}>{running === s.id ? <Loader2 size={13} className="spin" /> : <Play size={13} />} Run now</button>
-                  <button className="btn ghost sm icon" onClick={async () => { if (confirm(`Delete ${s.name}?`)) { await api(`/schedules/${s.id}`, { method: "DELETE" }); load(); } }}><Trash2 size={13} /></button>
+                  <button className="btn ghost sm icon" aria-label={`Delete automation ${s.name}`} title="Delete automation" onClick={async () => { if (confirm(`Delete the automation "${s.name}"? It will stop running.`)) { await api(`/schedules/${s.id}`, { method: "DELETE" }); load(); } }}><Trash2 size={13} /></button>
                 </div>
                 <div className="muted small">{describe(s.cron)} · {s.deliver === "telegram" ? "Inbox + Telegram" : "Inbox"}{s.enabled && s.next_run ? ` · next ${new Date(s.next_run).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}` : ""}</div>
                 {s.last_status && s.last_status !== "ok" && <div className="small" style={{ color: "var(--danger)" }}>{s.last_status}</div>}
@@ -102,7 +102,7 @@ export default function Automations() {
                   {!i.read && <span className="dot" style={{ background: "var(--accent)" }} />}
                   <strong className="grow truncate">{i.title}</strong>
                   <span className="faint small">{relTime(i.created_at)}</span>
-                  <button className="btn ghost sm icon" onClick={async (e) => { e.stopPropagation(); await api(`/inbox/${i.id}`, { method: "DELETE" }); load(); }}><Trash2 size={13} /></button>
+                  <button className="btn ghost sm icon" aria-label="Delete from inbox" title="Delete from inbox" onClick={async (e) => { e.stopPropagation(); if (!confirm(`Delete "${i.title}" from the inbox?`)) return; await api(`/inbox/${i.id}`, { method: "DELETE" }); load(); }}><Trash2 size={13} /></button>
                 </div>
                 {open === i.id ? <Markdown text={i.body} /> : <div className="muted small truncate">{i.body}</div>}
               </div>

@@ -72,13 +72,13 @@ export default function Compare() {
           <div key={col.id} className="card compare-col">
             <div className="row" style={{ marginBottom: 8 }}>
               <div className="grow"><ModelSelect value={col.model} onChange={(v) => update(col.id, (c) => ({ ...c, model: v }))} models={models} allowDefault={false} /></div>
-              {cols.length > 1 && <button className="btn ghost sm icon" onClick={() => { aborts.current.get(col.id)?.abort(); setCols(cols.filter((c) => c.id !== col.id)); }}><X size={15} /></button>}
+              {cols.length > 1 && <button className="btn ghost sm icon" aria-label="Remove this column" title="Remove this column" onClick={() => { aborts.current.get(col.id)?.abort(); setCols(cols.filter((c) => c.id !== col.id)); }}><X size={15} /></button>}
             </div>
             <div className="out">
               {col.history.length === 0 && !col.busy && <Empty icon={<Columns3 size={20} />} title={col.model ? "Ready" : "Pick a model"} />}
               {col.history.map((t, i) => t.role === "user"
                 ? <div key={i} className="bubble-user">{t.content}</div>
-                : <div key={i} style={{ position: "relative" }}><Markdown text={t.content} /><button className="btn ghost sm icon" title="Copy" onClick={() => navigator.clipboard.writeText(t.content)} style={{ position: "absolute", top: -4, right: 0 }}><Copy size={12} /></button></div>)}
+                : <div key={i} style={{ position: "relative" }}><Markdown text={t.content} /><button className="btn ghost sm icon" title="Copy" aria-label="Copy answer" onClick={() => navigator.clipboard.writeText(t.content)} style={{ position: "absolute", top: -4, right: 0 }}><Copy size={12} /></button></div>)}
               {col.thinking && (
                 <details className="thinking" open={col.busy && !col.live}>
                   <summary className="muted small">{col.busy && !col.live ? "Thinking…" : "Show reasoning"}</summary>

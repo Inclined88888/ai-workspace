@@ -102,8 +102,8 @@ function Editor({ doc, onSaved, onDeleted }: { doc: Doc; onSaved: (d: Doc) => vo
         </select>
         <div className="spacer" />
         <span className="faint small">{saving === "saving" ? "Saving…" : saving === "pending" ? "Edited" : saving === "saved" ? "Saved" : ""} · {words} words</span>
-        <button className={`btn ghost sm icon ${doc.pinned ? "prio-1" : ""}`} onClick={togglePin} title="Pin"><Pin size={15} /></button>
-        <button className="btn ghost sm icon danger" onClick={remove} title="Delete"><Trash2 size={15} /></button>
+        <button className={`btn ghost sm icon ${doc.pinned ? "prio-1" : ""}`} onClick={togglePin} title={doc.pinned ? "Unpin" : "Pin"} aria-label={doc.pinned ? "Unpin" : "Pin"} aria-pressed={!!doc.pinned}><Pin size={15} /></button>
+        <button className="btn ghost sm icon danger" onClick={remove} title="Delete" aria-label={`Delete ${doc.kind}`}><Trash2 size={15} /></button>
       </div>
       <div style={{ padding: "24px 32px", maxWidth: 860, width: "100%", margin: "0 auto", display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
         <input className="editor-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Untitled" />
@@ -120,7 +120,7 @@ function Editor({ doc, onSaved, onDeleted }: { doc: Doc; onSaved: (d: Doc) => vo
               <strong>{ACTIONS.find((a) => a.id === assist.action)?.label ?? "Custom edit"}</strong>
               {assist.busy && <Loader2 size={14} className="spin" />}
               <div className="spacer" />
-              <button className="btn ghost sm icon" onClick={() => { abortRef.current?.abort(); setAssist(null); }}><X size={15} /></button>
+              <button className="btn ghost sm icon" aria-label="Close AI assist" title="Close" onClick={() => { abortRef.current?.abort(); setAssist(null); }}><X size={15} /></button>
             </div>
             <Markdown text={assist.result.replace(/<think>[\s\S]*?(<\/think>|$)/g, "") || (assist.thinking ? "*Thinking…*" : "…")} />
             {!assist.busy && assist.result && (
@@ -172,12 +172,13 @@ export default function Docs({ kind }: { kind: "note" | "document" }) {
       <div className="split-list">
         <div className="col" style={{ padding: 14, borderBottom: "1px solid var(--border)" }}>
           <div className="row">
-            <h2 className="grow">{kind === "note" ? "Notes" : "Documents"}</h2>
-            <button className="btn primary sm" onClick={create}><Plus size={14} /> New</button>
+            <h1 className="grow" style={{ fontSize: 16 }}>{kind === "note" ? "Notes" : "Documents"}</h1>
+            <button className="btn primary sm" onClick={create}><Plus size={14} /> New {kind}</button>
           </div>
+          <div className="muted small">{kind === "note" ? "Quick thoughts and meeting notes. For longer writing, use Documents." : "Longer writing with AI help. For quick thoughts, use Notes."}</div>
           <div className="row" style={{ position: "relative" }}>
             <Search size={14} className="faint" style={{ position: "absolute", left: 10 }} />
-            <input className="input" style={{ paddingLeft: 30 }} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search" />
+            <input className="input" style={{ paddingLeft: 30 }} value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Search ${kind}s`} aria-label={`Search ${kind}s`} />
           </div>
         </div>
         <div className="scroll">
@@ -198,7 +199,7 @@ export default function Docs({ kind }: { kind: "note" | "document" }) {
           <Editor key={current.id} doc={current} onSaved={(d) => { setCurrent(d); setList((l) => l.map((x) => (x.id === d.id ? { ...x, ...d, preview: d.body.slice(0, 240) } : x))); }}
             onDeleted={() => { setCurrent(null); navigate(base); load(); }} />
         ) : (
-          <Empty icon={<Icon size={28} />} title={`Select or create a ${kind}`} hint={kind === "document" ? "Draft long form writing with AI assist. Research reports can be saved here." : "Quick thoughts, meeting notes, ideas. Agents in Chat can search and add to these."} />
+          <Empty icon={<Icon size={28} />} title={`Select or create a ${kind}`} hint={kind === "document" ? "Draft long form writing with AI assist. Research reports can be saved here." : "Quick thoughts, meeting notes, ideas. ROOKS can search and add to these when you ask."} />
         )}
       </div>
       {toast.node}

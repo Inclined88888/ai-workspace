@@ -144,3 +144,24 @@ export type Calendar = {
   last_synced: string | null;
   last_error: string | null;
 };
+
+export type FileMeta = { id: number; name: string; mime: string; size: number; note: string; created_at: string; chars: number; excerpt?: string };
+
+/** Upload one file as the raw request body (the server keeps no multipart parser). */
+export async function uploadFile(file: File): Promise<FileMeta> {
+  const res = await fetch(`/api/files?name=${encodeURIComponent(file.name)}`, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": file.type || "application/octet-stream", "X-Workbench": "1" },
+    body: file,
+  });
+  const text = await res.text();
+  let body: unknown = null;
+  try { body = text ? JSON.parse(text) : null; } catch { body = text; }
+  if (!res.ok) throw new ApiError(res.status, detail(body, `${res.status} ${res.statusText}`));
+  return body as FileMeta;
+}
+
+export function fileSize(n: number): string {
+  return n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1048576).toFixed(1)} MB`;
+}

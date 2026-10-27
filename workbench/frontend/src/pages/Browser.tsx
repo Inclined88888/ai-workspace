@@ -125,7 +125,7 @@ export default function Browser() {
                 <div className="truncate">{j.goal}</div>
                 <div className="row small faint">{active(j.status) && <Loader2 size={11} className="spin" />}{j.status} · {j.source} · {ago(j.created_at)}</div>
               </div>
-              <button className="btn ghost sm icon" onClick={(e) => { e.stopPropagation(); remove(j.id); }}><Trash2 size={13} /></button>
+              <button className="btn ghost sm icon" aria-label="Delete browser job" title="Delete browser job" onClick={(e) => { e.stopPropagation(); if (confirm("Delete this browser job and its screenshots?")) remove(j.id); }}><Trash2 size={13} /></button>
             </div>
           ))}
         </div>
