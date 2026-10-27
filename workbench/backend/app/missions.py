@@ -266,20 +266,23 @@ def update_budget(mid: int, **budget) -> dict:
 
 
 def start(mid: int) -> dict:
-    m = _get(mid)
-    if m["status"] == "review_step":
-        raise HTTPException(409, "A step is waiting for your review: accept it or redo it.")
-    if m["status"] not in ("review", "paused", "failed", "partial"):
-        # waiting_approval resumes by itself once the approval is answered; starting it here would ask twice
-        raise HTTPException(409, "Answer the approval request first." if m["status"] == "waiting_approval"
-                            else f"Cannot start a mission that is {m['status']}.")
-    plan_ = m["plan"]
-    for s in plan_:  # run again from the first step that did not finish; "run again" after partial redoes unverified steps
-        if s["status"] in ("failed", "running", "waiting_approval", "skipped") or (m["status"] == "partial" and s["status"] == "unverified"):
-            s["status"], s["attempts"] = "pending", 0
-    first = next((i for i, s in enumerate(plan_) if s["status"] != "done"), len(plan_))
-    reserve_check(m)
-    _set(mid, plan=plan_, status="queued", control="", error="", current_step=first)
+    # The budget check and transition into the reserved/queued state are one
+    # SQLite write transaction. Concurrent mission starts cannot both spend
+    # the same unreserved monthly balance.
+    with db.tx():
+        m = _get(mid)
+        if m["status"] == "review_step":
+            raise HTTPException(409, "A step is waiting for your review: accept it or redo it.")
+        if m["status"] not in ("review", "paused", "failed", "partial"):
+            raise HTTPException(409, "Answer the approval request first." if m["status"] == "waiting_approval"
+                                else f"Cannot start a mission that is {m['status']}.")
+        plan_ = m["plan"]
+        for step in plan_:
+            if step["status"] in ("failed", "running", "waiting_approval", "skipped") or (m["status"] == "partial" and step["status"] == "unverified"):
+                step["status"], step["attempts"] = "pending", 0
+        first = next((i for i, step in enumerate(plan_) if step["status"] != "done"), len(plan_))
+        reserve_check(m)
+        _set(mid, plan=plan_, status="queued", control="", error="", current_step=first)
     event(mid, "started", "Started." if m["status"] == "review" else "Resumed.")
     audit.record("user", "mission started", f"#{mid}")
     _wake.set()
