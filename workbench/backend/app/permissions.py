@@ -31,6 +31,10 @@ GROUPS: dict[str, tuple[str, str, dict[str, str]]] = {
     "github": ("GitHub", "Search and read issues and pull requests; open issues and comment (always asks first)", {
         "github_search": READ, "github_read_issue": READ, "github_create_issue": CONSEQUENTIAL, "github_comment": CONSEQUENTIAL}),
 }
+GROUPS["terminal"] = ("Terminal", "Run commands in the isolated workspace runner (asks first by default; risky commands always ask)",
+                      {"run_command": WRITE})
+GROUPS["workspace"] = ("Workspace files", "List, read, create and edit files in the workspace folder (previous versions are kept)",
+                       {"workspace_list": READ, "workspace_read": READ, "workspace_write": WRITE, "workspace_edit": WRITE})
 GROUPS["computer"] = ("Computer Use", "Look at and use apps, ROOKS's browser and allowed folders on your paired computer", {
     "computer_observe": READ, "computer_wait_for": READ, "browser_snapshot": READ, "files_list": READ, "files_read": READ,
     "computer_open_app": WRITE, "computer_click": WRITE, "computer_type": WRITE, "computer_key": WRITE, "computer_scroll": WRITE,
@@ -46,12 +50,15 @@ TOOL_GROUP = {tool: g for g, (_, _, tools) in GROUPS.items() for tool in tools}
 TOOL_RISK = {tool: risk for _, (_, _, tools) in GROUPS.items() for tool, risk in tools.items()}
 
 
+DEFAULT_MODES = {"terminal": "ask"}  # until you choose otherwise
+
+
 def policy() -> dict[str, str]:
     try:
         saved = json.loads(db.get_setting("tool_policy", "") or "{}")
     except ValueError:
         saved = {}
-    return {g: saved.get(g) if saved.get(g) in MODES else "on" for g in GROUPS}
+    return {g: saved.get(g) if saved.get(g) in MODES else DEFAULT_MODES.get(g, "on") for g in GROUPS}
 
 
 def set_policy(changes: dict) -> dict[str, str]:

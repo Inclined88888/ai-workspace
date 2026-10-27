@@ -881,3 +881,42 @@ async def github_test():
     if not github.token():
         raise HTTPException(400, "Add a GitHub token first.")
     return await github.check()
+
+
+# Workspace and terminal (workspace.py; executed by the runner service)
+@router.get("/workspace")
+async def workspace_status():
+    from . import workspace
+
+    pol = permissions.policy()
+    return {"runner": await workspace.health(), "settings": workspace.settings(), "risky": [why for _, why in workspace.RISKY],
+            "terminal_mode": pol.get("terminal"), "files_mode": pol.get("workspace")}
+
+
+class WorkspaceSettingsIn(BaseModel):
+    allow: list[str] | None = Field(None, max_length=100)
+    default_timeout: int | None = Field(None, ge=5, le=900)
+
+
+@router.put("/workspace/settings")
+def workspace_settings(data: WorkspaceSettingsIn):
+    from . import workspace
+
+    out = workspace.set_settings(data.allow, data.default_timeout)
+    audit.record("user", "terminal settings", "", f"{len(out['allow'])} commands without asking, timeout {out['default_timeout']} s")
+    return out
+
+
+@router.get("/workspace/files")
+async def workspace_files(path: str = Query("", max_length=1000)):
+    """What is in the workspace, for you to look at (read only)."""
+    from . import workspace
+
+    return await workspace._call("/fs/list", {"path": path or "."})
+
+
+@router.get("/workspace/file")
+async def workspace_file(path: str = Query(..., max_length=1000), offset: int = Query(1, ge=1)):
+    from . import workspace
+
+    return await workspace._call("/fs/read", {"path": path, "offset": offset, "limit": 2000})

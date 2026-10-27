@@ -656,6 +656,9 @@ def recover() -> None:
             for s in plan_:
                 if s["status"] == "running":
                     s["status"], s["attempts"] = "pending", max(0, s["attempts"] - 1)
+                    s.setdefault("notes", []).append(
+                        "ROOKS restarted while this step was running. A terminal command may have been stopped midway: check the "
+                        "workspace (files, git status) before running it again.")
                     if in_flight:
                         s.setdefault("notes", []).append(
                             f"ROOKS restarted while a computer action ({in_flight['kind']}, #{in_flight['id']}) was in progress; it may or "
