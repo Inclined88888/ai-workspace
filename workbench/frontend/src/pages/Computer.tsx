@@ -179,7 +179,7 @@ export default function Computer() {
     } catch (e) { toast.err(e); }
   };
   const working = !!st.current;
-  const state = s.stopped ? ["danger", "Stopped by you"] : s.paused ? ["warn", "You have control"] : !s.enabled ? ["", "Off"] : working ? ["accent", "Working"] : dev ? ["ok", "Ready"] : ["warn", "No computer connected"];
+  const state = s.stopped ? ["danger", "Stopped by you"] : s.paused ? ["warn", "You have control"] : !s.enabled ? ["", "Computer Use is off"] : working ? ["accent", "Working"] : dev ? ["ok", "Ready"] : ["warn", "No computer connected"];
 
   return (
     <div className="page" style={{ maxWidth: 1100 }}>
@@ -189,7 +189,7 @@ export default function Computer() {
         <div className="row wrap">
           <MonitorPlay size={18} aria-hidden="true" />
           <h2 className="grow">{state[1]}</h2>
-          <span className={`badge ${state[0]}`} role="status">{working && <Loader2 size={11} className="spin" />} {working ? st.current!.kind : s.enabled ? MODES.find((m) => m[0] === s.mode)?.[1] : "Off"}</span>
+          {(s.enabled || working) && <span className={`badge ${state[0]}`} role="status">{working && <Loader2 size={11} className="spin" />} {working ? st.current!.kind : MODES.find((m) => m[0] === s.mode)?.[1]}</span>}
         </div>
         {working && <div className="small">Now: <strong>{st.current!.kind}</strong> {st.current!.summary}</div>}
         <div className="row wrap">

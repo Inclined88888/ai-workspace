@@ -282,7 +282,7 @@ export function ModelsPanel({ models, reloadModels, localAvailable }: { models: 
                   {p.key_hint && <> · key {p.key_hint}</>}
                 </div>
                 {!p.ok && p.error && <Troubleshoot error={p.error} />}
-                {p.can_confirm_free && (
+                {p.can_confirm_free && (st.mode === "free" || p.free_confirmed) && (
                   <label className="row small" style={{ gap: 8, marginTop: 6, alignItems: "flex-start" }}>
                     <input type="checkbox" checked={!!p.free_confirmed} onChange={(e) => confirmFree(p, e.target.checked)} />
                     <span>{p.local ? "This server runs models itself, with no paid API behind it." : "This key's Google project has no billing account (AI Studio shows Free)."} ROOKS cannot check this; it is your statement.</span>

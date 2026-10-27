@@ -333,6 +333,10 @@ cd workbench/frontend && npm install && npm run dev   # http://localhost:5173, p
 
 Backend: FastAPI + SQLite. Frontend: React + Vite + TypeScript. The tool server spec is at `/tools/openapi.json`.
 
+Browser tests: `workbench/tests/browser/run.sh` runs a first-session journey, a keyboard walkthrough, regression checks
+and every screen at three sizes in light and dark, against a fresh server and a stand-in AI (see its README). The
+design system is in `docs/DESIGN_SYSTEM.md`.
+
 ## Known limits
 
 - Computer Use on macOS has not been tested on a Mac in this work; run `companion/tests/macos_check.py` on yours first. Visual targeting has only been tested with a stand-in vision model.

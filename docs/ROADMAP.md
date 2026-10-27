@@ -1,6 +1,6 @@
-# ROOKS capability roadmap: 141 requirements
+# ROOKS capability roadmap: 150 requirements
 
-Status as of 2026-10-27 (v11.1, branch `development/rooks-v11.1`). Items 101 to 117 were added in v10, items 118 to 129 in v11, items 130 to 141 in v11.1. Linux was the only test environment: no macOS result in this file comes from a Mac.
+Status as of 2026-10-27 (v12, branch `development/rooks-v12`). Items 101 to 117 were added in v10, items 118 to 129 in v11, items 130 to 141 in v11.1, items 142 to 150 in v12. Linux was the only test environment: no macOS result in this file comes from a Mac.
 
 ## How statuses are assigned
 
@@ -16,7 +16,7 @@ Test files are referred to by short name:
 - Backend tests: `workbench/backend/tests/test_*.py`
 - Companion tests: `companion/tests/`
 - `e2e`: `companion/tests/e2e/e2e.py`
-- "browser suites": the Playwright UI suites run against the built app (scratch harnesses, not committed)
+- "browser suites": the Playwright UI suites run against the built app (scratch harnesses, not committed), except those in `workbench/tests/browser/` (committed from v12)
 
 Priority: **P1** next, **P2** soon, **P3** later. Complexity: **S** small, **M** medium, **L** large.
 
@@ -27,10 +27,10 @@ Counted from the tables below.
 
 | Status | Count |
 |---|---|
-| verified | 81 |
-| implemented | 16 |
+| verified | 88 |
+| implemented | 17 |
 | partial | 34 |
-| not started | 10 |
+| not started | 11 |
 
 ## Memory and context (1 to 10)
 
@@ -241,6 +241,22 @@ Browser evidence used a stand-in OpenRouter and Ollama; no real model answered a
 | 139 | Existing installs unchanged | verified | No mode means no restriction; Settings says choosing is optional | test_ai_mode, browser migration checks | P1 | S | No setting rewritten | ✔ |
 | 140 | Privacy, connection tests and troubleshooting in setup | implemented | `PrivacyNote`, `Troubleshoot`, test reports with tool support counts | browser (content checks) | P1 | S | Provider data policies summarised from their own pages | Not verified against real Gemini or OpenRouter answers beyond one rejected key |
 | 141 | Onboarding on phones and with assistive tech | verified | Radio group with arrow keys, labels, no sideways scroll | browser: axe at desktop and phone, keyboard, overflow | P1 | S | — | Not done: a real screen reader test |
+
+## v12: usability, reliability and finish (142 to 150)
+
+Browser evidence uses the stand-in AI in `workbench/tests/browser/fake_ai.py`; no real provider was involved.
+
+| ID | Requirement | Status | What exists (modules) | Evidence | Pri | Cx | Security | Acceptance / next |
+|---|---|---|---|---|---|---|---|---|
+| 142 | Cohesive, documented design system | implemented | `styles.css` v12 layer, `docs/DESIGN_SYSTEM.md` | screens.py screenshots (judged by eye, not testable) | P1 | M | — | A designer's review |
+| 143 | Every screen audited and fixed | verified | Fixes listed in `docs/V12.md` | test_regressions (22) | P1 | L | — | ✔ |
+| 144 | Assistant reliability | verified | Drafts per conversation, replies stay in their conversation, no navigation hijack | test_regressions | P1 | M | — | ✔ |
+| 145 | Settings that confirm and explain | verified | Save states, timezone setting, compact AI mode, Free mode pickers | test_journey, test_regressions | P1 | M | Free mode pickers cannot select paid models | ✔ |
+| 146 | Keyboard access everywhere | verified | List rows as links and buttons, palette focus return, one overlay at a time | test_keyboard (20), test_regressions | P1 | M | — | A real screen reader pass |
+| 147 | Performance measured and improved | verified | Pages on demand, adaptive polling | perf.py: first screen script 684 to 392 kB, idle requests 33 to 8 a minute | P2 | M | Stop stays on a 2 s check while Computer Use is on | Deep link loads 20 to 50 ms slower |
+| 148 | Desktop, tablet and phone | verified | Shell fix, phone layouts | screens.py 485 checks | P1 | M | — | Real devices, Safari, Firefox |
+| 149 | Committed, reproducible browser tests | verified | `workbench/tests/browser/` with `run.sh` | all pass | P1 | M | No real keys used | ✔ |
+| 150 | Manual screen reader test | not started | — | — | P2 | S | — | Test with VoiceOver and NVDA |
 
 ## Next highest-value work
 
