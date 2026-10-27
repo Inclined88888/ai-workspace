@@ -525,11 +525,17 @@ def needs_approval(name: str, ctx: Ctx) -> bool:
 
 def request_approval(name: str, raw_args: str, ctx: Ctx, reason: str) -> int:
     from .scheduler import deliver
+    from .security import encrypt
 
+    # Approval records survive restarts, but private Computer Use arguments
+    # must not be kept in plaintext. Only the approval executor decrypts them.
+    private = name in computer_tools.KIND
+    stored_args = "enc:" + encrypt(raw_args or "{}") if private else (raw_args or "{}")
+    display_args = "[arguments protected]" if private else (raw_args or "{}")[:1500]
     aid = db.run("INSERT INTO approvals(tool, args, reason, channel, conversation_id, agent_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                 name, raw_args or "{}", reason, ctx.channel, ctx.conversation_id, (ctx.agent or {}).get("id"), db.now())
+                 name, stored_args, reason, ctx.channel, ctx.conversation_id, (ctx.agent or {}).get("id"), db.now())
     if ctx.channel in UNATTENDED:
-        deliver(f"Approval needed: {name}", f"{reason}\n\nRequested: {name} {raw_args[:1500]}\n\nApprove or deny under Assistant.",
+        deliver(f"Approval needed: {name}", f"{reason}\n\nRequested: {name} {display_args}\n\nApprove or deny under Assistant.",
                 "inbox", f"approval:{aid}")
     return aid
 
@@ -543,18 +549,25 @@ async def decide_approval(aid: int, approve: bool) -> dict:
     # Claim it first so a double click cannot run the action twice
     if not db.changed("UPDATE approvals SET status = 'running', decided_at = ? WHERE id = ? AND status = 'pending'", db.now(), aid):
         raise HTTPException(409, "Already decided")
-    audit.record("user", "approve" if approve else "deny", a["tool"], f"request #{aid}: {a['args'][:300]}")
+    from .security import decrypt
+    private = a["tool"] in computer_tools.KIND
+    safe_mention = "[arguments protected]" if private else a["args"][:300]
+    clear_args = decrypt(a["args"][4:]) if private and a["args"].startswith("enc:") else a["args"]
+    if approve and private and a["args"].startswith("enc:") and not clear_args:
+        db.run("UPDATE approvals SET status = 'failed' WHERE id = ?", aid)
+        raise HTTPException(409, "Approval payload is unavailable. Please request this action again.")
+    audit.record("user", "approve" if approve else "deny", a["tool"], f"request #{aid}: {safe_mention}")
     if not approve:
         db.run("UPDATE approvals SET status = 'denied' WHERE id = ?", aid)
-        _note_decision(a, f"The user denied {a['tool']} {a['args'][:300]}. Do not try it again; finish the step without it or say it cannot be done.")
+        _note_decision(a, f"The user denied {a['tool']} {safe_mention}. Do not try it again; finish the step without it or say it cannot be done.")
         return db.one("SELECT * FROM approvals WHERE id = ?", aid)
     agent = db.one("SELECT * FROM agents WHERE id = ?", a["agent_id"]) if a["agent_id"] else None
     mission = db.one("SELECT id FROM missions WHERE conversation_id = ?", a["conversation_id"]) if a["conversation_id"] else None
     ctx = Ctx(channel=a["channel"] if a["channel"] != "learn" else "web", conversation_id=a["conversation_id"] or 0, agent=agent,
               mission_id=mission["id"] if mission else None, approved=True)
-    ok, out = await run_tool(a["tool"], a["args"], ctx)
+    ok, out = await run_tool(a["tool"], clear_args, ctx)
     db.run("UPDATE approvals SET status = ?, result = ? WHERE id = ?", "approved" if ok else "failed", out[:4000], aid)
-    _note_decision(a, f"The user approved {a['tool']} {a['args'][:300]}; it was run: {out[:300]}")
+    _note_decision(a, f"The user approved {a['tool']} {safe_mention}; it was run: {out[:300]}")
     return db.one("SELECT * FROM approvals WHERE id = ?", aid)
 
 
@@ -686,6 +699,14 @@ def new_conversation(channel: str, title: str = "New chat", external_id: str = "
 
 
 def _save(conversation_id: int, role: str, content: str = "", tool_calls: list | None = None, tool_call_id: str = "", name: str = "") -> int:
+    # Conversation history stores tool names/IDs but not Computer Use payloads
+    # (typing, form values, document edits, filenames or screenshots).
+    if tool_calls:
+        tool_calls = [
+            {**call, "function": {**call["function"], "arguments": "{}"}}
+            if call.get("function", {}).get("name") in computer_tools.KIND else call
+            for call in tool_calls
+        ]
     mid = db.run("INSERT INTO messages(conversation_id, role, content, tool_calls, tool_call_id, name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
                  conversation_id, role, content, json.dumps(tool_calls) if tool_calls else "", tool_call_id, name, db.now())
     db.run("UPDATE conversations SET updated_at = ? WHERE id = ?", db.now(), conversation_id)
@@ -771,7 +792,8 @@ async def run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> AsyncI
                 _save(ctx.conversation_id, "tool", "Not run: stopped by the user.", tool_call_id=call["id"], name=fn["name"])
                 continue
             ctx.tool_calls += 1
-            yield {"type": "tool_call", "name": fn["name"], "args": fn["arguments"][:500]}
+            yield {"type": "tool_call", "name": fn["name"],
+                   "args": "{}" if fn["name"] in computer_tools.KIND else fn["arguments"][:500]}
             started = time.monotonic()
             key = fn["name"] + "\0" + _canonical_args(fn["arguments"])
             seen[key] = seen.get(key, 0) + 1
@@ -785,7 +807,8 @@ async def run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> AsyncI
                 aid = request_approval(fn["name"], fn["arguments"], ctx, reason)
                 ok, out = False, (f"Not done yet: this needs the user's approval (request #{aid}). {reason} "
                                   "Tell the user it is waiting for their approval; do not retry it.")
-                yield {"type": "approval", "id": aid, "name": fn["name"], "args": fn["arguments"][:500]}
+                yield {"type": "approval", "id": aid, "name": fn["name"],
+                       "args": "{}" if fn["name"] in computer_tools.KIND else fn["arguments"][:500]}
             else:
                 limit = max(1.0, min(TOOL_TIMEOUT_S, deadline - time.monotonic()))
                 try:
