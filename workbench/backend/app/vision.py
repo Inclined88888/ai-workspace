@@ -16,6 +16,7 @@ delete, buy... still need approval). Low confidence means "not found, ask the us
 
 import base64
 import json
+import secrets
 import struct
 import time
 import zlib
@@ -141,15 +142,35 @@ def configure(model: str | None, mode: str | None, local_only: bool | None, cons
     return settings()
 
 
-def usable() -> tuple[bool, str]:
+def _local_project(project_id: int | None) -> bool:
+    if not project_id:
+        return False
+    from . import projects
+    project = projects.get(project_id)
+    return bool(project and project.get("local_only"))
+
+
+def _project_id(conversation_id: int | None, mission_id: int | None) -> int | None:
+    if mission_id:
+        mission = db.one("SELECT project_id FROM missions WHERE id = ?", mission_id)
+        if mission and mission["project_id"]:
+            return mission["project_id"]
+    if conversation_id:
+        conversation = db.one("SELECT project_id FROM conversations WHERE id = ?", conversation_id)
+        if conversation:
+            return conversation["project_id"]
+    return None
+
+
+def usable(project_id: int | None = None) -> tuple[bool, str]:
     s = settings()
     if s["mode"] == "off":
         return False, "Visual targeting is off (Computer, Visual targeting)."
     if not s["check"].get("ok"):
         return False, "The vision model has not passed the image test."
     dest = destination(s["model"])
-    if s["local_only"] and not dest.get("local"):
-        return False, f"Local models only is on, and {dest.get('label')}."
+    if (s["local_only"] or _local_project(project_id)) and not dest.get("local"):
+        return False, f"Local models only is on for this workspace, and {dest.get('label')}."
     if not dest.get("local") and not s["consent"]:
         return False, "No consent for sending screenshots to this model."
     if s["mode"] == "session" and (not s["session_until"] or s["session_until"] < db.now()):
@@ -165,16 +186,20 @@ def approval_reason() -> str:
 
 
 async def locate(app: str, description: str, conversation_id: int | None, mission_id: int | None) -> dict:
-    ok, why = usable()
+    project_id = _project_id(conversation_id, mission_id)
+    ok, why = usable(project_id)
     if not ok:
         raise HTTPException(403, why)
     s = settings()
+    # Re-check immediately before capture and transmission, not only at tool listing.
     cap = await computer.request("capture", {"app": app}, conversation_id=conversation_id, mission_id=mission_id, timeout=30)
     if not cap["ok"]:
         raise HTTPException(400, f"Could not capture {app}: {cap['error']}")
     res = cap["result"]
     image = res.pop("image", "")
     dest = destination(s["model"])
+    if _local_project(project_id) and not dest.get("local"):
+        raise HTTPException(403, "Project is local-only. Screenshot transmission blocked.")
     _last_share.update(at=time.time(), app=app, destination=dest["label"], local=dest["local"])
     audit.record("assistant", "screen shared", app, f"to {dest['label']}; {res.get('redaction', '')}")
     try:
@@ -192,18 +217,23 @@ async def locate(app: str, description: str, conversation_id: int | None, missio
         return {"found": False, "note": "The vision model gave a position outside the window. Nothing will be clicked."}
     if conf < MIN_CONFIDENCE:
         return {"found": False, "note": f"Not sure enough (confidence {conf:.2f}) to click '{description}'. Ask the user to confirm or point it out."}
-    tid = f"v{int(time.time() * 1000) % 10_000_000}"
+    tid = "v" + secrets.token_urlsafe(24)
     _targets[tid] = {"app": app, "window_id": res["window"]["id"], "bbox": res["window"]["bbox"], "nx": nx, "ny": ny,
-                     "captured_at": res["captured_at"], "label": str(out.get("label", ""))[:80], "expires": time.time() + TARGET_TTL}
+                     "captured_at": res["captured_at"], "label": str(out.get("label", ""))[:80], "expires": time.time() + TARGET_TTL,
+                     "conversation_id": conversation_id, "mission_id": mission_id}
     return {"found": True, "target": tid, "label": _targets[tid]["label"], "confidence": round(conf, 2), "method": "visual",
             "window": res["window"].get("title", ""), "note": f"Visual target {tid} (expires in {TARGET_TTL}s). Click it with computer_click_visual."}
 
 
-def target(tid: str) -> dict:
+def target(tid: str, conversation_id: int | None = None, mission_id: int | None = None) -> dict:
     t = _targets.get(tid)
     if not t or t["expires"] < time.time():
         _targets.pop(tid, None)
         raise HTTPException(409, f"Visual target {tid} is unknown or expired. Locate it again.")
+    if conversation_id is not None and t.get("conversation_id") != conversation_id:
+        raise HTTPException(403, "Visual target belongs to another conversation.")
+    if mission_id is not None and t.get("mission_id") != mission_id:
+        raise HTTPException(403, "Visual target belongs to another mission.")
     return t
 
 
