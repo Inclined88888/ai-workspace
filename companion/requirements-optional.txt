@@ -1,0 +1,6 @@
+# ROOKS Companion runs on the Python that ships with macOS (3.9+) using only the standard library.
+# Optional extras:
+playwright==1.64.1     # ROOKS's own browser (Apache-2.0). After installing: python3 -m playwright install chromium
+python-xlib==0.33      # Linux X11 desktop control (LGPL-2.1+). Not needed on macOS or Windows.
+openpyxl==3.1.5        # .xlsx reading and editing (MIT). CSV works without it.
+python-docx==1.2.0     # .docx editing (MIT). Reading .docx works without it.
