@@ -77,3 +77,10 @@ async def loop() -> None:
                     db.run("UPDATE schedules SET last_run = ?, last_status = ? WHERE id = ?", db.now(), f"error: {e}"[:300], s["id"])
         except Exception as e:  # noqa: BLE001 - keep the scheduler alive
             log.warning("scheduler error: %s", e)
+        try:  # proactive check-ins share this loop: one scheduler for everything timed
+            from . import calls, checkins
+
+            await checkins.tick()
+            await calls.tick()
+        except Exception as e:  # noqa: BLE001
+            log.warning("check-in error: %s", e)

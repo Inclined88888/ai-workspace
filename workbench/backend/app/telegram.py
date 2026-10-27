@@ -55,6 +55,19 @@ async def send(client: httpx.AsyncClient, chat_id: int, text: str) -> None:
         await _api(client, "sendMessage", chat_id=chat_id, text=text[i : i + 4000])
 
 
+async def send_now(text: str) -> bool:
+    """Send to the home chat and wait for the result (check-ins record whether it arrived)."""
+    chat = db.get_setting("telegram_home_chat", "")
+    if not (token() and chat):
+        return False
+    try:
+        async with httpx.AsyncClient(timeout=30) as c:
+            await send(c, int(chat), text)
+        return True
+    except (httpx.HTTPError, ValueError, RuntimeError):
+        return False
+
+
 def notify(text: str) -> None:
     """Fire and forget delivery to the home chat (used by schedules and the company)."""
     chat = db.get_setting("telegram_home_chat", "")

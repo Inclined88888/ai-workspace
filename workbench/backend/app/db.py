@@ -210,6 +210,94 @@ CREATE TABLE IF NOT EXISTS projects (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+-- Proactive check-ins (checkins.py): topics ROOKS keeps an eye on, each run, and each delivery (exactly once)
+CREATE TABLE IF NOT EXISTS topics (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  project_id INTEGER,
+  sources TEXT NOT NULL DEFAULT '[]',           -- JSON list: tasks, calendar, missions, approvals, project, page:<url>, search:<query>
+  cron TEXT NOT NULL,                           -- when to check, 5 field cron in the workspace timezone
+  importance TEXT NOT NULL DEFAULT 'normal',    -- low | normal | high | urgent
+  notify TEXT NOT NULL DEFAULT 'inbox',         -- inbox | telegram | call | phone
+  quiet_start TEXT NOT NULL DEFAULT '',         -- HH:MM local; empty = the workspace default
+  quiet_end TEXT NOT NULL DEFAULT '',
+  expires_at TEXT,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  budget_cents INTEGER NOT NULL DEFAULT 0,      -- monthly; 0 = only the workspace limits
+  next_check_at TEXT,
+  last_check_at TEXT,
+  last_ok_at TEXT,
+  last_status TEXT NOT NULL DEFAULT '',
+  last_error TEXT NOT NULL DEFAULT '',
+  failures INTEGER NOT NULL DEFAULT 0,
+  facts TEXT NOT NULL DEFAULT '{}',             -- what was known at the last check: fact key -> hash
+  last_briefing TEXT NOT NULL DEFAULT '',
+  cancel INTEGER NOT NULL DEFAULT 0,
+  retry_slot TEXT,                              -- a failed or interrupted slot being retried keeps its identity
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS topic_runs (
+  id INTEGER PRIMARY KEY,
+  topic_id INTEGER NOT NULL,
+  slot TEXT NOT NULL,                           -- the scheduled time this run answers (or manual-...)
+  attempt INTEGER NOT NULL DEFAULT 1,
+  status TEXT NOT NULL,                         -- running | nothing_new | not_significant | delivered | deferred | limited | failed | interrupted | cancelled | skipped
+  new_facts INTEGER NOT NULL DEFAULT 0,
+  briefing TEXT NOT NULL DEFAULT '',
+  urgency TEXT NOT NULL DEFAULT '',
+  written_by TEXT NOT NULL DEFAULT '',          -- model | rules (no model call was made or possible)
+  cost_cents REAL NOT NULL DEFAULT 0,
+  error TEXT NOT NULL DEFAULT '',
+  started_at TEXT NOT NULL,
+  finished_at TEXT,
+  UNIQUE(topic_id, slot, attempt)
+);
+CREATE TABLE IF NOT EXISTS deliveries (
+  id INTEGER PRIMARY KEY,
+  key TEXT NOT NULL UNIQUE,                     -- topic:slot:channel; a slot is delivered at most once per channel
+  topic_id INTEGER,
+  run_id INTEGER,
+  channel TEXT NOT NULL,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  status TEXT NOT NULL,                         -- pending | sending | sent | failed | uncertain
+  deliver_after TEXT,
+  error TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  sent_at TEXT
+);
+
+-- ROOKS reaching out by voice (calls.py): in-app call invitations and optional phone calls
+CREATE TABLE IF NOT EXISTS call_invites (
+  id INTEGER PRIMARY KEY,
+  topic_id INTEGER,
+  delivery_id INTEGER,
+  title TEXT NOT NULL,
+  briefing TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',       -- pending | accepted | declined | snoozed | missed
+  snoozes INTEGER NOT NULL DEFAULT 0,
+  snooze_until TEXT,
+  expires_at TEXT NOT NULL,
+  conversation_id INTEGER,
+  fallback_sent INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  decided_at TEXT
+);
+CREATE TABLE IF NOT EXISTS phone_calls (
+  id INTEGER PRIMARY KEY,
+  delivery_id INTEGER,
+  purpose TEXT NOT NULL,                        -- briefing | verification
+  provider TEXT NOT NULL,
+  to_masked TEXT NOT NULL,                      -- never the full number in history
+  provider_ref TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL,                         -- placed | failed | refused
+  cost_estimate_cents REAL NOT NULL DEFAULT 0,
+  error TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS project_notes (
   id INTEGER PRIMARY KEY,
   project_id INTEGER NOT NULL,
