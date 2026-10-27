@@ -9,7 +9,7 @@ import WebSearchPanel from "../components/WebSearch";
 type Conv = { id: number; title: string; channel: string; updated_at: string; model: string; project_id?: number | null };
 type ProjectRef = { id: number; name: string };
 type Msg = { id: number; role: string; content: string; tool_calls: string[]; name: string; files?: string[] };
-type Step = { name: string; args: string; status: "running" | "ok" | "error" | "approval"; preview?: string; ms?: number; startedAt: number };
+type Step = { name: string; args: string; status: "running" | "ok" | "error" | "approval"; preview?: string; detail?: string; ms?: number; startedAt: number };
 type Memory = { id: number; content: string; kind: string; source: string; updated_at: string; created_at?: string; conversation_id?: number | null;
   confidence?: number; previous?: string; matched_by?: string[] };
 type MemStatus = { embed_model: string; memories: number; indexed: number; error: string };
@@ -27,7 +27,18 @@ const STEP_LABEL: Record<string, string> = {
   load_skill: "Using a saved skill", save_skill: "Saving a reusable skill",
   schedule_task: "Setting up an automation", list_schedules: "Checking automations",
   delegate_task: "Handing work to a teammate", list_team: "Checking the team",
+  run_command: "Running a command", workspace_list: "Looking at the workspace", workspace_read: "Reading a workspace file",
+  workspace_write: "Writing a workspace file", workspace_edit: "Editing a workspace file",
 };
+const WORKSPACE_TOOLS = new Set(["run_command", "workspace_list", "workspace_read", "workspace_write", "workspace_edit"]);
+
+/** "exit code 1", "timed out", "stopped by you" from a terminal result, for the step's badge. */
+function exitBadge(detail: string): { text: string; tone: string } | null {
+  const m = /\((?:in [^;]*; )?(exit code (\d+)|timed out|stopped by you)/.exec(detail);
+  if (!m) return null;
+  if (m[2] !== undefined) return { text: `exit ${m[2]}`, tone: m[2] === "0" ? "ok" : "danger" };
+  return { text: m[1], tone: "warn" };
+}
 type Note = { id: number; kind: "info" | "warn" | "err"; text: string; fix?: boolean; retry?: string; search?: boolean };
 type MStatus = { default: { ref: string; source: string; error: string }; fallbacks: string[]; providers: { name: string; ok: boolean; checked: boolean; error: string }[] };
 
@@ -62,9 +73,11 @@ function splitAttachments(content: string): { text: string; files: string[] } {
   return { text, files };
 }
 
-function argSummary(raw: string): string {
+function argSummary(raw: string, name = ""): string {
   try {
     const a = JSON.parse(raw) as Record<string, unknown>;
+    if (name === "run_command" && typeof a.command === "string") return `$ ${a.command}${a.cwd ? `  (in ${String(a.cwd)})` : ""}`;
+    if (WORKSPACE_TOOLS.has(name) && typeof a.path === "string") return a.path || ".";
     return Object.entries(a).map(([k, v]) => `${k}: ${String(v).slice(0, 120)}`).join(" · ");
   } catch {
     return raw.slice(0, 200);
@@ -212,7 +225,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
       if (t === "tool_call") setSteps((s) => [...s, { name: String(ev.name), args: String(ev.args), status: "running", startedAt: Date.now() }]);
       if (t === "approval") { settle(String(ev.name), { status: "approval" }); loadPending(); }
       if (t === "tool_result") {
-        settle(String(ev.name), { status: ev.ok ? "ok" : "error", preview: String(ev.preview), ms: Number(ev.ms) || undefined });
+        settle(String(ev.name), { status: ev.ok ? "ok" : "error", preview: String(ev.preview), detail: ev.detail ? String(ev.detail) : undefined, ms: Number(ev.ms) || undefined });
         if (ev.name === "web_search" && !ev.ok && /not set up/i.test(String(ev.preview)))
           setNotes((n) => n.some((x) => x.search) ? n : [...n, { id: Date.now(), kind: "warn", text: "Web search isn't turned on yet, so ROOKS couldn't look this up. A free Tavily key takes a minute (1,000 searches a month, no card).", search: true }]);
       }
@@ -303,10 +316,23 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
                       <span>{STEP_LABEL[s.name] ?? s.name}</span>
                       <span className="faint">{s.status === "approval" ? "waiting for your approval" : s.status === "running" ? "working…" : s.status === "error" ? "needs attention" : "done"}{s.ms !== undefined ? ` · ${s.ms < 1000 ? `${s.ms} ms` : `${(s.ms / 1000).toFixed(1)} s`}` : ""}</span>
                     </div>
-                    <details>
-                      <summary className="faint truncate" style={{ cursor: "pointer" }}>{argSummary(s.args) || "no arguments"}</summary>
-                      {s.preview && <div className="mono faint" style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", marginTop: 4 }}>{s.preview}</div>}
-                    </details>
+                    {s.detail ? (() => {
+                      const badge = s.name === "run_command" ? exitBadge(s.detail) : null;
+                      return (
+                        <details open={s.status === "error"}>
+                          <summary className="mono truncate" style={{ cursor: "pointer" }}>
+                            {badge && <span className={`badge ${badge.tone}`} style={{ marginRight: 6 }}>{badge.text}</span>}
+                            {argSummary(s.args, s.name) || "no arguments"}
+                          </summary>
+                          <pre className="terminal" aria-label={`Output of ${STEP_LABEL[s.name] ?? s.name}`}>{s.detail.replace(/^Error: (?=\$ )/, "")}</pre>
+                        </details>
+                      );
+                    })() : (
+                      <details>
+                        <summary className="faint truncate" style={{ cursor: "pointer" }}>{argSummary(s.args, s.name) || "no arguments"}</summary>
+                        {s.preview && <div className="mono faint" style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", marginTop: 4 }}>{s.preview}</div>}
+                      </details>
+                    )}
                   </li>
                 ))}
               </ol>

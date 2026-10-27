@@ -10,6 +10,7 @@ import { ModelsPanel } from "../components/Models";
 import WebSearchPanel from "../components/WebSearch";
 import AppearancePanel from "../components/AppearancePanel";
 import { ActivityLog, ConnectionsHealth, GitHubPanel, PermissionsPanel, ToolsPanel } from "../components/Trust";
+import { WorkspacePanel } from "../components/WorkspacePanel";
 
 type MailAccount = { id: number; name: string; email: string; imap_host: string; smtp_host: string };
 
@@ -238,6 +239,7 @@ export default function Settings({ onChanged }: { onChanged: () => void }) {
 
         <h2 className="settings-group">Security</h2>
         <PermissionsPanel />
+        <WorkspacePanel />
         <form className="card col" onSubmit={changePw}>
           <div className="row"><Shield size={16} aria-hidden="true" /><h2>Password</h2></div>
           <div className="muted small">Changing it signs out every other browser and device.</div>

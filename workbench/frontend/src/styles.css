@@ -428,3 +428,8 @@ details.card > summary::-webkit-details-marker { display: none; }
 
 /* Shown on every page while ROOKS acts on the computer */
 .computer-bar { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 8px; padding: 8px 14px; background: var(--warn-soft); color: var(--text); border-bottom: 1px solid var(--warn); font-size: 13px; }
+
+/* Terminal and file output in the assistant's steps */
+.terminal { margin: 6px 0 0; padding: 10px 12px; max-height: 360px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 12px; line-height: 1.45;
+  background: var(--panel-2); color: var(--text); border: 1px solid var(--border); border-radius: 8px; }
