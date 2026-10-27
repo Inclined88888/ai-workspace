@@ -36,7 +36,8 @@ def test_gemini_filter_keeps_chat_models_only(llm):
 
 
 def test_free_flag(llm):
-    assert llm.is_free({"kind": "ollama", "base_url": "http://x"}, "qwen3:4b")
+    assert llm.is_free({"kind": "ollama", "base_url": "http://localhost:11434"}, "qwen3:4b")
+    assert not llm.is_free({"kind": "ollama", "base_url": "https://api.example.com"}, "qwen3:4b")
     assert llm.is_free({"kind": "openai", "base_url": "https://openrouter.ai/api/v1"}, "qwen/qwen3-coder:free")
     assert not llm.is_free({"kind": "openai", "base_url": "https://openrouter.ai/api/v1"}, "anthropic/claude-sonnet-5.5")
     assert not llm.is_free({"kind": "openai", "base_url": "https://api.openai.com/v1"}, "gpt-6:free")

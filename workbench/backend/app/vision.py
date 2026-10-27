@@ -16,6 +16,7 @@ delete, buy... still need approval). Low confidence means "not found, ask the us
 
 import base64
 import json
+import math
 import secrets
 import struct
 import time
@@ -200,6 +201,12 @@ async def locate(app: str, description: str, conversation_id: int | None, missio
         raise HTTPException(400, f"Could not capture {app}: {cap['error']}")
     res = cap["result"]
     image = res.pop("image", "")
+    # Capture awaits the companion: settings, project membership and consent
+    # may have changed while it was running. Never share using stale consent.
+    ok, why = usable(_project_id(conversation_id, mission_id))
+    current = settings()
+    if not ok or current["model"] != s["model"]:
+        raise HTTPException(403, why if not ok else "Vision model changed during capture. Locate again.")
     dest = destination(s["model"])
     if _local_project(project_id) and not dest.get("local"):
         raise HTTPException(403, "Project is local-only. Screenshot transmission blocked.")
@@ -218,7 +225,7 @@ async def locate(app: str, description: str, conversation_id: int | None, missio
         return {"found": False, "note": "The vision model's answer was not usable. Nothing will be clicked."}
     if not (0 <= nx <= 1 and 0 <= ny <= 1):
         return {"found": False, "note": "The vision model gave a position outside the window. Nothing will be clicked."}
-    if conf < MIN_CONFIDENCE:
+    if not math.isfinite(conf) or not MIN_CONFIDENCE <= conf <= 1:
         return {"found": False, "note": f"Not sure enough (confidence {conf:.2f}) to click '{description}'. Ask the user to confirm or point it out."}
     tid = "v" + secrets.token_urlsafe(24)
     _targets[tid] = {"app": app, "window_id": res["window"]["id"], "bbox": res["window"]["bbox"], "nx": nx, "ny": ny,
@@ -236,7 +243,7 @@ def target(tid: str, conversation_id: int | None = None, mission_id: int | None 
         raise HTTPException(409, f"Visual target {tid} is unknown or expired. Locate it again.")
     if conversation_id is not None and t.get("conversation_id") != conversation_id:
         raise HTTPException(403, "Visual target belongs to another conversation.")
-    if mission_id is not None and t.get("mission_id") != mission_id:
+    if (conversation_id is not None or mission_id is not None) and t.get("mission_id") != mission_id:
         raise HTTPException(403, "Visual target belongs to another mission.")
     device = computer.online_device()
     if not device or device["id"] != t.get("device_id"):

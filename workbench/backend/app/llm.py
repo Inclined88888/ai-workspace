@@ -58,20 +58,26 @@ def _keep_model(base_url: str, model: str) -> bool:
 
 
 def is_free(p: dict, model: str) -> bool:
-    return p["kind"] == "ollama" or (_is_openrouter(p) and model.endswith(":free"))
+    return (p["kind"] == "ollama" and _local_endpoint(p["base_url"])) or (_is_openrouter(p) and model.endswith(":free"))
 
 
 def is_local(ref: str) -> bool:
     """True when the model runs on this computer or the local network, so data sent to it does not leave."""
-    import ipaddress
-    from urllib.parse import urlparse
-
     try:
         p, _ = split_ref(ref)
     except HTTPException:
         return False
-    host = (urlparse(p["base_url"]).hostname or "").lower()
-    if p["kind"] == "ollama" or host in ("localhost", "host.docker.internal") or host.endswith(".local"):
+    return _local_endpoint(p["base_url"])
+
+
+def _local_endpoint(base_url: str) -> bool:
+    import ipaddress
+    from urllib.parse import urlparse
+
+    host = (urlparse(base_url).hostname or "").lower()
+    # Protocol selection does not establish locality: Ollama can be served
+    # behind a public endpoint too. Classify the configured destination.
+    if host in ("localhost", "host.docker.internal") or host.endswith(".local"):
         return True
     try:
         ip = ipaddress.ip_address(host)

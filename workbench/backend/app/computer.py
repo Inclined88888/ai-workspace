@@ -381,6 +381,14 @@ async def request(kind: str, args: dict, *, conversation_id: int | None = None, 
     limit = (timeout or args.get("timeout") or DEFAULT_TIMEOUT) + 15
     try:
         await asyncio.wait_for(ev.wait(), limit)
+    except asyncio.CancelledError:
+        # A disconnected caller must not leave an undispatched write queued,
+        # or retain a screenshot result with nobody left to consume it.
+        db.run("UPDATE computer_actions SET status = 'cancelled', error = 'Caller cancelled before dispatch' "
+               "WHERE id = ? AND status = 'queued'", aid)
+        db.run("UPDATE computer_actions SET status = 'uncertain', error = 'Caller cancelled after dispatch' "
+               "WHERE id = ? AND status = 'dispatched'", aid)
+        raise
     except asyncio.TimeoutError:
         a = db.one("SELECT status FROM computer_actions WHERE id = ?", aid)
         if a["status"] == "queued":
@@ -390,9 +398,12 @@ async def request(kind: str, args: dict, *, conversation_id: int | None = None, 
     finally:
         _events.pop(aid, None)
         _pending_args.pop(aid, None)
+        # Transfer the result out before releasing waiter state, including on
+        # cancellation (where the function exits without returning it).
+        result = _transient_results.pop(aid, None)
     a = db.one("SELECT * FROM computer_actions WHERE id = ?", aid)
     out = {"id": aid, "status": a["status"], "ok": a["status"] == "done",
-           "result": _transient_results.pop(aid, None), "error": a["error"]}
+           "result": result, "error": a["error"]}
     if out["ok"] and out["result"] is None:
         out["ok"] = False
         out["error"] = "Result unavailable after restart; re-observe before retrying."
