@@ -85,6 +85,10 @@ def program(goal, results):
         steps = [lambda: call("computer_type", target="e3", label="Document", text=REC, app=F),
                  lambda: call("computer_observe", app=F),
                  lambda: say("Already there, not typing again." if REC[:40] in last else "Not there; would type again.")]
+    elif "spoken briefing" in goal:  # voice: the opening briefing
+        steps = [lambda: call("list_tasks"), lambda: say("You have one task due today: send the Acme invoice. What would you like to do?")]
+    elif "call Sam" in goal:  # voice: a task asked for by speaking
+        steps = [lambda: call("create_task", title="Call Sam", due="2026-10-28"), lambda: say("Done. I added a task to call Sam tomorrow.")]
     else:
         return say("ok")
     return steps[n]() if n < len(steps) else say("finished")
@@ -129,6 +133,10 @@ async def chat(req: Request):
     if system.startswith("You check whether"):
         ok = "OK" in msgs[1]["content"]
         return {"choices": [{"message": say(json.dumps({"verdict": "done" if ok else "not_done", "evidence": "tool result shows it", "missing": ""}))}]}
+    if system.startswith("You write proactive check-in briefings"):
+        return {"choices": [{"message": say(json.dumps({"notify": True, "urgency": "normal", "briefing": "The invoice for Acme is due today."}))}]}
+    if system.startswith("Summarise this voice conversation"):
+        return {"choices": [{"message": say("You asked for a briefing and ROOKS added a task to call Sam tomorrow.")}]}
     if system.startswith("Write the final answer"):
         return {"choices": [{"message": say("The contract is filed in Contracts.")}]}
     last_user = max(i for i, m in enumerate(msgs) if m["role"] == "user")
@@ -152,6 +160,36 @@ async def chat(req: Request):
         n = len(results)
         return {"choices": [{"message": seq[n]() if n < len(seq) else say("OK")}]}
     return {"choices": [{"message": program(goal, results)}]}
+
+# Speech for the voice browser test: recognition answers from a queue the test fills; speech is a silent WAV of the
+# length the test asks for, so the page really plays audio and waits for it to end.
+VOICE = {"heard": [], "audio_bytes": [], "spoken": [], "seconds": 4.0}
+
+def silent_wav(seconds):
+    import struct
+    rate = 8000; n = int(rate * seconds)
+    return b"RIFF" + struct.pack("<I", 36 + n * 2) + b"WAVEfmt " + struct.pack("<IHHIIHH", 16, 1, 1, rate, rate * 2, 2, 16) + b"data" + struct.pack("<I", n * 2) + b"\x00\x00" * n
+
+@app.post("/v1/audio/transcriptions")
+async def transcriptions(req: Request):
+    body = await req.body()
+    assert b'name="file"' in body and b'name="model"' in body
+    VOICE["audio_bytes"].append(len(body))
+    return {"text": VOICE["heard"].pop(0) if VOICE["heard"] else ""}
+
+@app.post("/v1/audio/speech")
+async def speech(req: Request):
+    from fastapi.responses import Response
+    VOICE["spoken"].append((await req.json())["input"])
+    return Response(silent_wav(VOICE["seconds"]), media_type="audio/wav")
+
+@app.post("/test/voice")
+async def test_voice(req: Request):
+    VOICE.update(await req.json())
+    return VOICE
+
+@app.get("/test/voice")
+def test_voice_state(): return VOICE
 
 @app.get("/v1/models")
 def models(): return {"data": [{"id": "fake-model"}]}

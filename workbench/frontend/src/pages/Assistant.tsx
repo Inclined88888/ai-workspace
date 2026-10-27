@@ -1,10 +1,11 @@
-import { Brain, Check, Copy, Download, Paperclip, KeyRound, Loader2, MessageSquare, Pencil, Plus, RotateCcw, Search, Send, ShieldAlert, Sparkles, Square, Trash2, Upload, Wrench, X } from "lucide-react";
+import { Brain, Check, Copy, Download, Paperclip, KeyRound, Loader2, MessageSquare, Mic, Pencil, Plus, RotateCcw, Search, Send, ShieldAlert, Sparkles, Square, Trash2, Upload, Wrench, X } from "lucide-react";
 import { FormEvent, Fragment, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, FileMeta, stream, uploadFile } from "../api";
 import { Empty, Markdown, ModelSelect, relTime, useModels, useToast } from "../util";
 import { shortRef } from "../components/Models";
 import WebSearchPanel from "../components/WebSearch";
+import VoiceSession from "../components/Voice";
 
 type Conv = { id: number; title: string; channel: string; updated_at: string; model: string; project_id?: number | null };
 type ProjectRef = { id: number; name: string };
@@ -153,6 +154,11 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   const [showUsed, setShowUsed] = useState(false);
   const [pending, setPending] = useState<Approval[]>([]);
   const [running, setRunning] = useState<number | null>(null);
+  // A voice session in this chat; an accepted call invitation arrives with what ROOKS opens by saying
+  const [voice, setVoice] = useState<{ opening?: string } | null>(() => {
+    const st = location.state as { voice?: boolean; speak?: string } | null;
+    return st?.voice ? { opening: st.speak } : null;
+  });
   const { models } = useModels();
   const endRef = useRef<HTMLDivElement>(null);
   const keepTurn = useRef(false); // set when a new chat's first turn moves us to its URL: keep its steps on screen
@@ -179,9 +185,28 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
     setUsed([]);
     setNotes([]);
     if (!cid) { setConvProject(null); return setMessages([]); }
-    api<{ messages: Msg[]; model: string; project_id: number | null }>(`/conversations/${cid}`)
-      .then((c) => { setMessages(c.messages); setModel(c.model || ""); setConvProject(c.project_id); }).catch(toast.err);
+    loadConversation(cid);
   }, [cid]);
+  function loadConversation(id: number) {
+    api<{ messages: Msg[]; model: string; project_id: number | null }>(`/conversations/${id}`)
+      .then((c) => { setMessages(c.messages); setModel(c.model || ""); setConvProject(c.project_id); }).catch(toast.err);
+  }
+  // Moving to another conversation closes a voice session (it stops listening); an accepted call opens one
+  const firstCid = useRef(true);
+  useEffect(() => {
+    const st = location.state as { voice?: boolean; speak?: string } | null;
+    if (st?.voice) setVoice({ opening: st.speak });
+    else if (!firstCid.current) setVoice(null);
+    firstCid.current = false;
+  }, [cid, location.key]); // eslint-disable-line react-hooks/exhaustive-deps
+  const voiceClosed = (conversation: number | null) => {
+    setVoice(null);
+    if (location.state) navigate(location.pathname, { replace: true, state: null });
+    loadConvs();
+    if (conversation && conversation !== cid) navigate(`/assistant/${conversation}`);
+    else if (conversation) loadConversation(conversation);
+    else if (cid) navigate("/assistant");
+  };
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, steps]);
   // A question typed on Home arrives here and is sent once. Declared after the effect that resets the chat for a
   // new conversation, so that reset runs first and cannot wipe the question.
@@ -371,6 +396,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
           <div style={{ width: 260, maxWidth: "100%" }}><ModelSelect value={model} onChange={setModel} models={models} defaultLabel={autoRef ? `Automatic (${shortRef(autoRef, models)})` : "Automatic"} /></div>
           {project && <Link to={`/projects/${project.id}`} className="badge accent" title="This conversation works in a project: its brief, memories and rules apply">Project: {project.name}</Link>}
           <div className="spacer" />
+          {!voice && <button type="button" className="btn sm" onClick={() => setVoice({})} disabled={busy} title="Talk with ROOKS: it listens, answers aloud, and you can interrupt"><Mic size={14} /> Voice</button>}
           {tabs}
         </div>
         <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
@@ -439,6 +465,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
             <div ref={endRef} />
           </div>
         </div>
+        {voice && <VoiceSession key={cid ?? "new"} conversationId={cid} projectId={projectId} opening={voice.opening} onClose={voiceClosed} />}
         <form className="row" onSubmit={send} style={{ padding: "12px 24px 20px", borderTop: "1px solid var(--border)", background: "var(--panel)", position: "relative" }}>
           {slashOpen && (
             <div className="slash-menu" role="listbox" aria-label="Commands" style={{ left: 24, right: 24 }}>

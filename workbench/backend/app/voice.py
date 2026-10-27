@@ -124,14 +124,53 @@ async def speak(text: str, project_id: int | None = None) -> tuple[bytes, str]:
     return r.content, r.headers.get("content-type", "audio/mpeg")
 
 
-def end_session(cid: int, keep: bool) -> dict:
-    """keep false: the transcript (this conversation's messages) is deleted. What was done in it, such as tasks
-    created, stays."""
-    c = db.one("SELECT id FROM conversations WHERE id = ?", cid)
+def start_session(cid: int | None) -> dict:
+    """Marks where a voice session starts in a conversation, so ending it touches only what was said in it."""
+    if not cid:
+        return {"mark": 0}
+    if not db.one("SELECT id FROM conversations WHERE id = ?", cid):
+        raise HTTPException(404, "Conversation not found")
+    row = db.one("SELECT COALESCE(MAX(id), 0) AS m FROM messages WHERE conversation_id = ?", cid)
+    return {"mark": row["m"]}
+
+
+SUMMARY_PROMPT = ("Summarise this voice conversation for the user's records in at most six short lines: what was asked, "
+                  "what ROOKS did (tasks, notes, changes) and anything left open. Plain text, no preamble.")
+
+
+async def end_session(cid: int, keep: str, mark: int = 0) -> dict:
+    """keep: "transcript" keeps what was said; "summary" replaces it with a short summary; "nothing" deletes it.
+    Only the messages after mark (said in this session) are touched; a conversation left empty is removed. What was
+    done in the session, such as tasks created, stays."""
+    from . import projects
+
+    c = db.one("SELECT id, project_id FROM conversations WHERE id = ?", cid)
     if not c:
         raise HTTPException(404, "Conversation not found")
-    if not keep:
-        db.run("DELETE FROM messages WHERE conversation_id = ?", cid)
-        db.run("DELETE FROM conversations WHERE id = ?", cid)
-    audit.record("user", "voice session ended", f"#{cid}", "transcript kept" if keep else "transcript deleted")
-    return {"kept": keep}
+    if keep not in ("transcript", "summary", "nothing"):
+        raise HTTPException(400, "keep is transcript, summary or nothing.")
+    said = db.all("SELECT id, role, content FROM messages WHERE conversation_id = ? AND id > ? ORDER BY id", cid, mark)
+    summary = ""
+    if keep == "summary" and said:
+        lines = "\n".join(f"{m['role']}: {m['content']}" for m in said if m["role"] in ("user", "assistant") and m["content"])
+        try:
+            res = await llm.chat(None, [{"role": "system", "content": SUMMARY_PROMPT}, {"role": "user", "content": lines[:20000]}],
+                                 local_only=projects.local_only(c["project_id"]))
+            summary = (res["message"].get("content") or "").strip()
+        except (HTTPException, llm.ModelError, httpx.HTTPError, ValueError) as e:
+            raise HTTPException(502, f"The summary could not be written ({getattr(e, 'detail', None) or str(e) or e.__class__.__name__}). "
+                                     "The transcript is unchanged; choose again.")
+        if not summary:
+            raise HTTPException(502, "The model returned no summary. The transcript is unchanged; choose again.")
+    if keep != "transcript":
+        with db.tx() as conn:
+            conn.execute("DELETE FROM messages WHERE conversation_id = ? AND id > ?", (cid, mark))
+            if summary:
+                conn.execute("INSERT INTO messages(conversation_id, role, content, created_at) VALUES (?, 'assistant', ?, ?)",
+                             (cid, f"Voice session summary:\n{summary}", db.now()))
+            elif not conn.execute("SELECT 1 FROM messages WHERE conversation_id = ? LIMIT 1", (cid,)).fetchone():
+                conn.execute("DELETE FROM conversations WHERE id = ?", (cid,))
+    left = bool(db.one("SELECT id FROM conversations WHERE id = ?", cid))
+    audit.record("user", "voice session ended", f"#{cid}", {"transcript": "transcript kept", "summary": "summary kept",
+                                                             "nothing": "transcript deleted"}[keep])
+    return {"kept": keep, "conversation": cid if left else None}

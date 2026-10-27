@@ -11,6 +11,7 @@ import WebSearchPanel from "../components/WebSearch";
 import AppearancePanel from "../components/AppearancePanel";
 import { ActivityLog, ConnectionsHealth, GitHubPanel, PermissionsPanel, ToolsPanel } from "../components/Trust";
 import { WorkspacePanel } from "../components/WorkspacePanel";
+import { CallsPanel, VoiceSettingsPanel } from "../components/VoicePanel";
 
 type MailAccount = { id: number; name: string; email: string; imap_host: string; smtp_host: string };
 
@@ -236,6 +237,10 @@ export default function Settings({ onChanged }: { onChanged: () => void }) {
             <div><a className="btn" href={s.chat_url} target="_blank" rel="noreferrer">Open Open WebUI</a></div>
           </div>
         )}
+
+        <h2 className="settings-group">Voice and calls</h2>
+        <VoiceSettingsPanel />
+        <CallsPanel />
 
         <h2 className="settings-group">Security</h2>
         <PermissionsPanel />

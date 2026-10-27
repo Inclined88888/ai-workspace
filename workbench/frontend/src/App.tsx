@@ -25,6 +25,7 @@ import Missions from "./pages/Missions";
 import Projects from "./pages/Projects";
 import Computer from "./pages/Computer";
 import ComputerBar from "./components/ComputerBar";
+import CallInvites from "./components/CallInvites";
 
 export type Status = {
   setup_complete: boolean;
@@ -197,6 +198,7 @@ export default function App() {
       {menuOpen && <div className="modal-back" style={{ zIndex: 35 }} onClick={() => setMenuOpen(false)} />}
       <main className="main" id="main" tabIndex={-1}>
         <ComputerBar />
+        <CallInvites />
         <div className="mobile-bar">
           <button className="btn ghost icon" onClick={() => setMenuOpen(true)} aria-label="Open menu" title="Open menu" aria-expanded={menuOpen}><Menu size={18} /></button>
           <RookMark size={18} />

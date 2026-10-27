@@ -83,6 +83,34 @@ def test_voice_session_creates_a_task_and_can_end_without_keeping_the_transcript
     ev = events(vc.post("/api/assistant/chat", json={"message": "Add a task to call Sam about the quote by the 5th", "conversation_id": cid, "voice": True}))
     assert any(e["type"] == "tool_result" and e["name"] == "create_task" and e["ok"] for e in ev)
     assert sum(1 for c in CALLS if "long term memory" in c["messages"][0]["content"]) == n_learn  # nothing mined from voice
-    assert vc.post(f"/api/voice/sessions/{cid}/end", json={"keep": False}).json() == {"kept": False}
+    assert vc.post(f"/api/voice/sessions/{cid}/end", json={"keep": "nothing"}).json() == {"kept": "nothing", "conversation": None}
     assert vc.get(f"/api/conversations/{cid}").status_code == 404
     assert any(t["title"] == "Call Sam about the quote" for t in vc.get("/api/tasks").json())  # what was done stays
+
+
+def test_voice_inside_a_text_chat_touches_only_what_was_said_by_voice(vc):
+    from app import db
+
+    SCRIPT[:] = [{"role": "assistant", "content": "Typed answer."}]
+    ev = events(vc.post("/api/assistant/chat", json={"message": "typed question"}))
+    cid = next(e["conversation_id"] for e in ev if e["type"] == "start")
+    mark = vc.post("/api/voice/sessions/start", json={"conversation_id": cid}).json()["mark"]
+    assert mark > 0
+    SCRIPT[:] = [{"role": "assistant", "content": "Spoken answer one."}]
+    events(vc.post("/api/assistant/chat", json={"message": "spoken question one", "conversation_id": cid, "voice": True}))
+    r = vc.post(f"/api/voice/sessions/{cid}/end", json={"keep": "nothing", "mark": mark}).json()
+    assert r == {"kept": "nothing", "conversation": cid}
+    texts = [m["content"] for m in vc.get(f"/api/conversations/{cid}").json()["messages"]]
+    assert "typed question" in texts and "Typed answer." in texts and not any("spoken" in t.lower() for t in texts)
+
+    mark = vc.post("/api/voice/sessions/start", json={"conversation_id": cid}).json()["mark"]
+    SCRIPT[:] = [{"role": "assistant", "content": "Spoken answer two."}]
+    events(vc.post("/api/assistant/chat", json={"message": "spoken question two", "conversation_id": cid, "voice": True}))
+    SCRIPT[:] = [{"role": "assistant", "content": "You asked about two things; nothing is left open."}]
+    r = vc.post(f"/api/voice/sessions/{cid}/end", json={"keep": "summary", "mark": mark}).json()
+    assert r["kept"] == "summary"
+    texts = [m["content"] for m in vc.get(f"/api/conversations/{cid}").json()["messages"]]
+    assert texts[-1].startswith("Voice session summary:") and "nothing is left open" in texts[-1]
+    assert not any("spoken question two" in t for t in texts) and "typed question" in texts
+    assert vc.post(f"/api/voice/sessions/{cid}/end", json={"keep": "everything"}).status_code == 422
+    assert "summary kept" in json.dumps(db.all("SELECT * FROM audit_log WHERE action = 'voice session ended'"))

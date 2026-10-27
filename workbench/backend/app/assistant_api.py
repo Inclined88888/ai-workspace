@@ -982,12 +982,24 @@ async def voice_speak(data: SpeakIn):
     return Response(content=audio, media_type=mime, headers={"Cache-Control": "no-store"})
 
 
+class StartIn(BaseModel):
+    conversation_id: int | None = None
+
+
+@router.post("/voice/sessions/start")
+def voice_start(data: StartIn):
+    from . import voice
+
+    return voice.start_session(data.conversation_id)
+
+
 class EndIn(BaseModel):
-    keep: bool = False
+    keep: str = Field("nothing", pattern="^(transcript|summary|nothing)$")
+    mark: int = Field(0, ge=0)
 
 
 @router.post("/voice/sessions/{cid}/end")
-def voice_end(cid: int, data: EndIn):
+async def voice_end(cid: int, data: EndIn):
     from . import voice
 
-    return voice.end_session(cid, data.keep)
+    return await voice.end_session(cid, data.keep, data.mark)

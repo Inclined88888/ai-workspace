@@ -165,3 +165,29 @@ export async function uploadFile(file: File): Promise<FileMeta> {
 export function fileSize(n: number): string {
   return n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1048576).toFixed(1)} MB`;
 }
+
+/** Send recorded speech for recognition. The audio goes as the raw body and is not kept by ROOKS. */
+export async function transcribe(audio: Blob, conversationId: number | null): Promise<string> {
+  const res = await fetch(`/api/voice/transcribe${conversationId ? `?conversation_id=${conversationId}` : ""}`, {
+    method: "POST", credentials: "same-origin", headers: { "Content-Type": audio.type || "audio/webm", "X-Workbench": "1" }, body: audio,
+  });
+  const text = await res.text();
+  let body: unknown = null;
+  try { body = text ? JSON.parse(text) : null; } catch { body = text; }
+  if (!res.ok) throw new ApiError(res.status, detail(body, `${res.status} ${res.statusText}`));
+  return String((body as { text?: string })?.text ?? "");
+}
+
+/** Speech for text from the connected speech provider, as audio. */
+export async function speakAudio(text: string, conversationId: number | null, signal?: AbortSignal): Promise<Blob> {
+  const res = await fetch("/api/voice/speak", {
+    method: "POST", credentials: "same-origin", signal,
+    headers: { "Content-Type": "application/json", "X-Workbench": "1" }, body: JSON.stringify({ text, conversation_id: conversationId }),
+  });
+  if (!res.ok) {
+    let msg = `${res.status} ${res.statusText}`;
+    try { msg = detail(await res.json(), msg); } catch { /* keep status text */ }
+    throw new ApiError(res.status, msg);
+  }
+  return res.blob();
+}

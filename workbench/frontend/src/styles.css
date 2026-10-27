@@ -433,3 +433,10 @@ details.card > summary::-webkit-details-marker { display: none; }
 .terminal { margin: 6px 0 0; padding: 10px 12px; max-height: 360px; overflow: auto; white-space: pre-wrap; word-break: break-word;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 12px; line-height: 1.45;
   background: var(--panel-2); color: var(--text); border: 1px solid var(--border); border-radius: 8px; }
+
+/* Voice session */
+.voice-panel { margin: 0 24px 12px; border-color: var(--accent); }
+.voice-log { max-height: 220px; overflow-y: auto; gap: 4px; padding: 8px 10px; background: var(--bg); border-radius: var(--radius-sm); }
+.invite-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 16px; background: var(--accent-soft); color: var(--accent-text); border-bottom: 1px solid var(--border); }
+.invite-bar .grow { min-width: 200px; }
+@media (max-width: 720px) { .voice-panel { margin: 0 12px 10px; } }
