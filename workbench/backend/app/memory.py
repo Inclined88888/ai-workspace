@@ -211,7 +211,11 @@ def embed(texts: list[str], ref: str | None = None) -> list[list[float]]:
 
 
 def _project_requires_local(project_id: int | None) -> bool:
-    if not project_id or project_id == EVERYWHERE:
+    if project_id == EVERYWHERE:
+        # Global memory search may include private projects. Do not export its
+        # query to a cloud embedding model while any local-only project exists.
+        return bool(db.one("SELECT 1 FROM projects WHERE local_only = 1 LIMIT 1"))
+    if not project_id:
         return False
     row = db.one("SELECT local_only FROM projects WHERE id = ?", project_id)
     return bool(row and row["local_only"])
