@@ -19,7 +19,10 @@ from fastapi import HTTPException
 
 from . import audit, computer_tools, config, db, github, llm, permissions, research, sensitive, services, tools, usage, workspace
 
-MAX_STEPS = int(os.getenv("WORKBENCH_MAX_STEPS", "25") or 25)  # model calls per request; coding work needs room to test and fix
+MAX_STEPS = int(os.getenv("WORKBENCH_MAX_STEPS", "12") or 12)  # model calls per request
+# A request that works in the workspace (terminal or files) may go on to this many, to test and fix; ordinary chat keeps
+# the lower limit, so it costs no more than before
+MAX_STEPS_WORKSPACE = max(MAX_STEPS, int(os.getenv("WORKBENCH_MAX_STEPS_WORKSPACE", "25") or 25))
 # Wall-clock budget for one turn (model calls plus tools); a stuck page or slow model cannot hold a turn forever
 TURN_SECONDS = int(os.getenv("WORKBENCH_TURN_SECONDS", "300") or 300)
 # The same tool with the same arguments this many times in one turn is a loop, not progress
@@ -813,7 +816,12 @@ async def run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> AsyncI
     refused = 0
     deadline = time.monotonic() + TURN_SECONDS
     yield {"type": "memories", "items": recall(user_text, ctx.project_id)}
-    for _ in range(MAX_STEPS):
+    used_workspace = False
+    for step in range(MAX_STEPS_WORKSPACE):
+        if step >= MAX_STEPS and not used_workspace:
+            final = f"I stopped after {MAX_STEPS} steps without finishing. Tell me how to continue."
+            _save(ctx.conversation_id, "assistant", final)
+            break
         if ctx.conversation_id in _stop_requested:
             stopped = True
             final = "Stopped. Tell me how you want to continue."
@@ -865,6 +873,7 @@ async def run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> AsyncI
                 _save(ctx.conversation_id, "tool", "Not run: stopped by the user.", tool_call_id=call["id"], name=fn["name"])
                 continue
             ctx.tool_calls += 1
+            used_workspace = used_workspace or fn["name"] in workspace.TOOLS
             yield {"type": "tool_call", "name": fn["name"],
                    "args": "{}" if fn["name"] in computer_tools.KIND else fn["arguments"][:500]}
             started = time.monotonic()
@@ -889,7 +898,7 @@ async def run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> AsyncI
                     ok, out = await asyncio.wait_for(run_tool(fn["name"], fn["arguments"], ctx), limit)
                 except asyncio.TimeoutError:
                     ok, out = False, f"Error: {fn['name']} took longer than {int(limit)} seconds and was cancelled."
-            if fn["name"] in EXTERNAL_TOOLS or (fn["name"] == "run_command" and workspace.fetches(fn["arguments"])):
+            if fn["name"] in EXTERNAL_TOOLS or (fn["name"] in workspace.TOOLS and workspace.fetches(fn["name"], fn["arguments"])):
                 ctx.untrusted = True
             _save(ctx.conversation_id, "tool", out, tool_call_id=call["id"], name=fn["name"])
             event = {"type": "tool_result", "name": fn["name"], "ok": ok, "preview": out[:300], "ms": int((time.monotonic() - started) * 1000)}
@@ -898,7 +907,7 @@ async def run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> AsyncI
                 event["detail"] = out if len(out) <= 12000 else f"{out[:4000]}\n… (middle not shown here) …\n{out[-8000:]}"
             yield event
     else:
-        final = f"I stopped after {MAX_STEPS} steps without finishing. Tell me how to continue."
+        final = f"I stopped after {MAX_STEPS_WORKSPACE} steps without finishing. Tell me how to continue."
         _save(ctx.conversation_id, "assistant", final)
     _stop_requested.discard(ctx.conversation_id)
     yield {"type": "message", "content": final}

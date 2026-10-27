@@ -18,6 +18,7 @@ file the assistant can read.
 import asyncio
 import json
 import re
+import time
 import uuid
 
 import httpx
@@ -83,16 +84,44 @@ def risky(command: str) -> str:
     return ""
 
 
-FETCH = re.compile(r"\b(curl|wget|git\s+(clone|pull|fetch)|pip3?\s+(install|download)|npm\s+(i|install|ci)|pnpm\s+(i|install)|yarn\s+(add|install))\b", re.I)
+# Commands that bring content in from outside: downloads, clones, package installs
+FETCH = re.compile(
+    r"\b(curl|wget|aria2c|http|https|httpie|ftp|lftp|git\s+(clone|pull|fetch|submodule|remote\s+update)"
+    r"|(pip3?|pipx|uv|poetry|conda|mamba)\s+(install|add|download|sync|update|upgrade)|uvx\b"
+    r"|(npm|pnpm|yarn|bun)\s+(i|install|ci|add|update|upgrade|x|dlx|create)\b|npx\b|bunx\b|deno\s+(run|install)"
+    r"|go\s+(get|install|mod\s+download)|cargo\s+(install|add|fetch|update)|gem\s+install|bundle\s+(install|update)"
+    r"|composer\s+(install|require|update)|(apt|apt-get|apk|brew|dnf|yum)\s+(install|update|upgrade)|docker\s+(pull|run)"
+    r"|huggingface-cli|hf\s+download)\b", re.I)
+# Code that reaches the network: when the assistant writes it, running it later can bring outside content in
+NETWORK_CODE = re.compile(
+    r"\b(urllib|urlopen|requests\.(get|post|put|request|Session)|httpx|aiohttp|http\.client|socket\.(socket|create_connection)"
+    r"|ftplib|smtplib|websocket|fetch\s*\(|axios|XMLHttpRequest|node-fetch|net/http|Net::HTTP|open-uri|WebClient"
+    r"|Invoke-WebRequest|Invoke-RestMethod|curl_exec|file_get_contents\s*\(\s*['\"]https?:)", re.I)
+_net: dict = {"at": 0.0, "internet": True}
 
 
-def fetches(raw_args: str) -> bool:
-    """The command brings content in from outside (a download, a clone, packages): the conversation is then
-    treated like one that read a web page, so later commands and file changes ask first."""
-    try:
-        return bool(FETCH.search(str(json.loads(raw_args or "{}").get("command", ""))))
-    except (ValueError, AttributeError):
+def runner_online() -> bool:
+    """Whether the runner can reach the internet (it checks for itself; cached for a minute). Unknown counts as yes."""
+    return _net["internet"] is not False
+
+
+def fetches(name: str, raw_args: str) -> bool:
+    """This call can bring outside content into the conversation, so later commands and file changes ask first.
+    Not needed when the runner is offline: then nothing can come in."""
+    if not runner_online():
         return False
+    try:
+        args = json.loads(raw_args or "{}")
+    except ValueError:
+        return False
+    if not isinstance(args, dict):
+        return False
+    if name == "run_command":
+        command = str(args.get("command", ""))
+        return bool(FETCH.search(command) or NETWORK_CODE.search(command))
+    if name in ("workspace_write", "workspace_edit"):
+        return bool(NETWORK_CODE.search(str(args.get("content", "")) + str(args.get("new_text", ""))))
+    return False
 
 
 def allowed_without_asking(command: str) -> bool:
@@ -149,15 +178,50 @@ async def health() -> dict:
     if not configured():
         return {"configured": False, "reachable": False}
     try:
-        async with httpx.AsyncClient(timeout=5) as c:
+        async with httpx.AsyncClient(timeout=8) as c:
             h = (await c.get(f"{config.RUNNER_URL}/health")).json()
+        _net.update(at=time.time(), internet=h.get("internet", True))
         return {"configured": True, "reachable": True, **h}
     except (httpx.HTTPError, ValueError) as e:
         return {"configured": True, "reachable": False, "error": e.__class__.__name__}
 
 
+_SECRET_NAME = r"[A-Za-z0-9_.\-]*(?:secret|token|passw(?:or)?d|passwd|pwd|api[_\-]?key|access[_\-]?key|private[_\-]?key|credential|auth[_\-]?key|client[_\-]?secret)[A-Za-z0-9_.\-]*"
+_OUTPUT_SECRETS = [
+    # a whole private key, not only its first line
+    (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\Z)", re.S), "[private key removed]"),
+    # NAME=value and NAME: value, as in .env files, shell exports and YAML, when NAME says it is a secret (also in
+    # workspace_read output, where each line starts with its number)
+    (re.compile(rf"(?im)^(\s*(?:\d+\t)?(?:export\s+)?{_SECRET_NAME}\s*[=:]\s*)(?![\[<{{$])(['\"]?)[^\s'\"#]{{4,}}\2"), r"\1[secret removed]"),
+    # "name": "value" in JSON
+    (re.compile(rf"(?i)(\"{_SECRET_NAME}\"\s*:\s*\")[^\"]{{4,}}(\")"), r"\1[secret removed]\2"),
+    # user:password@ in URLs
+    (re.compile(r"(\b[a-z][a-z0-9+.\-]*://[^\s:/@]+:)[^\s@/]{3,}@", re.I), r"\1[password removed]@"),
+]
+_TOKENISH = re.compile(r"(?<![A-Za-z0-9+/=_\-])(?!sha(?:1|256|384|512)-)[A-Za-z0-9+/_\-]{40,}={0,2}(?![A-Za-z0-9+/=_\-])")
+
+
+def _entropy(s: str) -> float:
+    import math
+
+    counts = {c: s.count(c) for c in set(s)}
+    return -sum(n / len(s) * math.log2(n / len(s)) for n in counts.values())
+
+
 def _redact(text: str) -> str:
-    return sensitive.redact(text)
+    """What the model sees from commands and files: known key formats (sensitive.py), secret looking assignments,
+    passwords in URLs, private key blocks, and long random tokens (git hashes and checksums are kept)."""
+    for pattern, repl in _OUTPUT_SECRETS:  # before sensitive.redact, which would only blank a private key's first line
+        text = pattern.sub(repl, text)
+    text = sensitive.redact(text)
+
+    def token(m: re.Match) -> str:
+        t = m.group(0)
+        mixed = any(c.islower() for c in t) and any(c.isupper() for c in t) and any(c.isdigit() for c in t)
+        if not mixed or "/" in t.strip("/") and t.count("/") > 2 or _entropy(t) < 4.2:
+            return t  # paths, words joined together, hex hashes: not secrets
+        return "[possible secret removed]"
+    return _TOKENISH.sub(token, text)
 
 
 def format_result(r: dict, command: str) -> str:
@@ -187,6 +251,8 @@ async def run_command(command: str, cwd: str = "", timeout: int = 0, ctx=None) -
     command = command.strip()
     if not command:
         raise HTTPException(400, "command is required")
+    if time.time() - _net["at"] > 60:
+        await health()  # keeps "can the runner reach the internet" fresh for the outside-content rule
     limit = max(1, min(int(timeout or settings()["default_timeout"]), MAX_TIMEOUT))
     cid = uuid.uuid4().hex[:12]
     conv = getattr(ctx, "conversation_id", 0) or 0

@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { useToast } from "../util";
 
-type Runner = { configured: boolean; reachable: boolean; mode?: string; workspace?: string; warnings?: string[]; error?: string; max_timeout?: number };
+type Runner = { configured: boolean; reachable: boolean; mode?: string; workspace?: string; warnings?: string[]; error?: string; max_timeout?: number; internet?: boolean | null };
 type Status = { runner: Runner; settings: { allow: string[]; default_timeout: number }; risky: string[]; terminal_mode: string; files_mode: string };
 type Entry = { name: string; type: string; size: number | null };
 const MODE: Record<string, string> = { on: "runs without asking (risky commands still ask)", ask: "asks before each command", off: "off" };
@@ -42,7 +42,9 @@ export function WorkspacePanel() {
       <p className="muted small" style={{ margin: 0 }}>The assistant can run commands and edit files in its workspace. Both happen in a separate runner that has only the workspace folder: no ROOKS data, no API keys.</p>
       {!r.configured && <div className="alert">Run <span className="mono">./setup.sh</span> to add the runner (it creates RUNNER_TOKEN and starts the runner service). Until then the assistant has no terminal.</div>}
       {r.configured && !r.reachable && <div className="alert">The runner did not answer ({r.error}). Check it with <span className="mono">docker compose ps runner</span>.</div>}
-      {r.reachable && <div className="small">Workspace: <span className="mono">{r.workspace}</span> · {r.mode === "container" ? "own container" : "same machine (development mode, not isolated)"}</div>}
+      {r.reachable && <div className="small">Workspace: <span className="mono">{r.workspace}</span> · {r.mode === "container" ? "own container" : "same machine (development mode, not isolated)"}
+        {" · "}Internet: <strong>{r.internet === false ? "off" : r.internet ? "on" : "not checked"}</strong>
+        {r.internet !== false && <span className="muted"> (turn it off with <span className="mono">./setup.sh --runner-offline</span>)</span>}</div>}
       {(r.warnings ?? []).map((w) => <div key={w} className="alert"><CircleAlert size={13} /> {w}</div>)}
       <div className="small">Terminal: <strong>{MODE[st.terminal_mode] ?? st.terminal_mode}</strong> · Files: <strong>{MODE[st.files_mode] ?? st.files_mode}</strong> · <a href="#permissions">change in Permissions</a></div>
       <details className="small"><summary style={{ cursor: "pointer" }}><ShieldCheck size={12} /> Always asks first, whatever you set</summary>
