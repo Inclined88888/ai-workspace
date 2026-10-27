@@ -19,7 +19,10 @@ ROOKS itself never needs the companion. Without it, nothing on your computer can
 ```
 
 **The companion opens no port.** It connects out to ROOKS with a device token from pairing and asks for one action
-at a time. There is no desktop-control API to reach, from the internet or from your network.
+at a time. The companion itself exposes no listening port. ROOKS **does** expose authenticated
+`/api/companion/*` routes on the ROOKS server. Do not publicly expose these routes. Pairing codes and
+device tokens provide authentication; private-looking source IPs are not proof that a connection is local
+when Docker forwarding, NAT or reverse proxies are involved.
 
 ## Three ways to get something done, cheapest first
 
@@ -29,7 +32,8 @@ The assistant is told to choose in this order. The tools are offered in this ord
 2. **ROOKS's browser** (`browser_*`). This is a separate Chromium profile, driven by Playwright. It never sees your
    own browser's cookies or passwords.
 3. **Desktop apps** (`computer_*`). Accessibility first: elements are found and pressed through the accessibility
-   API. Clicking at screen coordinates is off unless you enable it, and screenshots are never sent to the model.
+   API. Clicking at screen coordinates is off unless you enable it. **Optional visual targeting** may
+  send an approved screenshot to the specifically selected vision model after explicit consent.
 
 Falling back to another method never gets around a refusal. Every method passes the same rules.
 
@@ -87,11 +91,19 @@ These rules are enforced on the server in `computer.py`, and again on the comput
   - Results it finished while ROOKS was down are reported when it reconnects.
 - **Privacy:**
   - The activity log and tool log record what was done, never what was typed.
-  - Screenshots are kept in memory for 10 minutes for your preview, never stored, and never sent to a model.
+  - Screen previews are cached in server memory for up to 10 minutes, never intentionally written to
+    the Computer Use action database. When visual targeting is enabled, an approved screenshot can be
+    sent to the selected vision model; cloud sharing requires explicit consent and is blocked for
+    local-only projects. Do not enable it around confidential windows without understanding the destination.
+  - New action results are held transiently for active callers; database action records retain only
+    status and minimal non-content metadata. Pending desktop approval payloads are encrypted at rest.
+    Earlier ROOKS versions may have stored raw content; see the opt-in legacy cleanup section below.
   - The pairing token is saved with mode 600 in a folder with mode 700.
 - **Network:**
-  - Companions may connect only from this machine or a private network unless remote companions are explicitly
-    enabled.
+  - ROOKS rejects connections with obviously public peer addresses unless remote companions are enabled,
+    but Docker port forwarding and reverse proxies may make remote peers appear private. This check
+    is only defense-in-depth, **not** a trustworthy network isolation boundary. Restrict the
+    ROOKS server's exposure at your firewall/reverse proxy and use HTTPS if it crosses machines.
   - Pairing codes work once, for 10 minutes, and are rate limited.
 
 ## macOS permissions
@@ -204,3 +216,36 @@ apps would need AT-SPI support, which is not built.
 `companion/rooks_companion/adapters/windows.py` documents the planned mapping onto UI Automation, method by
 method. On Windows today, the companion reports desktop control as unavailable. ROOKS's browser and allowed
 folders work there, because they are cross-platform.
+
+
+## Legacy action-history privacy cleanup (manual and optional)
+
+Versions before v9.1 may have stored screenshots or typed text in SQLite action records,
+conversation tool-call history and approvals. The v9.1 code prevents new Computer Use
+result persistence and encrypts new pending Computer Use approval arguments, but **it
+does not automatically remove historical data**.
+
+After stopping ROOKS and the companion, use the standalone cleanup script to inspect
+an **existing** database file, with the actual path from your installation:
+
+```sh
+python3 workbench/backend/scripts/scrub_computer_history.py --db /path/to/your/rooks.sqlite3
+```
+
+The default operation is a dry run. To modify the database you must also provide
+`--apply --confirm PURGE-COMPUTER-HISTORY --backup /private/new-backup.sqlite3`.
+The backup contains the original private material and should be secured separately.
+The cleanup refuses to run while Computer Use actions or approvals are active; do not
+attempt it while the application is running. **Do not run it on an irreplaceable database
+without a verified recovery procedure.**
+
+The cleanup operates on known Computer Use history fields. It does not claim to purge
+every potentially sensitive quotation from ordinary chat messages, mission reports,
+external logs, snapshots, backups or remote copies. Historical data can persist in
+database pages, WAL files and old exports; coordinate broader erasure separately.
+
+## Update provenance
+
+A `.sha256` file placed alongside an archive detects accidental corruption but does
+not establish who published either file. Install updates only from an independently
+trusted source; signed release verification is still future hardening work.
