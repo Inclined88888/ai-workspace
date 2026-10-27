@@ -178,17 +178,24 @@ def estimate(steps: int) -> float | None:
 
 def _planned(mid: int, steps: list[dict]) -> None:
     m = _get(mid)
-    status = "queued" if m["auto_start"] else "review"
-    _set(mid, plan=steps, status=status, estimate_cents=estimate(len(steps)))
-    event(mid, "planned", f"Plan ready: {len(steps)} steps." + ("" if m["auto_start"] else " Review it, then start."))
-    if status == "queued":
+    est = estimate(len(steps))
+    if m["auto_start"]:
         try:
-            reserve_check(_get(mid))
+            # Planning does not reserve money until the same transaction
+            # that transitions the mission into the active queue.
+            with db.tx():
+                _set(mid, plan=steps, status="review", estimate_cents=est)
+                reserve_check(_get(mid))
+                _set(mid, status="queued")
         except HTTPException as e:
-            _set(mid, status="review", error=str(e.detail))
+            _set(mid, plan=steps, status="review", estimate_cents=est, error=str(e.detail))
             event(mid, "budget", str(e.detail))
             return
+        event(mid, "planned", f"Plan ready: {len(steps)} steps.")
         _wake.set()
+    else:
+        _set(mid, plan=steps, status="review", estimate_cents=est)
+        event(mid, "planned", f"Plan ready: {len(steps)} steps. Review it, then start.")
 
 
 ACTIVE = ("queued", "running", "waiting_approval")
