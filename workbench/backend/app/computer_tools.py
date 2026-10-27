@@ -97,7 +97,7 @@ def tools(Tool, S, I, B) -> list:
     async def click_visual(target, app, ctx=None):
         from . import vision
 
-        t = vision.target(target)
+        t = vision.target(target, conversation_id=ctx.conversation_id, mission_id=getattr(ctx, "mission_id", None))
         if t["app"].lower() != str(app).lower():
             raise HTTPException(400, f"{target} was found in {t['app']}, not {app}.")
         return await run("click_visual", {k: t[k] for k in ("app", "window_id", "bbox", "nx", "ny", "captured_at", "label")}, ctx)
