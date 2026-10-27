@@ -91,6 +91,10 @@ Native Ollama uses the Mac GPU; the `local-models` add-on would run on CPU insid
 * **Skills.** When a task took 3 or more tool calls, it can save the procedure as a named skill and improve it on later use. Skills are listed to the model and loaded on demand, so they cost almost nothing until used.
 * **History.** Every conversation is full text searchable, by you and by the assistant (`search_history`).
 * **Models.** Switch per conversation from the model menu. Any provider in Settings works.
+* **Rich answers.** When a tool runs, its real result can appear as a table, chart or cards (tasks, missions, projects, files, sources and more). These are built by code from the tool's data, never written by the model, so a chart shows only numbers ROOKS has. Code has a Copy button, `[n]` citations link to sources the answer actually read, and rendered Markdown never loads images or media. Details in `docs/UI_V11.md`.
+* **Chat controls.** Copy, Regenerate, Edit and resend your last message, Stop while it answers. Each answer has a one-line activity summary that opens by itself when something failed, changed or needs approval.
+* **What ROOKS can do.** A page listing every capability with its real state: ready, needs setup, turned off, optional add-on, or not available yet.
+* **Search.** Ctrl K (Cmd K on a Mac) finds pages, settings, projects, missions, conversations, notes and files, or turns what you typed into a question, research, a task or a mission plan. It never runs tools or skips an approval.
 * **Terminal.** `cli/ws` is a zero dependency Python CLI: `cli/ws login`, then `cli/ws` for a REPL or `cli/ws "what's on today?"` for one shot. Also `cli/ws memory`, `skills`, `inbox`, `schedules`.
 * **Telegram.** Assistant settings → Telegram: paste a bot token from @BotFather and your numeric user id. Only allowlisted ids get answers; others are told their id so you can add them. `/new` starts a fresh conversation. The token is stored encrypted.
 
@@ -336,6 +340,8 @@ Backend: FastAPI + SQLite. Frontend: React + Vite + TypeScript. The tool server 
 - Voice was tested in Chromium with a fake microphone and a fake speech provider. Browser speech recognition (which needs the browser maker's service), real speech providers, and interrupting by voice on speakers without headphones were not tested.
 - The phone line has never placed a real call: only the test provider was used, and no paid call was made. Two-way phone conversation needs a public webhook and is not built.
 - Workers are isolated by permissions inside the ROOKS process, not by an operating system sandbox (terminal work still runs in the runner container). Company agents do not use workers yet.
+- Rendered Markdown (answers, notes, documents, reports) does not show images or media, so image links in older notes no longer display. Math notation and footnotes are not rendered.
+- Accessibility was checked with an automated axe sweep and keyboard tests, not a manual audit or a real screen reader.
 
 - Single user ROOKS (the `openwebui` add-on supports multiple users).
 - Telegram is the only built in messaging channel. Discord, Slack, WhatsApp and Signal need the `hermes` add-on.

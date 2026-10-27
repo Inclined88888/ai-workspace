@@ -1,6 +1,6 @@
-# ROOKS capability roadmap: 117 requirements
+# ROOKS capability roadmap: 129 requirements
 
-Status as of 2026-10-27 (v10, branch `development/rooks-v10`). Items 101 to 117 were added in v10. Linux was the only test environment: no macOS result in this file comes from a Mac.
+Status as of 2026-10-27 (v11, branch `development/rooks-ui-v11`). Items 101 to 117 were added in v10, items 118 to 129 in v11. Linux was the only test environment: no macOS result in this file comes from a Mac.
 
 ## How statuses are assigned
 
@@ -27,10 +27,10 @@ Counted from the tables below.
 
 | Status | Count |
 |---|---|
-| verified | 64 |
+| verified | 73 |
 | implemented | 14 |
-| partial | 31 |
-| not started | 8 |
+| partial | 33 |
+| not started | 9 |
 
 ## Memory and context (1 to 10)
 
@@ -203,6 +203,25 @@ Counted from the tables below.
 | 115 | Evidence ledgers | verified | `evidence` table: claim, source and URL, title, published and retrieved dates, exact quote and its location, credibility, confidence, verification, contradictions, corroboration, fact, inference or uncertain | test_research, Research UI suite (9, with a SEEDED run) | P1 | M | Quotes are found in the page by code; nothing is cited that was not read | ✔ |
 | 116 | Ongoing research monitoring | verified | Follow a research question: a check-in with a `search:` source, opt in and out from the report | test_research (monitor on and off), test_checkins `test_a_followed_search...`, Research UI suite | P2 | S | — | ✔ |
 | 117 | Unified attention inbox | verified | `attention.py`, Needs You page: approvals, workers, missions, research, automations, calls, spending, reminders, follow-ups; each says what, why, risk, cost, each choice and what is next; defer | test_needs_you, Needs You browser suite (11) | P1 | M | Single actions only; no blanket approval | ✔ |
+
+## v11: rich answers, discovery and interface (118 to 129)
+
+All browser evidence below used a local fake model and fake providers: it verifies the interface and server contracts, not any real provider.
+
+| ID | Requirement | Status | What exists (modules) | Evidence | Pri | Cx | Security | Acceptance / next |
+|---|---|---|---|---|---|---|---|---|
+| 118 | Structured answers from real tool results | verified | `blocks.py` (schema v1: records, table, kpis, chart, sources, list, notice), blocks on `tool_result` events, rebuilt on reload | test_blocks (4), rich browser suite (33) | P1 | M | Built by code from tool data; the model never writes blocks; failed tools give none | ✔ |
+| 119 | Safe rich text | verified | `rich/RichText.tsx`: DOMPurify, code colouring and copy, scrolling tables, safe links, citations only to sources read; no images or media | rich browser suite: hostile markup, `javascript:` and `data:` links, images not loaded | P1 | M | No model text becomes script or markup; image exfiltration closed | Behaviour change: images in notes are no longer shown |
+| 120 | Charts from verified data only | verified | `rich/Chart.tsx` (lazy, bar, line, donut, table view, hover readout); usage charts from the ledger | test_blocks (usage equals ledger), rich browser suite (values equal recorded totals) | P1 | M | Non-numeric or unknown chart data is not drawn | More chart sources (research, missions) |
+| 121 | Actions inside answers | verified | `rich/Blocks.tsx`: controls chosen by record kind and id, through the normal API | rich browser suite (a card action marks a task done) | P1 | S | Data cannot add or change a control; permissions and approvals apply | ✔ |
+| 122 | Edit, regenerate, copy | verified | `POST /conversations/{id}/truncate`, composer edit mode, regenerate, copy | test_blocks (truncate, refused during an approval), rich browser suite | P1 | S | Truncate refuses while an approval runs | ✔ |
+| 123 | Starters that launch real capabilities | verified | 11 starter cards; new tools `get_usage`, `list_models`, `project_status`, `list_missions`, `start_mission`, `start_research` | rich browser suite, test_blocks (gating) | P2 | S | `start_mission` and `start_research` always ask, and are not offered to missions, schedules or agents | ✔ |
+| 124 | Capability discovery | verified | `capabilities.py`, `GET /api/capabilities`, `pages/Capabilities.tsx`: ready, needs setup, off, optional, not available yet; last success and error from the tool log | test_capabilities, navigation browser suite | P1 | M | Unavailable features offer no action; no paid model is run to check | No plugin marketplace (by design until code review exists) |
+| 125 | Command palette | verified | `components/CommandPalette.tsx`: Ctrl or Cmd K, pages, settings, content search, ask, research, add task, plan mission | navigation browser suite | P2 | S | Navigates or creates in plain view only; never runs tools or skips approvals | ✔ |
+| 126 | Settings by category | partial | `pages/Settings.tsx`: ten sections, navigator that follows scrolling, jump menu on phones | navigation browser suite, main UI suite | P2 | M | A key shows as connected only after a real check | Missing: a separate Notifications section (delivery is set per automation) |
+| 127 | Accessibility (WCAG 2.2 AA) | partial | Contrast tokens, labels, names, focusable regions, keyboard paths | axe-core sweep of 44 page views, no serious or critical violations; keyboard checks in both suites | P1 | M | — | Not done: a manual audit and a real screen reader test |
+| 128 | Phones | verified | Chat list toggle, settings jump menu, projects pane, measured charts | Overflow sweep at 390 px (no page scrolls sideways), phone checks in both suites | P1 | S | — | ✔ |
+| 129 | Math notation and footnotes in answers | not started | — | — | P3 | S | Must not reintroduce raw HTML | Add with a sanitised renderer |
 
 ## Next highest-value work
 
