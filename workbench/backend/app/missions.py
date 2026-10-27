@@ -607,13 +607,16 @@ async def _report(mid: int, final: str) -> None:
                       for s in m["plan"])
     _set(mid, report=f"{summary}\n\n### Steps\n{table}", status=final)
     if m.get("project_id"):
-        # episodic memory: what happened, kept in the project so later work there knows
+        # Only verified machine-generated status is written into durable memory.
+        # Model-generated reports may quote webpages or other untrusted content,
+        # so they remain in the mission report, never injected into project prompts.
+
         from .sensitive import redact
 
         done = sum(1 for s in m["plan"] if s["status"] == "done")
         db.run("INSERT INTO memories(content, kind, source, confidence, conversation_id, project_id, created_at, updated_at) "
                "VALUES (?, 'episode', 'mission', 0.9, ?, ?, ?, ?)", redact(f"Mission #{mid} ({final}, {done}/{len(m['plan'])} steps done): "
-               f"{m['goal'][:160]}. {summary.splitlines()[0][:240] if summary else ''}"), m["conversation_id"], m["project_id"], db.now(), db.now())
+               f"{m['goal'][:160]}. Review mission #{mid} to inspect its report."), m["conversation_id"], m["project_id"], db.now(), db.now())
     from .scheduler import deliver
 
     deliver(f"Mission {final}: {m['goal'][:80]}", f"{summary}\n\n{table}", "inbox", f"mission:{mid}")
