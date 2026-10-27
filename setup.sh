@@ -14,6 +14,7 @@
 #   ./setup.sh --yes                    accept defaults, no prompts
 # Works with the bash 3.2 that ships with macOS.
 set -euo pipefail
+umask 077
 cd "$(dirname "$0")"
 
 YES=false
@@ -78,7 +79,10 @@ docker compose version >/dev/null 2>&1 || fail "Docker Compose v2 is required (t
 docker info >/dev/null 2>&1 || fail "Cannot talk to Docker. Is Docker running (and is your user in the docker group on Linux)?"
 
 FIRST_RUN=false
+[[ ! -L .env ]] || fail 'Refusing a symbolic-link .env file.'
+[[ ! -e .env || -f .env ]] || fail '.env must be a regular file.'
 if [[ ! -f .env ]]; then cp .env.example .env; chmod 600 .env; FIRST_RUN=true; fi
+chmod 600 .env
 # Upgrades: add settings introduced since this .env was created (existing values are never touched)
 while IFS= read -r line; do
   key=${line%%=*}

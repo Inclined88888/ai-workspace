@@ -1,113 +1,99 @@
 #!/usr/bin/env bash
-# One command install for ROOKS:
-#
-#   curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/main/install.sh | bash
-#
-# Pass setup options after `bash -s --`:
-#
-#   curl -fsSL .../install.sh | bash -s -- --with search,browser
-#   curl -fsSL .../install.sh | bash -s -- --yes
-#
-# Running it again upgrades in place: code is updated, .env, secrets and data are kept.
-# Settings (environment variables):
-#   AI_WORKSPACE_DIR   install folder            (default: ~/ai-workspace)
-#   AI_WORKSPACE_REPO  GitHub owner/repo         (default: Inclined88888/ai-workspace)
-#   AI_WORKSPACE_REF   branch or tag             (default: main)
-# Works with the bash 3.2 that ships with macOS.
+# ROOKS installer: macOS, Linux and Windows through WSL2; Bash 3.2+.
+# Run with AI_WORKSPACE_REF=<full commit SHA> to install a reviewed revision.
+# Requires Git and a running Docker engine with Compose v2.
+# Existing installs must be clean, from the expected origin, and fast-forwardable.
+# No system packages are installed and no sudo commands are run.
 
-# Everything runs inside main, so a download cut off halfway executes nothing.
-main() {
+# A truncated curl | bash download cannot call main until the final line arrives.
+main() (
   set -euo pipefail
-
+  umask 077
   local repo=${AI_WORKSPACE_REPO:-Inclined88888/ai-workspace}
   local ref=${AI_WORKSPACE_REF:-main}
   local dir=${AI_WORKSPACE_DIR:-$HOME/ai-workspace}
-  local url="https://github.com/$repo.git"
-  case "$repo" in /*|./*|file://*) url=$repo ;; esac # local path, for testing
-
-  bold() { printf '\033[1m%s\033[0m\n' "$*"; }
+  local url staging="" os arch tty=false
   info() { printf '  %s\n' "$*"; }
-  fail() { printf '\033[31mError:\033[0m %s\n' "$*" >&2; exit 1; }
+  fail() { printf 'Error: %s\n' "$*" >&2; exit 1; }
+  cleanup() { if [[ -n "$staging" && -d "$staging" ]]; then rm -rf -- "$staging"; fi; }
+  trap cleanup EXIT
 
-  # Under `curl | bash` stdin is the script, so prompts must read the terminal.
-  local tty=false
-  if (exec </dev/tty) 2>/dev/null; then tty=true; fi
-  confirm() { # confirm "Question" -> 0 for yes
-    $tty || return 1
-    local ans=""
-    read -r -p "  $1 [y/N]: " ans </dev/tty || true
-    [[ "$ans" =~ ^[Yy] ]]
-  }
+  case "${1:-}" in
+    -h|--help)
+      info 'ROOKS: install.sh [--yes] [--with search,browser,...]'
+      info 'AI_WORKSPACE_DIR: destination (default ~/ai-workspace)'
+      info 'AI_WORKSPACE_REF: branch, tag or full commit SHA (default main)'
+      info 'Requires Git and Docker with Compose v2; supports macOS, Linux and WSL2.'
+      return 0 ;;
+  esac
+  [[ "$ref" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || fail 'Invalid branch, tag or commit reference.'
+  case "$repo" in
+    /*) url=$repo ;; # local repository fixtures or explicitly trusted local source
+    *) [[ "$repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || fail 'Repository must be GitHub owner/name.'
+       url="https://github.com/$repo.git" ;;
+  esac
+  [[ "$dir" == /* && "$dir" != / ]] || fail 'AI_WORKSPACE_DIR must be an absolute directory path, not /.'
+  [[ ! -L "$dir" ]] || fail 'Refusing a symbolic-link installation directory.'
 
-  bold "ROOKS installer"
-  local os
-  os=$(uname -s)
+  printf 'ROOKS installer\n'
+  os=$(uname -s); arch=$(uname -m)
   case "$os" in
     Linux|Darwin) ;;
-    *) fail "Unsupported system $os. Use Linux or macOS (on Windows, run this inside WSL 2)." ;;
+    *) fail "Unsupported system $os. On Windows, use a WSL2 Linux terminal with Docker integration." ;;
   esac
-  command -v curl >/dev/null 2>&1 || fail "curl is required."
+  case "$arch" in
+    x86_64|amd64|arm64|aarch64) ;;
+    *) fail "Unsupported architecture $arch. This installer targets 64-bit Intel/AMD and ARM." ;;
+  esac
+  command -v git >/dev/null 2>&1 && git --version >/dev/null 2>&1 || fail 'Install Git first (on macOS: xcode-select --install).'
+  command -v docker >/dev/null 2>&1 || fail 'Install and start Docker with Compose v2 first: https://docs.docker.com/get-started/get-docker/'
+  docker compose version >/dev/null 2>&1 || fail 'Docker Compose v2 is required.'
+  docker info >/dev/null 2>&1 || fail 'Docker is not running or your user cannot access it. Start Docker and check your permissions.'
 
-  # Docker
-  if ! command -v docker >/dev/null 2>&1; then
-    if [[ "$os" == Darwin ]]; then
-      fail "Docker is not installed. Install Docker Desktop (docker.com) or OrbStack (orbstack.dev), start it once, then run this command again."
-    fi
-    info "Docker is not installed."
-    if confirm "Install it now with Docker's official script (get.docker.com, needs sudo)?"; then
-      curl -fsSL https://get.docker.com | sh
-      if [[ $(id -u) -ne 0 ]] && ! docker info >/dev/null 2>&1; then
-        sudo usermod -aG docker "$USER"
-        fail "Docker is installed. Log out and back in (so your user can use Docker), then run this command again."
-      fi
-    else
-      fail "Install Docker Engine (https://docs.docker.com/engine/install/), then run this command again."
-    fi
-  fi
-  docker compose version >/dev/null 2>&1 || fail "Docker Compose v2 is missing. Install the docker-compose-plugin package (or update Docker Desktop)."
-  if ! docker info >/dev/null 2>&1; then
-    if [[ "$os" == Darwin ]]; then
-      fail "Docker is not running. Start Docker Desktop or OrbStack, then run this command again."
-    elif [[ $(id -u) -ne 0 ]] && sudo -n docker info >/dev/null 2>&1; then
-      fail "Your user cannot use Docker. Run: sudo usermod -aG docker $USER  then log out and back in, and run this command again."
-    else
-      fail "Docker is not running. Start it (sudo systemctl start docker), then run this command again."
-    fi
-  fi
-
-  # Code: clone, or update an existing install.
-  # On a Mac /usr/bin/git is a stub until the Command Line Tools are installed, so check for those.
-  local git_ok=false
-  if command -v git >/dev/null 2>&1; then
-    if [[ "$os" != Darwin ]] || xcode-select -p >/dev/null 2>&1 || [[ "$(command -v git)" != /usr/bin/git ]]; then git_ok=true; fi
-  fi
-  if $git_ok && [[ -d "$dir/.git" ]]; then
-    bold "Updating $dir"
-    git -C "$dir" fetch origin "$ref" || fail "Could not fetch $ref from $url."
-    git -C "$dir" merge --ff-only FETCH_HEAD || fail "$dir has local changes that conflict with the update. Commit or discard them, then run this again."
-  elif [[ -e "$dir" && ! -f "$dir/setup.sh" ]]; then
-    fail "$dir already exists and is not a ROOKS install. Set AI_WORKSPACE_DIR to another folder."
-  elif $git_ok && [[ ! -e "$dir" ]]; then
-    bold "Downloading to $dir"
-    git clone --depth 1 --branch "$ref" "$url" "$dir" || fail "Could not download $url (branch $ref). Is the repository public?"
+  if [[ -e "$dir" ]]; then
+    [[ -d "$dir/.git" && ! -L "$dir/.git" ]] || fail "$dir exists but is not a standalone Git install. Choose another AI_WORKSPACE_DIR."
+    [[ "$(git -C "$dir" rev-parse --show-toplevel)" == "$(cd "$dir" && pwd -P)" ]] || fail 'Unexpected Git working directory.'
+    local origin
+    origin=$(git -C "$dir" remote get-url origin) || fail 'The install has no origin.'
+    [[ "$origin" == "$url" ]] || fail 'Existing install has a different source. Nothing was updated.'
+    [[ -z "$(git -C "$dir" status --porcelain --untracked-files=normal)" ]] || fail 'Local edits or untracked files found. Save them before updating; nothing was overwritten.'
+    info "Fetching $repo at $ref"
+    git -C "$dir" fetch origin "$ref" || fail 'Download failed. Existing code and data were kept.'
+    # Refuse divergent history and downgrades; never reset or overwrite local work.
+    git -C "$dir" -c core.hooksPath=/dev/null -c submodule.recurse=false merge --ff-only FETCH_HEAD || fail 'Update is not a fast-forward. Review the history manually.'
   else
-    # No git, or an earlier install that was unpacked from an archive: unpack over it. .env is not in the archive, so it is kept.
-    bold "Downloading to $dir"
-    mkdir -p "$dir"
-    curl -fsSL "https://codeload.github.com/$repo/tar.gz/$ref" | tar xz -C "$dir" --strip-components 1 \
-      || fail "Could not download $repo ($ref). Is the repository public?"
+    mkdir -p "$(dirname "$dir")"
+    staging=$(mktemp -d "$(dirname "$dir")/.rooks-download.XXXXXX")
+    git init -q "$staging"
+    git -C "$staging" remote add origin "$url"
+    git -C "$staging" fetch --depth 1 origin "$ref" || fail 'Download failed. Check repository access and the requested revision.'
+    git -C "$staging" -c core.hooksPath=/dev/null -c submodule.recurse=false checkout -q --detach FETCH_HEAD
+    [[ -f "$staging/setup.sh" && ! -L "$staging/setup.sh" ]] || fail 'Downloaded revision has no regular setup.sh.'
+    # -T is unavailable on macOS. A destination appearing during download must
+    # not turn mv into a move-inside-an-existing-folder operation.
+    [[ ! -e "$dir" && ! -L "$dir" ]] || fail 'Destination appeared during download. Nothing was installed.'
+    mv "$staging" "$dir"
+    staging=""
   fi
 
-  # Setup
+  local actual
+  actual=$(git -C "$dir" rev-parse HEAD)
+  # A full SHA is an exact pin, not a branch name. Check before executing setup.
+  if [[ "$ref" =~ ^[a-fA-F0-9]{40}$ ]]; then
+    [[ "$(printf '%s' "$actual" | tr A-F a-f)" == "$(printf '%s' "$ref" | tr A-F a-f)" ]] || fail 'Downloaded commit does not match the requested pin.'
+  fi
+  [[ -f "$dir/setup.sh" && ! -L "$dir/setup.sh" ]] || fail 'No regular setup.sh in this revision.'
+  info "Revision: $actual"
+  if (exec </dev/tty) 2>/dev/null; then tty=true; fi
   cd "$dir"
   if $tty; then
-    ./setup.sh "$@" </dev/tty
+    bash ./setup.sh "$@" </dev/tty
   else
-    info "No terminal for questions: using defaults (add keys later in Settings)."
-    ./setup.sh --yes "$@"
+    info 'No terminal: using defaults; configure models later in Settings.'
+    bash ./setup.sh --yes "$@"
   fi
-  echo
-  info "Installed in $dir. Run this command again any time to upgrade."
-}
+  info "Installed in $dir. Interface: http://localhost:3100 (unless configured otherwise)."
+  info 'Use the same pin to repeat this installation, or a newly reviewed pin to update.'
+)
 
 main "$@"

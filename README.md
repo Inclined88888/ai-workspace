@@ -23,27 +23,31 @@ You don't need any of them for the assistant, memory, skills, schedules, Telegra
 
 ## Quick start
 
-Requirements: Docker with Compose v2 (Docker Desktop or OrbStack on a Mac), 1 GB RAM free, about 2 GB of disk for the build. At least one model provider key, or Ollama.
+Requirements: Git and Docker with Compose v2 (Docker Desktop or OrbStack on a Mac), 1 GB RAM free, about 2 GB of disk for the build. At least one model provider key, or Ollama.
 
-One command (Linux or macOS):
+One command (Linux, macOS, or a Windows WSL2 Linux terminal; Docker must already be running):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/security/rooks-v9-1/install.sh | AI_WORKSPACE_REF=security/rooks-v9-1 bash
 ```
 
 With add-ons, or with no questions:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/main/install.sh | bash -s -- --with search,browser
-curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/main/install.sh | bash -s -- --yes
+curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/security/rooks-v9-1/install.sh | AI_WORKSPACE_REF=security/rooks-v9-1 bash -s -- --with search,browser
+curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/security/rooks-v9-1/install.sh | AI_WORKSPACE_REF=security/rooks-v9-1 bash -s -- --yes
 ```
 
-The installer checks Docker (on Linux it offers to install it with Docker's official script; on a Mac install Docker Desktop or OrbStack first), downloads the code to `~/ai-workspace` (`AI_WORKSPACE_DIR` changes that), and runs `setup.sh`. Run the same command again to upgrade. Prefer to read it first? `curl -fsSL .../install.sh -o install.sh`, read it, then `bash install.sh`.
+The installer checks Git, Docker and Compose v2, downloads the code to `~/ai-workspace` (`AI_WORKSPACE_DIR` changes that), and runs `setup.sh`. It never installs system packages or runs sudo. Existing installs must have the expected origin and no local edits or untracked files; updates must fast-forward. Archive installs require a fresh destination. Existing `.env` values and data are kept.
+
+These commands explicitly select the security branch; `main` has not been updated. A branch URL can change. For a reviewed version, replace **both** occurrences of `security/rooks-v9-1` with the same full commit SHA. Prefer to inspect it first? Download `install.sh` from that commit, read it, then run `AI_WORKSPACE_REF=<that-SHA> bash install.sh`. Commit pinning selects exact repository code; it is not signed release authentication or a fully pinned dependency build.
+
+Supported installer targets are 64-bit Intel/AMD and ARM on macOS/Linux and Windows through WSL2 with Docker integration. Native Windows shells are refused. Full installations on every OS/architecture are not verified.
 
 From a clone instead:
 
 ```bash
-git clone https://github.com/Inclined88888/ai-workspace && cd ai-workspace
+git clone --branch security/rooks-v9-1 https://github.com/Inclined88888/ai-workspace && cd ai-workspace
 ./setup.sh                        # core only
 ./setup.sh --with search,browser  # core plus add-ons (comma separated)
 ./setup.sh --with none            # turn all add-ons off again
@@ -61,7 +65,7 @@ Re-running is safe and is how you upgrade or change add-ons: it adds new setting
 brew install ollama && brew services start ollama
 ollama pull qwen3:4b
 # 3. Install:
-curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/security/rooks-v9-1/install.sh | AI_WORKSPACE_REF=security/rooks-v9-1 bash
 ```
 
 Native Ollama uses the Mac GPU; the `local-models` add-on would run on CPU inside Docker's VM, so skip it on a Mac.
