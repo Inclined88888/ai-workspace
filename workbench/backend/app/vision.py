@@ -191,6 +191,9 @@ async def locate(app: str, description: str, conversation_id: int | None, missio
     if not ok:
         raise HTTPException(403, why)
     s = settings()
+    active_device = computer.online_device()
+    if not active_device:
+        raise HTTPException(503, "No paired computer is connected.")
     # Re-check immediately before capture and transmission, not only at tool listing.
     cap = await computer.request("capture", {"app": app}, conversation_id=conversation_id, mission_id=mission_id, timeout=30)
     if not cap["ok"]:
@@ -220,7 +223,8 @@ async def locate(app: str, description: str, conversation_id: int | None, missio
     tid = "v" + secrets.token_urlsafe(24)
     _targets[tid] = {"app": app, "window_id": res["window"]["id"], "bbox": res["window"]["bbox"], "nx": nx, "ny": ny,
                      "captured_at": res["captured_at"], "label": str(out.get("label", ""))[:80], "expires": time.time() + TARGET_TTL,
-                     "conversation_id": conversation_id, "mission_id": mission_id}
+                     "conversation_id": conversation_id, "mission_id": mission_id,
+                     "device_id": active_device["id"]}
     return {"found": True, "target": tid, "label": _targets[tid]["label"], "confidence": round(conf, 2), "method": "visual",
             "window": res["window"].get("title", ""), "note": f"Visual target {tid} (expires in {TARGET_TTL}s). Click it with computer_click_visual."}
 
@@ -234,6 +238,9 @@ def target(tid: str, conversation_id: int | None = None, mission_id: int | None 
         raise HTTPException(403, "Visual target belongs to another conversation.")
     if mission_id is not None and t.get("mission_id") != mission_id:
         raise HTTPException(403, "Visual target belongs to another mission.")
+    device = computer.online_device()
+    if not device or device["id"] != t.get("device_id"):
+        raise HTTPException(409, "Computer changed since this target was located. Observe again.")
     return t
 
 
