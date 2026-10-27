@@ -422,7 +422,14 @@ def models(fresh: bool = False):
         default = llm.default_model_ref()
     except HTTPException:
         default = ""
-    return {"models": llm.list_models(fresh), "default": default}
+    mode = llm.ai_mode()
+    out = [dict(m) for m in llm.list_models(fresh)]  # copies: the list is cached, and flags must follow the current mode
+    if mode in ("free", "local"):
+        # Which models this AI mode allows, so pickers can put those first and mark the rest as unavailable
+        for m in out:
+            why = llm.mode_allows(m["ref"])
+            m["allowed"], m["blocked"] = not why, why[:200]
+    return {"models": out, "default": default, "mode": mode}
 
 
 @api.get("/ollama/status")

@@ -62,9 +62,10 @@ function Settings({ p, onSaved }: { p: Project; onSaved: () => void }) {
         onChange={(e) => setF({ ...f, instructions: e.target.value })} placeholder="e.g. Write in British English. The client is Acme; never contact them directly." /></label>
       <div className="row wrap" style={{ alignItems: "flex-end" }}>
         <label className="field">Model<ModelSelect value={f.model} onChange={(model) => setF({ ...f, model })} models={models} defaultLabel="Same as everywhere" /></label>
-        <label className="field">Monthly budget (cents, 0 = none)<input className="input" type="number" min={0} style={{ width: 140 }} value={f.budget_cents}
-          onChange={(e) => setF({ ...f, budget_cents: Math.max(0, +e.target.value) })} /></label>
-        <span className="small muted">Spent this month: {p.spend_cents.toFixed(1)}¢</span>
+        <label className="field">Monthly budget in US dollars <span className="hint">Leave at 0 for no project limit; your workspace limit still applies.</span>
+          <input className="input" type="number" min={0} step="0.01" inputMode="decimal" style={{ width: 140 }} value={f.budget_cents / 100}
+            onChange={(e) => setF({ ...f, budget_cents: Math.max(0, Math.round(Number(e.target.value || 0) * 100)) })} /></label>
+        <span className="small muted">Spent this month: ${(p.spend_cents / 100).toFixed(2)}</span>
       </div>
       <label className="row small" style={{ gap: 6 }}><input type="checkbox" checked={f.local_only} onChange={(e) => setF({ ...f, local_only: e.target.checked })} />
         Local models only: work in this project never goes to a cloud model, not even as a backup</label>

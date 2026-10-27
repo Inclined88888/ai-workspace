@@ -42,6 +42,7 @@ export default function AppearancePanel() {
   const [a, setA] = useState<Appearance>(cached);
   const [editing, setEditing] = useState<Theme | null>(null);
   const saveTimer = useRef<number>();
+  const [saved, setSaved] = useState<"" | "saving" | "saved" | "error">("");
   const toast = useToast();
 
   useEffect(() => { api<unknown>("/appearance").then((r) => { const n = normalise(r && Object.keys(r as object).length ? r : cached()); setA(n); apply(n); cache(n); }).catch(() => undefined); }, []);
@@ -52,7 +53,10 @@ export default function AppearancePanel() {
     apply(n);
     cache(n);
     window.clearTimeout(saveTimer.current);
-    saveTimer.current = window.setTimeout(() => { api("/appearance", { method: "PUT", body: n }).catch(toast.err); }, 400);
+    setSaved("saving");
+    saveTimer.current = window.setTimeout(() => {
+      api("/appearance", { method: "PUT", body: n }).then(() => setSaved("saved")).catch((e) => { setSaved("error"); toast.err(e); });
+    }, 400);
   };
 
   const startCustom = () => {
@@ -83,6 +87,8 @@ export default function AppearancePanel() {
   return (
     <div className="card col gap-lg" id="appearance" style={{ scrollMarginTop: 16 }}>
       <div className="row"><Palette size={16} aria-hidden="true" /><h2 className="grow">Appearance</h2>
+        <span className={`save-state ${saved === "saved" ? "ok" : saved === "error" ? "err" : ""}`} role="status" aria-live="polite">
+          {saved === "saving" ? "Saving…" : saved === "saved" ? "Saved for every device" : saved === "error" ? "Not saved" : ""}</span>
         <button type="button" className="btn ghost sm" onClick={() => update({ ...DEFAULTS, custom: a.custom })} title="Back to the defaults (keeps your saved themes)"><RotateCcw size={13} /> Reset</button></div>
 
       <div className="col" style={{ gap: 8 }}>

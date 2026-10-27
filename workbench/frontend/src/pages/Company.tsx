@@ -19,14 +19,14 @@ function OrgNode({ agent, all, onEdit }: { agent: Agent; all: Agent[]; onEdit: (
   const pct = agent.monthly_budget_cents ? Math.min(100, (agent.month.cents / agent.monthly_budget_cents) * 100) : 0;
   return (
     <div className="col" style={{ alignItems: "center", gap: 10 }}>
-      <div className="card" style={{ width: 200, padding: 12, cursor: "pointer", borderColor: agent.status === "paused" ? "var(--danger)" : undefined }} onClick={() => onEdit(agent)}>
-        <div className="row"><strong className="grow truncate">{agent.name}</strong>{agent.status === "paused" && <span className="badge danger">paused</span>}</div>
-        <div className="muted small truncate">{agent.title || "Team member"}</div>
-        <div className="faint small" style={{ marginTop: 6 }}>
+      <button type="button" className="card" style={{ width: 200, padding: 12, borderColor: agent.status === "paused" ? "var(--danger)" : undefined }} onClick={() => onEdit(agent)}>
+        <span className="row" style={{ display: "flex" }}><strong className="grow truncate">{agent.name}</strong>{agent.status === "paused" && <span className="badge danger">paused</span>}</span>
+        <span className="muted small truncate" style={{ display: "block" }}>{agent.title || "Team member"}</span>
+        <span className="faint small" style={{ marginTop: 6, display: "block" }}>
           {agent.monthly_budget_cents ? `$${(agent.month.cents / 100).toFixed(2)} of $${(agent.monthly_budget_cents / 100).toFixed(2)}` : `$${(agent.month.cents / 100).toFixed(2)} · no money cap`}
-        </div>
-        {agent.monthly_budget_cents > 0 && <div className="progress" style={{ marginTop: 4 }}><div style={{ width: `${pct}%`, background: pct >= 80 ? "var(--danger)" : undefined }} /></div>}
-      </div>
+        </span>
+        {agent.monthly_budget_cents > 0 && <span className="progress" style={{ marginTop: 4, display: "block" }}><span style={{ display: "block", height: "100%", width: `${pct}%`, background: pct >= 80 ? "var(--danger)" : undefined }} /></span>}
+      </button>
       {reports.length > 0 && (
         <div className="row" style={{ alignItems: "flex-start", gap: 16, borderTop: "1px solid var(--border-strong)", paddingTop: 10 }}>
           {reports.map((r) => <OrgNode key={r.id} agent={r} all={all} onEdit={onEdit} />)}
@@ -46,7 +46,7 @@ export default function Company() {
   const toast = useToast();
 
   const load = () => api<Overview>("/company").then((d) => { setData(d); setMission((m) => m || d.mission); }).catch(toast.err);
-  useEffect(() => { load(); const t = setInterval(load, 5000); return () => clearInterval(t); }, []);
+  useEffect(() => { load(); const t = setInterval(() => { if (document.visibilityState === "visible") load(); }, 5000); return () => clearInterval(t); }, []);
 
   const saveAgent = async (e: FormEvent) => {
     e.preventDefault();

@@ -94,7 +94,7 @@ export async function stream(path: string, body: unknown, onEvent: (e: StreamEve
 }
 
 export type Model = { ref: string; model: string; provider: string; provider_id: number; free?: boolean; free_basis?: string; tools?: boolean | null;
-  price_in?: number; price_out?: number };
+  price_in?: number; price_out?: number; allowed?: boolean; blocked?: string };
 
 export type Doc = {
   id: number;

@@ -28,21 +28,25 @@ export default function CommandPalette() {
   const back = useRef<HTMLElement | null>(null);
   const navigate = useNavigate();
 
+  // Where focus was before opening, recorded before the search box takes it, so closing can give it back
+  const remember = () => { const a = document.activeElement as HTMLElement | null; if (a && a !== document.body && !a.closest(".palette")) back.current = a; };
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        setOpen((o) => { if (o) { setQ(""); setFound([]); setIdx(0); setMsg(""); } return !o; });
+        setOpen((o) => { if (o) { setQ(""); setFound([]); setIdx(0); setMsg(""); } else remember(); return !o; });
       }
     };
-    const ev = () => setOpen(true);
+    const ev = () => { remember(); setOpen(true); };
     window.addEventListener("keydown", key);
     window.addEventListener("wb:palette", ev);
     return () => { window.removeEventListener("keydown", key); window.removeEventListener("wb:palette", ev); };
   }, []);
+  const wasOpen = useRef(false);
   useEffect(() => {
-    if (open) { back.current = document.activeElement as HTMLElement; input.current?.focus(); }
-    else back.current?.focus?.();
+    if (open) { window.dispatchEvent(new Event("rooks:overlay")); input.current?.focus(); }  // other overlays (the phone menu) close
+    else if (wasOpen.current) { const el = back.current; if (el && el.isConnected) el.focus(); }
+    wasOpen.current = open;
   }, [open]);
   // Closing clears the search there and then, so the next opening always starts empty
   const close = () => { setOpen(false); setQ(""); setFound([]); setIdx(0); setMsg(""); };

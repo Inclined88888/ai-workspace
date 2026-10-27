@@ -221,12 +221,13 @@ export function AiModePanel({ onChanged }: { onChanged: () => void }) {
   const [st, setSt] = useState<ModeState | null>(null);
   const [pick, setPick] = useState<Mode | "">("");
   const [busy, setBusy] = useState(false);
+  const [changing, setChanging] = useState(false);
   const toast = useToast();
   const load = () => api<ModeState>("/ai-mode").then((s) => { setSt(s); setPick(s.mode); }).catch(toast.err);
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const apply = async (m: Mode, cents?: number) => {
     setBusy(true);
-    try { const r = await saveMode(m, cents); setSt(r); toast.ok(`AI mode: ${MODES.find((x) => x.id === m)?.title}`); onChanged(); }
+    try { const r = await saveMode(m, cents); setSt(r); setChanging(false); toast.ok(`AI mode: ${MODES.find((x) => x.id === m)?.title}`); onChanged(); }
     catch (e) { toast.err(e); } finally { setBusy(false); }
   };
   if (!st) return <div className="card"><Loader2 size={16} className="spin" aria-label="Loading" /></div>;
@@ -236,9 +237,17 @@ export function AiModePanel({ onChanged }: { onChanged: () => void }) {
       <div className="row"><ShieldCheck size={16} aria-hidden="true" /><h3 className="grow">AI mode</h3>
         {current ? <span className="badge ok">{current.title}</span> : <span className="badge">Not chosen</span>}</div>
       {!st.mode && <div className="alert" role="status">You set ROOKS up before AI modes existed, so nothing has changed: your providers and default model work exactly as before. Choosing a mode is optional.</div>}
+      {current && !changing ? (
+        <div className="setting-row">
+          <div className="muted small">{current.about}{st.mode === "premium" && st.monthly_limit_cents > 0 ? ` Monthly limit: $${(st.monthly_limit_cents / 100).toFixed(2)}.` : ""}</div>
+          <button type="button" className="btn sm" onClick={() => setChanging(true)} aria-expanded={false}>Change mode</button>
+        </div>
+      ) : <>
       <ModeChooser value={pick} onChange={setPick} idPrefix="set-mode" />
-      {pick === "premium" && pick !== st.mode && <PremiumLimit cents={st.monthly_limit_cents} onSaved={(c) => apply("premium", c)} />}
-      {pick && pick !== "premium" && pick !== st.mode && (
+      {current && <div><button type="button" className="btn ghost sm" onClick={() => { setChanging(false); setPick(st.mode); }}>Keep {current.title}</button></div>}
+      </>}
+      {(changing || !current) && pick === "premium" && pick !== st.mode && <PremiumLimit cents={st.monthly_limit_cents} onSaved={(c) => apply("premium", c)} />}
+      {(changing || !current) && pick && pick !== "premium" && pick !== st.mode && (
         <div className="row wrap">
           <button type="button" className="btn primary" disabled={busy} onClick={() => apply(pick)}>{busy ? <Loader2 size={14} className="spin" /> : null} Use {MODES.find((m) => m.id === pick)?.title}</button>
           <span className="small muted">Your providers, keys and saved default model are kept.{pick === "free" ? " Only verified free models will be used; ROOKS checks your providers with free requests only." : ""}</span>

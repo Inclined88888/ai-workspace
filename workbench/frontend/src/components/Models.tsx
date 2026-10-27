@@ -235,7 +235,7 @@ export function ModelsPanel({ models, reloadModels, localAvailable }: { models: 
   return (
     <div className="col gap-lg">
       <div className={`card col ${st.default.error ? "card-warn" : ""}`}>
-        <div className="row"><Sparkles size={16} aria-hidden="true" /><h2 className="grow">AI models</h2></div>
+        <div className="row"><Sparkles size={16} aria-hidden="true" /><h3 className="grow">Model in use</h3></div>
         {st.default.ref ? (
           <>
             <p style={{ margin: 0 }}>ROOKS is using <strong>{shortRef(st.default.ref, models)}</strong>
@@ -305,7 +305,7 @@ export function ModelsPanel({ models, reloadModels, localAvailable }: { models: 
             <label className="field">Default model <span className="hint">Automatic picks the best model that passed its check. A model you choose is used strictly: if it fails you'll see why, nothing switches silently.</span>
               <select className="input" value={defaultPick} onChange={(e) => setDefaultPick(e.target.value)}>
                 <option value="">Automatic{st.default.source === "auto" && st.default.ref ? ` (now ${shortRef(st.default.ref, models)})` : ""}</option>
-                {models.map((m) => <option key={m.ref} value={m.ref}>{m.model}{m.free ? " (free)" : ""} · {m.provider}</option>)}
+                {models.map((m) => <option key={m.ref} value={m.ref} disabled={m.allowed === false} title={m.blocked}>{m.model}{m.free ? " (free)" : ""} · {m.provider}{m.allowed === false ? " (not available in this AI mode)" : ""}</option>)}
               </select>
             </label>
             <div><button className="btn" onClick={saveDefault}>Save default</button></div>
@@ -314,7 +314,7 @@ export function ModelsPanel({ models, reloadModels, localAvailable }: { models: 
               {[0, 1, 2].map((i) => (
                 <select key={i} className="input" aria-label={`Backup ${i + 1}`} value={backups[i] ?? ""} onChange={(e) => { const b = [...backups]; b[i] = e.target.value; setBackups(b); }}>
                   <option value="">{i === 0 ? "No backup" : "None"}</option>
-                  {models.map((m) => <option key={m.ref} value={m.ref}>{m.model}{m.free ? " (free)" : ""} · {m.provider}</option>)}
+                  {models.map((m) => <option key={m.ref} value={m.ref} disabled={m.allowed === false} title={m.blocked}>{m.model}{m.free ? " (free)" : ""} · {m.provider}{m.allowed === false ? " (not available in this AI mode)" : ""}</option>)}
                 </select>
               ))}
               <div className="row wrap"><button className="btn" onClick={() => saveBackups(backups.filter(Boolean))}>Save backups</button>{st.fallbacks_custom && <button className="btn ghost" onClick={() => saveBackups(null)}>Use automatic backups</button>}</div>

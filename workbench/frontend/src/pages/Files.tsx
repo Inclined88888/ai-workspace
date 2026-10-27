@@ -1,6 +1,6 @@
 import { Download, FileText, FolderOpen, Loader2, MessageSquare, Search, Trash2, Upload } from "lucide-react";
 import { DragEvent, useEffect, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, FileMeta, fileSize, uploadFile } from "../api";
 import { Empty, relTime, useToast } from "../util";
 
@@ -19,7 +19,12 @@ export default function Files() {
 
   const load = () => api<FileMeta[]>(`/files${q ? `?q=${encodeURIComponent(q)}` : ""}`).then(setItems).catch(toast.err);
   useEffect(() => { const t = setTimeout(load, 200); return () => clearTimeout(t); }, [q]);
-  useEffect(() => { if (id) api<Detail>(`/files/${id}`).then(setCurrent).catch(toast.err); else setCurrent(null); }, [id]);
+  useEffect(() => {  // only the file clicked last may open, however the responses arrive
+    if (!id) { setCurrent(null); return; }
+    let gone = false;
+    api<Detail>(`/files/${id}`).then((d) => { if (!gone) setCurrent(d); }).catch((e) => { if (!gone) toast.err(e); });
+    return () => { gone = true; };
+  }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const upload = async (list: FileList | File[]) => {
     const arr = [...list];
@@ -61,13 +66,12 @@ export default function Files() {
           {uploading.map((n) => <div key={n} className="list-item" style={{ cursor: "default" }}><Loader2 size={14} className="spin" /> <span className="truncate">Uploading {n}…</span></div>)}
           {items.length === 0 && !uploading.length && <Empty icon={<FolderOpen size={22} />} title={q ? "No matches" : "No files yet"} hint={q ? undefined : "Drop files here, or press Upload."} />}
           {items.map((f) => (
-            <div key={f.id} className={`list-item ${current?.id === f.id ? "active" : ""}`} onClick={() => navigate(`/files/${f.id}`)} role="button" tabIndex={0}
-              onKeyDown={(e) => { if (e.key === "Enter") navigate(`/files/${f.id}`); }}>
+            <div key={f.id} className={`list-item ${current?.id === f.id ? "active" : ""}`}>
               <FileText size={15} className="faint" aria-hidden="true" />
-              <div className="grow">
+              <Link className="list-link grow" to={`/files/${f.id}`} aria-current={current?.id === f.id ? "page" : undefined}>
                 <div className="truncate">{f.name}</div>
                 <div className="faint small truncate">{f.excerpt ? f.excerpt : <>{fileSize(f.size)} · {relTime(f.created_at)}{!f.chars ? " · no text" : ""}</>}</div>
-              </div>
+              </Link>
             </div>
           ))}
         </div>

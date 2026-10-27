@@ -47,6 +47,11 @@ export default function Automations() {
     try { await api("/schedules", { body: form }); setForm({ name: "", cron: "0 8 * * *", prompt: "", deliver: "inbox" }); toast.ok("Scheduled"); load(); }
     catch (err) { toast.err(err); }
   };
+  const browserTz = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch { return ""; } })();
+  const useBrowserTz = async () => {
+    try { await api("/assistant/settings", { method: "PUT", body: { timezone: browserTz } }); toast.ok(`Automations now run in ${browserTz}`); load(); }
+    catch (err) { toast.err(err); }
+  };
   const runNow = async (s: Schedule) => {
     setRunning(s.id);
     try { await api(`/schedules/${s.id}/run`, { method: "POST" }); toast.ok(`${s.name} delivered to the inbox`); }
@@ -56,6 +61,12 @@ export default function Automations() {
   return (
     <div className="page" style={{ maxWidth: 1000 }}>
       <div className="page-head"><div><h1>Automations</h1><p className="muted">Check-ins and scheduled jobs, run in {data.timezone || "your timezone"}. You can also just ask in chat: "every Friday at 5pm summarise my week".</p></div></div>
+      {data.timezone && browserTz && data.timezone !== browserTz && (
+        <div className="alert row wrap" role="status" style={{ marginBottom: 16 }}>
+          <span className="grow">Times here use <strong>{data.timezone}</strong>, but this browser is in <strong>{browserTz}</strong>. A job set for 8:00 runs at 8:00 {data.timezone} time.</span>
+          <button type="button" className="btn sm" onClick={useBrowserTz}>Use {browserTz}</button>
+        </div>
+      )}
 
       <CheckIns />
 
@@ -103,9 +114,9 @@ export default function Automations() {
           <div className="card flush">
             {inbox.items.map((i) => (
               <div key={i.id} className="col" style={{ padding: "10px 14px", borderBottom: "1px solid var(--border)", gap: 4 }}>
-                <div className="row" style={{ cursor: "pointer" }} onClick={() => setOpen(open === i.id ? null : i.id)}>
+                <div className="row row-click">
                   {!i.read && <span className="dot" style={{ background: "var(--accent)" }} />}
-                  <strong className="grow truncate">{i.title}</strong>
+                  <button type="button" className="list-link grow truncate" aria-expanded={open === i.id} onClick={() => setOpen(open === i.id ? null : i.id)}><strong>{i.title}</strong></button>
                   <span className="faint small">{relTime(i.created_at)}</span>
                   <button className="btn ghost sm icon" aria-label="Delete from inbox" title="Delete from inbox" onClick={async (e) => { e.stopPropagation(); if (!confirm(`Delete "${i.title}" from the inbox?`)) return; await api(`/inbox/${i.id}`, { method: "DELETE" }); load(); }}><Trash2 size={13} /></button>
                 </div>

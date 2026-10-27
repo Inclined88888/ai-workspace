@@ -152,6 +152,10 @@ type Skill = { id: number; name: string; description: string; steps: string; use
 
 const CHANNEL: Record<string, string> = { web: "Web", cli: "Terminal", telegram: "Telegram", schedule: "Schedule" };
 
+// Drafts per conversation, in this tab's session storage
+const draftKey = (c: number | null) => `rooks:draft:${c ?? "new"}`;
+const readDraft = (c: number | null) => { try { return sessionStorage.getItem(draftKey(c)) ?? ""; } catch { return ""; } };
+
 function Chat({ tabs }: { tabs: React.ReactNode }) {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -182,7 +186,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   const [q, setQ] = useState("");
   const [messages, setMessages] = useState<Msg[]>([]);
   const [steps, setSteps] = useState<Step[]>([]);
-  const [text, setText] = useState("");
+  const [text, setText] = useState(() => readDraft(id ? Number(id) : null));
   const [busy, setBusy] = useState(false);
   const [model, setModel] = useState("");
   const [used, setUsed] = useState<Used[]>([]);
@@ -205,6 +209,11 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   const keepTurn = useRef(false); // set when a new chat's first turn moves us to its URL: keep its steps on screen
   const toast = useToast();
   const cid = id ? Number(id) : null;
+  // The conversation on screen. A reply still arriving for another one must not write into this view.
+  const viewCid = useRef<number | null>(cid);
+  viewCid.current = cid;
+  // What you are typing belongs to the conversation you typed it in, and survives leaving the page (this tab only)
+  const draftOf = useRef<number | null>(cid);
   // A new chat can start inside a project (/assistant?project=3); an existing one belongs to the project it was started in
   const startProject = Number(new URLSearchParams(location.search).get("project")) || null;
   const [convProject, setConvProject] = useState<number | null>(null);
@@ -221,7 +230,15 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   useEffect(() => { api<{ providers: number; search_provider: string }>("/getting-started").then((r) => { setNoModel(r.providers === 0); setSearchOn(!!r.search_provider); }).catch(() => setNoModel(false)); }, []);
   useEffect(() => { api<MStatus>("/models/status").then((r) => setAutoRef(r.default.ref)).catch(() => setAutoRef("")); }, []);
   useEffect(() => {
+    if (draftOf.current !== cid) {
+      draftOf.current = cid;
+      setText(readDraft(cid));
+      setAttached([]);
+      setEditing(null);
+      setTimeout(() => { const el = inputRef.current; if (el) { el.style.height = "auto"; el.style.height = `${Math.min(el.scrollHeight, 240)}px`; } }, 0);
+    }
     if (keepTurn.current) { keepTurn.current = false; return; }
+    if (!turnShown()) { setBusy(false); setRunning(null); setLiveBlocks([]); }  // a reply for another conversation keeps going there
     setSteps([]);
     setUsed([]);
     setNotes([]);
@@ -248,6 +265,9 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
     else if (conversation) loadConversation(conversation);
     else if (cid) navigate("/assistant");
   };
+  useEffect(() => {
+    try { if (text) sessionStorage.setItem(draftKey(draftOf.current), text); else sessionStorage.removeItem(draftKey(draftOf.current)); } catch { /* storage off: drafts just are not kept */ }
+  }, [text]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, steps]);
   // A question typed on Home arrives here and is sent once. Declared after the effect that resets the chat for a
   // new conversation, so that reset runs first and cannot wipe the question.
@@ -262,6 +282,8 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
 
+  const turn = useRef<{ origin: number | null; id: number | null } | null>(null);
+  function turnShown() { const t = turn.current; return !t || viewCid.current === t.origin || (t.id !== null && viewCid.current === t.id); }
   const send = async (e?: FormEvent, override?: string, fileIds?: number[], fileNames?: string[], fromMessage?: Msg) => {
     e?.preventDefault();
     let msg = (override ?? text).trim();
@@ -291,6 +313,9 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
     setAttached([]);
     setMessages((m) => [...m, { id: Date.now(), role: "user", content: msg, tool_calls: [], name: "", files: files.map((f) => f.name) }]);
     let newId = cid;
+    const thisTurn = { origin: cid, id: cid };
+    turn.current = thisTurn;
+    const shown = () => viewCid.current === thisTurn.origin || (thisTurn.id !== null && viewCid.current === thisTurn.id);
     // Update the newest step with this name that is still open
     const settle = (name: string, patch: Partial<Step>) => setSteps((s) => {
       const i = s.map((x) => x.name === name && (x.status === "running" || x.status === "approval")).lastIndexOf(true);
@@ -298,15 +323,19 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
     });
     await stream("/assistant/chat", { message: msg, conversation_id: cid, model: model || null, file_ids: files.map((f) => f.id), project_id: cid ? null : startProject }, (ev) => {
       const t = ev.type as string | undefined;
-      if (t === "start") { newId = Number(ev.conversation_id); setRunning(newId); }
+      if (t === "start") { newId = Number(ev.conversation_id); thisTurn.id = newId; }
+      if (t === "tool_result") { turnTools.push({ name: String(ev.name), ok: !!ev.ok }); turnBlocks.push(...validateAll(ev.blocks)); }
+      if (!shown()) {  // you moved to another conversation: the reply is saved there; say so only if it failed
+        if (t === "error" || (!t && ev.error)) toast.err(`A reply in another conversation failed: ${String(ev.error)}`);
+        return;
+      }
+      if (t === "start") setRunning(newId);
       if (t === "memories") setUsed((ev.items as Used[]) ?? []);
       if (t === "tool_call") setSteps((s) => [...s, { name: String(ev.name), args: String(ev.args), status: "running", startedAt: Date.now() }]);
       if (t === "approval") { settle(String(ev.name), { status: "approval" }); loadPending(); }
       if (t === "tool_result") {
         settle(String(ev.name), { status: ev.ok ? "ok" : "error", preview: String(ev.preview), detail: ev.detail ? String(ev.detail) : undefined, ms: Number(ev.ms) || undefined });
-        turnTools.push({ name: String(ev.name), ok: !!ev.ok });
-        const got = validateAll(ev.blocks);
-        if (got.length) { turnBlocks.push(...got); setLiveBlocks([...turnBlocks]); }
+        if (turnBlocks.length) setLiveBlocks([...turnBlocks]);
         if (ev.name === "web_search" && !ev.ok && /not set up/i.test(String(ev.preview)))
           setNotes((n) => n.some((x) => x.search) ? n : [...n, { id: Date.now(), kind: "warn", text: "Web search isn't turned on yet, so ROOKS couldn't look this up. A free Tavily key takes a minute (1,000 searches a month, no card).", search: true }]);
       }
@@ -324,12 +353,15 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
         note("err", text, { fix: fixable, retry: msg });
       }
     });
+    const here = shown();
+    if (turn.current === thisTurn) turn.current = null;
+    loadConvs();
+    loadPending();
+    if (!here) return;  // never pull you back to a conversation you left
     setBusy(false);
     setRunning(null);
     setLiveBlocks([]);
-    loadConvs();
-    loadPending();
-    if (newId && newId !== cid) { keepTurn.current = true; setConvProject(startProject); navigate(`/assistant/${newId}`, { replace: true }); }
+    if (newId && newId !== cid) { keepTurn.current = true; draftOf.current = newId; setConvProject(startProject); navigate(`/assistant/${newId}`, { replace: true }); }
     if (newId) loadConversation(newId);  // the stored messages carry real ids (for edit and regenerate) and rebuilt results
   };
   const regenerate = (v: View) => {
@@ -468,12 +500,12 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
         <div className="scroll">
           {convs.length === 0 && <Empty icon={<MessageSquare size={22} />} title={q ? "No matches" : "No conversations yet"} />}
           {convs.map((c) => (
-            <div key={c.id} className={`list-item ${c.id === cid ? "active" : ""}`} onClick={() => navigate(`/assistant/${c.id}`)}>
-              <div className="grow">
+            <div key={c.id} className={`list-item ${c.id === cid ? "active" : ""}`}>
+              <Link className="list-link grow" to={`/assistant/${c.id}`} aria-current={c.id === cid ? "page" : undefined}>
                 <div className="truncate">{c.title}</div>
-                <div className="faint small">{CHANNEL[c.channel] ?? c.channel} · {relTime(c.updated_at)}
+                <div className="faint small">{c.channel && c.channel !== "web" ? `${CHANNEL[c.channel] ?? c.channel} · ` : ""}{relTime(c.updated_at)}
                   {c.project_id ? ` · ${projectList.find((p) => p.id === c.project_id)?.name ?? "project"}` : ""}</div>
-              </div>
+              </Link>
               <button className="btn ghost sm icon" aria-label={`Delete conversation ${c.title}`} title="Delete conversation" onClick={(e) => { e.stopPropagation(); remove(c); }}><Trash2 size={13} /></button>
             </div>
           ))}
@@ -783,8 +815,8 @@ function SkillsTab() {
       <div className="card flush">
         {items.map((s) => (
           <div key={s.id} className="col" style={{ padding: "10px 14px", borderBottom: "1px solid var(--border)" }}>
-            <div className="row" style={{ cursor: "pointer" }} onClick={() => setOpen(open === s.id ? null : s.id)}>
-              <strong className="mono grow">{s.name}</strong>
+            <div className="row row-click">
+              <button type="button" className="list-link grow" aria-expanded={open === s.id} onClick={() => setOpen(open === s.id ? null : s.id)}><strong className="mono">{s.name}</strong></button>
               <span className="badge">{s.source === "auto" ? "learned" : s.source}</span>
               <span className="faint small">used {s.uses}×</span>
             </div>

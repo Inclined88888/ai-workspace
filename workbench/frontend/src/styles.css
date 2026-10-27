@@ -316,7 +316,7 @@ details.card > summary::-webkit-details-marker { display: none; }
 .steps span { height: 4px; flex: 1; border-radius: 4px; background: var(--border); }
 .steps span.on { background: var(--accent); }
 .progress { height: 6px; background: var(--panel-2); border-radius: 6px; overflow: hidden; }
-.progress > div { height: 100%; background: var(--accent); transition: width 0.3s; }
+.progress > div, .progress > span { height: 100%; background: var(--accent); transition: width 0.3s; }
 
 @media (max-width: 900px) {
   .shell { grid-template-columns: 1fr; }
@@ -663,3 +663,83 @@ button.cap-example:hover { background: var(--accent-soft); color: var(--accent-t
 .wflow-node.danger { border-left-color: var(--danger); }
 /* Links inside running text are underlined, not told apart by colour alone (WCAG 1.4.1) */
 :where(p, li, dd, .small, .muted, .alert, .chat-note, .hint, .rich) a:not(.btn):not(.badge):not(.cite):not(.nav-link):not(.list-item) { text-decoration: underline; text-underline-offset: 2px; }
+
+/* ===== v12 design system (docs/DESIGN_SYSTEM.md). Refines the layers above; nothing here adds a dependency. ===== */
+:root {
+  /* spacing: a 4px grid */
+  --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 20px; --s-6: 24px; --s-8: 32px; --s-10: 40px;
+  /* type scale */
+  --t-xs: 12px; --t-sm: 13px; --t-md: 14px; --t-lg: 16px; --t-xl: 18px; --t-2xl: 22px;
+  /* one focus ring for every control */
+  --ring: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+/* Shell: the main column is the only thing that scrolls; the page itself never grows past the window */
+.shell { grid-template-rows: minmax(0, 1fr); overflow: hidden; }
+.sidebar { min-height: 0; }
+/* positioned, so hidden labels inside it (screen reader text) cannot stretch the page */
+@media (min-width: 901px) { .sidebar { position: relative; } }
+.main { position: relative; }
+.main { min-height: 0; overscroll-behavior: contain; }
+
+/* Section labels: quiet headings that group content without another box around it */
+.section-label { font-size: var(--t-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--faint); margin: 0; }
+
+/* Home: the summary is one panel with dividers, not five boxes */
+.glance { gap: 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); overflow: hidden; }
+.glance-tile { border: none; border-radius: 0; box-shadow: none; background: transparent; border-left: 1px solid var(--border); }
+.glance-tile:first-child { border-left: none; }
+.glance-tile:hover { background: var(--panel-2); border-color: var(--border); }
+@media (max-width: 900px) {
+  .glance { grid-template-columns: 1fr 1fr; }
+  .glance-tile { border-left: none; border-top: 1px solid var(--border); }
+  .glance-tile:nth-child(-n + 2) { border-top: none; }
+  .glance-tile:nth-child(even) { border-left: 1px solid var(--border); }
+}
+@media (max-width: 420px) {
+  .glance { grid-template-columns: 1fr; }
+  .glance-tile:nth-child(even) { border-left: none; }
+  .glance-tile:nth-child(2) { border-top: 1px solid var(--border); }
+}
+.checklist-done { color: var(--muted); font-size: var(--t-sm); padding: 6px 2px 2px; }
+
+/* Lists: secondary text stays readable on the selected row in both themes */
+.list-item.active .faint, .list-item.active .muted { color: var(--muted); }
+
+/* Chat: edit and copy controls stay out of the way until you point at a message (always shown on touch screens) */
+@media (hover: hover) and (pointer: fine) {
+  .msg-user .msg-actions { opacity: 0; transition: opacity 0.12s; }
+  .msg-user:hover .msg-actions, .msg-user .msg-actions:focus-within { opacity: 1; }
+}
+.composer-model { width: auto; min-width: 150px; max-width: min(320px, 52vw); }
+
+/* Save state next to a form's button: visible, and announced */
+.save-state { font-size: var(--t-sm); color: var(--muted); display: inline-flex; align-items: center; gap: 4px; }
+.save-state.ok { color: var(--ok); }
+.save-state.err { color: var(--danger); }
+
+/* A setting row: what it is on the left, its control on the right */
+.setting-row { display: flex; gap: var(--s-4); align-items: flex-start; justify-content: space-between; flex-wrap: wrap; }
+.setting-row > :first-child { flex: 1 1 260px; min-width: 0; }
+
+/* Switch: a checkbox styled as an on/off control; still a real checkbox for keyboards and screen readers */
+.switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 550; }
+.switch input { appearance: none; width: 34px; height: 20px; border-radius: 999px; background: var(--border-strong); position: relative; cursor: pointer; margin: 0; flex: none; transition: background 0.15s; }
+.switch input::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: transform 0.15s; }
+.switch input:checked { background: var(--accent); }
+.switch input:checked::after { transform: translateX(14px); }
+.switch input:focus-visible { outline: none; box-shadow: var(--ring); }
+.switch input:disabled { opacity: 0.5; cursor: not-allowed; }
+@media (prefers-reduced-motion: reduce) { .switch input, .switch input::after { transition: none; } }
+
+/* Clickable rows: the row's main area is a real link or button (keyboard and screen reader reachable) stretched over
+   the whole row; buttons inside the row sit above it */
+.list-item, .row-click { position: relative; }
+.list-link { color: inherit; text-decoration: none; background: none; border: 0; padding: 0; margin: 0; font: inherit; text-align: left; cursor: pointer; min-width: 0; }
+.list-link:hover { text-decoration: none; }
+.list-link::after { content: ""; position: absolute; inset: 0; }
+.list-link:focus-visible { outline: none; }
+.list-item:has(> .list-link:focus-visible), .list-item:has(.list-link:focus-visible), .row-click:has(.list-link:focus-visible) { outline: 2px solid var(--accent); outline-offset: -2px; }
+.list-item .btn, .row-click .btn { position: relative; z-index: 1; }
+button.card { font: inherit; color: inherit; text-align: left; cursor: pointer; }
+button.card:hover { border-color: var(--accent); }

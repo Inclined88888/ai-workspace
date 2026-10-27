@@ -2,33 +2,50 @@ import {
   Bot, Brain, Flag, FolderOpen, MonitorPlay, Building2, CalendarClock, CalendarDays, MessageSquare, CheckSquare, Globe, Columns3, ExternalLink, FileText, Home, LogOut, Mail, Menu, Moon, NotebookPen,
   Palette, PanelLeftClose, PanelLeftOpen, Search, Settings as SettingsIcon, Sun, Sparkles, X, FolderKanban,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { Link, NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { api } from "./api";
-import Assistant from "./pages/Assistant";
 import Auth from "./pages/Auth";
-import Automations from "./pages/Automations";
-import Company from "./pages/Company";
-import Browser from "./pages/Browser";
-import CalendarPage from "./pages/Calendar";
-import Compare from "./pages/Compare";
 import Dashboard from "./pages/Dashboard";
-import Docs from "./pages/Docs";
-import MailPage from "./pages/Mail";
-import Research from "./pages/Research";
-import Settings from "./pages/Settings";
-import Tasks from "./pages/Tasks";
 import RookMark from "./components/RookMark";
 import { apply, cache, cached, normalise } from "./appearance";
-import Files from "./pages/Files";
-import Missions from "./pages/Missions";
-import Projects from "./pages/Projects";
-import Computer from "./pages/Computer";
 import ComputerBar from "./components/ComputerBar";
 import CallInvites from "./components/CallInvites";
 import NeedsYou, { NeedsYouIcon, useAttentionCount } from "./pages/NeedsYou";
-import Capabilities from "./pages/Capabilities";
 import CommandPalette, { openPalette } from "./components/CommandPalette";
+
+// Pages load on first visit, so the first screen downloads only what it needs. Once the app is idle every page is
+// fetched in the background, so moving between pages stays instant.
+const preloads: (() => Promise<unknown>)[] = [];
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function page<T extends React.ComponentType<any>>(load: () => Promise<{ default: T }>) {
+  preloads.push(load);
+  return lazy(load);
+}
+const Assistant = page(() => import("./pages/Assistant"));
+const Automations = page(() => import("./pages/Automations"));
+const Company = page(() => import("./pages/Company"));
+const Browser = page(() => import("./pages/Browser"));
+const CalendarPage = page(() => import("./pages/Calendar"));
+const Compare = page(() => import("./pages/Compare"));
+const Docs = page(() => import("./pages/Docs"));
+const MailPage = page(() => import("./pages/Mail"));
+const Research = page(() => import("./pages/Research"));
+const Settings = page(() => import("./pages/Settings"));
+const Tasks = page(() => import("./pages/Tasks"));
+const Files = page(() => import("./pages/Files"));
+const Missions = page(() => import("./pages/Missions"));
+const Projects = page(() => import("./pages/Projects"));
+const Computer = page(() => import("./pages/Computer"));
+const Capabilities = page(() => import("./pages/Capabilities"));
+function preloadPages() {
+  const run = () => preloads.forEach((p) => p().catch(() => undefined));
+  const w = window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number };
+  if (w.requestIdleCallback) w.requestIdleCallback(run, { timeout: 3000 }); else setTimeout(run, 1500);
+}
+function PageLoading() {
+  return <div className="page" aria-busy="true"><div className="skeleton" style={{ height: 28, width: 220, marginBottom: 16 }} /><div className="skeleton" style={{ height: 120 }} /></div>;
+}
 
 export type Status = {
   setup_complete: boolean;
@@ -136,7 +153,13 @@ export default function App() {
     window.addEventListener("wb:unauthorized", onUnauthorized);
     return () => window.removeEventListener("wb:unauthorized", onUnauthorized);
   }, []);
+  useEffect(() => { if (status?.signed_in) preloadPages(); }, [status?.signed_in]);
   useEffect(() => setMenuOpen(false), [location.pathname]);
+  useEffect(() => {  // one overlay at a time: opening search closes the phone menu
+    const close = () => setMenuOpen(false);
+    window.addEventListener("rooks:overlay", close);
+    return () => window.removeEventListener("rooks:overlay", close);
+  }, []);
   useEffect(() => {
     if (!menuOpen) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMenuOpen(false); };
@@ -222,6 +245,7 @@ export default function App() {
           <button type="button" className="btn ghost icon" onClick={openPalette} aria-label="Search and jump" title="Search and jump"><Search size={18} /></button>
           <Link to="/assistant" className="btn ghost icon" aria-label="Ask ROOKS" title="Ask ROOKS"><MessageSquare size={18} /></Link>
         </div>
+        <Suspense fallback={<PageLoading />}>
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/assistant" element={<Assistant tab="chat" />} />
@@ -255,6 +279,7 @@ export default function App() {
           <Route path="/settings" element={<Settings onChanged={refresh} />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        </Suspense>
       </main>
     </div>
   );

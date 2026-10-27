@@ -63,8 +63,12 @@ function Checklist({ r, onHide }: { r: Ready; onHide: () => void }) {
       <div className="progress" role="progressbar" aria-label="Getting started progress" aria-valuenow={items.length - left} aria-valuemin={0} aria-valuemax={items.length}>
         <div style={{ width: `${((items.length - left) / items.length) * 100}%` }} />
       </div>
+      {items.some((i) => i.done) && (
+        <div className="checklist-done row wrap" style={{ gap: 6 }}><Check size={13} aria-hidden="true" style={{ color: "var(--ok)" }} />
+          Done: {items.filter((i) => i.done).map((i) => i.label).join(", ")}</div>
+      )}
       <ul className="checklist">
-        {items.map((i) => (
+        {items.filter((i) => !i.done).map((i) => (
           <li key={i.label} className={i.done ? "done" : ""}>
             <span className="tick" aria-hidden="true">{i.done && <Check size={12} />}</span>
             <i.icon size={16} className="faint" aria-hidden="true" />

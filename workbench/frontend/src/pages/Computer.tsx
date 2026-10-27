@@ -1,4 +1,4 @@
-import { Ban, Check, CircleAlert, Copy, Eye, Hand, History, Laptop, Loader2, MonitorPlay, OctagonX, Play, Plus, ShieldCheck, Trash2, Undo2, X } from "lucide-react";
+import { Check, CircleAlert, Copy, Eye, Hand, History, Laptop, Loader2, MonitorPlay, OctagonX, Play, Plus, ShieldCheck, Trash2, Undo2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
@@ -168,8 +168,9 @@ export default function Computer() {
   if (!st) return <div className="page"><Loader2 size={16} className="spin" /> Loading…</div>;
   const s = st.settings;
   const dev = st.devices.find((d) => d.online);
-  const put = async (body: Partial<Settings>) => { try { await api("/computer/settings", { method: "PUT", body }); load(); } catch (e) { toast.err(e); } };
-  const post = async (path: string, msg: string) => { try { await api(`/computer/${path}`, { method: "POST" }); toast.ok(msg); load(); } catch (e) { toast.err(e); } };
+  const changed = () => window.dispatchEvent(new Event("rooks:computer-changed"));  // the bar on every page updates at once
+  const put = async (body: Partial<Settings>) => { try { await api("/computer/settings", { method: "PUT", body }); load(); changed(); } catch (e) { toast.err(e); } };
+  const post = async (path: string, msg: string) => { try { await api(`/computer/${path}`, { method: "POST" }); toast.ok(msg); load(); changed(); } catch (e) { toast.err(e); } };
   const decide = async (a: Approval, approve: boolean, grantApp?: string) => {
     try {
       if (grantApp) await api("/computer/grants", { body: { app: grantApp, minutes: 30 } });
@@ -192,13 +193,16 @@ export default function Computer() {
         </div>
         {working && <div className="small">Now: <strong>{st.current!.kind}</strong> {st.current!.summary}</div>}
         <div className="row wrap">
-          {!s.stopped && <button className="btn danger" onClick={() => post("stop", "Stopped. Nothing more will run until you allow it again.")}><OctagonX size={15} /> Stop now</button>}
+          {/* Stop and Take control matter only while ROOKS could act: when Computer Use is off nothing can run */}
+          {(s.enabled || working) && !s.stopped && <button className="btn danger" onClick={() => post("stop", "Stopped. Nothing more will run until you allow it again.")}><OctagonX size={15} /> Stop now</button>}
           {s.stopped && <button className="btn primary" onClick={() => post("allow", "Allowed again")}><Play size={14} /> Allow again</button>}
-          {!s.stopped && !s.paused && <button className="btn" onClick={() => post("take-control", "You have control. ROOKS waits.")}><Hand size={14} /> Take control</button>}
+          {(s.enabled || working) && !s.stopped && !s.paused && <button className="btn" onClick={() => post("take-control", "You have control. ROOKS waits.")}><Hand size={14} /> Take control</button>}
           {s.paused && <button className="btn primary" onClick={() => post("hand-back", "Handed back to ROOKS")}><Play size={14} /> Hand back to ROOKS</button>}
-          <label className="row small" style={{ gap: 6, marginLeft: "auto" }}><input type="checkbox" checked={s.enabled} onChange={(e) => put({ enabled: e.target.checked })} /> Computer Use on</label>
+          <label className="switch" style={{ marginLeft: "auto" }}><input type="checkbox" role="switch" checked={s.enabled} onChange={(e) => put({ enabled: e.target.checked })} /> Computer Use {s.enabled ? "on" : "off"}</label>
         </div>
-        <div className="muted small">Stop works even if this page is closed: on the computer run <span className="mono">python3 -m rooks_companion stop</span>, or quit the companion with Ctrl+C.</div>
+        {s.enabled || working
+          ? <div className="muted small">Stop works even if this page is closed: on the computer run <span className="mono">python3 -m rooks_companion stop</span>, or quit the companion with Ctrl+C.</div>
+          : <div className="muted small">While it is off, nothing on your computer can be touched. {dev ? "Turn it on when you want ROOKS to use your computer." : "Pair a computer below first, then turn it on."}</div>}
       </div>
 
       {st.approvals.length > 0 && (
@@ -290,7 +294,6 @@ export default function Computer() {
               </ul>
             )}
           </div>
-          {!s.enabled && <div className="alert"><Ban size={13} /> Computer Use is off. Nothing on your computer can be touched until you turn it on.</div>}
         </div>
       </div>
       {toast.node}

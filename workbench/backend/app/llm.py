@@ -22,7 +22,7 @@ PRESETS = {
     "llamacpp": {"name": "llama.cpp (local)", "base_url": f"{config.LLAMACPP_URL or 'http://host.docker.internal:8080'}/v1"},
     "openai": {"name": "OpenAI", "base_url": "https://api.openai.com/v1"},
     "anthropic": {"name": "Anthropic", "base_url": "https://api.anthropic.com/v1"},
-    "openrouter": {"name": "OpenRouter", "base_url": "https://openrouter.ai/api/v1",
+    "openrouter": {"name": "OpenRouter", "base_url": f"{config.OPENROUTER_URL or 'https://openrouter.ai/api'}/v1",
                    "note": "Free account key. Models ending in :free cost nothing (20 requests/min, 50/day; 1000/day once you have bought $10 of credits)."},
     "gemini": {"name": "Google Gemini", "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
                "note": "Free tier with a key from aistudio.google.com (Flash and Flash-Lite models). Google may use free tier prompts to improve its products."},
@@ -434,7 +434,7 @@ def explain(p: dict, status: int, text: str) -> str:
     elif status == 402:
         msg = f"{name} says there are no credits for this model. Pick a model marked (free), or add credits with {name}."
     elif status == 429:
-        extra = " Free OpenRouter models allow 50 requests a day until you have bought $10 of credits." if "openrouter.ai" in p["base_url"] else ""
+        extra = " Free OpenRouter models allow 50 requests a day until you have bought $10 of credits." if _is_openrouter(p) else ""
         msg = f"{name} is limiting requests right now. Wait a minute or switch model.{extra}"
     elif "tool" in low and ("support" in low or "endpoint" in low):
         msg = f"This {name} model can't use tools, which the assistant needs. Pick another model."
@@ -548,7 +548,7 @@ async def _chat_once(ref: str, messages: list[dict], tools: list[dict] | None, p
     body = _body(p, model, messages, False)
     if tools:
         body["tools"] = tools  # tool_choice left to the default ("auto"): some Claude models reject forced choice
-    if "openrouter.ai" in p["base_url"]:
+    if _is_openrouter(p):
         body["usage"] = {"include": True}
     if ping:
         try:
@@ -654,7 +654,8 @@ def candidates(p: dict, models: list[dict], free_tier: bool | None) -> list[str]
 
 
 def _is_openrouter(p: dict) -> bool:
-    return "openrouter.ai" in p["base_url"]
+    # OPENROUTER_URL points the OpenRouter preset at a compatible stand-in (the browser tests) or a proxy
+    return "openrouter.ai" in p["base_url"] or bool(config.OPENROUTER_URL and p["base_url"].startswith(config.OPENROUTER_URL))
 
 
 async def key_status(p: dict) -> dict:

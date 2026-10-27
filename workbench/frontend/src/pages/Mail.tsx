@@ -147,21 +147,21 @@ export default function MailPage() {
         <div className="scroll">
           {view === "inbox" && !loading && list.length === 0 && <Empty icon={<Inbox size={22} />} title="No messages" />}
           {view === "inbox" && list.map((m) => (
-            <div key={m.uid} className={`list-item ${msg?.uid === m.uid ? "active" : ""}`} onClick={() => open(m.uid)} style={{ alignItems: "flex-start" }}>
+            <div key={m.uid} className={`list-item ${msg?.uid === m.uid ? "active" : ""}`} style={{ alignItems: "flex-start" }}>
               {m.unread ? <span className="dot" style={{ background: "var(--accent)", marginTop: 7 }} /> : <span className="dot" />}
-              <div className="grow">
+              <button type="button" className="list-link grow" onClick={() => open(m.uid)} aria-current={msg?.uid === m.uid ? "true" : undefined}>
                 <div className="row"><span className={`truncate grow ${m.unread ? "" : "muted"}`} style={{ fontWeight: m.unread ? 600 : 500 }}>{m.from.replace(/<.*>/, "").trim() || m.from}</span><span className="faint small">{m.date ? relTime(m.date) : ""}</span></div>
                 <div className="truncate small">{m.subject}</div>
-              </div>
+              </button>
             </div>
           ))}
           {view === "drafts" && drafts.length === 0 && <Empty icon={<PenSquare size={22} />} title="No drafts" hint="Drafts written by ROOKS land here for you to review. Nothing is ever sent without you." />}
           {view === "drafts" && drafts.map((d) => (
-            <div key={d.id} className="list-item" style={{ alignItems: "flex-start" }} onClick={() => { setMsg(null); setCompose({ to: d.to_addr, subject: d.subject, body: d.body, in_reply_to: d.in_reply_to, draft_id: d.id }); }}>
-              <div className="grow">
+            <div key={d.id} className="list-item" style={{ alignItems: "flex-start" }}>
+              <button type="button" className="list-link grow" onClick={() => { setMsg(null); setCompose({ to: d.to_addr, subject: d.subject, body: d.body, in_reply_to: d.in_reply_to, draft_id: d.id }); }}>
                 <div className="truncate"><strong>{d.subject || "(no subject)"}</strong></div>
                 <div className="muted small truncate">To {d.to_addr} · {relTime(d.updated_at)}</div>
-              </div>
+              </button>
               <button className="btn ghost sm icon" aria-label="Delete draft" title="Delete draft" onClick={async (e) => { e.stopPropagation(); if (!confirm("Delete this draft?")) return; await api(`/mail/drafts/${d.id}`, { method: "DELETE" }); load(); }}><Trash2 size={13} /></button>
             </div>
           ))}

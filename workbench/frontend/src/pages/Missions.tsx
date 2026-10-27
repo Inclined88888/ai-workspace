@@ -54,7 +54,7 @@ function ProjectSelect({ value, onChange, projects }: { value: number | null; on
 }
 
 /** Ready-made business workflows: fill in the blanks, get a plan to review. Nothing runs before you approve it. */
-function Templates({ onCreated, project }: { onCreated: (id: number) => void; project: number | null }) {
+function Templates({ onCreated, project, open }: { onCreated: (id: number) => void; project: number | null; open: boolean }) {
   const [list, setList] = useState<Template[]>([]);
   const [pick, setPick] = useState<Template | null>(null);
   const [values, setValues] = useState<Record<string, string>>({});
@@ -68,9 +68,11 @@ function Templates({ onCreated, project }: { onCreated: (id: number) => void; pr
     catch (err) { toast.err(err); }
   };
   if (!list.length) return null;
+  // Folded away once you have missions of your own, so they stay the first thing on the page
   return (
-    <div className="card col">
-      <div className="row"><LayoutTemplate size={16} aria-hidden="true" /><h3 className="grow">Start from a workflow</h3></div>
+    <details className="card col" open={open || !!pick}>
+      <summary className="row" style={{ cursor: "pointer" }}><LayoutTemplate size={16} aria-hidden="true" /><h3 className="grow">Start from a workflow</h3>
+        <span className="muted small">{list.length} ready made</span></summary>
       {!pick ? (
         <div className="col" style={{ gap: 4 }}>
           {list.map((t) => (
@@ -93,7 +95,7 @@ function Templates({ onCreated, project }: { onCreated: (id: number) => void; pr
         </form>
       )}
       {toast.node}
-    </div>
+    </details>
   );
 }
 
@@ -316,8 +318,9 @@ export default function Missions() {
       <div className={`two-pane${id ? " has-detail" : ""}`}>
         <div className="col">
           <NewMission project={project} onCreated={(mid) => { load(); navigate(`/missions/${mid}`); }} />
-          <Templates project={project} onCreated={(mid) => { load(); navigate(`/missions/${mid}`); }} />
           {items && items.length > 0 && (
+            <section className="col" style={{ gap: 6 }} aria-labelledby="your-missions">
+            <h2 id="your-missions" className="section-label">Your missions</h2>
             <div className="card flush" role="list" aria-label="Missions">
               {items.map((it) => (
                 <Link key={it.id} role="listitem" to={`/missions/${it.id}`} className={`list-item${String(it.id) === id ? " active" : ""}`}>
@@ -326,7 +329,9 @@ export default function Missions() {
                 </Link>
               ))}
             </div>
+            </section>
           )}
+          {items !== null && <Templates project={project} open={items.length === 0} onCreated={(mid) => { load(); navigate(`/missions/${mid}`); }} />}
         </div>
         <div>
           {id ? <Detail key={id} id={+id} onChanged={load} /> : (

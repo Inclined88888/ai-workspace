@@ -1,6 +1,6 @@
 import { CheckCircle2, CircleStop, Globe, Loader2, Play, Trash2, XCircle } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import { Empty, Markdown, useToast } from "../util";
 
@@ -120,11 +120,11 @@ export default function Browser() {
         <div className="card flush" style={{ alignSelf: "start" }}>
           {jobs.length === 0 && <Empty icon={<Globe size={22} />} title="No runs yet" />}
           {jobs.map((j) => (
-            <div key={j.id} className={`list-item ${job?.id === j.id ? "active" : ""}`} onClick={() => navigate(`/browser/${j.id}`)}>
-              <div className="grow">
+            <div key={j.id} className={`list-item ${job?.id === j.id ? "active" : ""}`}>
+              <Link className="list-link grow" to={`/browser/${j.id}`} aria-current={job?.id === j.id ? "page" : undefined}>
                 <div className="truncate">{j.goal}</div>
                 <div className="row small faint">{active(j.status) && <Loader2 size={11} className="spin" />}{j.status} · {j.source} · {ago(j.created_at)}</div>
-              </div>
+              </Link>
               <button className="btn ghost sm icon" aria-label="Delete browser job" title="Delete browser job" onClick={(e) => { e.stopPropagation(); if (confirm("Delete this browser job and its screenshots?")) remove(j.id); }}><Trash2 size={13} /></button>
             </div>
           ))}

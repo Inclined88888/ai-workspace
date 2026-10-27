@@ -44,6 +44,7 @@ WORKSPACE_NAME = display_name(os.getenv("WORKSPACE_NAME"))
 CHAT_URL = os.getenv("CHAT_URL", "")  # Open WebUI add-on link, empty when not installed
 SEARXNG_URL = os.getenv("SEARXNG_URL", "").rstrip("/")  # optional add-on
 OLLAMA_URL = os.getenv("OLLAMA_URL", "").rstrip("/")  # optional: add-on container or native app on the host
+OPENROUTER_URL = os.getenv("OPENROUTER_URL", "").rstrip("/")  # optional: an OpenRouter compatible base (without /v1) for tests or a proxy
 LLAMACPP_URL = os.getenv("LLAMACPP_URL", "").rstrip("/")  # optional: a llama.cpp llama-server, for the llama.cpp preset
 # The assistant's terminal and workspace files run in a separate runner service (workbench/runner)
 RUNNER_URL = os.getenv("RUNNER_URL", "").rstrip("/")

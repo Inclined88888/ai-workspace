@@ -1,6 +1,6 @@
 import { ArrowLeft, Eye, FileText, Loader2, NotebookPen, Pencil, Pin, Plus, Search, Sparkles, Trash2, Wand2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, Doc, stream } from "../api";
 import { Empty, Markdown, ModelSelect, relTime, useModels, useToast } from "../util";
 
@@ -19,7 +19,7 @@ function Editor({ doc, onSaved, onDeleted }: { doc: Doc; onSaved: (d: Doc) => vo
   const [body, setBody] = useState(doc.body);
   const [tags, setTags] = useState(doc.tags);
   const [preview, setPreview] = useState(false);
-  const [saving, setSaving] = useState<"idle" | "pending" | "saving" | "saved">("idle");
+  const [saving, setSaving] = useState<"idle" | "pending" | "saving" | "saved" | "error">("idle");
   const [assist, setAssist] = useState<{ action: string; result: string; busy: boolean; thinking?: boolean; range: [number, number] } | null>(null);
   const [instruction, setInstruction] = useState("");
   const [model, setModel] = useState("");
@@ -29,25 +29,45 @@ function Editor({ doc, onSaved, onDeleted }: { doc: Doc; onSaved: (d: Doc) => vo
   const toast = useToast();
   const first = useRef(true);
 
+  // Saved 0.7 s after you stop typing. Switching notes or pages saves at once, so an edit is never dropped; closing the
+  // tab with an unsaved edit asks first; a failed save says so and offers Retry.
+  const latest = useRef({ title, body, tags });
+  latest.current = { title, body, tags };
+  const dirty = useRef(false);
+  const save = async () => {
+    dirty.current = false;
+    setSaving("saving");
+    try {
+      const d = await api<Doc>(`/docs/${doc.id}`, { method: "PATCH", body: latest.current });
+      onSaved(d);
+      setSaving(dirty.current ? "pending" : "saved");
+    } catch (e) {
+      dirty.current = true;
+      toast.err(e);
+      setSaving("error");
+    }
+  };
   useEffect(() => {
     if (first.current) {
       first.current = false;
       return;
     }
+    dirty.current = true;
     setSaving("pending");
-    const t = setTimeout(async () => {
-      setSaving("saving");
-      try {
-        const d = await api<Doc>(`/docs/${doc.id}`, { method: "PATCH", body: { title, body, tags } });
-        onSaved(d);
-        setSaving("saved");
-      } catch (e) {
-        toast.err(e);
-        setSaving("idle");
-      }
-    }, 700);
+    const t = setTimeout(save, 700);
     return () => clearTimeout(t);
-  }, [title, body, tags]);
+  }, [title, body, tags]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const warn = (e: BeforeUnloadEvent) => { if (dirty.current) { e.preventDefault(); e.returnValue = ""; } };
+    window.addEventListener("beforeunload", warn);
+    return () => {
+      window.removeEventListener("beforeunload", warn);
+      if (dirty.current) {  // leaving this note with an edit not saved yet: save it now
+        dirty.current = false;
+        api<Doc>(`/docs/${doc.id}`, { method: "PATCH", body: latest.current }).then(onSaved).catch((e) => toast.err(e));
+      }
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const runAssist = async (action: string) => {
     const el = textRef.current;
@@ -101,12 +121,14 @@ function Editor({ doc, onSaved, onDeleted }: { doc: Doc; onSaved: (d: Doc) => vo
           {ACTIONS.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
         </select>
         <div className="spacer" />
-        <span className="faint small">{saving === "saving" ? "Saving…" : saving === "pending" ? "Edited" : saving === "saved" ? "Saved" : ""} · {words} words</span>
+        <span className={`save-state ${saving === "saved" ? "ok" : saving === "error" ? "err" : ""}`} role="status" aria-live="polite">
+          {saving === "saving" ? "Saving…" : saving === "pending" ? "Edited" : saving === "saved" ? "Saved" : saving === "error" ? <>Not saved <button type="button" className="btn ghost sm" onClick={save}>Retry</button></> : ""}
+          <span className="faint">{saving !== "idle" ? " · " : ""}{words} words</span></span>
         <button className={`btn ghost sm icon ${doc.pinned ? "prio-1" : ""}`} onClick={togglePin} title={doc.pinned ? "Unpin" : "Pin"} aria-label={doc.pinned ? "Unpin" : "Pin"} aria-pressed={!!doc.pinned}><Pin size={15} /></button>
         <button className="btn ghost sm icon danger" onClick={remove} title="Delete" aria-label={`Delete ${doc.kind}`}><Trash2 size={15} /></button>
       </div>
       <div style={{ padding: "24px 32px", maxWidth: 860, width: "100%", margin: "0 auto", display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
-        <input className="editor-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Untitled" />
+        <input className="editor-title" aria-label="Title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Untitled" />
         <input className="input" style={{ border: "none", padding: 0, height: 24, background: "transparent", color: "var(--muted)" }} value={tags} onChange={(e) => setTags(e.target.value)} placeholder="Add tags, comma separated" />
         <div className="row">
           <input className="input grow" value={instruction} onChange={(e) => setInstruction(e.target.value)} placeholder="Ask AI to change this (e.g. 'make it more formal', 'add a conclusion')…"
@@ -133,7 +155,7 @@ function Editor({ doc, onSaved, onDeleted }: { doc: Doc; onSaved: (d: Doc) => vo
           </div>
         )}
         {preview ? <Markdown text={body || "*Nothing here yet.*"} /> : (
-          <textarea ref={textRef} className="editor-body" value={body} onChange={(e) => setBody(e.target.value)} placeholder="Start writing. Markdown supported. Select text before using AI assist to work on just that part." />
+          <textarea ref={textRef} className="editor-body" aria-label="Note text" value={body} onChange={(e) => setBody(e.target.value)} placeholder="Start writing. Markdown supported. Select text before using AI assist to work on just that part." />
         )}
       </div>
       {toast.node}
@@ -158,8 +180,10 @@ export default function Docs({ kind }: { kind: "note" | "document" }) {
   }, [q, kind]);
   useEffect(() => {
     if (!id) return setCurrent(null);
-    api<Doc>(`/docs/${id}`).then(setCurrent).catch(() => navigate(base));
-  }, [id, kind]);
+    let gone = false;  // clicking quickly through notes: only the last one clicked may open
+    api<Doc>(`/docs/${id}`).then((d) => { if (!gone) setCurrent(d); }).catch(() => { if (!gone) navigate(base); });
+    return () => { gone = true; };
+  }, [id, kind]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const create = async () => {
     const d = await api<Doc>("/docs", { body: { kind, title: kind === "note" ? "New note" : "Untitled document" } });
@@ -184,19 +208,19 @@ export default function Docs({ kind }: { kind: "note" | "document" }) {
         <div className="scroll">
           {list.length === 0 && <Empty icon={<Icon size={22} />} title={q ? "No matches" : `No ${kind}s yet`} />}
           {list.map((d) => (
-            <div key={d.id} className={`list-item ${current?.id === d.id ? "active" : ""}`} onClick={() => navigate(`${base}/${d.id}`)} style={{ alignItems: "flex-start" }}>
-              <div className="grow">
+            <div key={d.id} className={`list-item ${current?.id === d.id ? "active" : ""}`} style={{ alignItems: "flex-start" }}>
+              <Link className="list-link grow" to={`${base}/${d.id}`} aria-current={current?.id === d.id ? "page" : undefined}>
                 <div className="row"><strong className="truncate grow">{d.title}</strong>{!!d.pinned && <Pin size={12} className="prio-1" />}</div>
                 <div className="muted small truncate">{d.preview?.replace(/[#*_>`]/g, "") || "Empty"}</div>
                 <div className="row small faint">{relTime(d.updated_at)}{d.tags && <span className="truncate">· {d.tags}</span>}</div>
-              </div>
+              </Link>
             </div>
           ))}
         </div>
       </div>
       <div className="split-main">
         {current ? (
-          <Editor key={current.id} doc={current} onSaved={(d) => { setCurrent(d); setList((l) => l.map((x) => (x.id === d.id ? { ...x, ...d, preview: d.body.slice(0, 240) } : x))); }}
+          <Editor key={current.id} doc={current} onSaved={(d) => { setCurrent((c) => (c && c.id === d.id ? d : c));  /* a save finishing after you moved on must not reopen that note */ setList((l) => l.map((x) => (x.id === d.id ? { ...x, ...d, preview: d.body.slice(0, 240) } : x))); }}
             onDeleted={() => { setCurrent(null); navigate(base); load(); }} />
         ) : (
           <Empty icon={<Icon size={28} />} title={`Select or create a ${kind}`} hint={kind === "document" ? "Draft long form writing with AI assist. Research reports can be saved here." : "Quick thoughts, meeting notes, ideas. ROOKS can search and add to these when you ask."} />

@@ -195,7 +195,7 @@ export default function Research() {
         <div className="row wrap">
           <div style={{ width: 220 }}><ModelSelect value={model} onChange={setModel} models={models} /></div>
           <label className="row small muted">Depth
-            <select className="input" style={{ width: 150 }} value={depth} onChange={(e) => setDepth(Number(e.target.value))}>
+            <select className="input" style={{ width: "auto" }} value={depth} onChange={(e) => setDepth(Number(e.target.value))}>
               <option value={1}>Quick (1 round)</option><option value={3}>Standard (up to 2 rounds)</option><option value={5}>Deep (up to 3 rounds)</option>
             </select>
           </label>
@@ -207,21 +207,23 @@ export default function Research() {
         </div>
       </form>
 
+      {items.length === 0 && !current ? (
+        <div className="card"><Empty icon={<Search size={22} />} title="No research yet" hint="Ask a question above. Each report lists the pages it read, with the quotes behind every claim, and is kept here." /></div>
+      ) : (
       <div style={{ display: "grid", gridTemplateColumns: "280px minmax(0,1fr)", gap: 16 }} className="research-layout">
         <div className="card flush" style={{ alignSelf: "start" }}>
-          {items.length === 0 && <Empty icon={<Search size={22} />} title="No research yet" hint="Your reports will be listed here." />}
           {items.map((r) => (
-            <div key={r.id} className={`list-item ${current?.id === r.id ? "active" : ""}`} onClick={() => navigate(`/research/${r.id}`)}>
-              <div className="grow">
+            <div key={r.id} className={`list-item ${current?.id === r.id ? "active" : ""}`}>
+              <Link className="list-link grow" to={`/research/${r.id}`} aria-current={current?.id === r.id ? "page" : undefined}>
                 <div className="truncate">{r.question}</div>
                 <div className="row small faint">{r.status === "running" ? <Loader2 size={11} className="spin" /> : null}{r.status} · {relTime(r.created_at)}</div>
-              </div>
+              </Link>
               <button className="btn ghost sm icon" aria-label="Delete research" title="Delete research" onClick={(e) => { e.stopPropagation(); if (confirm(`Delete "${r.question.slice(0, 80)}"?`)) remove(r.id); }}><Trash2 size={13} /></button>
             </div>
           ))}
         </div>
         <div>
-          {!current && <div className="card"><Empty icon={<FileText size={24} />} title="Pick a report or start a new one" /></div>}
+          {!current && <div className="card"><Empty icon={<FileText size={24} />} title="Pick a report on the left" hint="Or ask a new question above." /></div>}
           {current && (
             <div className="card col gap-lg">
               <div className="row" style={{ alignItems: "flex-start" }}>
@@ -278,6 +280,7 @@ export default function Research() {
           )}
         </div>
       </div>
+      )}
       {toast.node}
     </div>
   );

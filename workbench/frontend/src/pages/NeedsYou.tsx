@@ -23,7 +23,7 @@ export default function NeedsYou() {
   const [busy, setBusy] = useState("");
   const toast = useToast();
   const load = () => api<Data>(`/needs-you${showDeferred ? "?include_deferred=true" : ""}`).then((d) => { setData(d); window.dispatchEvent(new Event("wb:attention")); }).catch(toast.err);
-  useEffect(() => { load(); const t = window.setInterval(load, 15000); return () => window.clearInterval(t); }, [showDeferred]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); const t = window.setInterval(() => { if (document.visibilityState === "visible") load(); }, 15000); return () => window.clearInterval(t); }, [showDeferred]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const run = async (i: Item, a: Action) => {
     if (a.confirm && !confirm(a.confirm)) return;

@@ -75,6 +75,7 @@ export function ModelTest({ auto = false }: { auto?: boolean }) {
 }
 
 const STEPS = ["Welcome", "Secure", "Name", "AI", "Done"];
+const browserTz = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch { return ""; } })();
 
 export default function Auth({ status, onDone }: { status: Status; onDone: () => void }) {
   const [step, setStep] = useState(0);
@@ -127,6 +128,8 @@ export default function Auth({ status, onDone }: { status: Status; onDone: () =>
     setError("");
     try {
       await api("/setup", { body: { password: form.password, setup_code: form.setup_code, workspace_name: form.workspace_name } });
+      // Reminders and automations follow this browser's timezone from the start (shown on the last step; changeable)
+      if (browserTz) await api("/assistant/settings", { method: "PUT", body: { timezone: browserTz } }).catch(() => undefined);
       setStep(3);
     } catch (err) {
       const msg = (err as Error).message;
@@ -268,6 +271,7 @@ export default function Auth({ status, onDone }: { status: Status; onDone: () =>
             {ready && ready.providers === 0
               ? <div className="alert">No AI model is connected yet, so the assistant can't answer. Tasks, notes and calendar work without one. Connect one under Settings, AI models.</div>
               : ready && <ModelTest />}
+            {browserTz && <p className="small muted" style={{ margin: 0 }}>Reminders and automations use your timezone, <strong>{browserTz}</strong>, taken from this browser. You can change it in Settings, under Automations and notifications.</p>}
             <div className="onboard-note small">
               <strong>Your privacy.</strong> ROOKS runs on your own machine. It sends text to the AI provider you connected, and asks before anything
               with lasting effects after reading outside content. You can review what it remembers, and choose local-only projects, under Settings.

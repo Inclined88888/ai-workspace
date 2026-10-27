@@ -36,6 +36,41 @@ function LocalModels() {
   );
 }
 
+/** The timezone reminders, automations and check-ins use. Saved on the server; the browser's zone is offered. */
+function TimezoneSetting() {
+  const [tz, setTz] = useState<string | null>(null);
+  const [pick, setPick] = useState("");
+  const [state, setState] = useState<"" | "saving" | "saved" | "error">("");
+  const [err, setErr] = useState("");
+  const browserTz = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch { return ""; } })();
+  const zones = (() => { try { return (Intl as unknown as { supportedValuesOf?: (k: string) => string[] }).supportedValuesOf?.("timeZone") ?? []; } catch { return []; } })();
+  useEffect(() => { api<{ timezone: string }>("/assistant/settings").then((r) => { setTz(r.timezone); setPick(r.timezone); }).catch(() => setTz("")); }, []);
+  const save = async (value: string) => {
+    setState("saving"); setErr("");
+    try { const r = await api<{ timezone: string }>("/assistant/settings", { method: "PUT", body: { timezone: value } }); setTz(r.timezone); setPick(r.timezone); setState("saved"); }
+    catch (e) { setErr((e as Error).message); setState("error"); }
+  };
+  if (tz === null) return <Loader2 size={14} className="spin" aria-label="Loading" />;
+  return (
+    <div className="setting-row">
+      <div><div className="field" style={{ fontWeight: 550 }}>Timezone</div>
+        <div className="muted small">Reminders, automations and check-ins run on this clock. Now: <strong>{tz || "UTC"}</strong>{browserTz && browserTz !== tz ? `; this browser is in ${browserTz}.` : "."}</div></div>
+      <div className="row wrap">
+        {zones.length ? (
+          <select className="input" aria-label="Timezone" value={pick} onChange={(e) => { setPick(e.target.value); setState(""); }} style={{ maxWidth: 240 }}>
+            {!zones.includes(pick) && pick && <option value={pick}>{pick}</option>}
+            {zones.map((z) => <option key={z} value={z}>{z}</option>)}
+          </select>
+        ) : <input className="input" aria-label="Timezone" value={pick} onChange={(e) => { setPick(e.target.value); setState(""); }} placeholder="Australia/Sydney" style={{ maxWidth: 240 }} />}
+        <button type="button" className="btn" disabled={!pick || pick === tz || state === "saving"} onClick={() => save(pick)}>Save timezone</button>
+        {browserTz && browserTz !== tz && <button type="button" className="btn ghost sm" onClick={() => save(browserTz)}>Use {browserTz}</button>}
+        <span className={`save-state ${state === "saved" ? "ok" : state === "error" ? "err" : ""}`} role="status" aria-live="polite">
+          {state === "saving" ? "Saving…" : state === "saved" ? <><Check size={13} /> Saved</> : state === "error" ? err : ""}</span>
+      </div>
+    </div>
+  );
+}
+
 function MailAccounts() {
   const [list, setList] = useState<MailAccount[]>([]);
   const [preset, setPreset] = useState("Fastmail");
@@ -297,6 +332,7 @@ export default function Settings({ onChanged }: { onChanged: () => void }) {
           </Section>
 
           <Section id="s-automations" title="Automations and notifications" about="Scheduled jobs, check-ins, quiet hours and where ROOKS tells you things.">
+            <div className="card col"><TimezoneSetting /></div>
             <div className="card col">
               <div className="muted small">Check-ins, their quiet hours and daily limits are on the Automations page. Briefings go to the ROOKS inbox, and to Telegram if you connect it. Calls follow the contact hours above.</div>
               <div className="row wrap"><Link className="btn" to="/automations">Open automations</Link><Link className="btn ghost" to="/needs-you">See what needs you</Link></div>

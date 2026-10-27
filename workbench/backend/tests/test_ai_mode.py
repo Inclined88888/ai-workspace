@@ -244,3 +244,14 @@ def test_capabilities_say_chat_is_not_ready_when_the_mode_allows_no_model(client
     mode("custom")
     chat = next(c for c in client.get("/api/capabilities").json()["capabilities"] if c["id"] == "chat")
     assert chat["status"] == "ready"
+
+
+def test_the_model_list_says_which_models_the_mode_allows(client, mode):
+    mode("free")
+    r = client.get("/api/models").json()
+    m = next(x for x in r["models"] if x["ref"] == f"{client.pid}/fake-model")
+    assert r["mode"] == "free" and m["allowed"] is False and "Free Cloud AI" in m["blocked"]
+    mode("custom")
+    r = client.get("/api/models").json()
+    m = next(x for x in r["models"] if x["ref"] == f"{client.pid}/fake-model")
+    assert r["mode"] == "custom" and "allowed" not in m  # nothing is restricted, so nothing is marked

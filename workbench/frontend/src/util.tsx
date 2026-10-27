@@ -18,19 +18,21 @@ export function Markdown({ text, className = "" }: { text: string; className?: s
 export function useModels() {
   const [models, setModels] = useState<Model[]>([]);
   const [defaultRef, setDefaultRef] = useState("");
+  const [mode, setMode] = useState("");
   const [loading, setLoading] = useState(true);
   const load = (fresh = false) => {
     setLoading(true);
-    api<{ models: Model[]; default: string }>(`/models${fresh ? "?fresh=true" : ""}`)
+    api<{ models: Model[]; default: string; mode?: string }>(`/models${fresh ? "?fresh=true" : ""}`)
       .then((r) => {
         setModels(r.models);
         setDefaultRef(r.default);
+        setMode(r.mode ?? "");
       })
       .catch(() => setModels([]))
       .finally(() => setLoading(false));
   };
   useEffect(() => load(), []);
-  return { models, defaultRef, loading, reload: load };
+  return { models, defaultRef, mode, loading, reload: load };
 }
 
 export function ModelSelect({
@@ -46,20 +48,35 @@ export function ModelSelect({
   allowDefault?: boolean;
   defaultLabel?: string;
 }) {
+  // In Free Cloud AI and Local AI modes the models the mode allows come first; the others are listed but cannot be
+  // picked, with the reason as a tooltip, so nothing paid is chosen by accident and nothing is hidden.
+  const usable = models.filter((m) => m.allowed !== false);
+  const blocked = models.filter((m) => m.allowed === false);
   const groups = new Map<string, Model[]>();
-  models.forEach((m) => groups.set(m.provider, [...(groups.get(m.provider) ?? []), m]));
+  usable.forEach((m) => groups.set(m.provider, [...(groups.get(m.provider) ?? []), m]));
+  const sorted = (list: Model[]) => (blocked.length ? [...list].sort((a, b) => Number(!!b.free) - Number(!!a.free)) : list);
   return (
     <select className="input" aria-label="AI model" title="AI model" value={value} onChange={(e) => onChange(e.target.value)}>
       {allowDefault && <option value="">{defaultLabel}</option>}
+      {value && blocked.some((m) => m.ref === value) && <option value={value}>{value.replace(/^\d+\//, "")} (not usable in this AI mode)</option>}
       {[...groups.entries()].map(([provider, list]) => (
         <optgroup key={provider} label={provider}>
-          {list.map((m) => (
+          {sorted(list).map((m) => (
             <option key={m.ref} value={m.ref}>
               {m.model}{m.free ? "  (free)" : ""}
             </option>
           ))}
         </optgroup>
       ))}
+      {blocked.length > 0 && (
+        <optgroup label="Not available in this AI mode">
+          {blocked.slice(0, 60).map((m) => (
+            <option key={m.ref} value={m.ref} disabled title={m.blocked}>
+              {m.model} · {m.provider}{m.free ? "" : "  (paid)"}
+            </option>
+          ))}
+        </optgroup>
+      )}
     </select>
   );
 }

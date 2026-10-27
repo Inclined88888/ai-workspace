@@ -47,7 +47,7 @@ export default function Glance() {
       <Link to="/missions" className="glance-tile">
         <div className="glance-head"><Flag size={15} aria-hidden="true" /> Missions</div>
         {m === null ? wait : m === "err" ? err : active.length ? <>
-          <div className="glance-num">{active.length} <span className="small muted">in progress</span></div>
+          <div className="glance-num">{active.length} <span className="small muted">open</span></div>
           {active.slice(0, 2).map((x) => <div key={x.id} className="small truncate">{x.goal} <span className="faint">· {LABEL[x.status] ?? x.status}</span></div>)}
         </> : <div className="small muted">Nothing in progress. Hand ROOKS a bigger job here.</div>}
       </Link>

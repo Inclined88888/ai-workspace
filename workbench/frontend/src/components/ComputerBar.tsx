@@ -10,14 +10,22 @@ type S = { settings: { enabled: boolean; stopped: boolean; paused: boolean }; cu
 export default function ComputerBar() {
   const [s, setS] = useState<S | null>(null);
   useEffect(() => {
+    // Every 2 seconds while Computer Use is on, so Stop is always current; every 15 while it is off (nothing can act);
+    // paused while the tab is hidden, and refreshed the moment it is shown again
     let stop = false;
     let t: ReturnType<typeof setTimeout>;
+    let enabled = false;
     const tick = async () => {
-      try { setS(await api<S>("/computer")); } catch { /* signed out or offline: show nothing */ }
-      if (!stop) t = setTimeout(tick, 2000);
+      clearTimeout(t);
+      if (document.visibilityState === "hidden") return;
+      try { const r = await api<S>("/computer"); enabled = r.settings.enabled; setS(r); } catch { /* signed out or offline: show nothing */ }
+      if (!stop) t = setTimeout(tick, enabled ? 2000 : 15000);
     };
+    const shown = () => { if (document.visibilityState === "visible") tick(); };
+    document.addEventListener("visibilitychange", shown);
+    window.addEventListener("rooks:computer-changed", tick);
     tick();
-    return () => { stop = true; clearTimeout(t); };
+    return () => { stop = true; clearTimeout(t); document.removeEventListener("visibilitychange", shown); window.removeEventListener("rooks:computer-changed", tick); };
   }, []);
   if (s?.screen_shared?.app && !s.current) {
     // the screenshot indicator: shown for 15 seconds after any screenshot leaves for the vision model
