@@ -242,7 +242,8 @@ def run_exec(a: dict, conn: socket.socket | None = None) -> dict:
         raise Refused(429, f"{MAX_PARALLEL} commands are already running. Wait for one to finish.")
     logdir = os.path.join(WS, INTERNAL, "logs")
     os.makedirs(logdir, exist_ok=True)
-    logpath = os.path.join(logdir, f"{time.strftime('%Y%m%d-%H%M%S')}-{cid}.log")
+    # "T" and "_" keep the digits apart: a run like 20261027-101530-12 can pass a card number check and be redacted
+    logpath = os.path.join(logdir, f"{time.strftime('%Y%m%dT%H%M%S')}_{cid}.log")
     shell = "/bin/bash" if os.path.exists("/bin/bash") else "/bin/sh"
     out, err, wlock = _Stream(), _Stream(), threading.Lock()
     started = time.monotonic()

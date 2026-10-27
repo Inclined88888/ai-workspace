@@ -278,3 +278,23 @@ def test_ordinary_chat_keeps_the_lower_step_limit(term):
     ev, _ = chat(term, "keep running")
     assert len(results(ev)) == assistant.MAX_STEPS_WORKSPACE > assistant.MAX_STEPS
     SCRIPT.clear()
+
+
+def test_log_file_names_never_look_like_card_numbers():
+    """Regression: names like 20261027-101530-... could pass the card number check, so the path shown to the model was
+    redacted and the full output could not be found. Every second of a day, with ids starting with up to 12 digits."""
+    import datetime
+    import uuid
+
+    from app import sensitive
+
+    start = datetime.datetime(2026, 10, 27)
+    ids = [uuid.uuid4().hex[:12] for _ in range(20)] + ["123456789012", "000000000001", "9e3908e4e5fd"]
+    for s in range(0, 86400, 7):
+        stamp = (start + datetime.timedelta(seconds=s)).strftime("%Y%m%dT%H%M%S")
+        for cid in ids[s % len(ids):][:2]:
+            name = f".rooks/logs/{stamp}_{cid}.log"
+            assert sensitive.redact(name) == name, name
+    # the old format did collide, which is what this guards against
+    old = [f"{(start + datetime.timedelta(seconds=s)).strftime('%Y%m%d-%H%M%S')}-9e3908e4e5fd" for s in range(0, 86400, 7)]
+    assert any(sensitive.redact(n) != n for n in old)

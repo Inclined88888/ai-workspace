@@ -29,6 +29,7 @@ start all become Needs You items, never silent retries.
 import asyncio
 import json
 import logging
+import re
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -93,6 +94,8 @@ CHECK_PROMPT = (
     '{"verdict": "done" | "not_done" | "cannot_tell", "evidence": "one sentence citing the tool results", '
     '"missing": "what is still missing, or empty"}'
 )
+
+URL = re.compile(r"https?://[^\s)\]>\"'`]+")
 
 _wake = asyncio.Event()
 _active: dict[int, asyncio.Task] = {}
@@ -471,6 +474,17 @@ def _prompt(t: dict, m: dict) -> str:
     ])
 
 
+def untraced(t: dict, reply: str) -> list[str]:
+    """Links the result cites that this worker never opened or was never given: a citation must be traceable to a tool
+    result in its own conversation, its inputs, or a prerequisite's result."""
+    cited = {u.rstrip(".,;:") for u in URL.findall(reply or "")}
+    if not cited:
+        return []
+    seen = " ".join(m["content"] for m in db.all("SELECT content FROM messages WHERE conversation_id = ? AND role = 'tool'", t["conversation_id"]))
+    seen += " " + t["inputs"] + " " + _deps_text(t)
+    return sorted(u for u in cited if u not in seen)
+
+
 async def _check(t: dict, m: dict, reply: str, tools: list[dict], model: str | None) -> dict:
     from .missions import _local
 
@@ -615,6 +629,9 @@ async def _run(tid: int, epoch: int) -> None:
     result = {"summary": reply[:6000], "tools": tools}
     if error:
         verdict = {"verdict": "not_done", "evidence": "", "missing": error}
+    elif bad := untraced(t, reply):
+        verdict = {"verdict": "not_done", "evidence": "", "missing": f"It cites link(s) it never opened or was given: {', '.join(bad[:5])}. "
+                                                                     "Cite only sources you actually read."}
     elif not (t["budget_cents"] and spent(t) >= t["budget_cents"]):
         verdict = await _check(t, m, reply, tools, missions._planner(m))
         _sync_spend(tid)
