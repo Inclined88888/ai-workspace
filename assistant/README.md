@@ -73,6 +73,6 @@ docker compose pull && docker compose up -d
 
 To move servers, restore the backup into the new server's `hermes-assistant_hermes-data` volume before the first start.
 
-## Already running the full AI Workspace?
+## Already running the full ROOKS workspace?
 
-You don't need this folder: the main stack already includes Hermes (wired to Workbench and the browser agent). The same `./hermes` command works from the repository root, with one extra option: `./hermes use ollama qwen3:4b` for a local model.
+You don't need this folder: the main stack already includes Hermes (wired to ROOKS and the browser agent). The same `./hermes` command works from the repository root, with one extra option: `./hermes use ollama qwen3:4b` for a local model.

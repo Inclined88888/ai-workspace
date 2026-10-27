@@ -85,7 +85,7 @@ Pass your own browser-use chat model with `run_task(goal, llm=ChatAnthropic(...)
 | `examples/one_off_actions.py` | open, click, type, screenshot and text without an LLM |
 | `examples/cli_examples.sh` | The CLI commands above in one script |
 
-## Service mode (used by AI Workspace)
+## Service mode (used by ROOKS)
 
 `browser-agent-server` (see `src/browser_agent/server.py`) runs the agent behind an HTTP API with a job queue, step history and live screenshots. It also serves an OpenAPI tool for Open WebUI (`/tools`) and an MCP endpoint (`/mcp`) so coding agents such as OpenCode and Claude Code (and therefore Paperclip employees) can browse. Every endpoint needs `Authorization: Bearer $BROWSER_API_KEY`. In service mode the agent refuses IP address URLs, so it cannot reach other containers or your LAN.
 
