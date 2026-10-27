@@ -62,6 +62,9 @@ SHOT_TTL = 600
 # Full results for active waiters are held briefly in memory, not SQLite.
 MAX_TRANSIENT_RESULT = 16 * 1024 * 1024
 _transient_results: dict[int, object] = {}
+# Pending payloads are intentionally not written to SQLite. An action interrupted
+# by a backend restart must be verified/reissued, never replayed from disk.
+_pending_args: dict[int, dict] = {}
 
 
 
@@ -331,7 +334,9 @@ def _pause_missions(why: str) -> None:
 
 # Queue
 def _canon(kind: str, args: dict) -> str:
-    return kind + json.dumps(args, sort_keys=True, separators=(",", ":"))
+    # Idempotency markers must not reveal text or document contents.
+    body = kind + json.dumps(args, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(body.encode()).hexdigest()
 
 
 async def request(kind: str, args: dict, *, conversation_id: int | None = None, mission_id: int | None = None,
@@ -355,9 +360,16 @@ async def request(kind: str, args: dict, *, conversation_id: int | None = None, 
             what = "its outcome is unknown" if prior["status"] == "uncertain" else "it did finish, so repeating it would do it twice"
             raise HTTPException(409, f"This exact action (#{prior['id']}) was sent before ROOKS restarted and {what}. "
                                      "Observe the screen first to check the current state, then decide.")
+    # Only non-content metadata goes on disk. In particular no typed strings,
+    # document contents, or form values are persisted as action arguments.
+    safe_args = {k: args[k] for k in ("app", "target", "label", "path", "src", "dst", "url", "direction", "keys")
+                 if k in args and isinstance(args[k], (str, int, float, bool))}
+    if "text" in args:
+        safe_args["text_length"] = len(str(args["text"]))
     aid = db.run("INSERT INTO computer_actions(device_id, kind, args, risk, status, approved, conversation_id, mission_id, idem_key, timeout, created_at) "
-                 "VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?)", dev["id"], kind, json.dumps(args), risk, int(approved), conversation_id, mission_id, key,
+                 "VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?)", dev["id"], kind, json.dumps(safe_args), risk, int(approved), conversation_id, mission_id, key,
                  int(timeout or args.get("timeout") or DEFAULT_TIMEOUT), db.now())
+    _pending_args[aid] = args
     if risk != "read":
         audit.record("assistant", "computer", kind, _summary(kind, args))
     ev = asyncio.Event()
@@ -373,6 +385,7 @@ async def request(kind: str, args: dict, *, conversation_id: int | None = None, 
             db.run("UPDATE computer_actions SET status = 'uncertain', error = 'No answer from the computer in time' WHERE id = ?", aid)
     finally:
         _events.pop(aid, None)
+        _pending_args.pop(aid, None)
     a = db.one("SELECT * FROM computer_actions WHERE id = ?", aid)
     out = {"id": aid, "status": a["status"], "ok": a["status"] == "done",
            "result": _transient_results.pop(aid, None), "error": a["error"]}
@@ -397,12 +410,22 @@ def next_action(device: dict) -> dict | None:
     s = settings()
     if s["stopped"] or s["paused"] or not s["enabled"]:
         return None
+    # Fail closed after a backend restart: queued actions no longer have
+    # their ephemeral payload, so they cannot be dispatched or replayed.
+    for stale in db.all("SELECT id FROM computer_actions WHERE device_id = ? AND status = 'queued' ORDER BY id", device["id"]):
+        if stale["id"] in _pending_args:
+            break
+        _finish(stale["id"], "failed", error="Action interrupted by restart; review before retrying.")
     a = db.one("SELECT * FROM computer_actions WHERE device_id = ? AND status = 'queued' ORDER BY id LIMIT 1", device["id"])
     if not a:
         return None
+    payload = _pending_args.get(a["id"])
+    if payload is None:
+        _finish(a["id"], "failed", error="Action payload expired; review before retrying.")
+        return None
     if not db.changed("UPDATE computer_actions SET status = 'dispatched', dispatched_at = ? WHERE id = ? AND status = 'queued'", db.now(), a["id"]):
         return None
-    return {"id": a["id"], "kind": a["kind"], "args": json.loads(a["args"]), "timeout": a["timeout"], "risk": a["risk"], "approved": bool(a["approved"])}
+    return {"id": a["id"], "kind": a["kind"], "args": payload, "timeout": a["timeout"], "risk": a["risk"], "approved": bool(a["approved"])}
 
 
 def report(device: dict, r: dict) -> None:
