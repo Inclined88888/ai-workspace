@@ -88,9 +88,35 @@ def fake_url():
     server.should_exit = True
 
 
+RUNNER: dict = {}  # the real runner process used by the tests: {"url", "token", "workspace"}
+
+
 @pytest.fixture(scope="session")
-def client(fake_url, tmp_path_factory):
-    os.environ.update(APP_SECRET="a" * 40, TOOLS_API_KEY="k" * 30, DATA_DIR=str(tmp_path_factory.mktemp("data")))
+def runner(tmp_path_factory):
+    """The real runner service (workbench/runner/runner.py) in its own process with a temporary workspace."""
+    import subprocess
+    import sys
+    import urllib.request
+
+    ws, port, token = tmp_path_factory.mktemp("workspace"), _port(), "r" * 32
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "RUNNER_TOKEN": token, "WORKSPACE": str(ws), "RUNNER_PORT": str(port)}
+    proc = subprocess.Popen([sys.executable, os.path.join(os.path.dirname(__file__), "..", "..", "runner", "runner.py")], env=env)
+    for _ in range(100):
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=1)
+            break
+        except OSError:
+            time.sleep(0.05)
+    RUNNER.update(url=f"http://127.0.0.1:{port}", token=token, workspace=str(ws))
+    yield RUNNER
+    proc.terminate()
+    proc.wait(5)
+
+
+@pytest.fixture(scope="session")
+def client(fake_url, runner, tmp_path_factory):
+    os.environ.update(APP_SECRET="a" * 40, TOOLS_API_KEY="k" * 30, DATA_DIR=str(tmp_path_factory.mktemp("data")),
+                      RUNNER_URL=runner["url"], RUNNER_TOKEN=runner["token"])
     for k in ("GITHUB_TOKEN", "BRAVE_API_KEY", "TAVILY_API_KEY"):  # never let a real key in the environment reach a test
         os.environ.pop(k, None)
     from fastapi.testclient import TestClient

@@ -281,7 +281,7 @@ def test_recovery_tells_the_step_to_look_first(clean):
     try:
         missions.recover()
         m = missions._get(mid)
-        assert m["status"] == "queued" and "Observe the screen first" in m["plan"][0]["notes"][0]
+        assert m["status"] == "queued" and any("Observe the screen first" in n for n in m["plan"][0]["notes"])
         assert any("look at the screen" in e["text"] for e in missions.view(mid)["events"])
     finally:
         db.run("UPDATE missions SET status = 'cancelled' WHERE id = ?", mid)

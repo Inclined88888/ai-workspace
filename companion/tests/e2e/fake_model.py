@@ -29,6 +29,17 @@ def program(goal, results):
                  lambda: call("computer_click_visual", target=json.loads(last)["target"], app=F),
                  lambda: call("computer_observe", app=F),
                  lambda: say("Clicked the red button. " + (re.search(r"hidden=\d+", last).group(0) if re.search(r"hidden=\d+", last) else "?"))]
+    elif "TEST-T1" in goal:  # terminal: write code and a check, run it, see it fail, fix it, run it again
+        steps = [lambda: call("workspace_write", path="calc/calc.py", content="def add(a, b):\n    return a - b\n"),
+                 lambda: call("workspace_write", path="calc/check.py", content="from calc import add\nassert add(2, 3) == 5, f'add(2, 3) gave {add(2, 3)}'\nprint('check passed')\n"),
+                 lambda: call("run_command", command="python3 check.py", cwd="calc"),
+                 lambda: call("workspace_edit", path="calc/calc.py", old_text="return a - b", new_text="return a + b"),
+                 lambda: call("run_command", command="python3 check.py", cwd="calc"),
+                 lambda: say("Fixed and verified: check.py passes." if "check passed" in last else "Still failing: " + last[:200])]
+    elif "TEST-T2" in goal:  # terminal: a command that fails
+        steps = [lambda: call("run_command", command="ls no-such-folder"), lambda: say("The command failed: " + last.splitlines()[1][:120])]
+    elif "TEST-T3" in goal:  # terminal: needs approval in the default ask mode
+        steps = [lambda: call("run_command", command="touch from-approval.txt"), lambda: say("That command is waiting for your approval.")]
     elif "TEST-V2" in goal:  # locate only; the test moves the window before clicking
         steps = [lambda: call("computer_locate", app=F, description="the red square button"), lambda: say("located " + last[:200])]
     elif "TEST-V3" in goal:
