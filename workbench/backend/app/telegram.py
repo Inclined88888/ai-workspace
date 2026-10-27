@@ -89,7 +89,11 @@ async def _handle(client: httpx.AsyncClient, msg: dict) -> None:
         await send(client, chat_id, "I can read text messages for now.")
         return
     if text in ("/start", "/help"):
-        await send(client, chat_id, "Talk to me normally. /new starts a fresh conversation (memory and skills carry over).")
+        await send(client, chat_id, "Talk to me normally.\n/new starts a fresh conversation (memory and skills carry over)\n"
+                                    "/model shows or switches the model, e.g. /model gemini-3.8-flash or /model auto\n/status shows which model is answering")
+        return
+    if text == "/status" or text.split()[0] == "/model":
+        await send(client, chat_id, await asyncio.to_thread(model_command, chat_id, text))
         return
     if text == "/new":
         _conversation(chat_id, fresh=True)
@@ -99,6 +103,34 @@ async def _handle(client: httpx.AsyncClient, msg: dict) -> None:
     ctx = assistant.Ctx(channel="telegram", conversation_id=_conversation(chat_id))
     reply, _ = await assistant.ask(ctx, text)
     await send(client, chat_id, reply)
+
+
+def model_command(chat_id: int, text: str) -> str:
+    """/status and /model [name|auto] for this Telegram chat (Hermes and OpenClaw offer the same in chat)."""
+    from . import llm
+
+    cid = _conversation(chat_id)
+    conv = db.one("SELECT model FROM conversations WHERE id = ?", cid) or {}
+    try:
+        default, source = llm.effective_default()
+    except Exception as e:  # noqa: BLE001 - report configuration problems in chat
+        default, source = "", str(getattr(e, "detail", e))
+    arg = text.partition(" ")[2].strip()
+    if text == "/status" or not arg:
+        current = conv.get("model") or (f"{default} (automatic)" if source == "auto" else default) or f"none: {source}"
+        backups = ", ".join(llm.fallback_refs(default)) if default and not conv.get("model") else "none (a model picked for this chat is used strictly)"
+        return f"Model: {current}\nBackups: {backups or 'none'}\nSwitch with /model <name>, back to the default with /model auto."
+    if arg == "auto":
+        db.run("UPDATE conversations SET model = '' WHERE id = ?", cid)
+        return f"Back to the default model ({default or 'none connected'}), with automatic backups."
+    models = llm.list_models()
+    exact = [m for m in models if arg in (m["ref"], m["model"])]
+    loose = exact or [m for m in models if arg.lower() in m["model"].lower()]
+    if len(loose) != 1:
+        hint = ", ".join(m["model"] for m in loose[:8])
+        return f"{len(loose)} models match '{arg}'." + (f" For example: {hint}" if hint else " Check the name in ROOKS Settings, AI models.")
+    db.run("UPDATE conversations SET model = ? WHERE id = ?", loose[0]["ref"], cid)
+    return f"This chat now uses {loose[0]['model']} ({loose[0]['provider']}). /model auto switches back."
 
 
 async def loop() -> None:

@@ -25,6 +25,25 @@ CREATE TABLE IF NOT EXISTS providers (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS files (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  mime TEXT NOT NULL DEFAULT '',
+  size INTEGER NOT NULL DEFAULT 0,
+  path TEXT NOT NULL,                          -- relative to DATA_DIR/files
+  text TEXT NOT NULL DEFAULT '',               -- extracted text, '' when not readable
+  note TEXT NOT NULL DEFAULT '',               -- why there is no text, if so
+  sha256 TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+CREATE VIRTUAL TABLE IF NOT EXISTS files_fts USING fts5(name, text, content='files', content_rowid='id', tokenize='porter unicode61');
+CREATE TRIGGER IF NOT EXISTS files_ai AFTER INSERT ON files BEGIN
+  INSERT INTO files_fts(rowid, name, text) VALUES (new.id, new.name, new.text);
+END;
+CREATE TRIGGER IF NOT EXISTS files_ad AFTER DELETE ON files BEGIN
+  INSERT INTO files_fts(files_fts, rowid, name, text) VALUES ('delete', old.id, old.name, old.text);
+END;
+
 CREATE TABLE IF NOT EXISTS docs (
   id INTEGER PRIMARY KEY,
   kind TEXT NOT NULL DEFAULT 'note',            -- note | document
@@ -175,6 +194,150 @@ CREATE TABLE IF NOT EXISTS approvals (
   decided_at TEXT
 );
 
+-- Projects (projects.py): a workspace for ongoing work; other tables link to it with project_id
+CREATE TABLE IF NOT EXISTS projects (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  goals TEXT NOT NULL DEFAULT '',
+  instructions TEXT NOT NULL DEFAULT '',
+  model TEXT NOT NULL DEFAULT '',
+  budget_cents INTEGER NOT NULL DEFAULT 0,
+  local_only INTEGER NOT NULL DEFAULT 0,
+  permissions TEXT NOT NULL DEFAULT '{}',
+  status TEXT NOT NULL DEFAULT 'active',        -- active | archived
+  deleted_at TEXT,                              -- in the bin since
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS project_notes (
+  id INTEGER PRIMARY KEY,
+  project_id INTEGER NOT NULL,
+  kind TEXT NOT NULL,                           -- decision | question
+  text TEXT NOT NULL,
+  resolved INTEGER NOT NULL DEFAULT 0,
+  answer TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  resolved_at TEXT
+);
+
+-- Missions: planned multi step work (see missions.py)
+CREATE TABLE IF NOT EXISTS missions (
+  id INTEGER PRIMARY KEY,
+  goal TEXT NOT NULL,
+  model TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'planning',      -- planning | review | queued | running | waiting_approval | paused | done | partial | failed | cancelled
+  control TEXT NOT NULL DEFAULT '',             -- pause | cancel requested while running
+  auto_start INTEGER NOT NULL DEFAULT 0,
+  conversation_id INTEGER,
+  plan TEXT NOT NULL DEFAULT '[]',              -- JSON steps with status, attempts, result, evidence, tool log
+  current_step INTEGER NOT NULL DEFAULT 0,
+  budget_tool_calls INTEGER NOT NULL DEFAULT 40,
+  budget_minutes INTEGER NOT NULL DEFAULT 30,
+  budget_cents INTEGER NOT NULL DEFAULT 0,      -- 0 = no spending limit
+  used_tool_calls INTEGER NOT NULL DEFAULT 0,
+  used_cents REAL NOT NULL DEFAULT 0,
+  elapsed_seconds REAL NOT NULL DEFAULT 0,
+  report TEXT NOT NULL DEFAULT '',
+  error TEXT NOT NULL DEFAULT '',
+  started_at TEXT,
+  heartbeat_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS mission_events (
+  id INTEGER PRIMARY KEY,
+  mission_id INTEGER NOT NULL,
+  at TEXT NOT NULL,
+  step INTEGER,
+  kind TEXT NOT NULL,
+  text TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS mission_events_m ON mission_events(mission_id, id);
+-- Write actions a mission already did, so a retried or recovered step replays instead of repeating them
+CREATE TABLE IF NOT EXISTS mission_actions (
+  id INTEGER PRIMARY KEY,
+  mission_id INTEGER NOT NULL,
+  tool TEXT NOT NULL,
+  args_key TEXT NOT NULL,
+  ok INTEGER NOT NULL,
+  result TEXT NOT NULL DEFAULT '',
+  at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS mission_actions_k ON mission_actions(mission_id, tool, args_key);
+
+-- Computer Use (computer.py): paired companions, one-time pairing codes, the action queue and temporary grants
+CREATE TABLE IF NOT EXISTS computer_devices (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  os TEXT NOT NULL DEFAULT '',
+  token_hash TEXT NOT NULL UNIQUE,
+  info TEXT NOT NULL DEFAULT '{}',
+  revoked INTEGER NOT NULL DEFAULT 0,
+  paired_at TEXT NOT NULL,
+  last_seen TEXT
+);
+CREATE TABLE IF NOT EXISTS computer_pairing (
+  code_hash TEXT PRIMARY KEY,
+  expires_at TEXT NOT NULL,
+  used INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS computer_actions (
+  id INTEGER PRIMARY KEY,
+  device_id INTEGER NOT NULL,
+  kind TEXT NOT NULL,
+  args TEXT NOT NULL DEFAULT '{}',
+  risk TEXT NOT NULL DEFAULT 'read',
+  status TEXT NOT NULL DEFAULT 'queued',        -- queued | dispatched | done | failed | refused | cancelled | uncertain
+  cancel INTEGER NOT NULL DEFAULT 0,
+  approved INTEGER NOT NULL DEFAULT 0,          -- the user approved this action; the companion re-checks consequential ones
+  recovered INTEGER NOT NULL DEFAULT 0,         -- its result arrived after a restart
+  result TEXT NOT NULL DEFAULT '',
+  error TEXT NOT NULL DEFAULT '',
+  conversation_id INTEGER,
+  mission_id INTEGER,
+  idem_key TEXT NOT NULL DEFAULT '',
+  timeout INTEGER NOT NULL DEFAULT 30,
+  created_at TEXT NOT NULL,
+  dispatched_at TEXT,
+  finished_at TEXT
+);
+CREATE INDEX IF NOT EXISTS computer_actions_q ON computer_actions(device_id, status, id);
+CREATE TABLE IF NOT EXISTS computer_grants (
+  id INTEGER PRIMARY KEY,
+  app TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  revoked INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+
+-- Every tool run (reads included), newest 5,000 kept
+CREATE TABLE IF NOT EXISTS tool_runs (
+  id INTEGER PRIMARY KEY,
+  at TEXT NOT NULL,
+  tool TEXT NOT NULL,
+  actor TEXT NOT NULL,
+  conversation_id INTEGER,
+  mission_id INTEGER,
+  ok INTEGER NOT NULL,
+  ms INTEGER NOT NULL DEFAULT 0,
+  args TEXT NOT NULL DEFAULT '',
+  error TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS tool_runs_tool ON tool_runs(tool, id);
+
+-- Who did what: tool actions, approvals, permission and connection changes, sign-ins. Never holds secret values.
+CREATE TABLE IF NOT EXISTS audit_log (
+  id INTEGER PRIMARY KEY,
+  at TEXT NOT NULL,
+  actor TEXT NOT NULL,                          -- user | assistant | agent:<name> | telegram | schedule | system
+  action TEXT NOT NULL,
+  target TEXT NOT NULL DEFAULT '',
+  detail TEXT NOT NULL DEFAULT '',
+  ok INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS audit_at ON audit_log(at);
+
 CREATE TABLE IF NOT EXISTS memories (
   id INTEGER PRIMARY KEY,
   content TEXT NOT NULL,
@@ -183,6 +346,13 @@ CREATE TABLE IF NOT EXISTS memories (
   conversation_id INTEGER,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
+);
+-- Optional embeddings for meaning-based memory search (memory.py); one row per memory and model
+CREATE TABLE IF NOT EXISTS memory_vectors (
+  memory_id INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+  model TEXT NOT NULL,
+  vec BLOB NOT NULL,
+  PRIMARY KEY (memory_id, model)
 );
 CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(content, content='memories', content_rowid='id', tokenize='porter unicode61');
 CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN
@@ -293,8 +463,28 @@ def conn() -> sqlite3.Connection:
     return c
 
 
+def _add_column(table: str, column: str, ddl: str) -> None:
+    """Additive migration: add a column to an existing database without touching its data."""
+    if column not in {r[1] for r in conn().execute(f"PRAGMA table_info({table})")}:
+        conn().execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+
+
 def init() -> None:
     conn().executescript(SCHEMA)
+    _add_column("memories", "previous", "TEXT NOT NULL DEFAULT ''")
+    _add_column("research", "depth", "INTEGER NOT NULL DEFAULT 3")
+    _add_column("memories", "confidence", "REAL NOT NULL DEFAULT 0.7")
+    for t in ("conversations", "missions", "memories", "research", "docs", "files", "tasks"):
+        _add_column(t, "project_id", "INTEGER")
+    _add_column("projects", "isolated", "INTEGER NOT NULL DEFAULT 0")
+    _add_column("conversations", "summary", "TEXT NOT NULL DEFAULT ''")
+    _add_column("conversations", "summary_upto", "INTEGER NOT NULL DEFAULT 0")
+    for col, ddl in (("depends", "INTEGER NOT NULL DEFAULT 0"), ("max_attempts", "INTEGER NOT NULL DEFAULT 2"),
+                     ("review_unverified", "INTEGER NOT NULL DEFAULT 0"), ("estimate_cents", "REAL"), ("template", "TEXT NOT NULL DEFAULT ''")):
+        _add_column("missions", col, ddl)
+    for col, ddl in (("plan", "TEXT NOT NULL DEFAULT '[]'"), ("stats", "TEXT NOT NULL DEFAULT '{}'"),
+                     ("skipped", "TEXT NOT NULL DEFAULT '[]'"), ("cancel", "INTEGER NOT NULL DEFAULT 0")):
+        _add_column("research", col, ddl)
 
 
 @contextmanager

@@ -1,14 +1,16 @@
 import asyncio
 import json
 import os
+import re
 import secrets
+import time
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from . import calendar_sync, config, db, llm, mail, research, services
+from . import audit, calendar_sync, config, db, llm, mail, research, services, usage
 from .security import (
     COOKIE, check_session, decrypt, encrypt, hash_password, make_session, require_user, throttle, verify_password,
 )
@@ -46,7 +48,7 @@ def status(request: Request):
         "setup_complete": db.get_setting("setup_complete") == "1",
         "signed_in": check_session(request.cookies.get(COOKIE)),
         "setup_code_required": bool(SETUP_CODE),
-        "workspace_name": db.get_setting("workspace_name", config.WORKSPACE_NAME),
+        "workspace_name": config.display_name(db.get_setting("workspace_name", config.WORKSPACE_NAME)),
         "chat_url": config.CHAT_URL,
         "paperclip_url": config.PAPERCLIP_URL,
         "hermes_url": config.HERMES_URL,
@@ -72,6 +74,7 @@ def setup(data: SetupIn, request: Request, response: Response):
     if data.workspace_name.strip():
         db.set_setting("workspace_name", data.workspace_name.strip())
     db.set_setting("setup_complete", "1")
+    audit.record("user", "setup", "workspace")
     services.local_calendar_id()
     _login(response)
     return {"ok": True}
@@ -85,8 +88,11 @@ class LoginIn(BaseModel):
 def login(data: LoginIn, request: Request, response: Response):
     throttle(request.client.host if request.client else "?")
     stored = db.get_setting("password_hash")
+    who = request.client.host if request.client else "?"
     if not stored or not verify_password(data.password, stored):
+        audit.record("user", "sign in", who, "wrong password", ok=False)
         raise HTTPException(401, "Wrong password")
+    audit.record("user", "sign in", who)
     _login(response)
     return {"ok": True}
 
@@ -105,8 +111,10 @@ class PasswordIn(BaseModel):
 @api.post("/password")
 def change_password(data: PasswordIn, response: Response):
     if not verify_password(data.current, db.get_setting("password_hash", "")):
+        audit.record("user", "password change", "", "current password wrong", ok=False)
         raise HTTPException(401, "Current password is wrong")
     db.set_setting("password_hash", hash_password(data.new))
+    audit.record("user", "password change")
     db.set_setting("session_generation", secrets.token_hex(8))
     _login(response)
     return {"ok": True}
@@ -116,7 +124,7 @@ def change_password(data: PasswordIn, response: Response):
 @api.get("/settings")
 def get_settings():
     return {
-        "workspace_name": db.get_setting("workspace_name", config.WORKSPACE_NAME),
+        "workspace_name": config.display_name(db.get_setting("workspace_name", config.WORKSPACE_NAME)),
         "default_model": db.get_setting("default_model", ""),
         "chat_url": config.CHAT_URL,
         "tools_url": "http://workbench:8000/tools/openapi.json",
@@ -160,16 +168,18 @@ class ProviderIn(BaseModel):
 
 
 @api.post("/providers")
-def add_provider(data: ProviderIn):
+async def add_provider(data: ProviderIn):
     pid = db.run(
         "INSERT INTO providers(name, kind, base_url, api_key_enc, models, enabled, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
         data.name, data.kind, data.base_url.rstrip("/"), encrypt(data.api_key or ""), data.models, int(data.enabled), db.now(),
     )
+    audit.record("user", "provider added", data.name, data.base_url)
+    _check_later(pid)
     return _provider_out(db.one("SELECT * FROM providers WHERE id = ?", pid))
 
 
 @api.put("/providers/{pid}")
-def edit_provider(pid: int, data: ProviderIn):
+async def edit_provider(pid: int, data: ProviderIn):
     if not db.one("SELECT id FROM providers WHERE id = ?", pid):
         raise HTTPException(404, "Provider not found")
     db.run(
@@ -178,15 +188,154 @@ def edit_provider(pid: int, data: ProviderIn):
     )
     if data.api_key is not None:
         db.run("UPDATE providers SET api_key_enc = ? WHERE id = ?", encrypt(data.api_key), pid)
+    audit.record("user", "provider changed", data.name, "key replaced" if data.api_key is not None else "")
     llm._model_cache.pop(pid, None)
+    db.run("DELETE FROM settings WHERE key = ?", f"provider_check:{pid}")  # an old result no longer describes this provider
+    _check_later(pid)
     return _provider_out(db.one("SELECT * FROM providers WHERE id = ?", pid))
+
+
+def _check_later(pid: int) -> None:
+    """Check a provider in the background after it is added or changed; until then it is not used automatically."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    async def go():
+        try:
+            await llm.check_provider(pid)
+        except Exception:  # noqa: BLE001 - recorded on the provider when possible; never raised to the caller
+            pass
+    t = loop.create_task(go())
+    _tasks.add(t)
+    t.add_done_callback(_tasks.discard)
 
 
 @api.delete("/providers/{pid}")
 def delete_provider(pid: int):
+    p = db.one("SELECT name FROM providers WHERE id = ?", pid)
     db.run("DELETE FROM providers WHERE id = ?", pid)
+    if p:
+        audit.record("user", "provider removed", p["name"])
+    db.run("DELETE FROM settings WHERE key = ?", f"provider_check:{pid}")
     llm._model_cache.pop(pid, None)
     return {"ok": True}
+
+
+class ConnectIn(BaseModel):
+    preset: str = Field("", max_length=40)
+    api_key: str = Field("", max_length=500)
+    # custom endpoints only
+    name: str = Field("", max_length=80)
+    base_url: str = Field("", max_length=300)
+    kind: Literal["openai", "anthropic", "ollama"] = "openai"
+    models: str = Field("", max_length=2000)
+
+
+@api.post("/providers/connect")
+async def connect_provider(data: ConnectIn):
+    """Paste a key, get a working model: creates the provider (or updates its key), then checks it for real."""
+    if data.preset:
+        preset = llm.PRESETS.get(data.preset)
+        if not preset:
+            raise HTTPException(400, "Unknown provider")
+        name, base, kind = preset["name"], preset["base_url"], ("anthropic" if data.preset == "anthropic" else "ollama" if data.preset == "ollama" else "openai")
+    else:
+        if not re.match(r"^https?://", data.base_url.strip()):
+            raise HTTPException(400, "Enter the endpoint's base URL, starting with http:// or https://")
+        name, base, kind = data.name.strip() or "Custom", data.base_url.strip().rstrip("/"), data.kind
+    if kind != "ollama" and not data.api_key.strip() and not data.base_url:
+        raise HTTPException(400, "Paste the API key first.")
+    existing = db.one("SELECT * FROM providers WHERE base_url = ?", base)
+    if existing:  # pasting a key again replaces it instead of adding a duplicate provider
+        pid = existing["id"]
+        if data.api_key.strip():
+            db.run("UPDATE providers SET api_key_enc = ? WHERE id = ?", encrypt(data.api_key.strip()), pid)
+        db.run("UPDATE providers SET enabled = 1 WHERE id = ?", pid)
+        if data.models:
+            db.run("UPDATE providers SET models = ? WHERE id = ?", data.models, pid)
+    else:
+        pid = db.run("INSERT INTO providers(name, kind, base_url, api_key_enc, models, enabled, created_at) VALUES (?, ?, ?, ?, ?, 1, ?)",
+                     name, kind, base, encrypt(data.api_key.strip()), data.models, db.now())
+    audit.record("user", "provider connected", name, base)
+    report = await llm.check_provider(pid)
+    return {**report, "provider_id": pid, "status": models_status()}
+
+
+@api.post("/providers/{pid}/check")
+async def check_provider(pid: int):
+    report = await llm.check_provider(pid)
+    return {**report, "provider_id": pid, "status": models_status()}
+
+
+@api.get("/models/status")
+def models_status():
+    """What the assistant will use right now, its backups, and the health of each provider."""
+    try:
+        ref, source = llm.effective_default()
+        default = {"ref": ref, "source": source, "error": ""}
+    except HTTPException as e:
+        default = {"ref": "", "source": "", "error": str(e.detail)}
+    providers = []
+    for p in db.all("SELECT * FROM providers ORDER BY id"):
+        info = llm.check_info(p["id"])
+        providers.append({**_provider_out(p), "checked": bool(info), "ok": bool(info.get("ok")), "error": info.get("error", ""),
+                          "recommended": info.get("recommended", ""), "free_tier": info.get("free_tier"),
+                          "models_count": info.get("models", 0), "free_models": info.get("free_models", 0),
+                          "checked_at": info.get("checked_at", "")})
+    saved = db.get_setting("default_model") or ""
+    return {"default": default, "fallbacks": llm.fallback_refs(default["ref"]) if default["ref"] else [],
+            "fallbacks_custom": db.get_setting("fallback_models") not in (None, ""), "saved_default": saved,
+            "saved_default_broken": bool(saved) and default["source"] != "chosen", "providers": providers}
+
+
+class FallbacksIn(BaseModel):
+    refs: list[str] | None = Field(None, max_length=5)  # None = automatic
+
+
+@api.put("/models/fallbacks")
+def set_fallbacks(data: FallbacksIn):
+    db.set_setting("fallback_models", "" if data.refs is None else json.dumps([r for r in data.refs if r]))
+    return models_status()
+
+
+@api.get("/models/roles")
+def model_roles():
+    from . import roles
+
+    return roles.describe()
+
+
+class RolesIn(BaseModel):
+    roles: dict[str, str]
+
+
+@api.put("/models/roles")
+def set_model_roles(data: RolesIn):
+    from . import roles
+
+    return roles.set_roles(data.roles)
+
+
+@api.get("/models/capabilities")
+def model_capabilities(ref: str = ""):
+    """Capabilities with their evidence (tested, reported by the provider, or unknown) for one model or all listed ones."""
+    from . import roles
+
+    refs = [ref] if ref else [m["ref"] for m in llm.list_models()]
+    return [roles.capabilities(r) for r in refs[:300]]
+
+
+class RefIn(BaseModel):
+    ref: str = Field(..., max_length=300)
+
+
+@api.post("/models/json-check")
+async def model_json_check(data: RefIn):
+    from . import roles
+
+    llm.split_ref(data.ref)
+    return await roles.json_check(data.ref)
 
 
 @api.get("/models")
@@ -247,6 +396,82 @@ def dashboard():
         "recent_docs": services.list_docs(limit=6),
         "research": db.all("SELECT id, question, status, created_at FROM research ORDER BY id DESC LIMIT 5"),
     }
+
+
+# Appearance (theme, font, size, density...): stored per workspace so it follows you to every device
+@api.get("/appearance")
+def get_appearance():
+    try:
+        return json.loads(db.get_setting("appearance", "") or "{}")
+    except ValueError:
+        return {}
+
+
+@api.put("/appearance")
+async def put_appearance(request: Request):
+    raw = await request.body()
+    if len(raw) > 32_000:
+        raise HTTPException(413, "Appearance settings are too large")
+    try:
+        data = json.loads(raw)
+    except ValueError as e:
+        raise HTTPException(400, "Appearance must be JSON") from e
+    if not isinstance(data, dict):
+        raise HTTPException(400, "Appearance must be an object")
+    db.set_setting("appearance", json.dumps(data))  # the browser validates and normalises; stored as given
+    return data
+
+
+# Getting started: real counts only, so the checklist never claims something is set up when it is not
+@api.get("/getting-started")
+def getting_started():
+    from . import search
+
+    n = lambda sql: db.one(f"SELECT COUNT(*) AS n FROM {sql}")["n"]  # noqa: E731
+    return {
+        "dismissed": db.get_setting("getting_started_dismissed") == "1",
+        "providers": n("providers WHERE enabled = 1"),
+        "conversations": n("conversations WHERE channel IN ('web', 'cli', 'telegram')"),
+        "tasks": n("tasks"),
+        "notes": n("docs WHERE kind = 'note'"),
+        "documents": n("docs WHERE kind = 'document'"),
+        "research": n("research"),
+        "calendars": n("calendars WHERE kind != 'local'"),
+        "mail_accounts": n("mail_accounts"),
+        "schedules": n("schedules"),
+        "agents": n("agents"),
+        "memories": n("memories"),
+        "search_provider": search.provider(),
+        "telegram": bool(db.get_setting("secret:TELEGRAM_BOT_TOKEN", "")),
+    }
+
+
+class Dismiss(BaseModel):
+    dismissed: bool
+
+
+@api.put("/getting-started")
+def set_getting_started(data: Dismiss):
+    db.set_setting("getting_started_dismissed", "1" if data.dismissed else "0")
+    return getting_started()
+
+
+class ModelTestIn(BaseModel):
+    model: str = Field("", max_length=300)
+
+
+@api.post("/models/test")
+async def test_model(data: ModelTestIn):
+    """Send one tiny real request to a model, so a connection is only reported as working after it answered."""
+    started = time.monotonic()
+    try:
+        res = await llm.chat(data.model or None, [{"role": "user", "content": "Reply with only the word OK."}])
+    except HTTPException as e:
+        return {"ok": False, "model": data.model, "error": str(e.detail)}
+    usage.record(res, channel="test")
+    reply = (res["message"].get("content") or "").strip()
+    return {"ok": True, "model": res["ref"], "reply": reply[:80], "ms": int((time.monotonic() - started) * 1000),
+            "fallback_from": res.get("fallback_from", [])}
 
 
 # Docs
@@ -536,17 +761,45 @@ class ResearchIn(BaseModel):
     question: str = Field(..., min_length=5, max_length=4000)
     model: str | None = None
     depth: int = Field(3, ge=1, le=6, description="Number of follow up search queries")
+    project_id: int | None = None
 
 
 @api.post("/research")
-def start_research(data: ResearchIn):
-    model = data.model or llm.default_model_ref()
+async def start_research(data: ResearchIn):
+    from . import projects, roles
+
+    project = projects.get(data.project_id) if data.project_id else None
+    if data.project_id and not project:
+        raise HTTPException(404, "Project not found")
+    model = data.model or (project or {}).get("model") or (roles.model_for("local") if project and project["local_only"] else None) \
+        or roles.model_for("research") or llm.default_model_ref()
     llm.split_ref(model)
+    if project and project["local_only"] and not llm.is_local(model):
+        raise HTTPException(400, f"{project['name']} is set to local models only, and {model} is not local. Pick a local model for this research.")
     now = db.now()
-    rid = db.run("INSERT INTO research(question, model, created_at, updated_at) VALUES (?, ?, ?, ?)", data.question, model, now, now)
-    task = asyncio.get_running_loop().create_task(research.run(rid, data.question, model, data.depth))
+    rid = db.run("INSERT INTO research(question, model, depth, project_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                 data.question, model, data.depth, data.project_id, now, now)
+    _start_research(rid, data.question, model, data.depth)
+    return db.one("SELECT * FROM research WHERE id = ?", rid)
+
+
+def _start_research(rid: int, question: str, model: str, depth: int) -> None:
+    task = asyncio.get_running_loop().create_task(research.run(rid, question, model, depth))
     _tasks.add(task)
     task.add_done_callback(_tasks.discard)
+
+
+@api.post("/research/{rid}/retry")
+async def retry_research(rid: int):
+    """Run a failed or interrupted research job again, with the same question, model and depth."""
+    r = db.one("SELECT * FROM research WHERE id = ?", rid)
+    if not r:
+        raise HTTPException(404, "Not found")
+    if not db.changed("UPDATE research SET status = 'running', error = '', progress = 'Starting again', report = '', sources = '[]', "
+                      "plan = '[]', stats = '{}', skipped = '[]', cancel = 0, updated_at = ? WHERE id = ? AND status IN ('error', 'cancelled')",
+                      db.now(), rid):
+        raise HTTPException(409, "Only failed research can be retried")
+    _start_research(rid, r["question"], r["model"], r["depth"])
     return db.one("SELECT * FROM research WHERE id = ?", rid)
 
 
@@ -560,7 +813,15 @@ def get_research(rid: int):
     r = db.one("SELECT * FROM research WHERE id = ?", rid)
     if not r:
         raise HTTPException(404, "Not found")
-    return r | {"sources": json.loads(r["sources"])}
+    return r | {k: json.loads(r[k] or d) for k, d in (("sources", "[]"), ("plan", "[]"), ("stats", "{}"), ("skipped", "[]"))}
+
+
+@api.post("/research/{rid}/cancel")
+def cancel_research(rid: int):
+    """Stop a running research job at its next checkpoint (between searches, page reads and writing)."""
+    if not db.changed("UPDATE research SET cancel = 1, progress = 'Cancelling…' WHERE id = ? AND status = 'running'", rid):
+        raise HTTPException(409, "Only running research can be cancelled")
+    return get_research(rid)
 
 
 @api.delete("/research/{rid}")
@@ -600,5 +861,5 @@ async def calendar_loop():
 
 
 def recover_interrupted():
-    db.run("UPDATE research SET status = 'error', error = 'Interrupted by a restart', progress = 'Failed' WHERE status = 'running'")
+    db.run("UPDATE research SET status = 'error', error = 'Interrupted by a restart. Press Retry to run it again.', progress = 'Failed' WHERE status = 'running'")
 

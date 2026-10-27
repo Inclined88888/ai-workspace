@@ -12,8 +12,35 @@ STATIC_DIR = Path(os.getenv("STATIC_DIR", Path(__file__).resolve().parent.parent
 
 APP_SECRET = os.getenv("APP_SECRET", "")
 TOOLS_API_KEY = os.getenv("TOOLS_API_KEY", "")
-TIMEZONE = os.getenv("TZ_NAME", os.getenv("WORKSPACE_TIMEZONE", "UTC"))
-WORKSPACE_NAME = os.getenv("WORKSPACE_NAME", "AI Workspace")
+def resolve_timezone(name: str | None) -> str:
+    """An IANA zone name. A bare city typed during setup ("brisbane") becomes its zone ("Australia/Brisbane");
+    anything unrecognised falls back to UTC instead of being silently ignored later."""
+    from zoneinfo import ZoneInfo, available_timezones
+
+    name = (name or "").strip()
+    try:
+        if name:
+            ZoneInfo(name)
+            return name
+    except (ValueError, KeyError, OSError):
+        pass
+    key = name.lower().replace(" ", "_")
+    matches = sorted(z for z in available_timezones() if z.rsplit("/", 1)[-1].lower() == key and not z.startswith(("posix/", "right/")))
+    return matches[0] if len(matches) == 1 else "UTC"
+
+
+TIMEZONE = resolve_timezone(os.getenv("TZ_NAME", os.getenv("WORKSPACE_TIMEZONE", "UTC")))
+PRODUCT_NAME = "ROOKS"
+# Installs from before the rename stored the old default name in .env and in settings; show those as ROOKS.
+LEGACY_DEFAULT_NAMES = {"AI Workspace", "AI workspace"}
+
+
+def display_name(name: str | None) -> str:
+    name = (name or "").strip()
+    return PRODUCT_NAME if not name or name in LEGACY_DEFAULT_NAMES else name
+
+
+WORKSPACE_NAME = display_name(os.getenv("WORKSPACE_NAME"))
 CHAT_URL = os.getenv("CHAT_URL", "")  # Open WebUI add-on link, empty when not installed
 SEARXNG_URL = os.getenv("SEARXNG_URL", "").rstrip("/")  # optional add-on
 OLLAMA_URL = os.getenv("OLLAMA_URL", "").rstrip("/")  # optional: add-on container or native app on the host

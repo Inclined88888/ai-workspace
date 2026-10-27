@@ -1,23 +1,33 @@
 """OpenAPI tool server for Open WebUI. Mounted at /tools, spec at /tools/openapi.json.
 
 Models can read and write notes, tasks and calendar events, search mail and save drafts.
-Sending email is deliberately not exposed: a model can only prepare drafts that you review and send in Workbench.
+Sending email is deliberately not exposed: a model can only prepare drafts that you review and send in ROOKS.
 """
 
 import asyncio
 from datetime import datetime, timedelta, timezone
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from . import db, mail, research, services
+from . import db, mail, permissions, research, services
 from .security import require_tool_key
 
+
+def _permission(request: Request) -> None:
+    from fastapi.routing import APIRoute
+
+    route = request.scope.get("route")
+    if not isinstance(route, APIRoute):
+        return  # the OpenAPI description, which holds no data
+    # Fail closed: an operation that is not in the permission table is treated as a write that needs approval
+    permissions.check_external(route.operation_id or route.name, "openwebui")
+
 tools = FastAPI(
-    title="Workbench",
+    title="ROOKS",
     version="1.0.0",
     description="Personal workspace tools: notes and documents, tasks, calendar, email search and drafts, web search.",
-    dependencies=[Depends(require_tool_key)],
+    dependencies=[Depends(require_tool_key), Depends(_permission)],
 )
 
 
@@ -90,7 +100,7 @@ def list_calendars() -> list[dict]:
 async def search_email(query: str = "", account_id: int | None = None) -> list[dict]:
     acct = db.one("SELECT * FROM mail_accounts WHERE id = ?", account_id) if account_id else db.one("SELECT * FROM mail_accounts ORDER BY id LIMIT 1")
     if not acct:
-        raise HTTPException(404, "No mail account connected in Workbench")
+        raise HTTPException(404, "No mail account connected in ROOKS")
     messages = await asyncio.to_thread(mail.list_messages, acct, "INBOX", 20, query)
     return [m | {"account_id": acct["id"]} for m in messages]
 
@@ -112,7 +122,7 @@ class DraftIn(BaseModel):
 
 
 @tools.post("/mail/drafts", operation_id="save_email_draft",
-            summary="Save an email draft for the user to review and send in Workbench. This never sends email.")
+            summary="Save an email draft for the user to review and send in ROOKS. This never sends email.")
 def save_draft(data: DraftIn) -> dict:
     acct = db.one("SELECT id FROM mail_accounts WHERE id = ?", data.account_id) if data.account_id else db.one("SELECT id FROM mail_accounts ORDER BY id LIMIT 1")
     now = db.now()

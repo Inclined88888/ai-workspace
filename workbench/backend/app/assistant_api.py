@@ -8,10 +8,10 @@ import hmac
 import json
 import secrets
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
-from . import assistant, company, db, learn, scheduler, search, telegram, usage
+from . import assistant, audit, company, db, files, learn, missions, permissions, scheduler, search, sensitive, telegram, usage
 from .api import sse
 from .security import COOKIE, check_session, encrypt
 
@@ -36,22 +36,33 @@ class ChatIn(BaseModel):
     conversation_id: int | None = None
     model: str | None = None
     channel: str = Field("web", pattern="^(web|cli)$")
+    file_ids: list[int] = Field(default_factory=list, max_length=10)
+    project_id: int | None = None   # for a new conversation: start it in this project
 
 
 @router.post("/assistant/chat")
 def chat(data: ChatIn):
+    from . import projects
+
     cid = data.conversation_id
     if cid:
         if not db.one("SELECT id FROM conversations WHERE id = ?", cid):
             raise HTTPException(404, "Conversation not found")
     else:
-        cid = assistant.new_conversation(data.channel)
+        if data.project_id:
+            p = projects.get(data.project_id)
+            if not p or p["status"] != "active":
+                raise HTTPException(409, "That project is archived or gone. Restore it to work in it.")
+        cid = assistant.new_conversation(data.channel, project_id=data.project_id or None)
     if data.model:
         db.run("UPDATE conversations SET model = ? WHERE id = ?", data.model, cid)
+    message = data.message
+    if data.file_ids:  # attached files travel inside the user's message, so history and search keep them
+        message += "\n\n" + "\n\n".join(files.attachment_block(fid) for fid in dict.fromkeys(data.file_ids))
 
     async def events():
         yield {"type": "start", "conversation_id": cid}
-        async for e in assistant.run_turn(assistant.Ctx(channel=data.channel, conversation_id=cid), data.message, data.model):
+        async for e in assistant.run_turn(assistant.Ctx(channel=data.channel, conversation_id=cid), message, data.model):
             yield e
 
     return sse(events())
@@ -81,8 +92,52 @@ async def decide(aid: int, data: Decision):
     return await assistant.decide_approval(aid, data.approve)
 
 
+# Files
+@router.post("/files")
+async def upload_file(request: Request, name: str = Query(..., max_length=255)):
+    """Raw upload: the request body is the file. Keeps the core free of a multipart parser."""
+    data = bytearray()
+    async for chunk in request.stream():
+        data.extend(chunk)
+        if len(data) > files.MAX_BYTES:
+            raise HTTPException(413, f"Files can be up to {files.MAX_BYTES // (1024 * 1024)} MB.")
+    return files.save(name, (request.headers.get("content-type") or "application/octet-stream").split(";")[0].strip(), bytes(data))
+
+
+@router.get("/files")
+def list_files(q: str = ""):
+    if q:
+        return files.search(q, 50)
+    return db.all("SELECT id, name, mime, size, note, created_at, length(text) AS chars FROM files ORDER BY id DESC LIMIT 500")
+
+
+@router.get("/files/{fid}")
+def file_detail(fid: int, start: int = 0):
+    return {**files.meta(fid), **files.get_text(fid, start, 20000)}
+
+
+@router.get("/files/{fid}/download")
+def download_file(fid: int):
+    from fastapi.responses import FileResponse
+
+    f = db.one("SELECT name, mime, path FROM files WHERE id = ?", fid)
+    if not f:
+        raise HTTPException(404, "File not found")
+    # Always a download, and never a type the browser would run (HTML, SVG): uploaded files are untrusted
+    safe = f["mime"] if f["mime"] in ("application/pdf", "image/png", "image/jpeg", "image/gif", "image/webp", "text/plain") else "application/octet-stream"
+    return FileResponse(files.root() / f["path"], media_type=safe, filename=f["name"], content_disposition_type="attachment")
+
+
+@router.delete("/files/{fid}")
+def delete_file(fid: int):
+    files.delete(fid)
+    return {"ok": True}
+
+
 @router.get("/conversations")
-def conversations(channel: str | None = None, q: str = ""):
+def conversations(channel: str | None = None, q: str = "", project_id: int | None = None):
+    if project_id:
+        return db.all("SELECT * FROM conversations WHERE project_id = ? ORDER BY updated_at DESC LIMIT 200", project_id)
     if q:
         hits = assistant.search_history(q, 30)
         ids = list(dict.fromkeys(h["conversation_id"] for h in hits))
@@ -108,10 +163,25 @@ def conversation(cid: int):
 class ConvPatch(BaseModel):
     title: str | None = Field(None, max_length=120)
     model: str | None = None
+    project_id: int | None = Field(None, ge=0)   # 0 takes it out of its project
+    allow_cloud: bool = False                    # confirms moving out of a local-only project
 
 
 @router.patch("/conversations/{cid}")
 def rename(cid: int, data: ConvPatch):
+    from . import projects
+
+    c = db.one("SELECT * FROM conversations WHERE id = ?", cid)
+    if not c:
+        raise HTTPException(404, "Not found")
+    if data.project_id is not None and data.project_id != (c["project_id"] or 0):
+        target = projects.get(data.project_id) if data.project_id else None
+        if data.project_id and not target:
+            raise HTTPException(404, "Project not found")
+        if projects.local_only(c["project_id"]) and not (target and target["local_only"]) and not data.allow_cloud:
+            raise HTTPException(409, "This conversation is in a local-only project. Moving it out lets cloud models read it; confirm to move it.")
+        db.run("UPDATE conversations SET project_id = ? WHERE id = ?", data.project_id or None, cid)
+        audit.record("user", "conversation moved", f"#{cid}", target["name"] if target else "out of its project")
     if data.title is not None:
         db.run("UPDATE conversations SET title = ? WHERE id = ?", data.title.strip() or "Chat", cid)
     if data.model is not None:
@@ -129,13 +199,19 @@ def delete_conversation(cid: int):
 class MemoryIn(BaseModel):
     content: str = Field(..., min_length=3, max_length=1000)
     kind: str = Field("fact", pattern="^(profile|fact|preference)$")
+    project_id: int | None = None   # kept in this project only; none means everywhere
 
 
 @router.get("/memories")
-def memories(q: str = ""):
+def memories(q: str = "", project_id: int | None = None):
+    from .memory import EVERYWHERE
+
     if q:
-        return assistant.search_memories(q, 50)
-    return db.all("SELECT * FROM memories ORDER BY kind = 'profile' DESC, updated_at DESC LIMIT 500")
+        return assistant.search_memories(q, 50, project_id or EVERYWHERE)
+    if project_id:
+        return db.all("SELECT * FROM memories WHERE project_id = ? ORDER BY updated_at DESC LIMIT 500", project_id)
+    return db.all("SELECT m.*, p.name AS project FROM memories m LEFT JOIN projects p ON p.id = m.project_id "
+                  "ORDER BY m.kind = 'profile' DESC, m.updated_at DESC LIMIT 500")
 
 
 @router.get("/memories/export")
@@ -148,15 +224,20 @@ class MemoryImport(BaseModel):
     memories: list[MemoryIn] = Field(..., max_length=5000)
 
 
+def _no_secrets(text: str) -> None:
+    if found := sensitive.find(text):
+        raise HTTPException(400, sensitive.refuse_message(found))
+
+
 @router.post("/memories/import")
 def import_memories(data: MemoryImport):
     known = {learn._norm(m["content"]) for m in db.all("SELECT content FROM memories")}
     added = 0
     for m in data.memories:
         n = learn._norm(m.content)
-        if not n or n in known:
+        if not n or n in known or sensitive.find(m.content):
             continue
-        db.run("INSERT INTO memories(content, kind, source, created_at, updated_at) VALUES (?, ?, 'import', ?, ?)",
+        db.run("INSERT INTO memories(content, kind, source, confidence, created_at, updated_at) VALUES (?, ?, 'import', 0.7, ?, ?)",
                m.content.strip(), m.kind, db.now(), db.now())
         known.add(n)
         added += 1
@@ -165,21 +246,79 @@ def import_memories(data: MemoryImport):
 
 @router.post("/memories")
 def add_memory(data: MemoryIn):
-    mid = db.run("INSERT INTO memories(content, kind, source, created_at, updated_at) VALUES (?, ?, 'user', ?, ?)",
-                 data.content.strip(), data.kind, db.now(), db.now())
+    _no_secrets(data.content)
+    from . import projects
+
+    pid = data.project_id or None
+    if pid and not projects.get(pid):
+        raise HTTPException(404, "Project not found")
+    mid = db.run("INSERT INTO memories(content, kind, source, confidence, project_id, created_at, updated_at) VALUES (?, ?, 'user', 1.0, ?, ?, ?)",
+                 data.content.strip(), data.kind, pid, db.now(), db.now())
     return db.one("SELECT * FROM memories WHERE id = ?", mid)
 
 
 @router.put("/memories/{mid}")
 def edit_memory(mid: int, data: MemoryIn):
-    db.run("UPDATE memories SET content = ?, kind = ?, updated_at = ? WHERE id = ?", data.content.strip(), data.kind, db.now(), mid)
+    _no_secrets(data.content)
+    old = db.one("SELECT content FROM memories WHERE id = ?", mid)
+    if not old:
+        raise HTTPException(404, "Memory not found")
+    # A correction by the user is the strongest evidence there is; the earlier wording is kept so it can be undone
+    db.run("UPDATE memories SET previous = CASE WHEN content != ? THEN content ELSE previous END, content = ?, kind = ?, "
+           "source = 'user', confidence = 1.0, updated_at = ? WHERE id = ?", data.content.strip(), data.content.strip(), data.kind, db.now(), mid)
+    audit.record("user", "memory corrected", f"#{mid}")
     return db.one("SELECT * FROM memories WHERE id = ?", mid)
 
 
 @router.delete("/memories/{mid}")
 def delete_memory(mid: int):
-    db.run("DELETE FROM memories WHERE id = ?", mid)
+    if db.changed("DELETE FROM memories WHERE id = ?", mid):
+        audit.record("user", "memory deleted", f"#{mid}")
     return {"ok": True}
+
+
+@router.post("/memories/{mid}/revert")
+def revert_memory(mid: int):
+    """Undo the last update to a memory: its previous wording comes back (and the replaced one becomes previous)."""
+    m = db.one("SELECT * FROM memories WHERE id = ?", mid)
+    if not m:
+        raise HTTPException(404, "Memory not found")
+    if not m["previous"]:
+        raise HTTPException(409, "This memory has no earlier version.")
+    db.run("UPDATE memories SET content = previous, previous = content, updated_at = ? WHERE id = ?", db.now(), mid)
+    audit.record("user", "memory reverted", f"#{mid}")
+    return db.one("SELECT * FROM memories WHERE id = ?", mid)
+
+
+@router.get("/memory/status")
+def memory_status():
+    from . import memory
+
+    return memory.status()
+
+
+class EmbedIn(BaseModel):
+    model: str = Field("", max_length=300)
+
+
+@router.put("/memory/embeddings")
+def set_memory_embeddings(data: EmbedIn):
+    """Turn meaning-based memory search on with a provider model (tested first), or off with an empty model."""
+    from . import memory
+
+    ref = data.model.strip()
+    if ref:
+        try:
+            dim = len(memory.embed(["test"], ref)[0])
+        except HTTPException as e:
+            raise HTTPException(400, f"That model cannot make embeddings: {e.detail}") from e
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(400, f"That model cannot make embeddings: {str(e)[:200]}") from e
+        if not dim:
+            raise HTTPException(400, "That model returned an empty embedding.")
+    db.set_setting("memory_embed_model", ref)
+    audit.record("user", "memory search", "embeddings", ref or "off")
+    return memory.status()
 
 
 # Skills
@@ -192,7 +331,10 @@ class SkillIn(BaseModel):
 
 @router.get("/skills")
 def skills():
-    return db.all("SELECT * FROM skills ORDER BY uses DESC, updated_at DESC")
+    rows = db.all("SELECT * FROM skills ORDER BY uses DESC, updated_at DESC")
+    for r in rows:
+        r["warnings"] = learn.skill_warnings(r["steps"])
+    return rows
 
 
 @router.post("/skills")
@@ -202,6 +344,7 @@ def add_skill(data: SkillIn):
 
 @router.put("/skills/{sid}")
 def edit_skill(sid: int, data: SkillIn):
+    learn.check_skill_text(data.description, data.steps)
     db.run("UPDATE skills SET description = ?, steps = ?, enabled = ?, updated_at = ? WHERE id = ?",
            data.description, data.steps, int(data.enabled), db.now(), sid)
     return db.one("SELECT * FROM skills WHERE id = ?", sid)
@@ -286,18 +429,31 @@ class AssistantSettings(BaseModel):
     tavily_api_key: str | None = Field(None, max_length=200)
     telegram_token: str | None = Field(None, max_length=200)
     telegram_allowed_users: str | None = Field(None, max_length=500)
+    github_token: str | None = Field(None, max_length=300)
 
 
 @router.get("/assistant/settings")
 def get_assistant_settings():
     return {
-        "assistant_name": db.get_setting("assistant_name", "Atlas"),
+        "assistant_name": assistant.assistant_name(),
         "timezone": assistant.timezone_name(),
         "learning_enabled": learn.enabled(),
         "search_provider": search.provider(),
+        "search_providers": search.providers(),
         "telegram": telegram.status(),
         "cli_token_set": bool(db.get_setting("cli_token_hash", "")),
+        "github": _github_state(),
     }
+
+
+def _github_state() -> dict:
+    from . import github
+
+    try:
+        chk = json.loads(db.get_setting("github_check", "") or "{}")
+    except ValueError:
+        chk = {}
+    return {"connected": bool(github.token()), **chk}
 
 
 @router.put("/assistant/settings")
@@ -305,7 +461,7 @@ def put_assistant_settings(data: AssistantSettings):
     from zoneinfo import ZoneInfo
 
     if data.assistant_name is not None:
-        db.set_setting("assistant_name", data.assistant_name.strip() or "Atlas")
+        db.set_setting("assistant_name", data.assistant_name.strip() or "ROOKS")
     if data.timezone is not None:
         try:
             ZoneInfo(data.timezone)
@@ -320,9 +476,56 @@ def put_assistant_settings(data: AssistantSettings):
         value = getattr(data, field)
         if value is not None:
             db.set_setting(f"secret:{name}", encrypt(value.strip()) if value.strip() else "")
+            audit.record("user", "key saved" if value.strip() else "key removed", name)
+    if data.github_token is not None:
+        from . import github
+
+        github.set_token(data.github_token)
+        audit.record("user", "key saved" if data.github_token.strip() else "key removed", "GITHUB_TOKEN")
     if data.telegram_token is not None or data.telegram_allowed_users is not None:
         telegram.configure(data.telegram_token, data.telegram_allowed_users)
+        audit.record("user", "telegram settings", "telegram", "token changed" if data.telegram_token is not None else "allowed users changed")
     return get_assistant_settings()
+
+
+# Permissions and the audit trail
+@router.get("/permissions")
+def get_permissions():
+    return {"groups": permissions.describe(), "modes": list(permissions.MODES)}
+
+
+class PermissionsIn(BaseModel):
+    groups: dict[str, str]
+
+
+@router.put("/permissions")
+def put_permissions(data: PermissionsIn):
+    before = permissions.policy()
+    after = permissions.set_policy(data.groups)
+    for g, m in after.items():
+        if before[g] != m:
+            audit.record("user", "permission", g, f"{before[g]} -> {m}")
+    return get_permissions()
+
+
+@router.get("/audit")
+def get_audit(limit: int = Query(200, ge=1, le=1000), actor: str = "", action: str = ""):
+    return audit.recent(limit, actor, action)
+
+
+class SearchTest(BaseModel):
+    query: str = Field("ROOKS self-hosted AI workspace", max_length=200)
+    provider: str = Field("", pattern="^(|searxng|brave|tavily)$")
+
+
+@router.post("/search/test")
+async def search_test(data: SearchTest):
+    """Run one real search so the settings page only says it works after it did."""
+    try:
+        items = await search.web_search(data.query, 5, data.provider)
+    except HTTPException as e:
+        return {"ok": False, "error": str(e.detail), "providers": search.providers()}
+    return {"ok": True, "results": items, "providers": search.providers(), "provider": data.provider or search.provider()}
 
 
 @router.post("/cli-token")
@@ -334,7 +537,28 @@ def new_cli_token():
 
 @router.get("/usage")
 def usage_summary():
-    return usage.summary()
+    return {**usage.summary(), "limits": _limits()}
+
+
+def _limits() -> dict:
+    return {"monthly_limit_cents": float(db.get_setting("monthly_limit_cents", "0") or 0),
+            "fallback_allow_paid": db.get_setting("fallback_allow_paid", "0") == "1"}
+
+
+class LimitsIn(BaseModel):
+    monthly_limit_cents: float | None = Field(None, ge=0, le=10_000_000)
+    fallback_allow_paid: bool | None = None
+
+
+@router.put("/usage/limits")
+def set_limits(data: LimitsIn):
+    if data.monthly_limit_cents is not None:
+        db.set_setting("monthly_limit_cents", str(data.monthly_limit_cents))
+        audit.record("user", "spending limit", "models", f"{data.monthly_limit_cents:g} cents a month" if data.monthly_limit_cents else "none")
+    if data.fallback_allow_paid is not None:
+        db.set_setting("fallback_allow_paid", "1" if data.fallback_allow_paid else "0")
+        audit.record("user", "backup models", "models", "may use paid models" if data.fallback_allow_paid else "free only after a free default")
+    return _limits()
 
 
 class PricesIn(BaseModel):
@@ -463,3 +687,197 @@ def edit_company_task(tid: int, data: TaskPatch):
 def delete_company_task(tid: int):
     db.run("DELETE FROM agent_tasks WHERE id = ?", tid)
     return {"ok": True}
+
+
+@router.get("/connections")
+def connections():
+    """Everything ROOKS is connected to, with its last known health and the permission that governs it.
+    Built from stored state only: opening the page never calls an outside service."""
+    from . import config, llm
+
+    pol = permissions.policy()
+    out = []
+    for p in db.all("SELECT id, name, enabled FROM providers ORDER BY id"):
+        chk = llm.check_info(p["id"])
+        status = "off" if not p["enabled"] else ("ok" if chk.get("ok") else "error" if chk else "warn")
+        detail = "Turned off" if not p["enabled"] else (f"Working, using {chk.get('recommended', '')}" if chk.get("ok")
+                                                        else (chk.get("error") or "")[:200] if chk else "Not checked yet")
+        out.append({"id": f"provider:{p['id']}", "kind": "Model provider", "name": p["name"], "status": status, "detail": detail,
+                    "settings": "#models"})
+    found = search.providers()
+    out.append({"id": "search", "kind": "Web search", "name": ", ".join(search.NAMES[x] for x in found) or "Web search",
+                "status": ("off" if pol["web"] == "off" else "ok") if found else "warn",
+                "detail": "Set up" if found else "Not set up", "group": "web", "settings": "#search"})
+    for c in db.all("SELECT name, kind, enabled, last_synced, last_error FROM calendars WHERE kind != 'local'"):
+        out.append({"id": f"calendar:{c['name']}", "kind": "Calendar", "name": c["name"], "group": "calendar",
+                    "status": "off" if not c["enabled"] else "error" if c["last_error"] else "ok" if c["last_synced"] else "warn",
+                    "detail": (c["last_error"] or "")[:200] or (f"Synced {c['last_synced']}" if c["last_synced"] else "Not synced yet"),
+                    "settings": "/calendar"})
+    for m in db.all("SELECT name, email FROM mail_accounts"):
+        out.append({"id": f"mail:{m['email']}", "kind": "Email", "name": m["name"], "group": "email", "status": "ok",
+                    "detail": m["email"], "settings": "/mail"})
+    tg = telegram.status()
+    if tg["configured"]:
+        out.append({"id": "telegram", "kind": "Chat app", "name": "Telegram", "settings": "#telegram",
+                    "status": "ok" if tg["running"] else "error" if tg["error"] else "warn",
+                    "detail": f"@{tg['bot']}" if tg["running"] else tg["error"][:200] or "Starting"})
+    gh = _github_state()
+    if gh["connected"]:
+        out.append({"id": "github", "kind": "Integration", "name": "GitHub", "group": "github", "settings": "#github",
+                    "status": "ok" if gh.get("ok") else "error" if gh.get("error") else "warn",
+                    "detail": f"@{gh['login']}" if gh.get("ok") else gh.get("error", "") or "Not checked yet"})
+    out.append({"id": "browser", "kind": "Add-on", "name": "Browser", "group": "browser",
+                "status": ("off" if pol["browser"] == "off" else "ok") if config.BROWSER_URL else "off",
+                "detail": "Installed" if config.BROWSER_URL else "Not installed (optional add-on)"})
+    for item in out:
+        if item.get("group"):
+            item["permission"] = pol[item["group"]]
+    return out
+
+
+# Missions
+class MissionIn(BaseModel):
+    goal: str = Field(..., min_length=5, max_length=4000)
+    model: str | None = None
+    auto_start: bool = False
+    budget_tool_calls: int | None = Field(None, ge=1, le=500)
+    budget_minutes: int | None = Field(None, ge=1, le=24 * 60)
+    budget_cents: int | None = Field(None, ge=0, le=100_000)
+    project_id: int | None = None
+    max_attempts: int = Field(2, ge=1, le=5)
+    review_unverified: bool = False
+
+
+class MissionStep(BaseModel):
+    title: str = Field(..., min_length=1, max_length=300)
+    done_when: str = Field("", max_length=500)
+    needs_tool: bool = True
+    after: list[int] = Field(default_factory=list, max_length=10)
+
+
+class MissionPlanIn(BaseModel):
+    steps: list[MissionStep] = Field(..., min_length=1, max_length=10)
+
+
+class MissionBudgetIn(BaseModel):
+    budget_tool_calls: int | None = Field(None, ge=1, le=500)
+    budget_minutes: int | None = Field(None, ge=1, le=24 * 60)
+    budget_cents: int | None = Field(None, ge=0, le=100_000)
+
+
+@router.post("/missions")
+async def create_mission(data: MissionIn):
+    return missions.create(data.goal, data.model, data.auto_start, project_id=data.project_id, max_attempts=data.max_attempts,
+                           review_unverified=data.review_unverified, budget_tool_calls=data.budget_tool_calls,
+                           budget_minutes=data.budget_minutes, budget_cents=data.budget_cents)
+
+
+@router.get("/missions")
+def list_missions(project_id: int | None = None):
+    return missions.listing(project_id)
+
+
+@router.get("/templates")
+def list_templates():
+    from . import templates
+
+    return templates.listing()
+
+
+class TemplateStart(BaseModel):
+    values: dict[str, str] = Field(default_factory=dict)
+    project_id: int | None = None
+    auto_start: bool = False
+    budget_tool_calls: int | None = Field(None, ge=1, le=500)
+    budget_minutes: int | None = Field(None, ge=1, le=24 * 60)
+    budget_cents: int | None = Field(None, ge=0, le=100_000)
+
+
+@router.post("/templates/{tid}/start")
+async def start_template(tid: str, data: TemplateStart):
+    from . import templates
+
+    return templates.start(tid, data.values, data.project_id, data.auto_start, budget_tool_calls=data.budget_tool_calls,
+                           budget_minutes=data.budget_minutes, budget_cents=data.budget_cents)
+
+
+class StepReview(BaseModel):
+    accept: bool
+    note: str = Field("", max_length=500)
+
+
+@router.post("/missions/{mid}/steps/{i}/review")
+def review_mission_step(mid: int, i: int, data: StepReview):
+    return missions.review_step(mid, i, data.accept, data.note)
+
+
+@router.get("/missions/{mid}")
+def get_mission(mid: int):
+    return missions.view(mid)
+
+
+@router.put("/missions/{mid}/plan")
+def edit_mission_plan(mid: int, data: MissionPlanIn):
+    return missions.update_plan(mid, [s.model_dump() for s in data.steps])
+
+
+@router.put("/missions/{mid}/budget")
+def edit_mission_budget(mid: int, data: MissionBudgetIn):
+    return missions.update_budget(mid, **data.model_dump())
+
+
+@router.post("/missions/{mid}/start")
+async def start_mission(mid: int):
+    return missions.start(mid)
+
+
+@router.post("/missions/{mid}/pause")
+def pause_mission(mid: int):
+    return missions.pause(mid)
+
+
+@router.post("/missions/{mid}/cancel")
+def cancel_mission(mid: int):
+    return missions.cancel(mid)
+
+
+@router.delete("/missions/{mid}")
+def delete_mission(mid: int):
+    missions.delete(mid)
+    return {"ok": True}
+
+
+# Tool registry and log
+@router.get("/tools")
+def tool_registry():
+    """Every assistant tool with its purpose, parameters, risk, time limit and current permission."""
+    ctx = assistant.Ctx(channel="web", conversation_id=0)
+    out = []
+    for t in assistant.TOOLS:
+        g = permissions.TOOL_GROUP.get(t.name, "")
+        out.append({"name": t.name, "description": t.description, "group": g, "group_label": permissions.GROUPS[g][0] if g else "",
+                    "risk": permissions.TOOL_RISK.get(t.name, "write"), "params": t.params, "required": list(t.required),
+                    "timeout": t.timeout, "permission": permissions.mode(t.name), "always_asks": t.name in permissions.ALWAYS_ASK,
+                    "available": t.when(ctx), "in_chat": t.when(ctx) and permissions.allowed(t.name)})
+    return out
+
+
+@router.get("/tool-runs")
+def tool_runs(tool: str = "", limit: int = Query(100, ge=1, le=1000), failed: bool = False):
+    where, args = [], []
+    if tool:
+        where.append("tool = ?")
+        args.append(tool)
+    if failed:
+        where.append("ok = 0")
+    sql = "SELECT * FROM tool_runs" + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY id DESC LIMIT ?"
+    return db.all(sql, *args, limit)
+
+
+@router.post("/github/test")
+async def github_test():
+    from . import github
+
+    if not github.token():
+        raise HTTPException(400, "Add a GitHub token first.")
+    return await github.check()

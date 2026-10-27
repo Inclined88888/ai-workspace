@@ -1,4 +1,4 @@
-"""Proxy to the browser agent service so the Workbench UI can run and watch browser jobs."""
+"""Proxy to the browser agent service so the ROOKS web app can run and watch browser jobs."""
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request

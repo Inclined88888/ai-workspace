@@ -28,7 +28,9 @@ def test_chat_runs_tools_and_answers(client):
     tasks = client.get("/api/tasks").json()
     assert any(t["title"] == "Renew registration" and t["due"] == "2026-11-30" for t in tasks)
     # tools were offered with JSON schemas, temperature never sent
-    first = next(c for c in CALLS if c.get("tools"))
+    ping = next(c for c in CALLS if c.get("tools") and c["tools"][0]["function"]["name"] == "noop")
+    assert ping["max_tokens"] == 32  # connection checks are capped so they cannot run up a bill
+    first = next(c for c in CALLS if c.get("tools") and c["tools"][0]["function"]["name"] != "noop")
     assert {"create_task", "remember", "load_skill", "schedule_task"} <= {t["function"]["name"] for t in first["tools"]}
     assert "temperature" not in first
 

@@ -1,0 +1,430 @@
+{
+ "about": "Retrieval evaluation for ROOKS memory. Written before the hybrid retriever was built, by the same author, so it is not an independent benchmark. Each query lists the memory keys that should be found; scored by recall@5 and MRR over non-profile memories.",
+ "memories": {
+  "wife": [
+   "My wife is called Priya and she works as a pharmacist",
+   "fact"
+  ],
+  "kids": [
+   "Has two children, Leo (8) and Maya (5)",
+   "fact"
+  ],
+  "dog": [
+   "Their dog Biscuit is a beagle who is scared of thunderstorms",
+   "fact"
+  ],
+  "job": [
+   "Works as an operations manager at Evoro Waste Management",
+   "fact"
+  ],
+  "boss": [
+   "Reports to Daniel Kim, the regional director",
+   "fact"
+  ],
+  "city": [
+   "Lives in Brisbane, in the suburb of Paddington",
+   "fact"
+  ],
+  "commute": [
+   "Commutes by train and prefers meetings after 9:30am",
+   "preference"
+  ],
+  "coffee": [
+   "Drinks oat flat whites, no sugar",
+   "preference"
+  ],
+  "allergy": [
+   "Allergic to penicillin",
+   "fact"
+  ],
+  "dentist": [
+   "Dentist appointment every six months at Smile Clinic on Given Terrace",
+   "fact"
+  ],
+  "gym": [
+   "Goes to the gym on Monday, Wednesday and Friday mornings",
+   "fact"
+  ],
+  "car": [
+   "Drives a 2019 Toyota RAV4 hybrid; registration renews in March",
+   "fact"
+  ],
+  "accountant": [
+   "Accountant is Rachel Nguyen at Clearview Tax, used for the business tax return",
+   "fact"
+  ],
+  "side": [
+   "Runs a small side business selling handmade candles on Etsy",
+   "fact"
+  ],
+  "budget": [
+   "Monthly household budget target is 4,500 dollars",
+   "fact"
+  ],
+  "mortgage": [
+   "Mortgage with ANZ, fixed rate ends in August 2027",
+   "fact"
+  ],
+  "language": [
+   "Learning Japanese, around JLPT N4 level",
+   "fact"
+  ],
+  "trip": [
+   "Planning a family trip to Japan in April",
+   "fact"
+  ],
+  "report_style": [
+   "Likes reports short, with bullet points and the conclusion first",
+   "preference"
+  ],
+  "email_tone": [
+   "Wants email drafts to sound friendly but direct, no exclamation marks",
+   "preference"
+  ],
+  "timezone": [
+   "Works with a supplier team in Manila, two hours behind",
+   "fact"
+  ],
+  "supplier": [
+   "Main bin supplier is Sulo; contract reviewed every November",
+   "fact"
+  ],
+  "kpi": [
+   "Tracks landfill diversion rate as the main KPI, target 65 percent",
+   "fact"
+  ],
+  "meeting": [
+   "Weekly team meeting is Tuesdays at 10am",
+   "fact"
+  ],
+  "doctor": [
+   "GP is Dr Alana Shaw at Red Hill Medical",
+   "fact"
+  ],
+  "birthday": [
+   "Priya's birthday is on 14 June",
+   "fact"
+  ],
+  "school": [
+   "Leo and Maya go to Ithaca Creek State School",
+   "fact"
+  ],
+  "insurance": [
+   "Home and contents insurance with RACQ, renews in October",
+   "fact"
+  ],
+  "diet": [
+   "Vegetarian on weekdays, eats fish on weekends",
+   "preference"
+  ],
+  "hobby": [
+   "Plays social tennis on Thursday evenings",
+   "fact"
+  ],
+  "laptop": [
+   "Uses a MacBook Air for work and an old ThinkPad at home",
+   "fact"
+  ],
+  "bank": [
+   "Business banking is with Westpac",
+   "fact"
+  ],
+  "sleep": [
+   "Tries to be in bed by 10:30pm on weeknights",
+   "preference"
+  ],
+  "parents": [
+   "Parents live in Toowoomba and visit monthly",
+   "fact"
+  ],
+  "goal": [
+   "Goal this year: get the operations team to a four day roster",
+   "fact"
+  ]
+ },
+ "queries": [
+  {
+   "q": "what is my partner's name",
+   "want": [
+    "wife"
+   ],
+   "kind": "synonym"
+  },
+  {
+   "q": "spouse job",
+   "want": [
+    "wife"
+   ],
+   "kind": "synonym"
+  },
+  {
+   "q": "how old are my kids",
+   "want": [
+    "kids"
+   ],
+   "kind": "synonym"
+  },
+  {
+   "q": "puppy afraid of storms",
+   "want": [
+    "dog"
+   ],
+   "kind": "synonym"
+  },
+  {
+   "q": "who is my manager",
+   "want": [
+    "boss"
+   ],
+   "kind": "synonym"
+  },
+  {
+   "q": "where do I live",
+   "want": [
+    "city"
+   ],
+   "kind": "synonym"
+  },
+  {
+   "q": "best time to schedule a meeting with me",
+   "want": [
+    "commute",
+    "meeting"
+   ],
+   "kind": "paraphrase"
+  },
+  {
+   "q": "coffee order",
+   "want": [
+    "coffee"
+   ],
+   "kind": "synonym"
+  },
+  {
+   "q": "medication allergies",
+   "want": [
+    "allergy"
+   ],
+   "kind": "morphology"
+  },
+  {
+   "q": "dentst appointment",
+   "want": [
+    "dentist"
+   ],
+   "kind": "typo"
+  },
+  {
+   "q": "workout schedule",
+   "want": [
+    "gym"
+   ],
+   "kind": "synonym"
+  },
+  {
+   "q": "when does the car rego renew",
+   "want": [
+    "car"
+   ],
+   "kind": "synonym"
+  },
+  {
+   "q": "tax accountant",
+   "want": [
+    "accountant"
+   ],
+   "kind": "exact"
+  },
+  {
+   "q": "etsy shop",
+   "want": [
+    "side"
+   ],
+   "kind": "exact"
+  },
+  {
+   "q": "home loan fixed term",
+   "want": [
+    "mortgage"
+   ],
+   "kind": "synonym"
+  },
+  {
+   "q": "japanese level",
+   "want": [
+    "language"
+   ],
+   "kind": "exact"
+  },
+  {
+   "q": "holiday plans",
+   "want": [
+    "trip"
+   ],
+   "kind": "synonym"
+  },
+  {
+   "q": "how should I format a report for the user",
+   "want": [
+    "report_style"
+   ],
+   "kind": "paraphrase"
+  },
+  {
+   "q": "tone for emails",
+   "want": [
+    "email_tone"
+   ],
+   "kind": "morphology"
+  },
+  {
+   "q": "philippines team time difference",
+   "want": [
+    "timezone"
+   ],
+   "kind": "synonym"
+  },
+  {
+   "q": "bin contract",
+   "want": [
+    "supplier"
+   ],
+   "kind": "exact"
+  },
+  {
+   "q": "recycling target",
+   "want": [
+    "kpi"
+   ],
+   "kind": "synonym"
+  },
+  {
+   "q": "doctor",
+   "want": [
+    "doctor"
+   ],
+   "kind": "synonym"
+  },
+  {
+   "q": "GP clinic",
+   "want": [
+    "doctor"
+   ],
+   "kind": "exact"
+  },
+  {
+   "q": "Priya birthday",
+   "want": [
+    "birthday"
+   ],
+   "kind": "exact"
+  },
+  {
+   "q": "kids school",
+   "want": [
+    "school"
+   ],
+   "kind": "synonym"
+  },
+  {
+   "q": "insurence renewal",
+   "want": [
+    "insurance"
+   ],
+   "kind": "typo"
+  },
+  {
+   "q": "food preferences",
+   "want": [
+    "diet",
+    "coffee"
+   ],
+   "kind": "paraphrase"
+  },
+  {
+   "q": "tennis",
+   "want": [
+    "hobby"
+   ],
+   "kind": "exact"
+  },
+  {
+   "q": "computer",
+   "want": [
+    "laptop"
+   ],
+   "kind": "synonym"
+  },
+  {
+   "q": "which bank for the business",
+   "want": [
+    "bank"
+   ],
+   "kind": "exact"
+  },
+  {
+   "q": "bedtime",
+   "want": [
+    "sleep"
+   ],
+   "kind": "synonym"
+  },
+  {
+   "q": "mum and dad",
+   "want": [
+    "parents"
+   ],
+   "kind": "synonym"
+  },
+  {
+   "q": "four-day roster",
+   "want": [
+    "goal"
+   ],
+   "kind": "exact"
+  },
+  {
+   "q": "Toowomba",
+   "want": [
+    "parents"
+   ],
+   "kind": "typo"
+  },
+  {
+   "q": "medicare doctor Red Hill",
+   "want": [
+    "doctor"
+   ],
+   "kind": "exact"
+  },
+  {
+   "q": "accountnt",
+   "want": [
+    "accountant"
+   ],
+   "kind": "typo"
+  },
+  {
+   "q": "landfill diversion",
+   "want": [
+    "kpi"
+   ],
+   "kind": "exact"
+  },
+  {
+   "q": "Leo",
+   "want": [
+    "kids",
+    "school"
+   ],
+   "kind": "exact"
+  },
+  {
+   "q": "what car do I drive",
+   "want": [
+    "car"
+   ],
+   "kind": "morphology"
+  }
+ ]
+}

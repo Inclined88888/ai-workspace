@@ -12,6 +12,8 @@ from fastapi import FastAPI, Request
 
 SCRIPT: list = []          # queued replies: dict message or callable(messages) -> dict
 CALLS: list[dict] = []     # every request body the fake model received
+VISION: dict = {}          # VISION["answer"] = callable(prompt_text, message) -> reply, for requests that carry an image
+VISION_CALLS: list[dict] = []
 
 
 def _port() -> int:
@@ -30,6 +32,12 @@ async def completions(req: Request):
     body = await req.json()
     CALLS.append(body)
     sys_prompt = body["messages"][0]["content"] if body["messages"] and body["messages"][0]["role"] == "system" else ""
+    image_msg = next((m for m in body["messages"] if isinstance(m.get("content"), list)), None)
+    if image_msg is not None:
+        VISION_CALLS.append(body)
+        text = " ".join(p.get("text", "") for p in image_msg["content"] if p.get("type") == "text")
+        content = VISION["answer"](text, image_msg) if VISION.get("answer") else ("Red" if "LEFT half" in text else '{"found": false}')
+        return {"choices": [{"message": {"role": "assistant", "content": content}}], "usage": {"prompt_tokens": 500, "completion_tokens": 20}}
     if "long term memory" in sys_prompt:
         msg = {"role": "assistant", "content": json.dumps([{"content": "The user is a nurse in Sydney", "kind": "profile"}])}
     elif "reusable skill" in sys_prompt:
@@ -41,6 +49,23 @@ async def completions(req: Request):
     else:
         msg = {"role": "assistant", "content": "ok"}
     return {"choices": [{"message": msg}], "usage": {"prompt_tokens": 1000, "completion_tokens": 500}}
+
+
+@fake.post("/v1/embeddings")
+async def embeddings(req: Request):
+    """Deterministic stand in for an embedding model: words hashed into 64 dimensions (tests plumbing, not meaning)."""
+    import hashlib
+    import re
+
+    body = await req.json()
+    inputs = body["input"] if isinstance(body["input"], list) else [body["input"]]
+    out = []
+    for i, text in enumerate(inputs):
+        v = [0.0] * 64
+        for w in re.findall(r"[a-z]+", text.lower()):
+            v[int(hashlib.md5(w.encode()).hexdigest(), 16) % 64] += 1.0
+        out.append({"index": i, "embedding": v})
+    return {"data": out}
 
 
 @fake.get("/v1/models")
@@ -66,6 +91,8 @@ def fake_url():
 @pytest.fixture(scope="session")
 def client(fake_url, tmp_path_factory):
     os.environ.update(APP_SECRET="a" * 40, TOOLS_API_KEY="k" * 30, DATA_DIR=str(tmp_path_factory.mktemp("data")))
+    for k in ("GITHUB_TOKEN", "BRAVE_API_KEY", "TAVILY_API_KEY"):  # never let a real key in the environment reach a test
+        os.environ.pop(k, None)
     from fastapi.testclient import TestClient
 
     from app import db, main
@@ -75,6 +102,10 @@ def client(fake_url, tmp_path_factory):
         assert c.post("/api/setup", json={"password": "testpassword1"}, headers=h).status_code == 200
         r = c.post("/api/providers", json={"name": "Fake", "kind": "openai", "base_url": fake_url, "api_key": "x"}, headers=h)
         pid = r.json()["id"]
+        for _ in range(100):  # adding a provider checks it in the background; wait so it cannot take scripted replies
+            if db.get_setting(f"provider_check:{pid}"):
+                break
+            time.sleep(0.05)
         c.put("/api/settings", json={"default_model": f"{pid}/fake-model"}, headers=h)
         c.headers.update(h)
         c.pid = pid

@@ -135,7 +135,7 @@ def create_remote(c: dict, title: str, start: str, end: str, all_day: bool, loca
     if description:
         ev.add("description", description)
     cal = icalendar.Calendar()
-    cal.add("prodid", "-//AI Workspace//Workbench//EN")
+    cal.add("prodid", "-//ROOKS//Workbench//EN")
     cal.add("version", "2.0")
     cal.add_component(ev)
     try:
