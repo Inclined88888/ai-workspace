@@ -164,7 +164,7 @@ Counted from the tables below.
 | 86 | Data privacy controls | partial | Memory Off, export, screenshot toggle | — | P2 | M | — | Conversation retention settings |
 | 87 | Auditable actions | verified | Activity log; tool log without typed text | test_hardening, test_computer | P3 | S | Core | ✔ |
 | 88 | Safe plugins | not started | Skills are text only | — | P3 | L | Sandboxing required | Plugin model with permissions |
-| 89 | Integration isolation | partial | Add-ons in their own containers; companion as a separate process; the assistant's terminal and file tools run in a separate runner container with only the workspace volume (no database, secrets or published port) | test_workspace (runner as a process: secret-free environment, confinement, auth); the container itself not built here | P2 | M | A runner that could see ROOKS secrets reports it in Settings | Build and run the runner container; optional network cut-off by default |
+| 89 | Integration isolation | partial | Add-ons in their own containers; companion as a separate process; the assistant's terminal and file tools run in a separate runner container with only the workspace volume (no database, secrets or published port) | test_workspace (runner process); the runner container built and run with Docker: unprivileged, no /data, no secrets, offline network blocks downloads, browser suite 17/17 against it | P2 | M | A runner that could see ROOKS secrets reports it in Settings | Start the full compose stack with the runner via ./setup.sh |
 | 90 | Configuration backups | partial | Upgrade backup includes `.env` | test_upgrade | P2 | S | Backups are mode 600 | In-app backup and restore |
 
 ## Product and operations (91 to 100)

@@ -318,7 +318,7 @@ Backend: FastAPI + SQLite. Frontend: React + Vite + TypeScript. The tool server 
 ## Known limits
 
 - Computer Use on macOS has not been tested on a Mac in this work; run `companion/tests/macos_check.py` on yours first. Visual targeting has only been tested with a stand-in vision model.
-- The terminal runner container has not been built with Docker in this work (no Docker daemon in the test environment); the same runner was tested as a plain process.
+- The terminal runner container was built and tested with Docker, but the full `./setup.sh` stack with it was not started in this work, and a build with `RUNNER_PACKAGES` was not run (Docker Hub rate limit).
 - Of the seven workflow templates, only spreadsheet cleanup was run end to end against a real file.
 
 - Single user ROOKS (the `openwebui` add-on supports multiple users).

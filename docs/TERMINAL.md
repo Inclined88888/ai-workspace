@@ -117,5 +117,18 @@ Approvals show the exact command. Settings, **Workspace and terminal** shows:
   * the Settings card and the file browser;
   * phone width, and no secrets on the page.
 
-**Not verified here:** building and running the runner container with Docker (the test environment had no Docker
-daemon). The same `runner.py` was tested as a plain process.
+**Run for real with Docker:**
+* The runner image built from `workbench/runner/Dockerfile`.
+* The container runs as an unprivileged user (uid 1001) with no `sudo`.
+* It has no `/data` and nothing secret-looking in its environment.
+* A command's background child is stopped with it on timeout, `../` is refused, and a request without the token gets
+  401.
+* The full browser suite passed 17 of 17 against the container, and Settings showed it as Isolated.
+* On an internal Docker network (what `--runner-offline` uses), the runner reported no internet, and a real
+  download attempt failed to resolve.
+
+**Not run with Docker:**
+* An image build with `RUNNER_PACKAGES`. Docker Hub rate-limited the base image lookup (HTTP 429). The input check
+  in that build step was tested on its own: it accepts plain package names and refuses `;`, `$( )`, `&&`, pipes,
+  backticks, redirection and apt options such as `-o …`.
+* The complete `docker compose` stack (ROOKS plus runner) started with `./setup.sh`.
