@@ -547,7 +547,10 @@ async def check_provider(pid: int, max_tries: int = 4, allow_paid: bool = False)
                 report["tried"].append({"model": name, "error": f"Not tried: the check's {CHECK_BUDGET} second limit was reached."})
                 break
             try:
-                await _chat_once(f"{pid}/{name}", [{"role": "user", "content": "Reply with only the word OK."}], [PING_TOOL], ping=True)
+                ping_result = await _chat_once(f"{pid}/{name}", [{"role": "user", "content": "Reply with only the word OK."}], [PING_TOOL], ping=True)
+                # Connection tests are still model calls and must count toward usage.
+                from . import usage
+                usage.record(ping_result, channel="provider_check")
             except ModelError as e:
                 report["tried"].append({"model": name, "error": str(e.detail)[:300]})
                 if e.status in (401, 403) or "rejected the API key" in str(e.detail):
