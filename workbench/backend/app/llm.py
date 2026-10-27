@@ -79,6 +79,9 @@ def _local_endpoint(base_url: str) -> bool:
     # behind a public endpoint too. Classify the configured destination.
     if host in ("localhost", "host.docker.internal") or host.endswith(".local"):
         return True
+    # A single label name ("ollama" in Docker Compose, a machine on your network) cannot be a public internet host
+    if host and "." not in host and ":" not in host:
+        return True
     try:
         ip = ipaddress.ip_address(host)
     except ValueError:
