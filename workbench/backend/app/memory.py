@@ -210,13 +210,31 @@ def embed(texts: list[str], ref: str | None = None) -> list[list[float]]:
     return [d["embedding"] for d in data]
 
 
+def _project_requires_local(project_id: int | None) -> bool:
+    if not project_id or project_id == EVERYWHERE:
+        return False
+    row = db.one("SELECT local_only FROM projects WHERE id = ?", project_id)
+    return bool(row and row["local_only"])
+
+
+def _embedding_allowed(ref: str, project_id: int | None) -> bool:
+    from . import llm
+    return not _project_requires_local(project_id) or llm.is_local(ref)
+
+
 def index_missing(batch: int = 64) -> int:
     """Embed memories that have no vector for the current model yet. Returns how many were added."""
     ref = embed_model()
     if not ref:
         return 0
+    # A background index run must never export a local-only project's contents.
+    # No project filtering on a subsequent retrieval can undo an earlier leak.
+    from . import llm
+    where = "" if llm.is_local(ref) else (
+        "AND (m.project_id IS NULL OR NOT EXISTS ("
+        "SELECT 1 FROM projects p WHERE p.id = m.project_id AND p.local_only = 1)) ")
     rows = db.all("SELECT m.id, m.content FROM memories m LEFT JOIN memory_vectors v ON v.memory_id = m.id AND v.model = ? "
-                  "WHERE v.memory_id IS NULL LIMIT ?", ref, batch)
+                  "WHERE v.memory_id IS NULL " + where + "LIMIT ?", ref, batch)
     if not rows:
         return 0
     vecs = embed([r["content"] for r in rows], ref)
@@ -227,8 +245,8 @@ def index_missing(batch: int = 64) -> int:
 
 def semantic(query: str, limit: int, project_id: int | None = None) -> list[int]:
     ref = embed_model()
-    if not ref or not query.strip():
-        return []
+    if not ref or not query.strip() or not _embedding_allowed(ref, project_id):
+        return []  # keyword/FTS retrieval remains available without cloud disclosure
     try:
         index_missing()
         q = embed([query], ref)[0]
