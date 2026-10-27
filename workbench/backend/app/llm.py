@@ -541,7 +541,7 @@ async def check_provider(pid: int, max_tries: int = 4, allow_paid: bool = False)
         # Automatic and startup verification must never send a paid request.
         # A user must deliberately opt in to a bounded paid connection check.
         choices = [n for n in candidates(p, models, key.get("free_tier"))
-                   if allow_paid or is_free(p, n)]
+                   if allow_paid or is_free(p, n) or is_local(f"{pid}/{n}")]
         for name in choices[:max_tries]:
             if time.monotonic() > deadline:
                 report["tried"].append({"model": name, "error": f"Not tried: the check's {CHECK_BUDGET} second limit was reached."})
