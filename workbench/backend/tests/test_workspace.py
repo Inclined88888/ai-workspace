@@ -223,3 +223,58 @@ def test_a_command_rooks_stops_waiting_for_is_stopped(term):
     time.sleep(3.5)
     assert not os.path.exists(ws("abandoned.txt"))
     assert httpx.get(f"{RUNNER['url']}/health").json()["running"] == 0
+
+
+def test_downloads_and_network_code_count_as_outside_content(term):
+    from app import workspace
+
+    for cmd in ("pip install requests", "npx create-thing", "uv add httpx", "python3 -c 'import urllib.request'", "git submodule update",
+                "go get example.com/x", "docker pull alpine"):
+        assert workspace.fetches("run_command", json.dumps({"command": cmd})), cmd
+    for cmd in ("ls -la", "python3 check.py", "git status", "npm test"):
+        assert not workspace.fetches("run_command", json.dumps({"command": cmd})), cmd
+    assert workspace.fetches("workspace_write", json.dumps({"path": "get.py", "content": "import requests\nrequests.get(URL)"}))
+    assert workspace.fetches("workspace_edit", json.dumps({"path": "a.js", "old_text": "x", "new_text": "await fetch(url)"}))
+    assert not workspace.fetches("workspace_write", json.dumps({"path": "a.py", "content": "print('hi')"}))
+    # after the assistant writes a downloader, running anything asks first
+    SCRIPT[:] = [tool_call("workspace_write", {"path": "dl.py", "content": "import urllib.request\nurllib.request.urlopen('http://x')\n"}, "w"),
+                 tool_call("run_command", {"command": "python3 dl.py"}, "r"), {"role": "assistant", "content": "waiting"}]
+    ev, _ = chat(term, "write a downloader and run it")
+    assert [e["name"] for e in ev if e["type"] == "approval"] == ["run_command"]
+    for a in term.get("/api/approvals").json():
+        term.post(f"/api/approvals/{a['id']}", json={"approve": False})
+    # an offline runner cannot bring anything in, so nothing needs marking
+    saved = dict(workspace._net)
+    workspace._net.update(internet=False)
+    try:
+        assert not workspace.fetches("run_command", json.dumps({"command": "pip install requests"}))
+    finally:
+        workspace._net.update(saved)
+
+
+def test_secrets_in_files_and_output_are_redacted(term):
+    open(ws(".env.sample"), "w").write("DATABASE_PASSWORD=hunter2hunter2\nSTRIPE_SECRET_KEY=whsec_9f8a7b6c5d4e3f2a1b0c\n"
+                                       "DB_URL=postgres://admin:S3cretPass@db:5432/app\nPASSWORD_MIN_LENGTH=8\n"
+                                       "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmU=\n-----END OPENSSH PRIVATE KEY-----\n"
+                                       "commit 9625ed3f163a27d52c20cc7447e3ef50371cd4a8\n")
+    SCRIPT[:] = [tool_call("workspace_read", {"path": ".env.sample"}, "r"), tool_call("run_command", {"command": "cat .env.sample"}, "c"),
+                 {"role": "assistant", "content": "ok"}]
+    rs = results(chat(term, "show the env file")[0])
+    for r in rs:
+        d = r["detail"]
+        for secret in ("hunter2hunter2", "whsec_9f8a7b6c5d4e3f2a1b0c", "S3cretPass", "b3BlbnNzaC1rZXktdjEAAAAABG5vbmU="):
+            assert secret not in d, (secret, d)
+        assert "PASSWORD_MIN_LENGTH=8" in d and "9625ed3f163a27d52c20cc7447e3ef50371cd4a8" in d  # not secrets: kept
+
+
+def test_ordinary_chat_keeps_the_lower_step_limit(term):
+    from app import assistant
+
+    loop = [tool_call("search_notes", {"query": f"q{i}"}, f"s{i}") for i in range(30)]
+    SCRIPT[:] = loop
+    ev, _ = chat(term, "keep searching")
+    assert len(results(ev)) == assistant.MAX_STEPS and f"after {assistant.MAX_STEPS} steps" in next(e for e in ev if e["type"] == "message")["content"]
+    SCRIPT[:] = [tool_call("run_command", {"command": f"echo {i}"}, f"r{i}") for i in range(30)]
+    ev, _ = chat(term, "keep running")
+    assert len(results(ev)) == assistant.MAX_STEPS_WORKSPACE > assistant.MAX_STEPS
+    SCRIPT.clear()

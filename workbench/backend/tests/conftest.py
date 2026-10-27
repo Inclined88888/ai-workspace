@@ -99,7 +99,8 @@ def runner(tmp_path_factory):
     import urllib.request
 
     ws, port, token = tmp_path_factory.mktemp("workspace"), _port(), "r" * 32
-    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "RUNNER_TOKEN": token, "WORKSPACE": str(ws), "RUNNER_PORT": str(port)}
+    # RUNNER_PROBE "": internet access unknown, so the outside-content rules for downloads apply as when online
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "RUNNER_TOKEN": token, "WORKSPACE": str(ws), "RUNNER_PORT": str(port), "RUNNER_PROBE": ""}
     proc = subprocess.Popen([sys.executable, os.path.join(os.path.dirname(__file__), "..", "..", "runner", "runner.py")], env=env)
     for _ in range(100):
         try:

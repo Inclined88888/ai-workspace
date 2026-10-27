@@ -13,8 +13,13 @@ So a command, even a bad one or one an injected instruction slipped in, cannot r
 ROOKS data. The runner checks this about itself: if it can see ROOKS secrets or the database, Settings,
 **Workspace and terminal** shows a warning.
 
-The runner can reach the internet, so commands like `pip install` work. To cut it off, set `internal: true` on the
-`runner` network in `docker-compose.yml`.
+The runner can reach the internet, so commands like `pip install` work. `./setup.sh --runner-offline` cuts it off
+(it adds `docker-compose.runner-offline.yml`; `--runner-online` undoes it). The runner checks its own internet access
+and Settings shows the result.
+
+There is no sudo in the runner, by design. To add system packages, list them in `.env` as
+`RUNNER_PACKAGES=build-essential nodejs npm` and run `./setup.sh`. They are installed when the runner image is built,
+and only plain package names are accepted.
 
 Setup: `./setup.sh` creates `RUNNER_TOKEN` (existing installs get it on their next setup run). Docker Compose then
 builds and starts the runner with the rest. Without the token, the assistant simply has no terminal.
@@ -53,8 +58,14 @@ Some things ask whatever you set:
 * **Risky commands.** Anything that runs as another user, deletes recursively, writes to disks, pipes a download
   into a shell, changes or publishes git history, connects to another machine, publishes a package, can stop the
   system, opens permissions broadly, or changes services.
-* **Anything after outside content.** Once web, email or file content, or a command that downloads something
-  (`curl`, `git clone`, `pip install`), has entered the conversation, every command and file change asks.
+* **Anything after outside content.** Once web, email or file content has entered the conversation, every command
+  and file change asks. So does anything after a download: `curl`, git clone, pull and fetch, package installs for
+  pip, uv, npm, npx, go, cargo, gem, apt and others, and `docker pull`. Network code in a command, or in a file the
+  assistant writes, counts too (Python `requests`, `urllib` or sockets, JavaScript `fetch`, and the like). With an
+  offline runner nothing can come in, so this rule is not needed there.
+
+  A script that was already in the workspace and downloads something can't be detected from its command line. Use
+  the offline runner if that matters to you.
 * **Runs without you watching.** Schedules, Telegram and company agents ask before any command or file change.
   Missions follow the group's setting, and a mission waits while an approval is pending.
 
@@ -69,9 +80,10 @@ The allow list is in Settings, **Workspace and terminal**. Defaults include `ls`
 | Timeout | Default 120 seconds (changeable in Settings), at most 900. A request has 300 seconds in total unless `WORKBENCH_TURN_SECONDS` is raised. The command and every process it started are stopped together. |
 | A failed command | Shows as a failed step, with its exit code, stdout and stderr, so the assistant can act on it. |
 | Stop in chat | Stops a running command within a second, children included. |
-| Large output | The assistant gets the start and the end (errors are usually at the end) and the path of a log file with everything, which it can read with `workspace_read`. Known secret patterns are redacted from what the model sees. |
+| Large output | The assistant gets the start and the end (errors are usually at the end) and the path of a log file with everything, which it can read with `workspace_read`. |
+| Secrets in output | What the model sees from commands and files is redacted. That covers known key formats, `.env`-style `NAME=value` lines whose name says secret, token, password or key, the same in JSON and YAML, passwords inside URLs, whole private key blocks, and long random-looking tokens. Git hashes and package checksums are kept. The full log file in the workspace is not redacted. Redaction is a safety net, not a guarantee. |
 | ROOKS restarts mid-command | The runner notices the request is gone and stops the command, so nothing runs on unattended. A mission resumed after a restart is told to check the workspace before running the command again. Commands are never "replayed" from a record: rerunning the tests really reruns them. |
-| Step limit | A request may take up to 25 model steps (`WORKBENCH_MAX_STEPS`), enough room to test and fix. |
+| Step limit | Ordinary chat keeps 12 model steps per request (`WORKBENCH_MAX_STEPS`). Once a request uses the terminal or workspace files it may go on to 25 (`WORKBENCH_MAX_STEPS_WORKSPACE`), to test and fix. |
 
 ## In the interface
 
@@ -85,7 +97,7 @@ Approvals show the exact command. Settings, **Workspace and terminal** shows:
 
 ## Tests
 
-* `workbench/backend/tests/test_workspace.py` (12 tests) runs a real runner process with real commands. It covers:
+* `workbench/backend/tests/test_workspace.py` (15 tests) runs a real runner process with real commands. It covers:
   * a multi-step write, fail, fix and rerun task;
   * failed commands (exit 3, command not found);
   * ask mode, the allow list and chaining;
@@ -94,7 +106,10 @@ Approvals show the exact command. Settings, **Workspace and terminal** shows:
   * overwrite and version keeping, and exact-match edits;
   * a timeout that stops child processes, large output with the log file, and Stop;
   * a command ROOKS stopped waiting for being stopped;
-  * no secrets in a command's environment, output redaction, and runner authentication.
+  * no secrets in a command's environment, output redaction, and runner authentication;
+  * download and network-code detection, and offline mode;
+  * `.env` secrets redacted in reads and command output;
+  * the step limits.
 * The browser suite `ui_terminal.py` (17 checks; a scratch harness, not committed) drives the real interface:
   * switching Terminal on in Permissions;
   * running the multi-step task and a failing command from chat;
