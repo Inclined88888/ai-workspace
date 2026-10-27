@@ -91,6 +91,7 @@ Native Ollama uses the Mac GPU; the `local-models` add-on would run on CPU insid
 * **Skills.** When a task took 3 or more tool calls, it can save the procedure as a named skill and improve it on later use. Skills are listed to the model and loaded on demand, so they cost almost nothing until used.
 * **History.** Every conversation is full text searchable, by you and by the assistant (`search_history`).
 * **Models.** Switch per conversation from the model menu. Any provider in Settings works.
+* **AI modes.** Settings, AI models: **Free Cloud AI** (the default for new workspaces: only models verified as free, no paid backup), **Premium Cloud AI** (paid models, after you set a monthly limit), **Local AI** (Ollama or llama.cpp on your own computer) or **Custom AI Server**. Switching keeps your providers and saved default. A free tier alone does not make a model free: OpenRouter's own price list must say $0, and a Gemini key must come from a Google project with no billing account, which you confirm. Free is not unlimited. Details in `docs/AI_MODES.md`.
 * **Rich answers.** When a tool runs, its real result can appear as a table, chart or cards (tasks, missions, projects, files, sources and more). These are built by code from the tool's data, never written by the model, so a chart shows only numbers ROOKS has. Code has a Copy button, `[n]` citations link to sources the answer actually read, and rendered Markdown never loads images or media. Details in `docs/UI_V11.md`.
 * **Chat controls.** Copy, Regenerate, Edit and resend your last message, Stop while it answers. Each answer has a one-line activity summary that opens by itself when something failed, changed or needs approval.
 * **What ROOKS can do.** A page listing every capability with its real state: ready, needs setup, turned off, optional add-on, or not available yet.
@@ -342,6 +343,7 @@ Backend: FastAPI + SQLite. Frontend: React + Vite + TypeScript. The tool server 
 - Workers are isolated by permissions inside the ROOKS process, not by an operating system sandbox (terminal work still runs in the runner container). Company agents do not use workers yet.
 - Rendered Markdown (answers, notes, documents, reports) does not show images or media, so image links in older notes no longer display. Math notation and footnotes are not rendered.
 - Accessibility was checked with an automated axe sweep and keyboard tests, not a manual audit or a real screen reader.
+- Free Cloud AI cannot verify a Gemini key's billing status (Google offers no API for it); it relies on your confirmation. AirLLM is not supported. Local downloads and llama.cpp were tested only against stand-ins.
 
 - Single user ROOKS (the `openwebui` add-on supports multiple users).
 - Telegram is the only built in messaging channel. Discord, Slack, WhatsApp and Signal need the `hermes` add-on.

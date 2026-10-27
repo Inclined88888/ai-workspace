@@ -1,6 +1,6 @@
-# ROOKS capability roadmap: 129 requirements
+# ROOKS capability roadmap: 141 requirements
 
-Status as of 2026-10-27 (v11, branch `development/rooks-ui-v11`). Items 101 to 117 were added in v10, items 118 to 129 in v11. Linux was the only test environment: no macOS result in this file comes from a Mac.
+Status as of 2026-10-27 (v11.1, branch `development/rooks-v11.1`). Items 101 to 117 were added in v10, items 118 to 129 in v11, items 130 to 141 in v11.1. Linux was the only test environment: no macOS result in this file comes from a Mac.
 
 ## How statuses are assigned
 
@@ -27,10 +27,10 @@ Counted from the tables below.
 
 | Status | Count |
 |---|---|
-| verified | 73 |
-| implemented | 14 |
-| partial | 33 |
-| not started | 9 |
+| verified | 81 |
+| implemented | 16 |
+| partial | 34 |
+| not started | 10 |
 
 ## Memory and context (1 to 10)
 
@@ -222,6 +222,25 @@ All browser evidence below used a local fake model and fake providers: it verifi
 | 127 | Accessibility (WCAG 2.2 AA) | partial | Contrast tokens, labels, names, focusable regions, keyboard paths | axe-core sweep of 44 page views, no serious or critical violations; keyboard checks in both suites | P1 | M | — | Not done: a manual audit and a real screen reader test |
 | 128 | Phones | verified | Chat list toggle, settings jump menu, projects pane, measured charts | Overflow sweep at 390 px (no page scrolls sideways), phone checks in both suites | P1 | S | — | ✔ |
 | 129 | Math notation and footnotes in answers | not started | — | — | P3 | S | Must not reintroduce raw HTML | Add with a sanitised renderer |
+
+## v11.1: AI modes and the Free Cloud AI first run (130 to 141)
+
+Browser evidence used a stand-in OpenRouter and Ollama; no real model answered and nothing was paid for.
+
+| ID | Requirement | Status | What exists (modules) | Evidence | Pri | Cx | Security | Acceptance / next |
+|---|---|---|---|---|---|---|---|---|
+| 130 | Free Cloud AI as the first-run default | verified | `ai_mode` set to free at setup; onboarding preselects it; Skip keeps it | test_ai_mode `test_a_new_workspace...`, onboarding browser suite | P1 | S | Nothing that costs money runs by default | ✔ |
+| 131 | Zero cost verified before a model is used (OpenRouter) | verified | `llm.free_basis`: `:free` id and every listed price zero, from OpenRouter's model list, refreshed after 6 hours | test_free_providers, test_models, test_ai_mode (price change), browser (`:free` with a price is refused) | P1 | M | A name is never enough | ✔ |
+| 132 | Zero cost for Gemini and local servers | partial | Your confirmation that the key's project or the server cannot bill, logged | test_free_providers, test_ai_mode | P1 | S | Not verifiable by ROOKS | Missing: an API check; Google offers none |
+| 133 | Free-only enforcement everywhere | verified | `mode_guard` in `_chat_once` and `stream`; embeddings and voice checked too | test_ai_mode (chat, default, stream, research, workers, missions, vision path, embeddings, chat API), browser | P1 | M | Refused before any request | ✔ |
+| 134 | No paid fallback in Free mode | verified | Defaults and backups filtered; a model that reports a charge is blocked | test_ai_mode (backups, charge) | P1 | S | — | ✔ |
+| 135 | Premium with a spending limit first | verified | Premium cannot be chosen without a monthly limit; paid checks opt in only | test_ai_mode, browser | P1 | S | Non-OpenRouter spend counts only with prices entered | ✔ |
+| 136 | Local AI, downloads with consent | implemented | Consent required by the server; size, memory, licence shown; llama.cpp preset | test_ai_mode (consent), browser (stand-in Ollama) | P2 | M | Downloads logged | Not run: a real Ollama download or a real llama.cpp server |
+| 137 | AirLLM adapter | not started | Shown as not supported, with the reason | browser | P3 | L | — | AirLLM has no server and no tool calling |
+| 138 | Custom AI server mode | verified | Existing custom endpoints; every older suite runs in this mode | all browser suites | P2 | S | — | ✔ |
+| 139 | Existing installs unchanged | verified | No mode means no restriction; Settings says choosing is optional | test_ai_mode, browser migration checks | P1 | S | No setting rewritten | ✔ |
+| 140 | Privacy, connection tests and troubleshooting in setup | implemented | `PrivacyNote`, `Troubleshoot`, test reports with tool support counts | browser (content checks) | P1 | S | Provider data policies summarised from their own pages | Not verified against real Gemini or OpenRouter answers beyond one rejected key |
+| 141 | Onboarding on phones and with assistive tech | verified | Radio group with arrow keys, labels, no sideways scroll | browser: axe at desktop and phone, keyboard, overflow | P1 | S | — | Not done: a real screen reader test |
 
 ## Next highest-value work
 
