@@ -95,6 +95,7 @@ services:
       - "${BIND_ADDRESS:-127.0.0.1}:${WORKBENCH_PORT:-3100}:8000"
     volumes:
       - workbench:/data
+    networks: [default, runner]
     environment:
       APP_SECRET: ${APP_SECRET:?run ./setup.sh or set APP_SECRET in .env}
       TOOLS_API_KEY: ${TOOLS_API_KEY:?run ./setup.sh or set TOOLS_API_KEY in .env}
@@ -118,6 +119,21 @@ services:
       BROWSER_API_KEY: ${BROWSER_API_KEY:-}
       PAPERCLIP_URL: ${PAPERCLIP_URL:-}
       HERMES_URL: ${HERMES_URL:-}
+      # Terminal and workspace files for the assistant (the runner service below)
+      RUNNER_URL: ${RUNNER_URL:-http://runner:8010}
+      RUNNER_TOKEN: ${RUNNER_TOKEN:-}
+
+  # Where the assistant's terminal commands and file edits run. It sees only the workspace volume: no ROOKS
+  # database, no APP_SECRET, no API keys. Reached only by ROOKS, on its own network; no published port.
+  runner:
+    build: ./workbench/runner
+    image: ai-workspace/runner:local
+    restart: unless-stopped
+    networks: [runner]
+    volumes:
+      - workspace:/workspace
+    environment:
+      RUNNER_TOKEN: ${RUNNER_TOKEN:-}
 
   # Browser agent (browser-use + Playwright). Internal only: reached by ROOKS, Open WebUI and Paperclip.
   browser:
@@ -213,7 +229,14 @@ services:
       TOOLS_API_KEY: ${TOOLS_API_KEY}
       BROWSER_API_KEY: ${BROWSER_API_KEY}
 
+networks:
+  default:
+  # ROOKS and its runner only. Not internal, so commands can download packages; set internal: true to cut the
+  # runner off from the internet.
+  runner:
+
 volumes:
+  workspace:
   ollama:
   open-webui:
   workbench:

@@ -44,6 +44,9 @@ WORKSPACE_NAME = display_name(os.getenv("WORKSPACE_NAME"))
 CHAT_URL = os.getenv("CHAT_URL", "")  # Open WebUI add-on link, empty when not installed
 SEARXNG_URL = os.getenv("SEARXNG_URL", "").rstrip("/")  # optional add-on
 OLLAMA_URL = os.getenv("OLLAMA_URL", "").rstrip("/")  # optional: add-on container or native app on the host
+# The assistant's terminal and workspace files run in a separate runner service (workbench/runner)
+RUNNER_URL = os.getenv("RUNNER_URL", "").rstrip("/")
+RUNNER_TOKEN = os.getenv("RUNNER_TOKEN", "")
 DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "qwen3:4b")
 COOKIE_SECURE = _bool("COOKIE_SECURE")
 BROWSER_URL = os.getenv("BROWSER_URL", "").rstrip("/")  # optional add-on

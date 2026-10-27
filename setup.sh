@@ -89,7 +89,7 @@ while IFS= read -r line; do
   if [[ "$line" =~ ^[A-Z_]+= ]] && ! grep -qE "^$key=" .env; then printf '%s\n' "$line" >> .env; fi
 done < .env.example
 # Secrets: generate any that are empty; never rotate existing ones (that would lock you out of stored data)
-for key in APP_SECRET TOOLS_API_KEY WEBUI_SECRET_KEY SEARXNG_SECRET BROWSER_API_KEY PAPERCLIP_AUTH_SECRET \
+for key in APP_SECRET TOOLS_API_KEY RUNNER_TOKEN WEBUI_SECRET_KEY SEARXNG_SECRET BROWSER_API_KEY PAPERCLIP_AUTH_SECRET \
            PAPERCLIP_TOOL_ACTION_SECRET PAPERCLIP_AGENT_JWT_SECRET HERMES_API_KEY HERMES_DASHBOARD_SECRET; do
   if [[ -z "$(get_env "$key")" ]]; then set_env "$key" "$(rand 32)"; fi
 done
