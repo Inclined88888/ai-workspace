@@ -59,6 +59,10 @@ KEY_RE = re.compile(r"^((cmd|ctrl|alt|option|shift|fn|super|meta)\+){0,3}([a-z0-
 _events: dict[int, tuple[asyncio.AbstractEventLoop, asyncio.Event]] = {}
 _shots: dict[int, tuple[float, str]] = {}  # device id -> (time, PNG data URL); memory only, never stored or sent to a model
 SHOT_TTL = 600
+# Full results for active waiters are held briefly in memory, not SQLite.
+MAX_TRANSIENT_RESULT = 16 * 1024 * 1024
+_transient_results: dict[int, object] = {}
+
 
 
 # Settings
@@ -370,7 +374,11 @@ async def request(kind: str, args: dict, *, conversation_id: int | None = None, 
     finally:
         _events.pop(aid, None)
     a = db.one("SELECT * FROM computer_actions WHERE id = ?", aid)
-    out = {"id": aid, "status": a["status"], "ok": a["status"] == "done", "result": json.loads(a["result"] or "null"), "error": a["error"]}
+    out = {"id": aid, "status": a["status"], "ok": a["status"] == "done",
+           "result": _transient_results.pop(aid, None), "error": a["error"]}
+    if out["ok"] and out["result"] is None:
+        out["ok"] = False
+        out["error"] = "Result unavailable after restart; re-observe before retrying."
     if a["status"] == "uncertain":
         out["error"] = "No confirmation from the computer. Observe the screen before trying again."
     return out
@@ -412,8 +420,20 @@ def report(device: dict, r: dict) -> None:
 
 
 def _finish(aid: int, status: str, result=None, error: str = "") -> None:
-    db.run("UPDATE computer_actions SET status = ?, result = ?, error = ?, finished_at = ? WHERE id = ?", status,
-           json.dumps(result)[:200_000] if result is not None else "", error, db.now(), aid)
+    # Never persist screenshots or large action outputs. Live callers receive
+    # an intact bounded result; an interrupted waiter must re-observe.
+    waiting = _events.get(aid)
+    if result is not None and waiting:
+        try:
+            encoded_size = len(json.dumps(result))
+        except (TypeError, ValueError):
+            encoded_size = MAX_TRANSIENT_RESULT + 1
+        if encoded_size > MAX_TRANSIENT_RESULT:
+            status, error = "failed", "Computer result exceeds the 16 MiB safety limit."
+        else:
+            _transient_results[aid] = result
+    db.run("UPDATE computer_actions SET status = ?, result = NULL, error = ?, finished_at = ? WHERE id = ?",
+           status, error, db.now(), aid)
     waiting = _events.get(aid)
     if waiting:
         loop, ev = waiting
