@@ -261,7 +261,9 @@ async def collect(t: dict) -> dict:
 
 
 def _hashes(facts: dict) -> dict:
-    return {k: hashlib.sha256(v.encode()).hexdigest()[:16] for k, v in facts.items()}
+    # A search result is the same result while its address is: engines reword titles between searches, which must not
+    # count as news. Everything else changes when its text changes (a task's due date, a page's content).
+    return {k: hashlib.sha256((k if k.startswith("result:") else v).encode()).hexdigest()[:16] for k, v in facts.items()}
 
 
 # Quiet hours and limits

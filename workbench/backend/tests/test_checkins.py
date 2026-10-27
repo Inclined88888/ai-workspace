@@ -302,3 +302,27 @@ def test_twilio_without_credentials_never_calls_out(pro):
     r = pro.post("/api/calls/phone/verify", json={"password": pw, "confirm_cost": True})
     assert r.status_code == 502 and "not fully set up" in r.json()["detail"] and calls.MOCK_CALLS == []
     assert pro.put("/api/calls/phone", json={"password": pw, "twilio_sid": "not-a-sid"}).status_code == 400
+
+
+def test_a_followed_search_reports_only_new_results(pro, monkeypatch):
+    """Research monitoring: a search source tells you about results it has not seen before, and nothing otherwise."""
+    from app import research
+
+    results = [{"title": "Council report 2026", "url": "https://example.gov/report?utm_source=x"}]
+
+    async def fake_search(query, count=6):
+        assert query == "kerbside recycling rates"
+        return list(results)
+
+    monkeypatch.setattr(research, "web_search", fake_search)
+    t = new_topic(pro, name="Followed research", sources=["search:kerbside recycling rates"])
+    SCRIPT[:] = [briefing("A council report was published.")]
+    assert run(t["id"], "m1")["status"] == "delivered"
+    n = len(briefing_calls())
+    results.append({"title": "Council report 2026 (copy)", "url": "https://example.gov/report"})  # the same page again
+    assert run(t["id"], "m2")["status"] == "nothing_new" and len(briefing_calls()) == n
+    results.append({"title": "New audit", "url": "https://audit.example.org/2026"})
+    SCRIPT[:] = [briefing("A new audit appeared.")]
+    r = run(t["id"], "m3")
+    assert r["status"] == "delivered" and r["new_facts"] == 1
+    assert "audit.example.org" in briefing_calls()[-1]["messages"][1]["content"].split("NEW:")[1].split("KNOWN:")[0]
