@@ -98,8 +98,11 @@ def event(mid: int, kind: str, text: str, step: int | None = None) -> None:
 def view(mid: int) -> dict:
     m = _get(mid)
     m["events"] = db.all("SELECT at, step, kind, text FROM mission_events WHERE mission_id = ? ORDER BY id DESC LIMIT 200", mid)[::-1]
+    from .assistant import approval_view
+
     m["approvals"] = db.all("SELECT id, tool, args, reason, status, result FROM approvals WHERE conversation_id = ? "
                             "AND status = 'pending' ORDER BY id", m["conversation_id"]) if m["conversation_id"] else []
+    m["approvals"] = [approval_view(a) for a in m["approvals"]]
     m["counts"] = {s: sum(1 for st in m["plan"] if st["status"] == s) for s in ("done", "unverified", "failed", "pending", "skipped")}
     return m
 

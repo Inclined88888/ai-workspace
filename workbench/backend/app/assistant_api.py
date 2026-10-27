@@ -78,13 +78,9 @@ def stop(cid: int):
 # Approvals: persistent actions requested in conversations that contain outside content
 @router.get("/approvals")
 def approvals(status: str = "pending"):
-    from . import computer_tools
     rows = (db.all("SELECT * FROM approvals ORDER BY id DESC LIMIT 200") if status == "all" else
             db.all("SELECT * FROM approvals WHERE status = ? ORDER BY id DESC LIMIT 200", status))
-    for row in rows:
-        if row["tool"] in computer_tools.KIND:
-            row["args"] = "{}"  # never disclose persisted typing payloads through history
-    return rows
+    return [assistant.approval_view(r) for r in rows]  # Computer Use details only while the request is pending
 
 
 class Decision(BaseModel):

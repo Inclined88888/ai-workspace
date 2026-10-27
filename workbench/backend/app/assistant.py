@@ -523,6 +523,36 @@ def needs_approval(name: str, ctx: Ctx) -> bool:
     return bool(approval_reason(name, ctx))
 
 
+def _approval_summary(name: str, raw_args: str) -> str:
+    """What a Computer Use request is about, without its content: for notices that may leave ROOKS (Telegram)."""
+    try:
+        args = json.loads(raw_args or "{}")
+    except ValueError:
+        args = {}
+    if not isinstance(args, dict):
+        args = {}
+    parts = [f"{k}={str(args[k])[:80]}" for k in ("app", "label", "target", "keys", "url") if args.get(k)]
+    if args.get("text"):
+        parts.append(f"text of {len(str(args['text']))} characters")
+    return ", ".join(parts) or "details in ROOKS"
+
+
+def approval_view(row: dict) -> dict:
+    """An approval as shown to you. Computer Use arguments are encrypted at rest; while a request waits for your
+    decision you see exactly what it will do (you cannot decide blind). Once decided, they are no longer shown."""
+    row = dict(row)
+    if row.get("tool") in computer_tools.KIND:
+        raw = row.get("args") or ""
+        if row.get("status") in ("pending", "running"):
+            from .security import decrypt
+
+            clear = decrypt(raw[4:]) if raw.startswith("enc:") else raw
+            row["args"] = (clear or "{}")[:4000]
+        else:
+            row["args"] = "{}"
+    return row
+
+
 def request_approval(name: str, raw_args: str, ctx: Ctx, reason: str) -> int:
     from .scheduler import deliver
     from .security import encrypt
@@ -531,7 +561,8 @@ def request_approval(name: str, raw_args: str, ctx: Ctx, reason: str) -> int:
     # must not be kept in plaintext. Only the approval executor decrypts them.
     private = name in computer_tools.KIND
     stored_args = "enc:" + encrypt(raw_args or "{}") if private else (raw_args or "{}")
-    display_args = "[arguments protected]" if private else (raw_args or "{}")[:1500]
+    # The notice can be forwarded to Telegram, so Computer Use content stays out of it; ROOKS itself shows it in full.
+    display_args = f"({_approval_summary(name, raw_args)}; open ROOKS to see exactly what it will do)" if private else (raw_args or "{}")[:1500]
     aid = db.run("INSERT INTO approvals(tool, args, reason, channel, conversation_id, agent_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
                  name, stored_args, reason, ctx.channel, ctx.conversation_id, (ctx.agent or {}).get("id"), db.now())
     if ctx.channel in UNATTENDED:
@@ -641,6 +672,11 @@ def system_prompt(ctx: Ctx, user_text: str) -> str:
         parts.append("Earlier in this conversation (summary of messages no longer shown in full):\n" + summary)
     if computer_tools.available(ctx):
         parts.append(computer_tools.GUIDE)
+    elif ctx.channel not in UNATTENDED:
+        parts.append("You have no shell or terminal access, by design, and terminal apps stay blocked. You can use apps, your own "
+                     "browser and allowed folders on the user's computer only through Computer Use, which is not connected now. "
+                     "If the user asks for something on their computer, say so and tell them to open the Computer page in ROOKS, "
+                     "pair the ROOKS Companion and turn Computer Use on.")
     skills = db.all("SELECT name, description FROM skills WHERE enabled = 1 ORDER BY uses DESC, updated_at DESC LIMIT 30") \
         if permissions.allowed("load_skill", ctx.project_id) else []
     if skills:
@@ -807,8 +843,8 @@ async def run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> AsyncI
                 aid = request_approval(fn["name"], fn["arguments"], ctx, reason)
                 ok, out = False, (f"Not done yet: this needs the user's approval (request #{aid}). {reason} "
                                   "Tell the user it is waiting for their approval; do not retry it.")
-                yield {"type": "approval", "id": aid, "name": fn["name"],
-                       "args": "{}" if fn["name"] in computer_tools.KIND else fn["arguments"][:500]}
+                # Shown to you live so you can decide; it is not stored in plain text
+                yield {"type": "approval", "id": aid, "name": fn["name"], "args": fn["arguments"][:2000]}
             else:
                 limit = max(1.0, min(TOOL_TIMEOUT_S, deadline - time.monotonic()))
                 try:
