@@ -249,12 +249,12 @@ def test_connection_checks_are_capped_and_time_limited(client, router_like, monk
     PINGS.clear()
     good = connect(client, router_like, "good")
     assert good["ok"] and PINGS and all(p.get("max_tokens") == 32 for p in PINGS)
-    # an endpoint that rejects the cap is retried once without it
+    # A provider rejecting the cap must NEVER trigger an uncapped paid retry.
     PINGS.clear()
     MODE["reject_cap"] = True
     try:
-        assert asyncio.run(llm.check_provider(good["provider_id"]))["ok"] is True
-        assert "max_tokens" in PINGS[0] and "max_tokens" not in PINGS[1]
+        assert asyncio.run(llm.check_provider(good["provider_id"], max_tries=1))["ok"] is False
+        assert len(PINGS) == 1 and PINGS[0]["max_tokens"] == 32
     finally:
         MODE["reject_cap"] = False
     # a provider that never answers is given up on, with a clear reason
