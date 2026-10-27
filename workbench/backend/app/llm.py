@@ -387,8 +387,9 @@ def _cap(p: dict, body: dict) -> dict:
 
 async def _chat_once(ref: str, messages: list[dict], tools: list[dict] | None, ping: bool = False) -> dict:
     p, model = split_ref(ref)
-    if not ping:
-        spend_guard()
+    # A provider health check can still incur usage charges; it must not
+    # bypass a configured monthly spending limit.
+    spend_guard()
     body = _body(p, model, messages, False)
     if tools:
         body["tools"] = tools  # tool_choice left to the default ("auto"): some Claude models reject forced choice
@@ -397,10 +398,11 @@ async def _chat_once(ref: str, messages: list[dict], tools: list[dict] | None, p
     if ping:
         try:
             data = await asyncio.wait_for(_call(p, _cap(p, dict(body))), PING_TIMEOUT)
-        except ModelError as e:
-            if e.status != 400 or not re.search(r"max_(completion_)?tokens|unsupported|unrecognized|unknown (field|param)", str(e.detail), re.I):
-                raise
-            data = await asyncio.wait_for(_call(p, body), PING_TIMEOUT)  # an endpoint that rejects the cap: one uncapped retry
+        except ModelError:
+            # Never retry a charged model check without an output cap.
+            # A provider rejecting the cap is a configuration error, not a
+            # reason to send an unbounded paid request.
+            raise
         except asyncio.TimeoutError as e:
             raise ModelError(f"{p['name']} did not answer within {PING_TIMEOUT} seconds.", 0) from e
     else:
