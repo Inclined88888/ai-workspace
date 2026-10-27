@@ -111,19 +111,19 @@ function AddEvent({ date, calendars, onClose, onAdded }: { date: string; calenda
     <Modal title="New event" onClose={onClose}>
       <form className="col gap-lg" onSubmit={submit}>
         {error && <div className="alert err">{error}</div>}
-        <input className="input" required autoFocus placeholder="Title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+        <input className="input" required autoFocus placeholder="Title" aria-label="Event title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
         <div className="row wrap">
-          <input className="input" type="date" style={{ width: 160 }} value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+          <input className="input" type="date" aria-label="Date" style={{ width: 160 }} value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
           {!form.all_day && (
             <>
-              <input className="input" type="time" style={{ width: 120 }} value={form.startTime} onChange={(e) => setForm({ ...form, startTime: e.target.value })} />
+              <input className="input" type="time" aria-label="Start time" style={{ width: 120 }} value={form.startTime} onChange={(e) => setForm({ ...form, startTime: e.target.value })} />
               <span className="muted">to</span>
-              <input className="input" type="time" style={{ width: 120 }} value={form.endTime} onChange={(e) => setForm({ ...form, endTime: e.target.value })} />
+              <input className="input" type="time" aria-label="End time" style={{ width: 120 }} value={form.endTime} onChange={(e) => setForm({ ...form, endTime: e.target.value })} />
             </>
           )}
           <label className="check"><input type="checkbox" checked={form.all_day} onChange={(e) => setForm({ ...form, all_day: e.target.checked })} /> All day</label>
         </div>
-        <input className="input" placeholder="Location" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} />
+        <input className="input" placeholder="Location" aria-label="Location" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} />
         <textarea className="input" rows={3} placeholder="Description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
         <select className="input" value={form.calendar_id} onChange={(e) => setForm({ ...form, calendar_id: Number(e.target.value) })}>
           {writable.map((c) => <option key={c.id} value={c.id}>{c.name}{c.kind === "caldav" ? " (CalDAV)" : ""}</option>)}
@@ -196,9 +196,9 @@ export default function CalendarPage() {
       <div className="page-head">
         <h1>{cursor.toLocaleDateString([], { month: "long", year: "numeric" })}</h1>
         <div className="row">
-          <button className="btn icon sm" onClick={() => setCursor(new Date(cursor.getFullYear(), month - 1, 1))}><ChevronLeft size={16} /></button>
+          <button className="btn icon sm" aria-label="Previous month" title="Previous month" onClick={() => setCursor(new Date(cursor.getFullYear(), month - 1, 1))}><ChevronLeft size={16} /></button>
           <button className="btn sm" onClick={() => { const d = new Date(); d.setDate(1); setCursor(d); setSelected(today); }}>Today</button>
-          <button className="btn icon sm" onClick={() => setCursor(new Date(cursor.getFullYear(), month + 1, 1))}><ChevronRight size={16} /></button>
+          <button className="btn icon sm" aria-label="Next month" title="Next month" onClick={() => setCursor(new Date(cursor.getFullYear(), month + 1, 1))}><ChevronRight size={16} /></button>
         </div>
         <div className="spacer" />
         <button className="btn" onClick={() => setModal("calendar")}><Plus size={15} /> Calendar</button>
@@ -242,7 +242,7 @@ export default function CalendarPage() {
             <h3>Calendars</h3>
             {calendars.map((c) => (
               <div key={c.id} className="row">
-                <input type="checkbox" checked={!!c.enabled} onChange={() => toggle(c)} style={{ accentColor: c.color }} />
+                <input type="checkbox" aria-label={`Show ${c.name}`} checked={!!c.enabled} onChange={() => toggle(c)} style={{ accentColor: c.color }} />
                 <div className="grow">
                   <div className="truncate">{c.name}</div>
                   <div className="faint small truncate">{c.kind === "local" ? "Local" : c.kind === "ics" ? "ICS subscription" : "CalDAV"}{c.last_synced ? ` · synced ${new Date(c.last_synced).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}</div>

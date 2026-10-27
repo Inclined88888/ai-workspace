@@ -86,7 +86,7 @@ export default function Company() {
       </div>
       {unpriced && <div className="alert" style={{ marginBottom: 16 }}>Some agents use a model with no price set, so their money budget cannot be enforced. Set prices in Settings → Usage (OpenRouter models are priced automatically), or give them a token limit.</div>}
 
-      <div className="card" style={{ marginBottom: 16, overflowX: "auto" }}>
+      <div className="card" tabIndex={0} aria-label="Organisation chart" style={{ marginBottom: 16, overflowX: "auto" }}>
         <h3 style={{ marginBottom: 12 }}>Org chart</h3>
         {data.agents.length === 0 ? <Empty icon={<Building2 size={24} />} title="No one hired yet" hint="Hire a CEO, then people who report to them." /> : (
           <div className="row" style={{ alignItems: "flex-start", justifyContent: "center", gap: 24, minWidth: "fit-content" }}>
@@ -99,7 +99,7 @@ export default function Company() {
         <h3>New task</h3>
         <div className="row wrap">
           <input className="input grow" style={{ minWidth: 220 }} placeholder="Task title" value={task.title} onChange={(e) => setTask({ ...task, title: e.target.value })} />
-          <select className="input" style={{ width: 200 }} value={task.agent_id} onChange={(e) => setTask({ ...task, agent_id: Number(e.target.value) })}>
+          <select className="input" aria-label="Assign to" style={{ width: 200 }} value={task.agent_id} onChange={(e) => setTask({ ...task, agent_id: Number(e.target.value) })}>
             <option value={0}>Unassigned</option>
             {data.agents.map((a) => <option key={a.id} value={a.id}>{a.name} ({a.title || "agent"})</option>)}
           </select>
@@ -109,7 +109,7 @@ export default function Company() {
         <textarea className="input" rows={2} placeholder="Details (optional)" value={task.description} onChange={(e) => setTask({ ...task, description: e.target.value })} />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(220px, 1fr))", gap: 12, overflowX: "auto" }}>
+      <div tabIndex={0} role="region" aria-label="Task board" style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(220px, 1fr))", gap: 12, overflowX: "auto" }}>
         {COLUMNS.map(([label, statuses]) => {
           const list = data.tasks.filter((t) => statuses.includes(t.status));
           return (
@@ -142,7 +142,7 @@ export default function Company() {
               <label className="field grow">Role<input className="input" placeholder="CEO, CTO, Engineer…" value={edit.title} onChange={(e) => setEdit({ ...edit, title: e.target.value })} /></label>
             </div>
             <label className="field">Reports to
-              <select className="input" value={edit.reports_to ?? 0} onChange={(e) => setEdit({ ...edit, reports_to: Number(e.target.value) || null })}>
+              <select className="input" aria-label="Reports to" value={edit.reports_to ?? 0} onChange={(e) => setEdit({ ...edit, reports_to: Number(e.target.value) || null })}>
                 <option value={0}>The board (you)</option>
                 {data.agents.filter((a) => a.id !== edit.id).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
               </select>

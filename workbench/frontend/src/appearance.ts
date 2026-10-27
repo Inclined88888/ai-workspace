@@ -109,9 +109,10 @@ export function tokens(p: Palette, accentOverride = ""): Record<string, string> 
     "--accent": accent, "--on-accent": onAccent,
     "--accent-soft": mix(panel, accent, dark ? 0.2 : 0.11),
     "--accent-text": ensure(accent0, [panel, panel2, bg, mix(panel, accent, dark ? 0.2 : 0.11)], 4.5, text),
-    "--danger": ensure(danger, [panel, panel2], 4.5, text), "--danger-soft": mix(panel, danger, dark ? 0.18 : 0.1),
-    "--ok": ensure(ok, [panel, panel2], 4.5, text), "--ok-soft": mix(panel, ok, dark ? 0.18 : 0.1),
-    "--warn": ensure(warn, [panel, panel2], 4.5, text), "--warn-soft": mix(panel, warn, dark ? 0.18 : 0.1),
+    // status colours are read as text on panels and on their own tinted badges, so both must reach AA
+    "--danger": ensure(danger, [panel, panel2, mix(panel, danger, dark ? 0.18 : 0.1)], 4.5, text), "--danger-soft": mix(panel, danger, dark ? 0.18 : 0.1),
+    "--ok": ensure(ok, [panel, panel2, mix(panel, ok, dark ? 0.18 : 0.1)], 4.5, text), "--ok-soft": mix(panel, ok, dark ? 0.18 : 0.1),
+    "--warn": ensure(warn, [panel, panel2, mix(panel, warn, dark ? 0.18 : 0.1)], 4.5, text), "--warn-soft": mix(panel, warn, dark ? 0.18 : 0.1),
   };
 }
 

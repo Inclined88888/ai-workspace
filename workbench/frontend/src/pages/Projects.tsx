@@ -229,7 +229,7 @@ export default function Projects() {
     <div className="page" style={{ maxWidth: 1200 }}>
       <div className="page-head"><div><h1>Projects</h1><p className="muted">One place per piece of ongoing work: its goals, conversations, missions, decisions and memory, so ROOKS picks up where you left off.</p></div>
         <button className="btn primary" onClick={() => setCreating(true)}><Plus size={14} /> New project</button></div>
-      <div className={`two-pane${id ? " has-detail" : ""}`} style={{ gridTemplateColumns: "minmax(240px, 320px) 1fr" }}>
+      <div className={`two-pane projects-pane${id ? " has-detail" : ""}`}>
         <div className="col">
           <div className="row" style={{ position: "relative" }}>
             <Search size={14} className="faint" style={{ position: "absolute", left: 10 }} />

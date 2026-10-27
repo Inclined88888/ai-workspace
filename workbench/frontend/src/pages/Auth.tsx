@@ -319,6 +319,12 @@ export default function Auth({ status, onDone }: { status: Status; onDone: () =>
             {ready && ready.providers === 0
               ? <div className="alert">No AI model is connected yet, so the assistant can't answer. Tasks, notes and calendar work without one. Add a model under Settings, Model providers.</div>
               : ready && <ModelTest />}
+            <div className="onboard-note small">
+              <strong>Your privacy.</strong> ROOKS runs on your own machine. It sends text to the AI provider you connected, and asks before anything
+              with lasting effects after reading outside content. You can review what it remembers, and choose local-only projects, under Settings.
+            </div>
+            <div className="small muted">Later, if you like: <a href="/capabilities">see what ROOKS can do</a> · try <strong>Voice</strong> in the Assistant ·
+              pair your computer on the <strong>Computer</strong> page. None of these are needed to start.</div>
             {status.chat_url && <p className="muted small" style={{ margin: 0 }}>The Open WebUI add-on is at <a href={status.chat_url} target="_blank" rel="noreferrer">{status.chat_url}</a>; the first account created there becomes its admin.</p>}
             <button className="btn primary lg" onClick={onDone} autoFocus>Open ROOKS <ArrowRight size={16} /></button>
           </div>

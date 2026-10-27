@@ -21,6 +21,19 @@ type ProjectRef = { id: number; name: string };
 const BASIS: Record<string, string> = { fact: "ok", inference: "accent", uncertain: "warn" };
 const CHECK: Record<string, string> = { supported: "Supported", not_supported: "Not supported", unclear: "Unclear", unverified: "Not checked" };
 
+function download(name: string, text: string, mime: string) {
+  const url = URL.createObjectURL(new Blob([text], { type: mime }));
+  const a = document.createElement("a");
+  a.href = url; a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function evidenceCsv(rows: Evidence[]): string {
+  const cols: (keyof Evidence)[] = ["basis", "claim", "source_n", "url", "title", "published", "retrieved_at", "excerpt", "location", "verification", "confidence"];
+  const cell = (v: unknown) => { const s = v === null || v === undefined ? "" : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+  return [cols.join(","), ...rows.map((r) => cols.map((c) => cell(r[c])).join(","))].join("\n");
+}
+
 function EvidenceTable({ rows }: { rows: Evidence[] }) {
   const [only, setOnly] = useState("");
   const shown = only ? rows.filter((e) => e.basis === only) : rows;
@@ -219,6 +232,8 @@ export default function Research() {
                   {projects.length > 0 && !current.project_id && <select className="input" style={{ width: 170 }} aria-label="Save into a project" value={saveTo}
                     onChange={(e) => setSaveTo(e.target.value ? Number(e.target.value) : "")}><option value="">No project</option>{projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>}
                   <button className="btn sm" onClick={save}><FileText size={14} /> Save as a document{current.project_id || saveTo ? " in the project" : ""}</button>
+                  <button className="btn sm ghost" onClick={() => download(`${current.question.slice(0, 60).replace(/[^\w .-]+/g, "_")}.md`, current.report, "text/markdown")}>Report (.md)</button>
+                  {current.evidence?.length > 0 && <button className="btn sm ghost" onClick={() => download("evidence.csv", evidenceCsv(current.evidence), "text/csv")}>Evidence (.csv)</button>}
                   <div className="spacer" />
                   {current.monitor ? <button className="btn sm" onClick={() => follow(false)}><BellOff size={14} /> Stop following</button> : <>
                     <select className="input" style={{ width: 150 }} aria-label="How often to look for new results" value={cron} onChange={(e) => setCron(e.target.value)}>

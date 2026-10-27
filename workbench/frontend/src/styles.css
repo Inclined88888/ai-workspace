@@ -6,15 +6,15 @@
   --border-strong: #d0d0d7;
   --text: #18181b;
   --muted: #6b6b76;
-  --faint: #71717d;
+  --faint: #63636e;
   --accent: #3f4bd1;
   --accent-soft: #eceefd;
   --accent-text: #3340b4;
-  --danger: #d13b3b;
+  --danger: #b3282d;
   --danger-soft: #fdecec;
-  --ok: #1f8a4c;
+  --ok: #166b39;
   --ok-soft: #e6f6ec;
-  --warn: #b26b00;
+  --warn: #8a5300;
   --warn-soft: #fff4e0;
   --shadow: 0 1px 2px rgba(16, 16, 24, 0.04), 0 4px 16px rgba(16, 16, 24, 0.06);
   --radius: 10px;
@@ -491,7 +491,7 @@ details.card > summary::-webkit-details-marker { display: none; }
 .msg-user { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
 .msg-user .bubble-user { max-width: 85%; margin: 0; padding: 10px 14px; border-radius: 16px 16px 4px 16px; line-height: 1.55; }
 .msg-assistant { min-width: 0; }
-.msg-actions { display: flex; gap: 2px; opacity: 0.75; }
+.msg-actions { display: flex; gap: 2px; }
 .msg-actions .btn { height: 26px; font-size: 12.5px; }
 .msg-user:hover .msg-actions, .msg-assistant:hover .msg-actions, .msg-actions:focus-within { opacity: 1; }
 .rich { font-size: 15px; line-height: 1.7; }
@@ -645,3 +645,21 @@ details.card > summary::-webkit-details-marker { display: none; }
 button.cap-example { cursor: pointer; }
 button.cap-example:hover { background: var(--accent-soft); color: var(--accent-text); }
 .chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-text); }
+.two-pane.projects-pane { grid-template-columns: minmax(240px, 320px) minmax(0, 1fr); }
+@media (max-width: 900px) { .two-pane.projects-pane { grid-template-columns: minmax(0, 1fr); } }
+.glance { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
+.glance-tile { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); color: var(--text); box-shadow: var(--shadow-sm); min-width: 0; transition: border-color 0.15s var(--ease); }
+.glance-tile:hover { border-color: var(--accent); text-decoration: none; }
+.glance-head { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 2px; }
+.glance-num { font-size: 20px; font-weight: 650; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.onboard-note { padding: 10px 12px; border-radius: var(--radius-sm); background: var(--accent-soft); color: var(--text); line-height: 1.55; }
+.wflow { display: flex; gap: 10px; overflow-x: auto; padding: 4px 0 8px; }
+.wflow-col { display: flex; flex-direction: column; gap: 6px; min-width: 170px; }
+.wflow-col + .wflow-col { border-left: 1px dashed var(--border-strong); padding-left: 10px; }
+.wflow-node { display: flex; flex-direction: column; gap: 1px; padding: 6px 9px; border: 1px solid var(--border); border-left: 3px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--panel); min-width: 0; }
+.wflow-node.ok { border-left-color: var(--ok); }
+.wflow-node.accent { border-left-color: var(--accent); }
+.wflow-node.warn { border-left-color: var(--warn); }
+.wflow-node.danger { border-left-color: var(--danger); }
+/* Links inside running text are underlined, not told apart by colour alone (WCAG 1.4.1) */
+:where(p, li, dd, .small, .muted, .alert, .chat-note, .hint, .rich) a:not(.btn):not(.badge):not(.cite):not(.nav-link):not(.list-item) { text-decoration: underline; text-underline-offset: 2px; }

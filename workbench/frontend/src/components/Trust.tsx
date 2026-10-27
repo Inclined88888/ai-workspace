@@ -88,7 +88,7 @@ export function ActivityLog() {
         </select></div>
       <p className="muted small" style={{ margin: 0 }}>Keys and passwords are never written here.</p>
       {!rows ? <div className="muted small">Loading…</div> : rows.length === 0 ? <div className="muted small">Nothing recorded yet.</div> : (
-        <div style={{ maxHeight: 360, overflowY: "auto" }}>
+        <div tabIndex={0} role="region" aria-label="Activity entries" style={{ maxHeight: 360, overflowY: "auto" }}>
           <table className="table small" style={{ width: "100%" }}>
             <thead><tr><th scope="col">When</th><th scope="col">Who</th><th scope="col">What</th><th scope="col">Details</th></tr></thead>
             <tbody>{rows.map((r) => (
@@ -156,7 +156,7 @@ export function ToolsPanel() {
     <details className="card" id="tools" style={{ scrollMarginTop: 16 }}>
       <summary style={{ cursor: "pointer" }}><strong>Tools</strong> <span className="muted small">{tools ? `${tools.filter((t) => t.in_chat).length} of ${tools.length} usable now` : ""}</span></summary>
       {tools && (
-        <div style={{ overflowX: "auto", marginTop: 8 }}>
+        <div tabIndex={0} role="region" aria-label="Activity log table" style={{ overflowX: "auto", marginTop: 8 }}>
           <table className="table small" style={{ width: "100%" }}>
             <thead><tr><th scope="col">Tool</th><th scope="col">Area</th><th scope="col">Kind</th><th scope="col">Status</th><th scope="col">Time limit</th></tr></thead>
             <tbody>{tools.map((t) => (

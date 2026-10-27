@@ -407,6 +407,9 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   const doneSteps = steps.filter((s) => s.status === "ok").length;
   const current = [...steps].reverse().find((s) => s.status === "running" || s.status === "approval");
   const failed = steps.filter((s) => s.status === "error").length;
+  // errors and terminal work are shown open: their output is the point
+  const autoOpen = failed > 0 || steps.some((s) => WORKSPACE_TOOLS.has(s.name)) || current?.status === "approval";
+  const stepsOpen = openSteps !== autoOpen;
   const stepList = (
     <ol className="tsteps" aria-label="Steps">
       {steps.map((s, i) => (
@@ -440,14 +443,14 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   // The live activity of the turn in progress (or just finished): one line, expandable to every step
   const activity = steps.length > 0 && (
     <div className={`activity ${failed ? "has-error" : ""}`}>
-      <button type="button" className="activity-head" aria-expanded={openSteps || !!current?.status.match(/approval/)} onClick={() => setOpenSteps(!openSteps)}>
+      <button type="button" className="activity-head" aria-expanded={stepsOpen} onClick={() => setOpenSteps(!openSteps)}>
         {busy ? <Loader2 size={13} className="spin" /> : failed ? <X size={13} style={{ color: "var(--danger)" }} /> : <Check size={13} />}
         <span className="grow truncate">{current ? `${STEP_LABEL[current.name] ?? current.name}${current.status === "approval" ? ": waiting for your approval" : "…"}`
           : `${busy ? "Working" : "Used"} ${steps.length} ${steps.length === 1 ? "step" : "steps"}${failed ? `, ${failed} needed attention` : ""}`}</span>
         <span className="faint small">{doneSteps}/{steps.length}</span>
-        {openSteps ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        {stepsOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
       </button>
-      {(openSteps || current?.status === "approval") && stepList}
+      {stepsOpen && stepList}
     </div>
   );
 
@@ -585,7 +588,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
             <button type="button" className="btn ghost sm" onClick={() => { setEditing(null); setText(""); }}>Cancel</button></div>}
           <div className="composer">
             {slashOpen && (
-              <div className="slash-menu" role="listbox" aria-label="Commands">
+              <div id="slash-menu" className="slash-menu" role="listbox" aria-label="Commands">
                 {slashMatches.map(([c, d], i) => (
                   <button type="button" key={c} role="option" aria-selected={i === menuIdx} onMouseDown={(e) => { e.preventDefault(); setText(`${c} `); }}>
                     <span className="mono">{c}</span><span className="muted small">{d}</span>
@@ -603,7 +606,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
             )}
             <textarea ref={inputRef} className="composer-input" rows={1} value={text} onChange={(e) => { setText(e.target.value); setMenuIdx(0); e.target.style.height = "auto"; e.target.style.height = `${Math.min(e.target.scrollHeight, 240)}px`; }}
               aria-label="Message ROOKS" placeholder="Ask ROOKS anything. / for commands"
-              aria-autocomplete="list" aria-expanded={slashOpen}
+              aria-autocomplete="list" aria-controls={slashOpen ? "slash-menu" : undefined}
               onKeyDown={(e) => {
                 if (slashOpen && (e.key === "ArrowDown" || e.key === "ArrowUp")) { e.preventDefault(); setMenuIdx((i) => (i + (e.key === "ArrowDown" ? 1 : slashMatches.length - 1)) % slashMatches.length); return; }
                 if (slashOpen && (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey && text.trim() !== slashMatches[menuIdx][0]))) { e.preventDefault(); setText(`${slashMatches[menuIdx][0]} `); return; }
@@ -618,7 +621,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
               <input ref={fileInput} type="file" multiple hidden onChange={(e) => { if (e.target.files) attach(e.target.files); e.target.value = ""; }} />
               <button type="button" className="btn ghost icon" onClick={() => setVoice({})} disabled={busy || !!voice} aria-label="Start a voice conversation" title="Talk instead of typing"><Mic size={16} /></button>
               <div className="composer-model"><ModelSelect value={model} onChange={setModel} models={models} defaultLabel={autoRef ? `Automatic (${shortRef(autoRef, models)})` : "Automatic"} /></div>
-              {project && <Link to={`/projects/${project.id}`} className="badge accent truncate" style={{ maxWidth: 180 }} title="This conversation works in a project: its brief, memories and rules apply">{project.name}</Link>}
+              {project && <Link to={`/projects/${project.id}`} className="badge accent truncate" style={{ maxWidth: 200 }} title="This conversation works in a project: its brief, memories and rules apply">Project: {project.name}</Link>}
               <div className="spacer" />
               <span className="faint small hide-narrow">Shift+Enter for a new line</span>
               {busy && running
@@ -680,7 +683,7 @@ function MemoryTab() {
       </div>
       <form className="card row wrap" onSubmit={add}>
         <input className="input grow" style={{ minWidth: 220 }} value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} placeholder="Teach it something, e.g. I prefer short answers" />
-        <select className="input" style={{ width: 150 }} value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })}>
+        <select className="input" aria-label="Kind of memory" style={{ width: 150 }} value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })}>
           <option value="profile">Who I am</option><option value="preference">Preference</option><option value="fact">Fact</option>
         </select>
         <button className="btn primary" disabled={form.content.trim().length < 3}>Add</button>

@@ -70,7 +70,7 @@ export default function Automations() {
           <input className="input grow" style={{ minWidth: 180 }} required placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           <input className="input mono" style={{ width: 150 }} required value={form.cron} onChange={(e) => setForm({ ...form, cron: e.target.value })} title="minute hour day month weekday" />
           <span className="muted small" style={{ width: 150 }}>{describe(form.cron)}</span>
-          <select className="input" style={{ width: 130 }} value={form.deliver} onChange={(e) => setForm({ ...form, deliver: e.target.value })}>
+          <select className="input" aria-label="Where to deliver results" style={{ width: 130 }} value={form.deliver} onChange={(e) => setForm({ ...form, deliver: e.target.value })}>
             <option value="inbox">Inbox</option><option value="telegram">Inbox + Telegram</option>
           </select>
         </div>

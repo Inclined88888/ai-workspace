@@ -5,7 +5,8 @@ import { useEffect, useMemo, useRef } from "react";
 /* Markdown for answers: sanitised by DOMPurify first, then improved by working on the resulting DOM with text nodes
    only (never by building HTML strings from the model's text). Code blocks get a copy button and light syntax
    colouring, tables scroll inside their own box, external links open safely in a new tab, and [n] citations link to
-   the sources this turn actually read (they stay plain text when there is no such source). */
+   the sources this turn actually read (they stay plain text when there is no such source). Answers show no images or
+   media: an image the model writes would load by itself, and its address could carry conversation text to anyone. */
 
 marked.setOptions({ gfm: true, breaks: true });
 
@@ -133,7 +134,8 @@ function enhance(root: HTMLElement, sources: Set<number>) {
 export default function RichText({ text, sources = [], className = "" }: { text: string; sources?: number[]; className?: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const html = useMemo(() => DOMPurify.sanitize(marked.parse(text || "", { async: false }) as string,
-    { FORBID_TAGS: ["style", "form", "input", "button", "iframe", "object", "embed"], FORBID_ATTR: ["style"] }), [text]);
+    { FORBID_TAGS: ["style", "form", "input", "button", "iframe", "object", "embed", "img", "picture", "source", "video", "audio", "svg", "math"],
+      FORBID_ATTR: ["style", "srcset"] }), [text]);
   const key = sources.join(",");
   useEffect(() => { if (ref.current) enhance(ref.current, new Set(sources)); }, [html, key]); // eslint-disable-line react-hooks/exhaustive-deps
   return <div ref={ref} className={`prose rich ${className}`} dangerouslySetInnerHTML={{ __html: html }} />;

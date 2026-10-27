@@ -5,8 +5,13 @@ import { api, Model } from "./api";
 
 marked.setOptions({ gfm: true, breaks: true });
 
+// No images or media: reports and notes can hold text written by a model from web pages, and an image would load by
+// itself with an address that can carry that text away.
+const SAFE = { FORBID_TAGS: ["style", "form", "input", "button", "iframe", "object", "embed", "img", "picture", "source", "video", "audio"],
+  FORBID_ATTR: ["style", "srcset"] };
+
 export function Markdown({ text, className = "" }: { text: string; className?: string }) {
-  const html = DOMPurify.sanitize(marked.parse(text || "", { async: false }) as string);
+  const html = DOMPurify.sanitize(marked.parse(text || "", { async: false }) as string, SAFE);
   return <div className={`prose ${className}`} dangerouslySetInnerHTML={{ __html: html }} />;
 }
 

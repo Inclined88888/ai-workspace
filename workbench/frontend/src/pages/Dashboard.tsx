@@ -3,6 +3,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, CalEvent, Doc, Task } from "../api";
 import { fmtTime, relTime, todayISO, useToast } from "../util";
+import Glance from "../components/Glance";
 
 type Dash = {
   events: CalEvent[];
@@ -73,6 +74,9 @@ function Checklist({ r, onHide }: { r: Ready; onHide: () => void }) {
           </li>
         ))}
       </ul>
+      <div className="row wrap small muted" style={{ gap: 6 }}>Optional:
+        <Link to="/capabilities">See what ROOKS can do</Link>·<Link to="/settings#s-privacy">Review privacy</Link>·
+        <Link to="/assistant">Try Voice in the Assistant</Link>·<Link to="/computer">Pair your computer</Link></div>
     </section>
   );
 }
@@ -165,6 +169,8 @@ export default function Dashboard(_: { chatUrl?: string }) {
           </div>
           {noModel && <div className="alert">The assistant needs an AI model before it can answer. <Link to="/settings">Connect one in Settings</Link>. Everything else on this page works without it.</div>}
         </section>
+
+        {!noModel && <Glance />}
 
         {attention > 0 && (
           <section className="card col" aria-labelledby="att-title">

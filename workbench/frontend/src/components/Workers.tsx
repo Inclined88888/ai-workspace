@@ -20,6 +20,41 @@ const LABEL: Record<string, string> = {
 const TONE: Record<string, string> = { running: "accent", waiting_approval: "warn", needs_you: "warn", done: "ok", failed: "danger", blocked: "danger" };
 const VERIFIED: Record<string, string> = { verified: "Verified", accepted: "Accepted by you", rejected: "Rejected by review", unverified: "Not verified" };
 
+/** Who waits for whom: workers in columns by how many others they wait for (reviews sit with the work they check). */
+function Flow({ workers }: { workers: Worker[] }) {
+  const main = workers.filter((w) => w.role !== "review");
+  if (main.length < 2) return null;
+  const depth = new Map<number, number>();
+  const d = (w: Worker, seen = new Set<number>()): number => {
+    if (depth.has(w.id)) return depth.get(w.id)!;
+    if (seen.has(w.id)) return 0;
+    seen.add(w.id);
+    const v = w.after.length ? 1 + Math.max(...w.after.map((a) => { const x = main.find((m) => m.id === a); return x ? d(x, seen) : 0; })) : 0;
+    depth.set(w.id, v);
+    return v;
+  };
+  main.forEach((w) => d(w));
+  const cols = Math.max(...main.map((w) => depth.get(w.id) ?? 0)) + 1;
+  return (
+    <div className="wflow" aria-label="How the work is split">
+      {Array.from({ length: cols }, (_, c) => (
+        <div key={c} className="wflow-col">
+          <div className="faint small">{c === 0 ? "Starts" : `Then (${c})`}</div>
+          {main.filter((w) => (depth.get(w.id) ?? 0) === c).map((w) => {
+            const review = workers.find((r) => r.review_of === w.id);
+            return (
+              <div key={w.id} className={`wflow-node ${TONE[w.status] ?? ""}`} title={w.goal}>
+                <span className="small"><strong>#{w.id} {w.role_label}</strong></span>
+                <span className="small muted truncate">{LABEL[w.status] ?? w.status}{review ? ` · reviewed by #${review.id}` : ""}</span>
+              </div>
+            );
+          })}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /** A mission's workers: each a role with its own tools, checked and independently reviewed; you see and decide everything. */
 export default function Workers({ missionId, workers, budget, cancelled, onChange }: {
   missionId: number; workers: Worker[]; budget: SharedBudget; cancelled: boolean; onChange: () => void;
@@ -108,6 +143,7 @@ export default function Workers({ missionId, workers, budget, cancelled, onChang
           <div className="row"><button className="btn primary sm">Add</button><button type="button" className="btn sm" onClick={() => setAdding(false)}>Cancel</button></div>
         </form>
       )}
+      <Flow workers={workers} />
       {workers.length === 0 && !adding && <div className="small muted">No workers yet. Split work into parts, for example a research worker per source and a coordinator that combines them.</div>}
       <ul className="col" style={{ listStyle: "none", margin: 0, padding: 0, gap: 6 }}>
         {workers.map((w) => (

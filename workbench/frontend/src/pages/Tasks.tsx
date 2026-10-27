@@ -136,7 +136,7 @@ export default function Tasks() {
 
       <form className="card row wrap" onSubmit={add} style={{ marginBottom: 12 }}>
         <input className="input grow" style={{ minWidth: 200 }} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Add a task and press Enter" />
-        <input className="input" type="date" style={{ width: 160 }} value={due} onChange={(e) => setDue(e.target.value)} />
+        <input className="input" type="date" aria-label="Due date" style={{ width: 160 }} value={due} onChange={(e) => setDue(e.target.value)} />
         <button className="btn primary" disabled={!title.trim()}><Plus size={16} /> Add</button>
       </form>
 
