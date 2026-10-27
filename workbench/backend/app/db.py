@@ -344,6 +344,32 @@ CREATE TABLE IF NOT EXISTS worker_events (
 );
 CREATE INDEX IF NOT EXISTS worker_events_t ON worker_events(task_id, id);
 
+-- The evidence ledger: every claim a research run relied on, where it came from, and how well it holds up (research.py)
+CREATE TABLE IF NOT EXISTS evidence (
+  id INTEGER PRIMARY KEY,
+  research_id INTEGER NOT NULL,
+  project_id INTEGER,
+  claim TEXT NOT NULL,
+  basis TEXT NOT NULL,                          -- fact (a source states it) | inference (drawn, not stated) | uncertain
+  kind TEXT NOT NULL DEFAULT '',                -- as extracted: fact | figure | opinion | forecast
+  source_n INTEGER,                             -- the report's [n]; empty for an inference
+  url TEXT NOT NULL DEFAULT '',
+  title TEXT NOT NULL DEFAULT '',
+  published TEXT NOT NULL DEFAULT '',           -- the date the page gives, if any
+  retrieved_at TEXT NOT NULL DEFAULT '',
+  excerpt TEXT NOT NULL DEFAULT '',             -- the exact quote, found in the page text by code
+  location TEXT NOT NULL DEFAULT '',            -- where in the page text the quote is
+  credibility TEXT NOT NULL DEFAULT '',
+  confidence REAL NOT NULL DEFAULT 0,           -- 0..1 from credibility, freshness, corroboration and verification
+  verification TEXT NOT NULL DEFAULT 'unverified', -- supported | not_supported | unclear | unverified
+  verified_by TEXT NOT NULL DEFAULT '',
+  contradicts TEXT NOT NULL DEFAULT '[]',       -- JSON: ids of entries that disagree with it
+  corroborated_by TEXT NOT NULL DEFAULT '[]',   -- JSON: ids of entries from other sites that say the same
+  round INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS evidence_r ON evidence(research_id, id);
+
 CREATE TABLE IF NOT EXISTS project_notes (
   id INTEGER PRIMARY KEY,
   project_id INTEGER NOT NULL,
@@ -617,7 +643,9 @@ def init() -> None:
                      ("review_unverified", "INTEGER NOT NULL DEFAULT 0"), ("estimate_cents", "REAL"), ("template", "TEXT NOT NULL DEFAULT ''")):
         _add_column("missions", col, ddl)
     for col, ddl in (("plan", "TEXT NOT NULL DEFAULT '[]'"), ("stats", "TEXT NOT NULL DEFAULT '{}'"),
-                     ("skipped", "TEXT NOT NULL DEFAULT '[]'"), ("cancel", "INTEGER NOT NULL DEFAULT 0")):
+                     ("skipped", "TEXT NOT NULL DEFAULT '[]'"), ("cancel", "INTEGER NOT NULL DEFAULT 0"),
+                     ("rounds", "TEXT NOT NULL DEFAULT '[]'"), ("max_rounds", "INTEGER NOT NULL DEFAULT 0"),
+                     ("monitor_topic_id", "INTEGER")):
         _add_column("research", col, ddl)
 
 

@@ -797,9 +797,10 @@ async def retry_research(rid: int):
     if not r:
         raise HTTPException(404, "Not found")
     if not db.changed("UPDATE research SET status = 'running', error = '', progress = 'Starting again', report = '', sources = '[]', "
-                      "plan = '[]', stats = '{}', skipped = '[]', cancel = 0, updated_at = ? WHERE id = ? AND status IN ('error', 'cancelled')",
+                      "plan = '[]', stats = '{}', skipped = '[]', rounds = '[]', cancel = 0, updated_at = ? WHERE id = ? AND status IN ('error', 'cancelled')",
                       db.now(), rid):
         raise HTTPException(409, "Only failed research can be retried")
+    db.run("DELETE FROM evidence WHERE research_id = ?", rid)
     _start_research(rid, r["question"], r["model"], r["depth"])
     return db.one("SELECT * FROM research WHERE id = ?", rid)
 
@@ -814,7 +815,11 @@ def get_research(rid: int):
     r = db.one("SELECT * FROM research WHERE id = ?", rid)
     if not r:
         raise HTTPException(404, "Not found")
-    return r | {k: json.loads(r[k] or d) for k, d in (("sources", "[]"), ("plan", "[]"), ("stats", "{}"), ("skipped", "[]"))}
+    out = r | {k: json.loads(r[k] or d) for k, d in (("sources", "[]"), ("plan", "[]"), ("stats", "{}"), ("skipped", "[]"), ("rounds", "[]"))}
+    out["evidence"] = research.ledger(rid)
+    topic = db.one("SELECT id, cron, enabled, last_check_at FROM topics WHERE id = ?", r["monitor_topic_id"]) if r.get("monitor_topic_id") else None
+    out["monitor"] = topic
+    return out
 
 
 @api.post("/research/{rid}/cancel")
@@ -827,16 +832,76 @@ def cancel_research(rid: int):
 
 @api.delete("/research/{rid}")
 def delete_research(rid: int):
+    r = db.one("SELECT monitor_topic_id FROM research WHERE id = ?", rid)
+    if r and r["monitor_topic_id"] and db.one("SELECT id FROM topics WHERE id = ?", r["monitor_topic_id"]):
+        from . import checkins
+
+        checkins.delete(r["monitor_topic_id"])
+    db.run("DELETE FROM evidence WHERE research_id = ?", rid)
     db.run("DELETE FROM research WHERE id = ?", rid)
     return {"ok": True}
 
 
+class SaveIn(BaseModel):
+    project_id: int | None = None
+
+
 @api.post("/research/{rid}/save")
-def save_research(rid: int):
+def save_research(rid: int, data: SaveIn | None = None):
+    """Save the report as a document, with its evidence table; in a project, the document and the evidence belong to it."""
+    from . import projects
+
     r = get_research(rid)
     if r["status"] != "done":
         raise HTTPException(400, "Research is not finished")
-    return services.create_doc(services.DocIn(kind="document", title=r["question"][:300], body=r["report"], tags="research"))
+    pid = (data.project_id if data else None) or r.get("project_id")
+    if pid:
+        p = projects.get(pid)
+        if not p:
+            raise HTTPException(404, "Project not found")
+        if p["local_only"] and not llm.is_local(r["model"]):
+            raise HTTPException(409, f"{p['name']} is local only, and this research used {r['model']}, which is not local.")
+    rows = "\n".join(f"| {e['basis']} | {e['claim'].replace('|', '/')[:200]} | {('[' + str(e['source_n']) + ']') if e['source_n'] else ''} | "
+                     f"{e['verification'].replace('_', ' ')} | {e['confidence']:.2f} |" for e in r["evidence"])
+    body = r["report"] + (f"\n\n## Evidence\n\n| Basis | Claim | Source | Independent check | Confidence |\n|---|---|---|---|---|\n{rows}" if rows else "")
+    doc = services.create_doc(services.DocIn(kind="document", title=r["question"][:300], body=body, tags="research"))
+    if pid:
+        db.run("UPDATE docs SET project_id = ? WHERE id = ?", pid, doc["id"])
+        db.run("UPDATE evidence SET project_id = ? WHERE research_id = ?", pid, rid)
+        db.run("UPDATE research SET project_id = COALESCE(project_id, ?) WHERE id = ?", pid, rid)
+        doc["project_id"] = pid
+    audit.record("user", "research saved", f"#{rid}", f"document #{doc['id']}" + (f" in project #{pid}" if pid else ""))
+    return doc
+
+
+class MonitorIn(BaseModel):
+    cron: str = Field("0 8 * * 1", max_length=100)
+    notify: str = Field("inbox", pattern="^(inbox|telegram)$")
+
+
+@api.post("/research/{rid}/monitor")
+def monitor_research(rid: int, data: MonitorIn):
+    """Opt in to follow this question: a check-in that searches it on a schedule and tells you only about new results."""
+    from . import checkins
+
+    r = get_research(rid)
+    if r.get("monitor") and r["monitor"]:
+        raise HTTPException(409, "This research is already being followed.")
+    t = checkins.create(f"Research: {r['question'][:80]}", data.cron, [f"search:{r['question'][:400]}"],
+                        description=f"New results for research #{rid}.", project_id=r.get("project_id"), importance="low", notify=data.notify)
+    db.run("UPDATE research SET monitor_topic_id = ? WHERE id = ?", t["id"], rid)
+    return get_research(rid)
+
+
+@api.delete("/research/{rid}/monitor")
+def stop_monitor(rid: int):
+    from . import checkins
+
+    r = get_research(rid)
+    if r.get("monitor"):
+        checkins.delete(r["monitor"]["id"])
+    db.run("UPDATE research SET monitor_topic_id = NULL WHERE id = ?", rid)
+    return get_research(rid)
 
 
 # Compare
