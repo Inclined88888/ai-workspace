@@ -168,9 +168,9 @@ export default function Dashboard(_: { chatUrl?: string }) {
 
         {attention > 0 && (
           <section className="card col" aria-labelledby="att-title">
-            <div className="row"><Bell size={16} aria-hidden="true" /><h2 id="att-title">Needs your attention</h2></div>
+            <div className="row"><Bell size={16} aria-hidden="true" /><h2 id="att-title" className="grow">Needs your attention</h2><Link className="btn ghost sm" to="/needs-you">See everything <ArrowRight size={13} /></Link></div>
             <div className="row wrap">
-              {approvals > 0 && <Link className="btn sm" to="/assistant"><ShieldAlert size={14} /> {approvals} waiting for approval</Link>}
+              {approvals > 0 && <Link className="btn sm" to="/needs-you"><ShieldAlert size={14} /> {approvals} waiting for approval</Link>}
               {(data?.overdue ?? 0) > 0 && <Link className="btn sm" to="/tasks"><AlertTriangle size={14} style={{ color: "var(--danger)" }} /> {data!.overdue} overdue {data!.overdue === 1 ? "task" : "tasks"}</Link>}
               {unread > 0 && <Link className="btn sm" to="/automations"><Bell size={14} /> {unread} unread in your inbox</Link>}
             </div>

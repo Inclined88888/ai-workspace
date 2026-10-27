@@ -26,6 +26,7 @@ import Projects from "./pages/Projects";
 import Computer from "./pages/Computer";
 import ComputerBar from "./components/ComputerBar";
 import CallInvites from "./components/CallInvites";
+import NeedsYou, { NeedsYouIcon, useAttentionCount } from "./pages/NeedsYou";
 
 export type Status = {
   setup_complete: boolean;
@@ -39,29 +40,35 @@ export type Status = {
   local_models_enabled: boolean;
 };
 
-// Grouped by what people want to do; every route existed before, so deep links keep working
+// Grouped around what ROOKS does for you; every route existed before, so deep links keep working
 const NAV = [
   { to: "/", label: "Home", icon: Home },
-  { section: "Work" },
+  { to: "/needs-you", label: "Needs you", icon: NeedsYouIcon, count: true },
+  { section: "ROOKS" },
   { to: "/assistant", label: "Assistant", icon: MessageSquare },
   { to: "/projects", label: "Projects", icon: FolderKanban },
   { to: "/missions", label: "Missions", icon: Flag },
+  { to: "/research", label: "Research", icon: Search },
   { to: "/computer", label: "Computer", icon: MonitorPlay },
+  { to: "/automations", label: "Automations", icon: CalendarClock },
+  { section: "Your workspace" },
   { to: "/tasks", label: "Tasks", icon: CheckSquare },
   { to: "/calendar", label: "Calendar", icon: CalendarDays },
   { to: "/notes", label: "Notes", icon: NotebookPen },
   { to: "/documents", label: "Documents", icon: FileText },
   { to: "/files", label: "Files", icon: FolderOpen },
-  { section: "Intelligence" },
-  { to: "/research", label: "Research", icon: Search },
+  { to: "/mail", label: "Mail", icon: Mail },
+  { section: "More" },
   { to: "/assistant-memory", label: "Memory & skills", icon: Brain },
-  { to: "/automations", label: "Automations", icon: CalendarClock },
   { to: "/company", label: "Agent team", icon: Building2 },
   { to: "/browser", label: "Browser agent", icon: Globe, addon: "browser" },
   { to: "/compare", label: "Compare models", icon: Columns3 },
-  { section: "Communication" },
-  { to: "/mail", label: "Mail", icon: Mail },
 ] as const;
+
+function NavCount() {
+  const n = useAttentionCount();
+  return n > 0 ? <span className="nav-count" aria-label={`${n} waiting`}>{n > 99 ? "99+" : n}</span> : null;
+}
 
 function readCollapsed(): boolean {
   try { return localStorage.getItem("wb-sidebar") === "collapsed"; } catch { return false; }
@@ -162,6 +169,7 @@ export default function App() {
             ) : (
               <NavLink key={item.to} to={item.to} end={item.to === "/"} className="nav-link" title={collapsed ? item.label : undefined}>
                 <item.icon size={17} aria-hidden="true" /> <span className="nav-label">{item.label}</span>
+                {"count" in item && <NavCount />}
               </NavLink>
             ),
           )}
@@ -219,6 +227,7 @@ export default function App() {
           <Route path="/missions" element={<Missions />} />
           <Route path="/missions/:id" element={<Missions />} />
           <Route path="/automations" element={<Automations />} />
+          <Route path="/needs-you" element={<NeedsYou />} />
           <Route path="/company" element={<Company />} />
           <Route path="/research" element={<Research />} />
           <Route path="/research/:id" element={<Research />} />

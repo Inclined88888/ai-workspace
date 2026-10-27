@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from . import calls, checkins
+from . import attention, calls, checkins
 from .assistant_api import require_user_or_cli
 
 router = APIRouter(prefix="/api", dependencies=[Depends(require_user_or_cli)])
@@ -167,3 +167,24 @@ class VerifyCode(BaseModel):
 @router.post("/calls/phone/confirm")
 def phone_confirm(data: VerifyCode):
     return calls.confirm_verification(data.code)
+
+
+# Needs You (attention.py)
+@router.get("/needs-you")
+def needs_you(include_deferred: bool = False):
+    return attention.items(include_deferred)
+
+
+@router.get("/needs-you/count")
+def needs_you_count():
+    return {"count": attention.count()}
+
+
+class DeferIn(BaseModel):
+    id: str = Field(..., max_length=80)
+    hours: float = Field(..., gt=0, le=24 * 14)
+
+
+@router.post("/needs-you/defer")
+def needs_you_defer(data: DeferIn):
+    return attention.defer(data.id, data.hours)
