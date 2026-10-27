@@ -166,13 +166,17 @@ try:
         return tuple(px_[o:o + 3])
     check("V: password field blacked out before the screenshot left the computer; the rest intact", at(120, 215) == (0, 0, 0) and at(340, 210)[0] > 200,
           f"password area {at(120, 215)}, red button {at(340, 210)}")
-    ev, _ = chat("TEST-V2: locate it")
-    tid = json.loads(next(t[2] for t in tool_results(ev) if t[0] == "computer_locate"))["target"]
+    ev, vcid = chat("TEST-V2: locate it")
+    # the preview is cut at 300 characters, so read the target id out of it rather than parsing it as JSON
+    tid = re.search(r'"target": "(v[^"]+)"', next(t[2] for t in tool_results(ev) if t[0] == "computer_locate")).group(1)
+    ev, _ = chat(f"TEST-V3: click {tid}")  # a new conversation may not use this conversation's target
+    tr = tool_results(ev)
+    check("V: a visual target cannot be used from another conversation", tr and not tr[0][1] and "another conversation" in tr[0][2] and "hidden=1" in title(), tr)
     subprocess.run([PY_COMP, "-c", "from Xlib import display; d=display.Display(); "
                     "[w.configure(x=140) for w in d.screen().root.query_tree().children if (w.get_wm_class() or ('',''))[1]=='ROOKS Fixture']; d.sync()"],
                    env={**os.environ, "DISPLAY": DISPLAY}, check=True)
     time.sleep(0.5)
-    ev, _ = chat(f"TEST-V3: click {tid}")
+    ev, _ = chat(f"TEST-V3: click {tid}", vcid)
     tr = tool_results(ev)
     check("V: a visual click is refused when the window moved after the screenshot", tr and not tr[0][1] and "moved" in tr[0][2] and "hidden=1" in title(), tr)
     ev, _ = chat("TEST-V4: find something that is not there")
