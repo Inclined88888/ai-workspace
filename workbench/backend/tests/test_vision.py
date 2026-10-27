@@ -86,7 +86,9 @@ def test_locate_asks_first_then_click_goes_through_the_companion(vis):
         tid = json.loads(r["result"])["target"]
         assert vis.get("/api/computer").json()["screen_shared"]["app"] == "Numbers"
         SCRIPT[:] = [tool_call("computer_click_visual", {"target": tid, "app": "Numbers"}, "c"), {"role": "assistant", "content": "done"}]
-        ev = events(vis.post("/api/assistant/chat", json={"message": "click it"}))
+        # Visual targets are scoped to the conversation that captured the window.
+        original_cid = next(e["conversation_id"] for e in ev if e["type"] == "start")
+        ev = events(vis.post("/api/assistant/chat", json={"message": "click it", "conversation_id": original_cid}))
         res = next(e for e in ev if e["type"] == "tool_result")
         assert res["ok"], res
         click = comp.seen[-1]
