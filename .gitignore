@@ -8,3 +8,24 @@ __pycache__/
 .pytest_cache/
 out/
 *.tsbuildinfo
+
+# Upgrade records written by scripts/upgrade.sh
+.rooks/
+
+# Never commit secrets or machine specific files
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.log
+.DS_Store
+# Update packages, companion temp writes and the on-device check result
+rooks-update-*.tar.gz*
+*.rooks-tmp*
+rooks-macos-check.json

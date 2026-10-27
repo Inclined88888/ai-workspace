@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Guided setup for AI Workspace. Safe to re-run: existing .env values, secrets and data are kept.
+# Guided setup for ROOKS. Safe to re-run: existing .env values, secrets and data are kept.
 #
 #   ./setup.sh                          the light core: one container (assistant, memory, skills, automations,
 #                                       company, notes, tasks, calendar, mail, research)
@@ -57,6 +57,13 @@ set_env() {
   cat "$tmp" > .env; rm -f "$tmp"
 }
 has() { case ",$ADDONS," in *",$1,"*) return 0 ;; *) return 1 ;; esac; }
+valid_tz() { # prints a full zone name for "Australia/Brisbane" or a bare city like "brisbane"; empty if unknown
+  local want=$1 zdir=/usr/share/zoneinfo hits
+  [[ -n "$want" && -d $zdir ]] || { echo "$want"; return; }
+  if [[ -f "$zdir/$want" ]]; then echo "$want"; return; fi
+  hits=$(cd "$zdir" && find . -type f -iname "${want// /_}" 2>/dev/null | sed 's#^\./##' | grep -vE '^(posix|right|Etc)/' | grep '/' || true)
+  [[ $(printf '%s\n' "$hits" | grep -c .) -eq 1 ]] && echo "$hits"
+}
 host_tz() {
   local tz=""
   if [[ -L /etc/localtime ]]; then tz=$(readlink /etc/localtime | sed -E 's#.*/zoneinfo/##'); fi
@@ -64,7 +71,8 @@ host_tz() {
   echo "${tz:-UTC}"
 }
 
-bold "AI Workspace setup"
+bold "ROOKS setup"
+info "Your move. ROOKS delivers."
 command -v docker >/dev/null 2>&1 || fail "Docker is not installed (Mac: Docker Desktop or OrbStack; Linux: https://docs.docker.com/engine/install/)."
 docker compose version >/dev/null 2>&1 || fail "Docker Compose v2 is required (the 'docker compose' command)."
 docker info >/dev/null 2>&1 || fail "Cannot talk to Docker. Is Docker running (and is your user in the docker group on Linux)?"
@@ -99,8 +107,15 @@ set_env COMPOSE_PROFILES "$ADDONS"
 
 if $FIRST_RUN; then
   echo; bold "Basics"
-  ask NAME "Workspace name" "AI Workspace"; set_env WORKSPACE_NAME "$NAME"
-  ask TZ_IN "Your timezone (for schedules)" "$(host_tz)"; set_env WORKSPACE_TIMEZONE "$TZ_IN"
+  ask NAME "Workspace name" "ROOKS"; set_env WORKSPACE_NAME "$NAME"
+  ask TZ_IN "Your timezone (for schedules)" "$(host_tz)"
+  TZ_OK=$(valid_tz "$TZ_IN")
+  if [[ -z "$TZ_OK" ]]; then
+    TZ_OK=$(host_tz); info "\"$TZ_IN\" is not a timezone name; using $TZ_OK. Change it later under Assistant > Settings."
+  elif [[ "$TZ_OK" != "$TZ_IN" ]]; then
+    info "Using timezone $TZ_OK"
+  fi
+  set_env WORKSPACE_TIMEZONE "$TZ_OK"
   ask LAN "Allow access from other devices on your network? (y/N)" "n"
   if [[ "$LAN" =~ ^[Yy] ]]; then
     set_env BIND_ADDRESS 0.0.0.0
@@ -113,6 +128,16 @@ if $FIRST_RUN; then
   ask_secret OPENROUTER "OpenRouter API key (hundreds of models, real cost tracking)"; [[ -n "$OPENROUTER" ]] && set_env OPENROUTER_API_KEY "$OPENROUTER"
   ask_secret OPENAI "OpenAI API key"; [[ -n "$OPENAI" ]] && set_env OPENAI_API_KEY "$OPENAI"
   ask_secret GEMINI "Google Gemini API key (free tier)"; [[ -n "$GEMINI" ]] && set_env GEMINI_API_KEY "$GEMINI"
+  # Web search is an add-on (opt-in); offer it here because the assistant and research are far less useful without it
+  if ! $YES && ! $WITH_GIVEN && ! has search; then
+    echo; bold "Web search"
+    info "Free, private web search for the assistant and research (SearXNG add-on: one small container, about 110 MB RAM)."
+    info "Without it you can add a free Tavily key later in Settings."
+    ask WEB "Turn on web search? (Y/n)" "y"
+    if [[ "$WEB" =~ ^[Yy] ]]; then
+      ADDONS="${ADDONS:+$ADDONS,}search"; set_env ADDONS "$ADDONS"; set_env COMPOSE_PROFILES "$ADDONS"
+    fi
+  fi
 fi
 
 # Local models: Ollama add-on container, or the native Ollama app on this computer (fast on a Mac)
@@ -179,7 +204,7 @@ fi
 has hermes && { ./scripts/hermes-config.sh || info "Hermes config not written; run ./scripts/hermes-config.sh later."; }
 
 echo; bold "Ready"
-info "Workspace:  http://${HOST}:$(get_env WORKBENCH_PORT)    setup code: $(get_env SETUP_CODE)"
+info "ROOKS:       http://${HOST}:$(get_env WORKBENCH_PORT)    setup code: $(get_env SETUP_CODE)"
 info "Terminal:   cli/ws login http://${HOST}:$(get_env WORKBENCH_PORT)   (token: Assistant > Settings > Terminal access)"
 info "Telegram, web search keys, timezone: Assistant > Settings"
 has openwebui && info "Open WebUI: $(get_env CHAT_URL)    (first account becomes admin; create it now)"

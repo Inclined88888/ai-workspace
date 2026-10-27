@@ -2,7 +2,7 @@
 # First run setup for Hermes Agent, done through Hermes' own `hermes config set` so its defaults stay intact.
 #  • model: Anthropic if ANTHROPIC_API_KEY is set, else OpenRouter, else your local Ollama DEFAULT_MODEL
 #    (Hermes needs a model with at least a 64K context window; qwen3:4b has 256K, qwen3:8b only 40K)
-#  • MCP servers: Workbench (notes, tasks, calendar, mail drafts) and the browser agent; keys stay as ${VAR}
+#  • MCP servers: ROOKS (notes, tasks, calendar, mail drafts) and the browser agent; keys stay as ${VAR}
 # Runs once (marker file in the hermes volume). After that the config is yours: change the model in the
 # Hermes dashboard or with `hermes model`. Use --force to apply these defaults again.
 set -euo pipefail
@@ -36,4 +36,4 @@ hx hermes config set mcp_servers.browser.url "http://browser:8100/mcp" >/dev/nul
 hx hermes config set mcp_servers.browser.headers.Authorization 'Bearer ${BROWSER_API_KEY}' >/dev/null
 hx touch /opt/data/.ai-workspace-configured
 docker compose restart hermes >/dev/null
-echo "Hermes configured: $provider/$model with Workbench and browser tools."
+echo "Hermes configured: $provider/$model with ROOKS and browser tools."

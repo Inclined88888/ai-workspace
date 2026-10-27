@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""ws: your workspace assistant in the terminal. Same assistant, memory and skills as the web app and Telegram.
+"""ws: ROOKS in the terminal. Same assistant, memory and skills as the web app and Telegram.
 
-Setup once (token from Workbench > Assistant > Settings > Terminal access):
+Setup once (token from ROOKS > Assistant > Settings > Terminal access):
     ws login http://localhost:3100
 
 Use:
@@ -127,7 +127,7 @@ def main(argv: list[str]) -> None:
         print(c("green", "Logged in."))
         return
     if not cfg.get("token"):
-        sys.exit("Run: ws login http://your-workspace:3100")
+        sys.exit("Run: ws login http://your-rook-server:3100")
     cmd = argv[0] if argv else ""
     if cmd == "new":
         cfg.pop("conversation_id", None)

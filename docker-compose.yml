@@ -1,11 +1,13 @@
-# AI Workspace: one light container by default. Everything else is an optional add-on (Compose profile).
+# ROOKS: one light container by default. Everything else is an optional add-on (Compose profile).
 # Run ./setup.sh for a guided first start. Add-ons: ./setup.sh --with search,browser,local-models,openwebui,paperclip,hermes
 #
-#   Workspace (assistant, memory, skills, automations, company, notes, tasks, calendar, mail, research)
+#   ROOKS (assistant, memory, skills, automations, company, notes, tasks, calendar, mail, research)
 #             http://localhost:${WORKBENCH_PORT:-3100}
 #   Add-ons: search (SearXNG), browser (Chromium agent), local-models (Ollama in Docker; on a Mac prefer the
 #            native Ollama app), openwebui :3000, paperclip :3200, hermes :3300
 
+# The project name stays ai-workspace: Docker volume names (ai-workspace_workbench, ...) derive from it,
+# so changing it would orphan existing data.
 name: ai-workspace
 
 services:
@@ -52,7 +54,7 @@ services:
     volumes:
       - open-webui:/app/backend/data
     environment:
-      WEBUI_NAME: ${WORKSPACE_NAME:-AI Workspace}
+      WEBUI_NAME: ${WORKSPACE_NAME:-ROOKS}
       WEBUI_URL: ${WEBUI_PUBLIC_URL:-http://localhost:3000}
       WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY:-}
       # First account created becomes admin. Later sign ups wait for approval.
@@ -73,11 +75,11 @@ services:
       # Memory and notes
       ENABLE_MEMORIES: "true"
       ENABLE_NOTES: "true"
-      # Workbench tools (notes, tasks, calendar, mail drafts) callable from chat
+      # ROOKS tools (notes, tasks, calendar, mail drafts) callable from chat; the id stays "workbench"
       TOOL_SERVER_CONNECTIONS: >-
         [{"type":"openapi","url":"http://workbench:8000/tools","spec_type":"url","spec":"","path":"openapi.json",
         "auth_type":"bearer","key":"${TOOLS_API_KEY}","config":{"enable":true},
-        "info":{"id":"workbench","name":"Workbench","description":"Notes, documents, tasks, calendar and email drafts"}},
+        "info":{"id":"workbench","name":"ROOKS","description":"Notes, documents, tasks, calendar and email drafts"}},
         {"type":"openapi","url":"http://browser:8100/tools","spec_type":"url","spec":"","path":"openapi.json",
         "auth_type":"bearer","key":"${BROWSER_API_KEY}","config":{"enable":true},
         "info":{"id":"browser","name":"Browser","description":"A browser agent that can navigate websites to reach a goal"}}]
@@ -96,15 +98,17 @@ services:
     environment:
       APP_SECRET: ${APP_SECRET:?run ./setup.sh or set APP_SECRET in .env}
       TOOLS_API_KEY: ${TOOLS_API_KEY:?run ./setup.sh or set TOOLS_API_KEY in .env}
-      WORKSPACE_NAME: ${WORKSPACE_NAME:-AI Workspace}
+      WORKSPACE_NAME: ${WORKSPACE_NAME:-ROOKS}
       WORKSPACE_TIMEZONE: ${WORKSPACE_TIMEZONE:-UTC}
       DEFAULT_MODEL: ${DEFAULT_MODEL:-qwen3:4b}
       # Add-ons: empty unless enabled by setup.sh --with ...
       CHAT_URL: ${CHAT_URL:-}
       SEARXNG_URL: ${SEARXNG_URL:-}
       OLLAMA_URL: ${OLLAMA_URL:-}
-      # Set to true when Workbench is served over HTTPS (reverse proxy)
+      # Set to true when ROOKS is served over HTTPS (reverse proxy)
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      # Longest one assistant request may run, in seconds (model calls and tools together)
+      WORKBENCH_TURN_SECONDS: ${WORKBENCH_TURN_SECONDS:-300}
       # Seed external providers on first start (also editable in Settings)
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -115,7 +119,7 @@ services:
       PAPERCLIP_URL: ${PAPERCLIP_URL:-}
       HERMES_URL: ${HERMES_URL:-}
 
-  # Browser agent (browser-use + Playwright). Internal only: reached by Workbench, Chat and Paperclip.
+  # Browser agent (browser-use + Playwright). Internal only: reached by ROOKS, Open WebUI and Paperclip.
   browser:
     profiles: ["browser"]
     build: ./browser-agent
@@ -128,7 +132,7 @@ services:
       BROWSER_API_KEY: ${BROWSER_API_KEY:-}
       BROWSER_MAX_CONCURRENT: ${BROWSER_MAX_CONCURRENT:-2}
       BROWSER_MAX_STEPS_LIMIT: ${BROWSER_MAX_STEPS_LIMIT:-50}
-      # Spend guard for every caller (Workbench, Chat, Paperclip employees): steps per UTC month, 0 = unlimited
+      # Spend guard for every caller (ROOKS, Open WebUI, Paperclip employees): steps per UTC month, 0 = unlimited
       BROWSER_MONTHLY_STEP_LIMIT: ${BROWSER_MONTHLY_STEP_LIMIT:-2000}
       # Keep the agent off IP addresses and the stack's own hostnames
       BROWSER_BLOCK_IP_ADDRESSES: "true"

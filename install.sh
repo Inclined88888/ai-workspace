@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One command install for AI Workspace:
+# One command install for ROOKS:
 #
 #   curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/main/install.sh | bash
 #
@@ -39,7 +39,7 @@ main() {
     [[ "$ans" =~ ^[Yy] ]]
   }
 
-  bold "AI Workspace installer"
+  bold "ROOKS installer"
   local os
   os=$(uname -s)
   case "$os" in
@@ -86,7 +86,7 @@ main() {
     git -C "$dir" fetch origin "$ref" || fail "Could not fetch $ref from $url."
     git -C "$dir" merge --ff-only FETCH_HEAD || fail "$dir has local changes that conflict with the update. Commit or discard them, then run this again."
   elif [[ -e "$dir" && ! -f "$dir/setup.sh" ]]; then
-    fail "$dir already exists and is not an AI Workspace install. Set AI_WORKSPACE_DIR to another folder."
+    fail "$dir already exists and is not a ROOKS install. Set AI_WORKSPACE_DIR to another folder."
   elif $git_ok && [[ ! -e "$dir" ]]; then
     bold "Downloading to $dir"
     git clone --depth 1 --branch "$ref" "$url" "$dir" || fail "Could not download $url (branch $ref). Is the repository public?"

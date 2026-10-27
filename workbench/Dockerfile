@@ -6,6 +6,9 @@ COPY frontend/ ./
 RUN npm run build
 
 FROM python:3.12-slim
+LABEL org.opencontainers.image.title="ROOKS" \
+      org.opencontainers.image.description="ROOKS: a lightweight, self-hosted AI workspace. Your move. ROOKS delivers." \
+      org.opencontainers.image.source="https://github.com/Inclined88888/ai-workspace"
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 DATA_DIR=/data STATIC_DIR=/app/static
 WORKDIR /app
 COPY backend/requirements.txt ./
