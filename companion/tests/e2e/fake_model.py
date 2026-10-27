@@ -89,6 +89,20 @@ def program(goal, results):
         return say('Read the result and its tool calls.\n{"verdict": "approve", "issues": ""}')
     elif "Your task: Look through the notes" in goal:  # workers: a research worker
         steps = [lambda: call("search_notes", query="venue"), lambda: say("The notes do not name a venue yet. Evidence: search_notes returned no match.")]
+    elif "AI model spending" in goal:  # rich answers: usage totals and charts from real records
+        steps = [lambda: call("get_usage", days=30), lambda: say("Here is your spending for the last 30 days. Most of it went to one model.")]
+    elif "Compare the AI models" in goal:
+        steps = [lambda: call("list_models"), lambda: say("These are the models you have connected. **fake-model** is the default.")]
+    elif "most recent project" in goal:
+        steps = [lambda: call("project_status"), lambda: say("The project is on track. One question is still open.")]
+    elif "What tasks" in goal:
+        steps = [lambda: call("list_tasks"), lambda: say("You have these open tasks.")]
+    elif "Show me some code" in goal:
+        return say("Here is a function:\n\n```python\ndef add(a, b):\n    # adds two numbers\n    return a + b  # result\n```\n\n| Item | Cost |\n|---|---|\n| Oak | 1200 |\n| Pine | 800 |")
+    elif "Try to break the page" in goal:  # an answer carrying markup and script attempts: must render inert
+        return say("Hello <script>window.__pwned = 1</script><img src=x onerror=\"window.__pwned = 2\"> "
+                   "[click me](javascript:window.__pwned=3) <a href=\"data:text/html,<script>parent.__pwned=4</script>\">data</a> "
+                   "<iframe src=\"https://example.org\"></iframe> <button onclick=\"window.__pwned=5\">btn</button> and [1] stays text.")
     elif "spoken briefing" in goal:  # voice: the opening briefing
         steps = [lambda: call("list_tasks"), lambda: say("You have one task due today: send the Acme invoice. What would you like to do?")]
     elif "call Sam" in goal:  # voice: a task asked for by speaking

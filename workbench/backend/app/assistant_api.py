@@ -153,12 +153,39 @@ def conversation(cid: int):
     c = db.one("SELECT * FROM conversations WHERE id = ?", cid)
     if not c:
         raise HTTPException(404, "Not found")
-    rows = db.all("SELECT id, role, content, tool_calls, name, created_at FROM messages WHERE conversation_id = ? ORDER BY id", cid)
+    from . import blocks
+
+    rows = db.all("SELECT id, role, content, tool_calls, tool_call_id, name, created_at FROM messages WHERE conversation_id = ? ORDER BY id", cid)
     for r in rows:
-        r["tool_calls"] = [tc["function"]["name"] for tc in json.loads(r["tool_calls"])] if r["tool_calls"] else []
+        r["tool_calls_raw"] = r["tool_calls"]
+    built = blocks.for_conversation(rows)
+    for r in rows:
+        raw = r.pop("tool_calls_raw")
+        r["tool_calls"] = [tc["function"]["name"] for tc in json.loads(raw)] if raw else []
+        r.pop("tool_call_id", None)
         if r["role"] == "tool":
             r["content"] = r["content"][:400]
-    return {**c, "messages": rows}
+            if r["id"] in built:
+                r["blocks"] = built[r["id"]]
+    return {**c, "messages": rows, "blocks_version": blocks.VERSION}
+
+
+class TruncateIn(BaseModel):
+    from_message_id: int = Field(..., ge=1)
+
+
+@router.post("/conversations/{cid}/truncate")
+def truncate(cid: int, data: TruncateIn):
+    """Edit and resend, or regenerate: remove one of your messages and everything after it, so the conversation
+    continues from there. What the assistant already did (tasks, notes) stays done."""
+    m = db.one("SELECT id, role FROM messages WHERE id = ? AND conversation_id = ?", data.from_message_id, cid)
+    if not m or m["role"] != "user":
+        raise HTTPException(400, "Pick one of your own messages in this conversation.")
+    if db.one("SELECT 1 FROM approvals WHERE conversation_id = ? AND status = 'running'", cid):
+        raise HTTPException(409, "An approved action is still running in this conversation. Wait for it to finish.")
+    n = db.changed("DELETE FROM messages WHERE conversation_id = ? AND id >= ?", cid, data.from_message_id)
+    db.run("UPDATE conversations SET summary = '', summary_upto = 0 WHERE id = ? AND summary_upto >= ?", cid, data.from_message_id)
+    return {"removed": n}
 
 
 class ConvPatch(BaseModel):

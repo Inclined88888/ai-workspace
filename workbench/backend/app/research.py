@@ -720,3 +720,35 @@ def ledger(rid: int) -> list[dict]:
     for e in out:
         e["contradicts"], e["corroborated_by"] = json.loads(e["contradicts"] or "[]"), json.loads(e["corroborated_by"] or "[]")
     return out
+
+
+_tasks: set = set()
+
+
+def start(question: str, depth: int = 3, project_id: int | None = None, model: str | None = None) -> dict:
+    """Create a research run and start it in the background. A local-only project only accepts a local model."""
+    from . import projects, roles
+
+    question = (question or "").strip()
+    if len(question) < 5:
+        raise HTTPException(400, "Ask the research question in a sentence.")
+    depth = max(1, min(int(depth or 3), 6))
+    project = projects.get(project_id) if project_id else None
+    if project_id and not project:
+        raise HTTPException(404, "Project not found")
+    model = model or (project or {}).get("model") or (roles.model_for("local") if project and project["local_only"] else None) \
+        or roles.model_for("research") or llm.default_model_ref()
+    llm.split_ref(model)
+    if project and project["local_only"] and not llm.is_local(model):
+        raise HTTPException(400, f"{project['name']} is set to local models only, and {model} is not local. Pick a local model for this research.")
+    now = db.now()
+    rid = db.run("INSERT INTO research(question, model, depth, project_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                 question[:4000], model, depth, project_id, now, now)
+    spawn(rid, question, model, depth)
+    return db.one("SELECT * FROM research WHERE id = ?", rid)
+
+
+def spawn(rid: int, question: str, model: str, depth: int) -> None:
+    task = asyncio.get_running_loop().create_task(run(rid, question, model, depth))
+    _tasks.add(task)
+    task.add_done_callback(_tasks.discard)

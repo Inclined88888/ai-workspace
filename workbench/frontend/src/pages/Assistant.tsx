@@ -1,4 +1,4 @@
-import { Brain, Check, Copy, Download, Paperclip, KeyRound, Loader2, MessageSquare, Mic, Pencil, Plus, RotateCcw, Search, Send, ShieldAlert, Sparkles, Square, Trash2, Upload, Wrench, X } from "lucide-react";
+import { BarChart3, BookOpenCheck, Brain, CalendarRange, Check, ChevronDown, ChevronRight, Copy, Download, FileSpreadsheet, FilePen, Flag, FolderKanban, FolderTree, Paperclip, KeyRound, Loader2, MessageSquare, Mic, MonitorPlay, Pencil, Plus, Repeat, RotateCcw, Search, Send, ShieldAlert, Sparkles, Square, Trash2, Upload, Wrench, X } from "lucide-react";
 import { FormEvent, Fragment, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, FileMeta, stream, uploadFile } from "../api";
@@ -6,10 +6,48 @@ import { Empty, Markdown, ModelSelect, relTime, useModels, useToast } from "../u
 import { shortRef } from "../components/Models";
 import WebSearchPanel from "../components/WebSearch";
 import VoiceSession from "../components/Voice";
+import RichText from "../rich/RichText";
+import Blocks from "../rich/Blocks";
+import { Block, validateAll } from "../rich/schema";
 
 type Conv = { id: number; title: string; channel: string; updated_at: string; model: string; project_id?: number | null };
 type ProjectRef = { id: number; name: string };
-type Msg = { id: number; role: string; content: string; tool_calls: string[]; name: string; files?: string[] };
+type Msg = { id: number; role: string; content: string; tool_calls: string[]; name: string; files?: string[]; created_at?: string; blocks?: unknown;
+  live?: { blocks: Block[]; tools: { name: string; ok: boolean }[] } };
+type View = Msg & { blocks: Block[]; tools: { name: string; ok: boolean }[] };
+const FAILED = /^(Error|Not |Unknown tool|Invalid arguments)/;
+
+/** Messages as shown: each answer carries the structured results of the tools used for it (rebuilt by the server from
+ *  what was stored, or collected live while it streamed), and a summary of those tools. */
+function toView(messages: Msg[]): View[] {
+  const out: View[] = [];
+  let blocks: Block[] = [];
+  let tools: { name: string; ok: boolean }[] = [];
+  for (const m of messages) {
+    if (m.role === "user") { blocks = []; tools = []; out.push({ ...m, blocks: [], tools: [] }); }
+    else if (m.role === "tool") { blocks = blocks.concat(validateAll(m.blocks)); tools.push({ name: m.name, ok: !FAILED.test(m.content) }); }
+    else if (m.role === "assistant") {
+      if (m.live) out.push({ ...m, blocks: m.live.blocks, tools: m.live.tools });
+      else if (!m.tool_calls.length) { out.push({ ...m, blocks, tools }); blocks = []; tools = []; }
+      else if (m.content) out.push({ ...m, blocks: [], tools: [] });  // a thought between tool calls
+    }
+  }
+  return out;
+}
+
+const STARTS: { icon: typeof Search; title: string; about: string; send?: string; fill?: string; attach?: boolean }[] = [
+  { icon: Search, title: "Research a topic", about: "Searches, reads sources and cites them", fill: "Research " },
+  { icon: FolderKanban, title: "Check my projects", about: "Goals, open questions, tasks and missions", send: "How is my most recent project going?" },
+  { icon: CalendarRange, title: "Plan my week", about: "From your calendar and tasks", send: "Plan my week from my calendar and tasks" },
+  { icon: BarChart3, title: "Show my AI spending", about: "Totals and a chart from real usage", send: "Show my AI model spending for the last 30 days" },
+  { icon: FilePen, title: "Create a document", about: "Written and saved as a note you can download", fill: "Write a one-page document about " },
+  { icon: FileSpreadsheet, title: "Analyse a spreadsheet", about: "Attach a file and ask about it", attach: true },
+  { icon: Repeat, title: "Create a recurring reminder", about: "An automation on a schedule", fill: "Every Monday at 9am, remind me to " },
+  { icon: Flag, title: "Start a mission", about: "A bigger job: you approve the plan first", fill: "/mission " },
+  { icon: FolderTree, title: "Organise my files", about: "On your computer, with the ROOKS Companion", fill: "Organise the files in my Downloads folder into folders by type" },
+  { icon: MonitorPlay, title: "Use my computer", about: "Apps and folders you allow, visible and stoppable", fill: "On my computer, " },
+  { icon: BookOpenCheck, title: "Compare my AI models", about: "A table of the models you have connected", send: "Compare the AI models I have connected" },
+];
 type Step = { name: string; args: string; status: "running" | "ok" | "error" | "approval"; preview?: string; detail?: string; ms?: number; startedAt: number };
 type Memory = { id: number; content: string; kind: string; source: string; updated_at: string; created_at?: string; conversation_id?: number | null;
   confidence?: number; previous?: string; matched_by?: string[] };
@@ -30,6 +68,10 @@ const STEP_LABEL: Record<string, string> = {
   delegate_task: "Handing work to a teammate", list_team: "Checking the team",
   run_command: "Running a command", workspace_list: "Looking at the workspace", workspace_read: "Reading a workspace file",
   workspace_write: "Writing a workspace file", workspace_edit: "Editing a workspace file",
+  get_usage: "Checking your spending", list_models: "Checking your AI models", project_status: "Checking the project",
+  list_missions: "Checking your missions", start_mission: "Starting a mission", start_research: "Starting research",
+  search_files: "Searching your files", read_file: "Reading a file", github_search: "Searching GitHub", github_read_issue: "Reading a GitHub issue",
+  github_create_issue: "Opening a GitHub issue", github_comment: "Commenting on GitHub", computer_observe: "Looking at the screen",
 };
 const WORKSPACE_TOOLS = new Set(["run_command", "workspace_list", "workspace_read", "workspace_write", "workspace_edit"]);
 
@@ -56,13 +98,6 @@ const COMMANDS: [string, string][] = [
   ["/usage", "This month's tokens and cost"],
 ];
 
-const STARTERS = [
-  { text: "Plan my week from my calendar and tasks", hint: "Uses your calendar and tasks" },
-  { text: "Remind me to send the invoice on Friday", hint: "Creates a task" },
-  { text: "Draft a polite follow-up email to a client who hasn't replied", hint: "Saves a draft; never sends" },
-  { text: "Every weekday at 8am, give me a short briefing", hint: "Creates an automation" },
-  { text: "/mission Compare three CRM tools for a small team and save a summary note", hint: "A bigger job: ROOKS plans it, you approve, then it works step by step" },
-];
 
 const SOURCE: Record<string, string> = { auto: "learned", user: "added by you", agent: "saved by assistant", import: "imported" };
 
@@ -154,6 +189,12 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   const [showUsed, setShowUsed] = useState(false);
   const [pending, setPending] = useState<Approval[]>([]);
   const [running, setRunning] = useState<number | null>(null);
+  const [liveBlocks, setLiveBlocks] = useState<Block[]>([]);
+  const [editing, setEditing] = useState<Msg | null>(null);
+  const [openSteps, setOpenSteps] = useState(false);
+  const [showList, setShowList] = useState(false);  // phones: the conversation list replaces the chat while open
+  useEffect(() => setShowList(false), [id]);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   // A voice session in this chat; an accepted call invitation arrives with what ROOKS opens by saying
   const [voice, setVoice] = useState<{ opening?: string } | null>(() => {
     const st = location.state as { voice?: boolean; speak?: string } | null;
@@ -188,7 +229,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
     loadConversation(cid);
   }, [cid]);
   function loadConversation(id: number) {
-    api<{ messages: Msg[]; model: string; project_id: number | null }>(`/conversations/${id}`)
+    return api<{ messages: Msg[]; model: string; project_id: number | null }>(`/conversations/${id}`)
       .then((c) => { setMessages(c.messages); setModel(c.model || ""); setConvProject(c.project_id); }).catch(toast.err);
   }
   // Moving to another conversation closes a voice session (it stops listening); an accepted call opens one
@@ -221,19 +262,31 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
 
-  const send = async (e?: FormEvent, override?: string, fileIds?: number[], fileNames?: string[]) => {
+  const send = async (e?: FormEvent, override?: string, fileIds?: number[], fileNames?: string[], fromMessage?: Msg) => {
     e?.preventDefault();
     let msg = (override ?? text).trim();
+    const replace = fromMessage ?? (override === undefined ? editing : null);
     if (!msg && !override && attached.length) msg = attached.length > 1 ? "Summarise the attached files." : "Summarise the attached file.";
     if (!msg) return;
     const cmd = msg.split(/\s+/)[0].toLowerCase();
     if (COMMANDS.some(([c]) => c === cmd)) { setText(""); await runCommand(cmd, msg.slice(cmd.length).trim()); return; }
     if (busy) return;
+    if (replace && cid) {
+      // edit and resend, or regenerate: the conversation continues from this message
+      try { await api(`/conversations/${cid}/truncate`, { body: { from_message_id: replace.id } }); }
+      catch (err) { note("err", (err as Error).message); return; }
+      setMessages((m) => m.filter((x) => x.id < replace.id));
+    }
+    setEditing(null);
     setText("");
     setBusy(true);
     setSteps([]);
+    setLiveBlocks([]);
+    setOpenSteps(false);
     setUsed([]);
     setNotes([]);
+    const turnBlocks: Block[] = [];
+    const turnTools: { name: string; ok: boolean }[] = [];
     const files = fileIds ? fileIds.map((id, i) => ({ id, name: fileNames?.[i] ?? `file #${id}` })) : attached;
     setAttached([]);
     setMessages((m) => [...m, { id: Date.now(), role: "user", content: msg, tool_calls: [], name: "", files: files.map((f) => f.name) }]);
@@ -251,11 +304,16 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
       if (t === "approval") { settle(String(ev.name), { status: "approval" }); loadPending(); }
       if (t === "tool_result") {
         settle(String(ev.name), { status: ev.ok ? "ok" : "error", preview: String(ev.preview), detail: ev.detail ? String(ev.detail) : undefined, ms: Number(ev.ms) || undefined });
+        turnTools.push({ name: String(ev.name), ok: !!ev.ok });
+        const got = validateAll(ev.blocks);
+        if (got.length) { turnBlocks.push(...got); setLiveBlocks([...turnBlocks]); }
         if (ev.name === "web_search" && !ev.ok && /not set up/i.test(String(ev.preview)))
           setNotes((n) => n.some((x) => x.search) ? n : [...n, { id: Date.now(), kind: "warn", text: "Web search isn't turned on yet, so ROOKS couldn't look this up. A free Tavily key takes a minute (1,000 searches a month, no card).", search: true }]);
       }
       if (t === "message") {
-        setMessages((m) => [...m, { id: Date.now() + 1, role: "assistant", content: String(ev.content), tool_calls: [], name: "" }]);
+        setMessages((m) => [...m, { id: Date.now() + 1, role: "assistant", content: String(ev.content), tool_calls: [], name: "",
+          live: { blocks: [...turnBlocks], tools: [...turnTools] } }]);
+        setLiveBlocks([]);
         if (!searchOn && /web search/i.test(String(ev.content)))
           setNotes((n) => n.some((x) => x.search) ? n : [...n, { id: Date.now() + 2, kind: "warn", text: "Web search isn't turned on yet. A free Tavily key takes a minute (1,000 searches a month, no card).", search: true }]);
       }
@@ -268,9 +326,22 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
     });
     setBusy(false);
     setRunning(null);
+    setLiveBlocks([]);
     loadConvs();
     loadPending();
     if (newId && newId !== cid) { keepTurn.current = true; setConvProject(startProject); navigate(`/assistant/${newId}`, { replace: true }); }
+    if (newId) loadConversation(newId);  // the stored messages carry real ids (for edit and regenerate) and rebuilt results
+  };
+  const regenerate = (v: View) => {
+    const i = messages.findIndex((m) => m.id === v.id);
+    const q = [...messages.slice(0, i)].reverse().find((m) => m.role === "user" && m.created_at);
+    if (q) send(undefined, splitAttachments(q.content).text || q.content, undefined, undefined, q);
+  };
+  const copy = (t: string) => navigator.clipboard?.writeText(t).then(() => toast.ok("Copied")).catch(() => toast.err("Copying is not allowed here"));
+  const startWith = (s: (typeof STARTS)[number]) => {
+    if (s.send) send(undefined, s.send);
+    else if (s.attach) fileInput.current?.click();
+    else if (s.fill) { setText(s.fill); setTimeout(() => { inputRef.current?.focus(); inputRef.current?.setSelectionRange(s.fill!.length, s.fill!.length); }, 0); }
   };
 
   const lastUserText = () => [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
@@ -330,47 +401,65 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
 
   const slashMatches = text.startsWith("/") && !text.includes(" ") ? COMMANDS.filter(([c]) => c.startsWith(text.toLowerCase())) : [];
   const slashOpen = slashMatches.length > 0 && !(slashMatches.length === 1 && slashMatches[0][0] === text.trim());
-  const visible = messages.filter((m) => m.role === "user" || (m.role === "assistant" && (m.content || m.tool_calls.length)));
-  const lastUser = visible.map((m) => m.role).lastIndexOf("user");
-  const timeline = steps.length > 0 && (
-              <ol className="col" style={{ gap: 6, listStyle: "none", padding: 0, margin: 0 }} aria-label="Steps">
-                {steps.map((s, i) => (
-                  <li key={i} className="small" style={{ borderLeft: `2px solid ${s.status === "error" ? "var(--danger)" : s.status === "approval" ? "var(--accent)" : "var(--border)"}`, paddingLeft: 10 }}>
-                    <div className="row" style={{ gap: 6 }}>
-                      {s.status === "running" ? <Loader2 size={12} className="spin" /> : s.status === "ok" ? <Check size={12} /> : s.status === "approval" ? <ShieldAlert size={12} /> : <X size={12} style={{ color: "var(--danger)" }} />}
-                      <span>{STEP_LABEL[s.name] ?? s.name}</span>
-                      <span className="faint">{s.status === "approval" ? "waiting for your approval" : s.status === "running" ? "working…" : s.status === "error" ? "needs attention" : "done"}{s.ms !== undefined ? ` · ${s.ms < 1000 ? `${s.ms} ms` : `${(s.ms / 1000).toFixed(1)} s`}` : ""}</span>
-                    </div>
-                    {s.detail ? (() => {
-                      const badge = s.name === "run_command" ? exitBadge(s.detail) : null;
-                      return (
-                        <details open={s.status === "error"}>
-                          <summary className="mono truncate" style={{ cursor: "pointer" }}>
-                            {badge && <span className={`badge ${badge.tone}`} style={{ marginRight: 6 }}>{badge.text}</span>}
-                            {argSummary(s.args, s.name) || "no arguments"}
-                          </summary>
-                          <pre className="terminal" aria-label={`Output of ${STEP_LABEL[s.name] ?? s.name}`}>{s.detail.replace(/^Error: (?=\$ )/, "")}</pre>
-                        </details>
-                      );
-                    })() : (
-                      <details>
-                        <summary className="faint truncate" style={{ cursor: "pointer" }}>{argSummary(s.args, s.name) || "no arguments"}</summary>
-                        {s.preview && <div className="mono faint" style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", marginTop: 4 }}>{s.preview}</div>}
-                      </details>
-                    )}
-                  </li>
-                ))}
-              </ol>
+  const view = toView(messages);
+  const lastUser = view.map((m) => m.role).lastIndexOf("user");
+  const lastAnswer = view.map((m) => m.role).lastIndexOf("assistant");
+  const doneSteps = steps.filter((s) => s.status === "ok").length;
+  const current = [...steps].reverse().find((s) => s.status === "running" || s.status === "approval");
+  const failed = steps.filter((s) => s.status === "error").length;
+  const stepList = (
+    <ol className="tsteps" aria-label="Steps">
+      {steps.map((s, i) => (
+        <li key={i} className={`tstep ${s.status}`}>
+          <div className="row" style={{ gap: 6 }}>
+            {s.status === "running" ? <Loader2 size={12} className="spin" /> : s.status === "ok" ? <Check size={12} /> : s.status === "approval" ? <ShieldAlert size={12} /> : <X size={12} style={{ color: "var(--danger)" }} />}
+            <span>{STEP_LABEL[s.name] ?? s.name}</span>
+            <span className="faint">{s.status === "approval" ? "waiting for your approval" : s.status === "running" ? "working…" : s.status === "error" ? "needs attention" : "done"}{s.ms !== undefined ? ` · ${s.ms < 1000 ? `${s.ms} ms` : `${(s.ms / 1000).toFixed(1)} s`}` : ""}</span>
+          </div>
+          {s.detail ? (() => {
+            const badge = s.name === "run_command" ? exitBadge(s.detail) : null;
+            return (
+              <details open={s.status === "error"}>
+                <summary className="mono truncate" style={{ cursor: "pointer" }}>
+                  {badge && <span className={`badge ${badge.tone}`} style={{ marginRight: 6 }}>{badge.text}</span>}
+                  {argSummary(s.args, s.name) || "no arguments"}
+                </summary>
+                <pre className="terminal" aria-label={`Output of ${STEP_LABEL[s.name] ?? s.name}`}>{s.detail.replace(/^Error: (?=\$ )/, "")}</pre>
+              </details>
             );
+          })() : (
+            <details>
+              <summary className="faint truncate" style={{ cursor: "pointer" }}>{argSummary(s.args, s.name) || "no arguments"}</summary>
+              {s.preview && <div className="mono faint" style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", marginTop: 4 }}>{s.preview}</div>}
+            </details>
+          )}
+        </li>
+      ))}
+    </ol>
+  );
+  // The live activity of the turn in progress (or just finished): one line, expandable to every step
+  const activity = steps.length > 0 && (
+    <div className={`activity ${failed ? "has-error" : ""}`}>
+      <button type="button" className="activity-head" aria-expanded={openSteps || !!current?.status.match(/approval/)} onClick={() => setOpenSteps(!openSteps)}>
+        {busy ? <Loader2 size={13} className="spin" /> : failed ? <X size={13} style={{ color: "var(--danger)" }} /> : <Check size={13} />}
+        <span className="grow truncate">{current ? `${STEP_LABEL[current.name] ?? current.name}${current.status === "approval" ? ": waiting for your approval" : "…"}`
+          : `${busy ? "Working" : "Used"} ${steps.length} ${steps.length === 1 ? "step" : "steps"}${failed ? `, ${failed} needed attention` : ""}`}</span>
+        <span className="faint small">{doneSteps}/{steps.length}</span>
+        {openSteps ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+      </button>
+      {(openSteps || current?.status === "approval") && stepList}
+    </div>
+  );
 
   return (
-    <div className={`split ${cid !== null ? "has-selection" : ""}`} style={{ height: "calc(100vh - 0px)" }}>
+    <div className={`split ${showList ? "" : "has-selection"}`} style={{ height: "calc(100vh - 0px)" }}>
       <div className="split-list">
         <div className="col" style={{ padding: 14, borderBottom: "1px solid var(--border)" }}>
-          <div className="row"><h2 className="grow">Assistant</h2><button className="btn primary sm" onClick={() => navigate("/assistant")}><Plus size={14} /> New</button></div>
+          <div className="row"><h2 className="grow">Conversations</h2><button className="btn primary sm" onClick={() => { setShowList(false); navigate("/assistant"); }}><Plus size={14} /> New</button>
+            <button type="button" className="btn ghost sm icon mobile-only" onClick={() => setShowList(false)} aria-label="Back to the chat" title="Back to the chat"><X size={15} /></button></div>
           <div className="row" style={{ position: "relative" }}>
             <Search size={14} className="faint" style={{ position: "absolute", left: 10 }} />
-            <input className="input" style={{ paddingLeft: 30 }} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search all conversations" />
+            <input className="input" style={{ paddingLeft: 30 }} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search all conversations" aria-label="Search all conversations" />
           </div>
         </div>
         <div className="scroll">
@@ -387,52 +476,77 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
           ))}
         </div>
       </div>
-      <div className="split-main" style={{ display: "flex", flexDirection: "column" }}
+      <div className="split-main chat-main"
         onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setDragOver(true); } }}
         onDragLeave={(e) => { if (e.currentTarget === e.target) setDragOver(false); }}
         onDrop={(e) => { if (e.dataTransfer.files.length) { e.preventDefault(); setDragOver(false); attach(e.dataTransfer.files); } }}>
         {dragOver && <div className="drop-hint" aria-hidden="true">Drop to attach</div>}
         <div className="toolbar">
-          <div style={{ width: 260, maxWidth: "100%" }}><ModelSelect value={model} onChange={setModel} models={models} defaultLabel={autoRef ? `Automatic (${shortRef(autoRef, models)})` : "Automatic"} /></div>
-          {project && <Link to={`/projects/${project.id}`} className="badge accent" title="This conversation works in a project: its brief, memories and rules apply">Project: {project.name}</Link>}
-          <div className="spacer" />
+          <button type="button" className="btn ghost sm icon mobile-only" onClick={() => setShowList(true)} aria-label="Show conversations" title="Conversations"><MessageSquare size={16} /></button>
+          <strong className="truncate grow chat-title" style={{ minWidth: 0 }}>{convs.find((c) => c.id === cid)?.title ?? (cid ? "Conversation" : "New conversation")}</strong>
           {!voice && <button type="button" className="btn sm" onClick={() => setVoice({})} disabled={busy} title="Talk with ROOKS: it listens, answers aloud, and you can interrupt"><Mic size={14} /> Voice</button>}
           {tabs}
         </div>
-        <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
-          <div style={{ maxWidth: 820, margin: "0 auto" }} className="col gap-lg">
-            {visible.length === 0 && !busy && (
-              <Empty icon={<Sparkles size={26} />} title="What can ROOKS do for you?"
-                hint="Ask in plain English. ROOKS can use your notes, tasks, calendar and mail, search the web, remember what matters, and set up recurring jobs. Anything with lasting effects after reading the web waits for your approval.">
-                {!noModel && STARTERS.map((s) => (
-                  <button key={s.text} type="button" className="chip" title={s.hint} onClick={() => send(undefined, s.text)}>{s.text}</button>
-                ))}
-              </Empty>
+        <div className="chat-scroll">
+          <div className="chat-column col gap-lg">
+            {view.length === 0 && !busy && (
+              <div className="chat-start">
+                <div className="chat-hello"><Sparkles size={22} aria-hidden="true" /><h2>What can ROOKS do for you?</h2>
+                  <p className="muted">Ask in plain English. Results come back as tables, cards and charts you can act on. Anything with lasting effects after reading the web waits for your approval.</p></div>
+                {!noModel && <div className="start-grid" role="list">{STARTS.map((s) => (
+                  <button key={s.title} type="button" role="listitem" className="start-card" onClick={() => startWith(s)}>
+                    <s.icon size={18} aria-hidden="true" /><span className="start-title">{s.title}</span><span className="start-about">{s.about}</span>
+                  </button>))}</div>}
+              </div>
             )}
-            {noModel && visible.length === 0 && (
-              <div className="alert" role="status">ROOKS needs an AI model before it can answer. <Link to="/settings">Connect one in Settings</Link>; a free OpenRouter or Gemini key works.</div>
+            {noModel && view.length === 0 && (
+              <div className="alert" role="status">ROOKS needs an AI model before it can answer. <Link to="/settings#models">Connect one in Settings</Link>; a free OpenRouter or Gemini key works.</div>
             )}
-            {visible.map((m, i) => (
+            {view.map((m, i) => (
               <Fragment key={m.id}>
                 {m.role === "user"
                   ? (() => {
                       const parsed = splitAttachments(m.content);
                       const names = m.files ?? parsed.files;
                       return (
-                        <div className="bubble-user" style={{ alignSelf: "flex-end", maxWidth: "85%" }}>
-                          {parsed.text}
-                          {names.length > 0 && <div className="row wrap" style={{ marginTop: 6, gap: 6 }}>{names.map((n, i) => <span key={i} className="attach-chip"><Paperclip size={12} aria-hidden="true" /><span className="name">{n}</span></span>)}</div>}
+                        <div className="msg-user">
+                          <div className="bubble-user">
+                            {parsed.text}
+                            {names.length > 0 && <div className="row wrap" style={{ marginTop: 6, gap: 6 }}>{names.map((n, i) => <span key={i} className="attach-chip"><Paperclip size={12} aria-hidden="true" /><span className="name">{n}</span></span>)}</div>}
+                          </div>
+                          {m.created_at && !busy && cid && <div className="msg-actions">
+                            <button type="button" className="btn ghost sm" onClick={() => { setEditing(m); setText(parsed.text); setTimeout(() => inputRef.current?.focus(), 0); }} title="Edit and send again"><Pencil size={12} /> Edit</button>
+                          </div>}
                         </div>
                       );
                     })()
-                  : <div className="col" style={{ gap: 4 }}>
-                      {m.tool_calls.length > 0 && <div className="small mono faint row"><Wrench size={12} /> {m.tool_calls.join(", ")}</div>}
-                      {m.content && <Markdown text={m.content} />}
-                    </div>}
-                {i === lastUser && timeline}
+                  : (() => {
+                      const sourceBlocks = m.blocks.filter((b) => b.type === "sources");
+                      const cites = sourceBlocks.length === 1 && sourceBlocks[0].type === "sources" ? sourceBlocks[0].items.map((x, k) => x.n ?? k + 1) : [];
+                      const showLive = i === lastAnswer && steps.length > 0;
+                      return (
+                        <div className="msg-assistant col" style={{ gap: 8 }}>
+                          {showLive ? activity : m.tools.length > 0 && (
+                            <details className="activity done">
+                              <summary className="activity-head"><Wrench size={12} aria-hidden="true" /><span className="grow truncate">{(() => { const l = m.tools.map((t) => STEP_LABEL[t.name] ?? t.name).filter((v, k, a) => a.indexOf(v) === k).join(", ").toLowerCase(); return l.charAt(0).toUpperCase() + l.slice(1); })()}</span>
+                                {m.tools.some((t) => !t.ok) && <span className="badge warn">{m.tools.filter((t) => !t.ok).length} failed</span>}</summary>
+                              <ol className="tsteps">{m.tools.map((t, k) => <li key={k} className={`tstep ${t.ok ? "ok" : "error"}`}>{t.ok ? <Check size={12} /> : <X size={12} />} {STEP_LABEL[t.name] ?? t.name}</li>)}</ol>
+                            </details>
+                          )}
+                          {m.content && <RichText text={m.content} sources={cites} />}
+                          <Blocks blocks={m.blocks} />
+                          {m.content && !m.tool_calls.length && (
+                            <div className="msg-actions">
+                              <button type="button" className="btn ghost sm" onClick={() => copy(m.content)} title="Copy the answer"><Copy size={12} /> Copy</button>
+                              {i === lastAnswer && !busy && cid && <button type="button" className="btn ghost sm" onClick={() => regenerate(m)} title="Ask again for a new answer"><RotateCcw size={12} /> Regenerate</button>}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                {i === lastUser && busy && <div className="msg-assistant col" style={{ gap: 8 }}>{activity}<Blocks blocks={liveBlocks} /></div>}
               </Fragment>
             ))}
-            {lastUser === -1 && timeline}
             {notes.map((n) => (
               <div key={n.id} className={`chat-note ${n.kind === "err" ? "err" : n.kind === "warn" ? "warn" : ""}`} role={n.kind === "err" ? "alert" : "status"}>
                 <div style={{ whiteSpace: "pre-wrap" }}>{n.text}</div>
@@ -460,29 +574,25 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
                 )}
               </div>
             )}
-            {busy && <div className="row muted"><Loader2 size={15} className="spin" /> Working…<div className="spacer" />{running && <button type="button" className="btn sm" onClick={stop}><Square size={12} /> Stop</button>}</div>}
+            {busy && steps.length === 0 && <div className="row muted thinking" role="status"><Loader2 size={15} className="spin" /> Thinking…</div>}
             <Approvals items={pending} onDone={loadPending} toast={toast} />
             <div ref={endRef} />
           </div>
         </div>
         {voice && <VoiceSession key={cid ?? "new"} conversationId={cid} projectId={projectId} opening={voice.opening} onClose={voiceClosed} />}
-        <form className="row" onSubmit={send} style={{ padding: "12px 24px 20px", borderTop: "1px solid var(--border)", background: "var(--panel)", position: "relative" }}>
-          {slashOpen && (
-            <div className="slash-menu" role="listbox" aria-label="Commands" style={{ left: 24, right: 24 }}>
-              {slashMatches.map(([c, d], i) => (
-                <button type="button" key={c} role="option" aria-selected={i === menuIdx} onMouseDown={(e) => { e.preventDefault(); setText(`${c} `); }}>
-                  <span className="mono">{c}</span><span className="muted small">{d}</span>
-                </button>
-              ))}
-            </div>
-          )}
-          <div className="col" style={{ gap: 6, flex: "none", alignSelf: "stretch", justifyContent: "flex-end" }}>
-            <button type="button" className="btn ghost icon" onClick={() => fileInput.current?.click()} aria-label="Attach files" title="Attach files (PDF, Word, text)" disabled={uploading > 0 || attached.length >= 10}>
-              {uploading ? <Loader2 size={16} className="spin" /> : <Paperclip size={16} />}
-            </button>
-            <input ref={fileInput} type="file" multiple hidden onChange={(e) => { if (e.target.files) attach(e.target.files); e.target.value = ""; }} />
-          </div>
-          <div className="col grow" style={{ gap: 6 }}>
+        <form className="composer-wrap" onSubmit={send}>
+          {editing && <div className="composer-editing row small"><Pencil size={12} /><span className="grow">Editing your message: sending replaces it and everything after it.</span>
+            <button type="button" className="btn ghost sm" onClick={() => { setEditing(null); setText(""); }}>Cancel</button></div>}
+          <div className="composer">
+            {slashOpen && (
+              <div className="slash-menu" role="listbox" aria-label="Commands">
+                {slashMatches.map(([c, d], i) => (
+                  <button type="button" key={c} role="option" aria-selected={i === menuIdx} onMouseDown={(e) => { e.preventDefault(); setText(`${c} `); }}>
+                    <span className="mono">{c}</span><span className="muted small">{d}</span>
+                  </button>
+                ))}
+              </div>
+            )}
             {attached.length > 0 && (
               <div className="row wrap" style={{ gap: 6 }} aria-label="Attached files">
                 {attached.map((f) => (
@@ -491,17 +601,31 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
                 ))}
               </div>
             )}
-          <textarea className="input grow" rows={2} value={text} onChange={(e) => { setText(e.target.value); setMenuIdx(0); }} aria-label="Message ROOKS"
-            placeholder="Message ROOKS (Enter to send, Shift+Enter for a new line, / for commands)"
-            aria-autocomplete="list" aria-expanded={slashOpen}
-            onKeyDown={(e) => {
-              if (slashOpen && (e.key === "ArrowDown" || e.key === "ArrowUp")) { e.preventDefault(); setMenuIdx((i) => (i + (e.key === "ArrowDown" ? 1 : slashMatches.length - 1)) % slashMatches.length); return; }
-              if (slashOpen && (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey && text.trim() !== slashMatches[menuIdx][0]))) { e.preventDefault(); setText(`${slashMatches[menuIdx][0]} `); return; }
-              if (slashOpen && e.key === "Escape") { e.preventDefault(); setText(""); return; }
-              if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
-            }} />
+            <textarea ref={inputRef} className="composer-input" rows={1} value={text} onChange={(e) => { setText(e.target.value); setMenuIdx(0); e.target.style.height = "auto"; e.target.style.height = `${Math.min(e.target.scrollHeight, 240)}px`; }}
+              aria-label="Message ROOKS" placeholder="Ask ROOKS anything. / for commands"
+              aria-autocomplete="list" aria-expanded={slashOpen}
+              onKeyDown={(e) => {
+                if (slashOpen && (e.key === "ArrowDown" || e.key === "ArrowUp")) { e.preventDefault(); setMenuIdx((i) => (i + (e.key === "ArrowDown" ? 1 : slashMatches.length - 1)) % slashMatches.length); return; }
+                if (slashOpen && (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey && text.trim() !== slashMatches[menuIdx][0]))) { e.preventDefault(); setText(`${slashMatches[menuIdx][0]} `); return; }
+                if (slashOpen && e.key === "Escape") { e.preventDefault(); setText(""); return; }
+                if (e.key === "Escape" && editing) { setEditing(null); setText(""); return; }
+                if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+              }} />
+            <div className="composer-bar">
+              <button type="button" className="btn ghost icon" onClick={() => fileInput.current?.click()} aria-label="Attach files" title="Attach files (PDF, Word, spreadsheets, text)" disabled={uploading > 0 || attached.length >= 10}>
+                {uploading ? <Loader2 size={16} className="spin" /> : <Paperclip size={16} />}
+              </button>
+              <input ref={fileInput} type="file" multiple hidden onChange={(e) => { if (e.target.files) attach(e.target.files); e.target.value = ""; }} />
+              <button type="button" className="btn ghost icon" onClick={() => setVoice({})} disabled={busy || !!voice} aria-label="Start a voice conversation" title="Talk instead of typing"><Mic size={16} /></button>
+              <div className="composer-model"><ModelSelect value={model} onChange={setModel} models={models} defaultLabel={autoRef ? `Automatic (${shortRef(autoRef, models)})` : "Automatic"} /></div>
+              {project && <Link to={`/projects/${project.id}`} className="badge accent truncate" style={{ maxWidth: 180 }} title="This conversation works in a project: its brief, memories and rules apply">{project.name}</Link>}
+              <div className="spacer" />
+              <span className="faint small hide-narrow">Shift+Enter for a new line</span>
+              {busy && running
+                ? <button type="button" className="btn danger-solid" onClick={stop} aria-label="Stop" title="Stop after the current step"><Square size={13} /> Stop</button>
+                : <button className="btn primary" disabled={busy || uploading > 0 || (!text.trim() && !attached.length)} aria-label="Send message" title="Send"><Send size={15} /></button>}
+            </div>
           </div>
-          <button className="btn primary" disabled={busy || uploading > 0 || (!text.trim() && !attached.length)} aria-label="Send message" title="Send" style={{ alignSelf: "flex-end" }}><Send size={15} /></button>
         </form>
       </div>
       {toast.node}

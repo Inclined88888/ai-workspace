@@ -767,27 +767,11 @@ class ResearchIn(BaseModel):
 
 @api.post("/research")
 async def start_research(data: ResearchIn):
-    from . import projects, roles
-
-    project = projects.get(data.project_id) if data.project_id else None
-    if data.project_id and not project:
-        raise HTTPException(404, "Project not found")
-    model = data.model or (project or {}).get("model") or (roles.model_for("local") if project and project["local_only"] else None) \
-        or roles.model_for("research") or llm.default_model_ref()
-    llm.split_ref(model)
-    if project and project["local_only"] and not llm.is_local(model):
-        raise HTTPException(400, f"{project['name']} is set to local models only, and {model} is not local. Pick a local model for this research.")
-    now = db.now()
-    rid = db.run("INSERT INTO research(question, model, depth, project_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-                 data.question, model, data.depth, data.project_id, now, now)
-    _start_research(rid, data.question, model, data.depth)
-    return db.one("SELECT * FROM research WHERE id = ?", rid)
+    return research.start(data.question, data.depth, data.project_id, data.model)
 
 
 def _start_research(rid: int, question: str, model: str, depth: int) -> None:
-    task = asyncio.get_running_loop().create_task(research.run(rid, question, model, depth))
-    _tasks.add(task)
-    task.add_done_callback(_tasks.discard)
+    research.spawn(rid, question, model, depth)
 
 
 @api.post("/research/{rid}/retry")

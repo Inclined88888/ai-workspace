@@ -31,6 +31,10 @@ GROUPS: dict[str, tuple[str, str, dict[str, str]]] = {
     "github": ("GitHub", "Search and read issues and pull requests; open issues and comment (always asks first)", {
         "github_search": READ, "github_read_issue": READ, "github_create_issue": CONSEQUENTIAL, "github_comment": CONSEQUENTIAL}),
 }
+GROUPS["overview"] = ("Workspace overview", "Read your spending, connected models, project status and missions", {
+    "get_usage": READ, "list_models": READ, "project_status": READ, "list_missions": READ})
+GROUPS["work"] = ("Missions and research", "Start missions (you approve the plan before anything runs) and research runs, which use models",
+                  {"start_mission": WRITE, "start_research": WRITE})
 GROUPS["terminal"] = ("Terminal", "Run commands in the isolated workspace runner (asks first by default; risky commands always ask)",
                       {"run_command": WRITE})
 GROUPS["workspace"] = ("Workspace files", "List, read, create and edit files in the workspace folder (previous versions are kept)",

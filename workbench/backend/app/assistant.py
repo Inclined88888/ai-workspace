@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 import httpx
 from fastapi import HTTPException
 
-from . import audit, computer_tools, config, db, github, llm, permissions, research, sensitive, services, tools, usage, workspace
+from . import audit, computer_tools, config, db, github, llm, overview, permissions, research, sensitive, services, tools, usage, workspace
 
 MAX_STEPS = int(os.getenv("WORKBENCH_MAX_STEPS", "12") or 12)  # model calls per request
 # A request that works in the workspace (terminal or files) may go on to this many, to test and fix; ordinary chat keeps
@@ -37,7 +37,7 @@ EXTERNAL_TOOLS = {"web_search", "read_page", "browse_web", "search_email", "read
                   "computer_locate"}
 # Tools whose effects outlive the conversation. In a conversation with outside content they wait for the user's
 # approval instead of running: this is enforced here, not left to the model.
-GATED_TOOLS = {"remember", "forget", "save_skill", "schedule_task", "project_note"}
+GATED_TOOLS = {"remember", "forget", "save_skill", "schedule_task", "project_note", "start_mission", "start_research"}
 UNATTENDED = {"schedule", "agent", "telegram", "learn", "mission"}
 _stop_requested: set[int] = set()
 
@@ -326,6 +326,36 @@ TOOLS: list[Tool] = [
          lambda agent_name, title, description="", ctx=None: _delegate(agent_name, title, description, ctx),
          ("agent_name", "title"), when=lambda ctx: ctx.agent is not None),
     Tool("list_team", "List the people who report to you.", {}, lambda ctx=None: _team(ctx), when=lambda ctx: ctx.agent is not None),
+]
+def _start_mission(goal: str, ctx: Ctx | None = None) -> dict:
+    from . import missions
+
+    m = missions.create(goal, project_id=ctx.project_id if ctx else None)
+    return {"id": m["id"], "goal": m["goal"], "status": m["status"],
+            "note": "ROOKS is writing the plan. Nothing runs until the user approves it on the mission page."}
+
+
+def _start_research(question: str, depth: int = 3, ctx: Ctx | None = None) -> dict:
+    r = research.start(question, depth, ctx.project_id if ctx else None)
+    return {"id": r["id"], "question": r["question"], "status": r["status"], "note": "Research runs in the background; it takes a few minutes."}
+
+
+_top = lambda ctx: ctx.channel not in ("mission", "schedule", "agent")  # noqa: E731 - no missions or research started from unattended work
+TOOLS += [
+    Tool("get_usage", "The user's model spending and calls over the last days, by day and by model (real recorded figures).", {"days": I()},
+         lambda days=30: overview.get_usage(days)),
+    Tool("list_models", "The AI models available from the user's connected providers, with free/paid, local/cloud, tools, context and known prices. "
+         "Use it to compare models with real data.", {"query": S("part of a model or provider name, optional")},
+         lambda query="": overview.list_models(query)),
+    Tool("project_status", "Where a project stands: goals, open questions, decisions, open tasks, missions, research and spend.",
+         {"project": S("project name, or empty for the most recent")}, lambda project="": overview.project_status(project)),
+    Tool("list_missions", "The user's missions with progress and workers.", {"status": S("optional status filter")},
+         lambda status="": overview.list_missions(status)),
+    Tool("start_mission", "Start a mission for a bigger multi-step job. ROOKS plans it and the user approves the plan before anything runs.",
+         {"goal": S()}, _start_mission, ("goal",), when=_top),
+    Tool("start_research", "Start a Deep Research run on a question: it searches, reads sources and writes a cited report with an evidence table. "
+         "Takes a few minutes; tell the user it is running.", {"question": S(), "depth": I("1 quick, 3 standard, 5 deep")},
+         _start_research, ("question",), when=_top),
 ]
 TOOLS += github.tools(Tool, S, I)
 TOOLS += computer_tools.tools(Tool, S, I, B)
@@ -931,6 +961,15 @@ async def run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> AsyncI
                 ctx.untrusted = True
             _save(ctx.conversation_id, "tool", out, tool_call_id=call["id"], name=fn["name"])
             event = {"type": "tool_result", "name": fn["name"], "ok": ok, "preview": out[:300], "ms": int((time.monotonic() - started) * 1000)}
+            if fn["name"] not in computer_tools.KIND:
+                from . import blocks
+
+                try:
+                    parsed_args = json.loads(fn["arguments"] or "{}")
+                except ValueError:
+                    parsed_args = {}
+                if found := blocks.from_tool(fn["name"], parsed_args if isinstance(parsed_args, dict) else {}, ok, out):
+                    event["blocks"] = found
             if fn["name"] in workspace.TOOLS:
                 # the terminal output or file contents, shown in the step; both ends, since errors are usually at the end
                 event["detail"] = out if len(out) <= 12000 else f"{out[:4000]}\n… (middle not shown here) …\n{out[-8000:]}"
