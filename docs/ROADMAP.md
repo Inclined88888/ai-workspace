@@ -1,6 +1,6 @@
-# ROOKS capability roadmap: 100 requirements
+# ROOKS capability roadmap: 117 requirements
 
-Status as of 2026-10-27 (v9). Linux was the only test environment: no macOS result in this file comes from a Mac.
+Status as of 2026-10-27 (v10, branch `development/rooks-v10`). Items 101 to 117 were added in v10. Linux was the only test environment: no macOS result in this file comes from a Mac.
 
 ## How statuses are assigned
 
@@ -27,10 +27,10 @@ Counted from the tables below.
 
 | Status | Count |
 |---|---|
-| verified | 46 |
-| implemented | 15 |
-| partial | 30 |
-| not started | 9 |
+| verified | 64 |
+| implemented | 14 |
+| partial | 31 |
+| not started | 8 |
 
 ## Memory and context (1 to 10)
 
@@ -52,15 +52,15 @@ Counted from the tables below.
 | ID | Requirement | Status | What exists | Evidence | Pri | Cx | Security | Acceptance / next |
 |---|---|---|---|---|---|---|---|---|
 | 11 | Autonomous completion | verified | Missions: plan, approve, run, verify, report; templates; step dependencies; configurable retries (1 to 5); stop for review on unverified steps | test_missions, test_projects (dependencies, review), e2e Mission and T, mission browser suite | P3 | L | Plan approval before any action | ✔ |
-| 12 | Outcome verification | verified | Per-step checker plus rules the model cannot override; research citation and quote checks | test_missions `test_claimed_done_without_a_tool...`, test_research | P2 | M | — | ✔ |
+| 12 | Outcome verification | verified | Per-step checker plus rules the model cannot override; research citation and quote checks; v10: worker acceptance check, an independent reviewer in its own conversation, links must trace to what a worker read, research claims re-read against their passage | test_missions `test_claimed_done_without_a_tool...`, test_research, test_workers `test_a_worker_gets_only_its_roles_tools...`, test_scenarios_v10 D | P2 | M | — | ✔ |
 | 13 | Failure recovery | verified | Step retry, mission resume, research retry, computer "unconfirmed" state; a mission resumed after a restart with a computer action in flight is told to observe first | test_missions, test_hardening, test_projects `test_recovery_tells_the_step_to_look_first`, e2e G | P3 | M | No blind repeats | ✔ |
 | 14 | Loop prevention | verified | Identical-call refusal, stall detection, turn time budget | test_hardening, test_missions | P3 | S | — | ✔ |
 | 15 | Checkpointing | verified | Mission state saved per step; action replay | test_missions recovery, mission browser suite (process killed with kill -9) | P3 | M | — | ✔ |
 | 16 | Long-running tasks | partial | Missions up to 10 steps with dependencies, minute and spend budgets | test_projects | P2 | L | Budgets cap cost | Missing: sub-plans, more than 10 steps, multi-hour runs measured |
-| 17 | Parallel execution | not started | Missions run one at a time | — | P3 | L | Shared computer must stay serialized | Independent missions in parallel (not computer ones) |
+| 17 | Parallel execution | verified | v10 workers: a persistent queue with bounded parallelism (1 by default, up to 4), lease epochs and atomic budget reservations. Missions themselves still run one at a time; computer work is never started automatically | test_workers `test_parallel_workers_cannot_spend_more...`, test_scenarios_v10 H | P3 | L | Shared computer stays serialized: computer workers wait for you | Missions in parallel with each other |
 | 18 | Project continuity | verified | Every turn in a project starts with its brief: goals, instructions, decisions, open questions, open tasks, recent missions and what happened (episodes from finished missions) | test_projects `test_brief_notes_and_linked_work`, `test_mission_in_project...` (episode memory), v9 UI suite | P3 | M | Brief text is the user's own project data | ✔ |
 | 19 | Partial results | verified | "Partial" mission status; time-budget partial answers | test_missions, test_hardening | P3 | S | — | ✔ |
-| 20 | Proactive task monitoring | partial | Inbox entry when a mission or schedule finishes | test_assistant (schedule to inbox) | P2 | M | — | Watch conditions and notify before deadlines |
+| 20 | Proactive task monitoring | verified | v10 check-ins: deterministic facts from tasks, calendar, missions, approvals, a project, a page or a search; a briefing only when something is new | test_checkins (14 tests) | P2 | M | — | ✔ |
 
 ## Computer Use (21 to 30)
 
@@ -87,10 +87,10 @@ Counted from the tables below.
 | 34 | Structured extraction | partial | Research claim extraction; page element lists | test_research | P2 | M | — | Extract a table to a spreadsheet or CSV |
 | 35 | Multi-source research | verified | All search providers, sub-questions | test_research | P3 | M | robots.txt honoured | ✔ |
 | 36 | Source verification | verified | Quote-checked claims, citation cleanup | test_research | P3 | M | — | ✔ |
-| 37 | Contradictory evidence | partial | "Where sources disagree" section, written by the model | test_research (section present) | P2 | M | — | Automatic numeric conflict detection |
+| 37 | Contradictory evidence | partial | v10: the gap review names disagreeing claims, which the evidence ledger links both ways and lowers in confidence; the report's disagreement section | test_research `test_a_gap_starts_a_bounded_second_round...` | P2 | M | — | Automatic numeric conflict detection (still found by the model) |
 | 38 | Browser retries | partial | Read tools retry once; browser actions do not | test_tools_registry | P3 | S | Never retry writes blindly | Retry navigation-only actions |
 | 39 | Website monitoring | not started | — | — | P2 | M | robots.txt and rate limits | Scheduled page checks with change alerts |
-| 40 | Research deliverables | implemented | Structured report; save to Documents | Save not covered by a test | P3 | S | — | Test save and export |
+| 40 | Research deliverables | verified | Structured report with Limitations; saved as a document with its evidence table, into a project | test_research `test_a_gap_starts...` (save into project), Research UI suite (9) | P3 | S | — | ✔ |
 
 ## Files and documents (41 to 50)
 
@@ -114,9 +114,9 @@ Counted from the tables below.
 | 51 | Reliable scheduling | verified | Cron schedules in your timezone | test_assistant `test_schedule_runs...` | P3 | S | — | ✔ |
 | 52 | Restart-safe automations | partial | Next run booked before each run; missed runs are not caught up | — | P2 | S | — | Run missed jobs once after a restart |
 | 53 | Event triggers | not started | — | — | P2 | M | Untrusted events must not escalate | Email or webhook triggers |
-| 54 | Automation run history | partial | Last status plus inbox entries | — | P2 | S | — | Full run log per schedule |
+| 54 | Automation run history | partial | v10 check-ins: every run with status, attempt, new facts, who wrote it, errors, and every delivery; shown in Automations. Scheduled jobs still keep only their last status | test_checkins, voice UI suite | P2 | S | — | Full run log per scheduled job |
 | 55 | Scoped unattended permissions | verified | Unattended runs cannot schedule or use the computer; approvals go to the inbox | test_safety, test_computer | P3 | S | Core control | ✔ |
-| 56 | Failure notifications | implemented | Inbox and Telegram delivery | Not tested for failures | P2 | S | — | Test |
+| 56 | Failure notifications | verified | Check-ins retry the same slot (5, 15, 60 minutes), then tell you once; failing check-ins and jobs appear in Needs You | test_checkins `test_failures_retry_the_same_slot_then_tell_you_once`, test_needs_you | P2 | S | — | ✔ |
 | 57 | Automation quality evaluation | not started | — | — | P3 | M | — | Score runs against expectations |
 | 58 | Reusable workflows | verified | Skills, learned or written | test_assistant, test_tools_registry | P3 | S | Secret check on skills | ✔ |
 | 59 | Proactive suggestions | not started | — | — | P3 | M | — | Suggest automations from repeated tasks |
@@ -182,9 +182,32 @@ Counted from the tables below.
 | 99 | Team collaboration | not started | Single owner | — | P3 | L | Roles and permissions needed | Multiple users |
 | 100 | Measurable reliability | partial | Test suites; no runtime metrics | — | P2 | M | — | Success and error rates per tool and mission |
 
+## v10: proactive, voice, calls, workers and research (101 to 117)
+
+| ID | Requirement | Status | What exists (modules) | Evidence | Pri | Cx | Security | Acceptance / next |
+|---|---|---|---|---|---|---|---|---|
+| 101 | Proactive check-ins | verified | `checkins.py` on the existing scheduler loop (no second scheduler): persistent schedule, slot idempotency, retries keep their slot, restart recovery, cancellation, daily limits, spending switch to a written list | test_checkins (14) | P1 | M | No model call when nothing changed | ✔ |
+| 102 | Topic subscriptions | verified | Sources: tasks, calendar, missions, approvals, project, `page:URL`, `search:words`; presets; expiry | test_checkins incl. `test_a_followed_search_reports_only_new_results` | P2 | S | Page sources honour robots.txt | ✔ |
+| 103 | Smart reminders | partial | Due and overdue tasks in Needs You and the morning briefing preset | test_needs_you | P2 | M | — | Missing: reminder timing learned from your habits |
+| 104 | Briefing generation | verified | Facts compared per key; only new or changed facts go to the model, which may decide nothing is worth interrupting for; written list without a model | test_checkins `test_a_briefing_only...`, `test_the_model_may_decide...`, `test_without_a_usable_model...` | P1 | M | Facts are data, never instructions | ✔ |
+| 105 | In-app voice conversations | verified (provider path) | `voice.py`, `components/Voice.tsx`: listen, answer aloud, barge-in by voice, half duplex, microphone indicator, end with transcript, summary or nothing | test_voice (5), voice browser suite (26) with Chromium's fake microphone and a FAKE speech provider | P1 | M | No audio stored; consent per cloud destination; local-only refused | Not verified: browser speech recognition (needs the browser maker's service), a real speech provider, barge-in on real speakers without headphones |
+| 106 | Agent-initiated voice sessions | verified | Check-ins set to "call" raise an in-app invitation: accept opens a voice session that starts with the briefing; decline, snooze twice, or miss it for one written briefing | test_checkins `test_call_invitation...`, voice browser suite | P1 | M | Only inside contact hours and daily limits | ✔ |
+| 107 | Optional outbound calls | implemented | `calls.py`: provider abstraction, test provider, Twilio REST; one-way spoken briefing that identifies itself as an AI | test_checkins `test_phone_needs_password...` (TEST PROVIDER: no call is placed), `test_twilio_without_credentials...` | P3 | M | Password for every change, verified number, per day, week and monthly cost caps, no retries, never records | Not verified: a real Twilio call (no account was used, no paid call was made). Two-way phone needs a public webhook: not built |
+| 108 | Consent and quiet hours | verified | Quiet hours per check-in and workspace; contact windows (defaults from the Australian telemarketing standard hours); voice consent per destination | test_checkins `test_quiet_hours...`, `test_outside_the_contact_window...`, test_voice | P1 | S | Urgent is the only exception to quiet hours, and never for calls outside contact hours | ✔ |
+| 109 | Call history and privacy | verified | Invitation and call history; numbers encrypted and masked; no recording; voice transcripts deletable at session end | test_checkins, test_voice, voice browser suite (number never shown in full) | P2 | S | Privacy Act applies to what you keep | ✔ |
+| 110 | Worker orchestration | verified | `workers.py`: contracts (goal, inputs, expected output, acceptance, role, scope, model, cap, time limit, retries, dependencies), persistent queue, leases with fencing epochs, dependencies, blocked propagation, cancellation | test_workers (9), test_scenarios_v10 D, E, H; workers browser suite (11) | P1 | L | — | Company agents do not use workers yet |
+| 111 | Independent verification | verified | Worker check plus a reviewer that sees only the result and its evidence; rejections retried with reasons; research claims re-read against their passage | test_workers `test_a_rejected_result...`, test_research, test_scenarios_v10 D | P1 | M | — | A reviewer on a different model by default |
+| 112 | Worker isolation | verified (permissions) | Role tool allow-lists enforced on every call; scope read, draft or write; writes wait for approval; no approval widens a worker; computer work needs you to start it | test_workers `test_planted_instructions...`, test_scenarios_v10 G | P1 | M | Isolation is by permission inside one process, not an OS sandbox (terminal work still runs in the runner container) | Process isolation per worker |
+| 113 | Shared evidence | partial | Workers pass results (as data) to the tasks that wait for them; research evidence ledger saved into a project | test_workers `test_dependencies...`, test_research | P2 | M | — | Missing: workers writing to the evidence ledger |
+| 114 | Advanced research rounds | verified | Bounded rounds (1 to 4 by depth), deterministic depth gate plus gap review; stops on enough evidence, no new sources, round, source or time limit; cancel | test_research `test_a_gap_starts...`, `test_rounds_are_bounded_by_depth`, `test_the_depth_gate` | P1 | M | robots.txt honoured | ✔ |
+| 115 | Evidence ledgers | verified | `evidence` table: claim, source and URL, title, published and retrieved dates, exact quote and its location, credibility, confidence, verification, contradictions, corroboration, fact, inference or uncertain | test_research, Research UI suite (9, with a SEEDED run) | P1 | M | Quotes are found in the page by code; nothing is cited that was not read | ✔ |
+| 116 | Ongoing research monitoring | verified | Follow a research question: a check-in with a `search:` source, opt in and out from the report | test_research (monitor on and off), test_checkins `test_a_followed_search...`, Research UI suite | P2 | S | — | ✔ |
+| 117 | Unified attention inbox | verified | `attention.py`, Needs You page: approvals, workers, missions, research, automations, calls, spending, reminders, follow-ups; each says what, why, risk, cost, each choice and what is next; defer | test_needs_you, Needs You browser suite (11) | P1 | M | Single actions only; no blanket approval | ✔ |
+
 ## Next highest-value work
 
-1. Run `companion/tests/macos_check.py` on a real Mac (items 21, 22, 27, 46, 69). macOS behaviour is still only tested against a mocked osascript.
-2. Test visual targeting with a real vision model, local first (22, 23), and measure how often it is sure enough to click.
-3. Run the other six workflow templates against real data (67), and add dialog detection with a real save dialog test (26).
-4. Let files and Research runs be assigned to a project from the UI (6), and test the research and chat model roles in flow (71).
+1. Try voice with real services, local first: a Whisper or Kokoro compatible server (105), then browser speech, and barge-in on real speakers.
+2. Run `companion/tests/macos_check.py` on a real Mac (items 21, 22, 27, 46, 69). macOS behaviour is still only tested against a mocked osascript.
+3. If you want phone calls, connect a Twilio account and place the one verification call yourself (107); ROOKS has never placed a real call.
+4. Let company agents use workers (110), and write worker findings into the evidence ledger (113).
+5. Test visual targeting with a real vision model, local first (22, 23).

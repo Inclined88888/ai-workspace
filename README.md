@@ -83,7 +83,10 @@ Native Ollama uses the Mac GPU; the `local-models` add-on would run on CPU insid
   - rates each source for relevance, freshness (from its date) and a stated credibility estimate based on the kind of site;
   - extracts claims only with a quote that is actually found on the page, and drops any whose quote is not there.
 
-  The report has separate sections for the answer, key findings, where sources disagree, inferences (labelled) and open questions. Citations to sources that do not exist are removed by code. Every source can be opened to see its date, credibility reasoning, quoted claims and how it was found. A run can be cancelled and run again.
+  The report has separate sections for the answer, key findings, where sources disagree, inferences (labelled), open questions and limitations (written by code from what actually happened). Citations to sources that do not exist are removed by code. Every source can be opened to see its date, credibility reasoning, quoted claims and how it was found. A run can be cancelled and run again.
+  - **Rounds.** When the evidence is thin (too few quoted claims, one site, no higher-credibility source, a sub-question uncovered), a gap review plans another round of searches: up to 2 rounds at Standard depth and 3 at Deep, stopping early when nothing new turns up.
+  - **Evidence.** Every claim goes into an evidence table: source, published and retrieved dates, the exact quote and where it is on the page, a confidence score, disagreements and corroboration, and whether it is a fact, an inference or uncertain. A separate pass re-reads each claim against the passage around its quote.
+  - Save a report into a project, with its evidence, or **follow** the question to be told about new results.
 * **Memory.** After a conversation it quietly extracts durable facts about you (profile, preferences, facts), at most 5 per conversation, skipping duplicates. When a fact changes (you moved, changed jobs) it updates the old memory instead of adding a contradiction, and keeps the previous wording. It never stores API keys, tokens, passwords or card numbers. They are refused wherever a memory is written. Relevant ones are injected into every new conversation. You can also say "remember that…" or "forget…". Review and edit everything under **Memory & skills**. Turn learning off in Assistant settings.
 * **Skills.** When a task took 3 or more tool calls, it can save the procedure as a named skill and improve it on later use. Skills are listed to the model and loaded on demand, so they cost almost nothing until used.
 * **History.** Every conversation is full text searchable, by you and by the assistant (`search_history`).
@@ -108,6 +111,16 @@ Native Ollama uses the Mac GPU; the `local-models` add-on would run on CPU insid
 - **Platform status:** macOS desktop control has not yet been tested on a real Mac; Windows supports the browser and folders only.
 
 Setup and the full safety model are in `docs/COMPUTER_USE.md` and `companion/README.md`.
+
+**Needs you.** One list of everything waiting for your decision: approvals, workers and missions, failed research and automations, spending stops, call invitations, due tasks and open project questions. Each item says what happened, why, the risk and cost, what each choice does and what happens next. Every choice applies to that one item; there is no "approve all". *Later* hides an item without deciding it.
+
+**Check-ins.** Under **Automations**, ROOKS checks what you choose (tasks, calendar, missions, approvals, a project, a web page or a search) on a schedule and tells you only what is new and matters. When nothing changed it stays quiet and makes no model call. Each briefing is sent once, even across a restart, with quiet hours, daily limits and retries.
+
+**Voice.** The **Voice** button in the Assistant starts a spoken conversation: ROOKS listens, answers aloud, and stops when you talk over it. It is half duplex (it listens, then answers), not a phone-style full duplex call. By default your browser does the listening and speaking. Chrome and Edge do that on Google's or Microsoft's servers, and ROOKS says so first. For speech that stays on your network, connect a local OpenAI compatible speech server under **Settings, Voice**. A cloud speech provider needs your consent, and local-only projects refuse it. ROOKS never stores audio. When you end a session you choose to keep the transcript, a short summary, or nothing.
+
+**Calls from ROOKS.** A check-in set to *Ask to talk in the app* shows a banner inside your contact hours: accept to hear the briefing and reply by voice. If you decline or miss it, you get it in writing, once. An optional phone line (Twilio, your account, off by default) can phone your own verified number with a one-way spoken briefing that says it is an AI. Every change needs your password, and calls have per day, per week and monthly cost limits. Calls are never recorded and no other number can be called.
+
+**Workers.** A mission can be split into workers: Research, Evidence check, Data, Document, Coding, Computer, Review and Coordinator. Each gets a goal, what counts as done, a spending cap and only its role's tools. The tool list is enforced on every call, and no approval widens it. Changes beyond drafts wait for your approval, and computer work waits for you to start it. After a worker finishes, a check compares the result with what counts as done, and an independent reviewer approves or rejects it. A result that cites a link the worker never opened is sent back. Workers share the mission's budget through reservations, so running several at once cannot overspend. One runs at a time unless you allow up to four.
 
 **Automations.** Cron schedules in your timezone ("Daily report, 8:00" is one click). Results go to the Inbox and optionally Telegram. You can also ask in chat: "every Friday at 5pm summarise my week". Scheduled runs cannot create more schedules. The next run is booked before each run, so a failing job cannot loop.
 
@@ -320,6 +333,9 @@ Backend: FastAPI + SQLite. Frontend: React + Vite + TypeScript. The tool server 
 - Computer Use on macOS has not been tested on a Mac in this work; run `companion/tests/macos_check.py` on yours first. Visual targeting has only been tested with a stand-in vision model.
 - The terminal runner container was built and tested with Docker, but the full `./setup.sh` stack with it was not started in this work, and a build with `RUNNER_PACKAGES` was not run (Docker Hub rate limit).
 - Of the seven workflow templates, only spreadsheet cleanup was run end to end against a real file.
+- Voice was tested in Chromium with a fake microphone and a fake speech provider. Browser speech recognition (which needs the browser maker's service), real speech providers, and interrupting by voice on speakers without headphones were not tested.
+- The phone line has never placed a real call: only the test provider was used, and no paid call was made. Two-way phone conversation needs a public webhook and is not built.
+- Workers are isolated by permissions inside the ROOKS process, not by an operating system sandbox (terminal work still runs in the runner container). Company agents do not use workers yet.
 
 - Single user ROOKS (the `openwebui` add-on supports multiple users).
 - Telegram is the only built in messaging channel. Discord, Slack, WhatsApp and Signal need the `hermes` add-on.
