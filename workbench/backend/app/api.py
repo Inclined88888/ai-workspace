@@ -74,6 +74,9 @@ def setup(data: SetupIn, request: Request, response: Response):
     if data.workspace_name.strip():
         db.set_setting("workspace_name", data.workspace_name.strip())
     db.set_setting("setup_complete", "1")
+    if not db.get_setting("ai_mode"):
+        # New workspaces start in Free Cloud AI: nothing that costs money runs until you choose another mode
+        db.set_setting("ai_mode", "free")
     audit.record("user", "setup", "workspace")
     services.local_calendar_id()
     _login(response)
@@ -224,6 +227,7 @@ def delete_provider(pid: int):
 
 class ConnectIn(BaseModel):
     allow_paid_check: bool = False  # explicit user opt-in; connection alone never authorizes billing
+    confirm_free: bool = False  # Gemini or a local server: the person confirmed it cannot bill them
     preset: str = Field("", max_length=40)
     api_key: str = Field("", max_length=500)
     # custom endpoints only
@@ -245,7 +249,7 @@ async def connect_provider(data: ConnectIn):
         if not re.match(r"^https?://", data.base_url.strip()):
             raise HTTPException(400, "Enter the endpoint's base URL, starting with http:// or https://")
         name, base, kind = data.name.strip() or "Custom", data.base_url.strip().rstrip("/"), data.kind
-    if kind != "ollama" and not data.api_key.strip() and not data.base_url:
+    if kind != "ollama" and data.preset != "llamacpp" and not data.api_key.strip() and not data.base_url:
         raise HTTPException(400, "Paste the API key first.")
     existing = db.one("SELECT * FROM providers WHERE base_url = ?", base)
     if existing:  # pasting a key again replaces it instead of adding a duplicate provider
@@ -259,6 +263,9 @@ async def connect_provider(data: ConnectIn):
         pid = db.run("INSERT INTO providers(name, kind, base_url, api_key_enc, models, enabled, created_at) VALUES (?, ?, ?, ?, ?, 1, ?)",
                      name, kind, base, encrypt(data.api_key.strip()), data.models, db.now())
     audit.record("user", "provider connected", name, base)
+    if data.confirm_free and llm.can_confirm_free(llm._provider(pid)):
+        db.set_setting(f"provider_free_confirmed:{pid}", "1")
+        audit.record("user", "provider free confirmation", name, "confirmed: cannot bill")
     report = await llm.check_provider(pid, allow_paid=data.allow_paid_check)
     return {**report, "provider_id": pid, "status": models_status()}
 
@@ -283,11 +290,81 @@ def models_status():
         providers.append({**_provider_out(p), "checked": bool(info), "ok": bool(info.get("ok")), "error": info.get("error", ""),
                           "recommended": info.get("recommended", ""), "free_tier": info.get("free_tier"),
                           "models_count": info.get("models", 0), "free_models": info.get("free_models", 0),
-                          "checked_at": info.get("checked_at", "")})
+                          "free_tool_models": info.get("free_tool_models"), "checked_at": info.get("checked_at", ""),
+                          "local": llm._local_endpoint(p["base_url"]), "can_confirm_free": llm.can_confirm_free(p),
+                          "free_confirmed": llm.confirmed_free(p)})
     saved = db.get_setting("default_model") or ""
+    if default["ref"]:
+        try:
+            p, m = llm.split_ref(default["ref"])
+            default["free_basis"] = llm.free_basis(p, m)
+            default["local"] = llm.is_local(default["ref"])
+            listed = next((x for x in llm._model_cache.get(p["id"], (0, []))[1] if x["model"] == m), {})
+            default["price_in"], default["price_out"] = listed.get("price_in"), listed.get("price_out")
+        except HTTPException:
+            pass
+    saved_blocked = llm.mode_allows(saved) if saved and llm._ref_ok(saved) else ""
     return {"default": default, "fallbacks": llm.fallback_refs(default["ref"]) if default["ref"] else [],
             "fallbacks_custom": db.get_setting("fallback_models") not in (None, ""), "saved_default": saved,
-            "saved_default_broken": bool(saved) and default["source"] != "chosen", "providers": providers}
+            "saved_default_broken": bool(saved) and default["source"] != "chosen" and not saved_blocked,
+            "saved_default_blocked": saved_blocked, "mode": llm.ai_mode(), "providers": providers}
+
+
+# AI mode: how ROOKS may use models. Changing it never removes a provider, a key or your saved default model.
+MODE_INFO = {
+    "free": "Only models verified as free: OpenRouter models whose listed price is zero, Gemini keys you confirmed have no "
+            "billing, and models on your own computer. No paid fallback, no paid connection check.",
+    "premium": "Paid models are allowed, within the monthly spending limit you set.",
+    "local": "Only models on this computer or your local network. Nothing is sent to a cloud model.",
+    "custom": "Your own compatible endpoint. ROOKS cannot see its prices, so set a spending limit if it can bill you.",
+}
+
+
+@api.get("/ai-mode")
+def get_ai_mode():
+    return {"mode": llm.ai_mode(), "modes": MODE_INFO, "monthly_limit_cents": float(db.get_setting("monthly_limit_cents", "0") or 0),
+            "providers": db.one("SELECT COUNT(*) AS n FROM providers WHERE enabled = 1")["n"]}
+
+
+class ModeIn(BaseModel):
+    mode: Literal["free", "premium", "local", "custom"]
+    monthly_limit_cents: float | None = Field(None, ge=0, le=10_000_000)
+
+
+@api.put("/ai-mode")
+def set_ai_mode(data: ModeIn):
+    if data.monthly_limit_cents is not None:
+        db.set_setting("monthly_limit_cents", str(int(data.monthly_limit_cents)))
+    limit = float(db.get_setting("monthly_limit_cents", "0") or 0)
+    if data.mode == "premium" and limit <= 0:
+        raise HTTPException(400, "Premium Cloud AI needs a monthly spending limit. Enter one, for example $10.")
+    before = llm.ai_mode()
+    db.set_setting("ai_mode", data.mode)
+    audit.record("user", "AI mode", data.mode, f"was {before or 'not chosen'}; monthly limit ${limit / 100:.2f}" if limit else f"was {before or 'not chosen'}")
+    if data.mode in ("free", "local") and before != data.mode:
+        # Find a model this mode allows. These checks send only free or local requests (check_provider enforces it).
+        for p in db.all("SELECT id FROM providers WHERE enabled = 1"):
+            _check_later(p["id"])
+    return {**get_ai_mode(), "status": models_status()}
+
+
+class FreeConfirmIn(BaseModel):
+    confirmed: bool
+
+
+@api.put("/providers/{pid}/free-confirm")
+async def confirm_free(pid: int, data: FreeConfirmIn):
+    """You confirm a provider cannot bill you (a Gemini key from a project without billing, or a local server with no
+    paid API behind it). No API reports this, so it is your statement, recorded in the activity log."""
+    p = llm._provider(pid)
+    if not llm.can_confirm_free(p):
+        raise HTTPException(400, f"{p['name']} cannot be confirmed as free here: ROOKS checks its prices itself, or it is a paid provider.")
+    db.set_setting(f"provider_free_confirmed:{pid}", "1" if data.confirmed else "0")
+    audit.record("user", "provider free confirmation", p["name"], "confirmed: cannot bill" if data.confirmed else "withdrawn")
+    if data.confirmed:
+        report = await llm.check_provider(pid)
+        return {**report, "provider_id": pid, "status": models_status()}
+    return {"ok": False, "provider_id": pid, "status": models_status()}
 
 
 class FallbacksIn(BaseModel):
@@ -364,6 +441,24 @@ async def ollama_status():
 
 class PullIn(BaseModel):
     model: str = Field(..., pattern=r"^[\w.\-/:]+$", max_length=200)
+    consent: bool = False  # the person saw the size, memory and licence and agreed to the download
+
+
+# Models offered for download, with what a download costs you. Sizes are Ollama's listed download sizes; memory is a
+# rough guide (about the download size plus working room), not a measurement on your computer.
+LOCAL_CATALOG = [
+    {"model": "qwen3:4b", "size_gb": 2.5, "memory_gb": 4, "licence": "Apache 2.0", "licence_url": "https://huggingface.co/Qwen/Qwen3-4B",
+     "note": "Fast all rounder. Runs without a graphics card, slowly."},
+    {"model": "qwen3:8b", "size_gb": 5.2, "memory_gb": 8, "licence": "Apache 2.0", "licence_url": "https://huggingface.co/Qwen/Qwen3-8B",
+     "note": "Better reasoning. Best with a graphics card or Apple silicon."},
+    {"model": "gemma3:4b", "size_gb": 3.4, "memory_gb": 5, "licence": "Gemma Terms of Use", "licence_url": "https://ai.google.dev/gemma/terms",
+     "note": "Google's small model. Its licence has use restrictions: read it first."},
+]
+
+
+@api.get("/local/catalog")
+def local_catalog():
+    return {"models": LOCAL_CATALOG, "ollama_configured": bool(config.OLLAMA_URL)}
 
 
 @api.post("/ollama/pull")
@@ -372,6 +467,10 @@ async def ollama_pull(data: PullIn):
 
     if not config.OLLAMA_URL:
         raise HTTPException(400, "Local models are not enabled. Run setup with --with local-models, or set OLLAMA_URL.")
+    if not data.consent:
+        raise HTTPException(400, "A download needs your agreement first: check its size, memory and licence, then agree.")
+    item = next((m for m in LOCAL_CATALOG if m["model"] == data.model), None)
+    audit.record("user", "local model download", data.model, f"{item['size_gb']} GB, {item['licence']}" if item else "size not known")
 
     async def gen():
         async with httpx.AsyncClient(timeout=httpx.Timeout(None, connect=10)) as c:

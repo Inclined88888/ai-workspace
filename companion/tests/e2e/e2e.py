@@ -108,6 +108,7 @@ try:
     wait_http("http://127.0.0.1:8897/")
     start_app()
     c.post("/api/setup", json={"password": "correct horse 1"})
+    c.put("/api/ai-mode", json={"mode": "custom"})  # the fake model is your own server: Custom AI
     pr = c.post("/api/providers/connect", json={"name": "Fake", "base_url": "http://127.0.0.1:8896/v1", "api_key": "x"}).json()
     check("model connected", pr.get("ok"), pr.get("error"))
     c.put("/api/computer/settings", json={"enabled": True, "mode": "allowed"})

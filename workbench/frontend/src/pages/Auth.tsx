@@ -1,18 +1,12 @@
-import { ArrowLeft, ArrowRight, Check, CheckSquare, Cpu, Download, Loader2, MessageSquare, NotebookPen, Rocket, ShieldCheck, SlidersHorizontal } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, CheckSquare, Loader2, MessageSquare, NotebookPen, ShieldCheck } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
-import { api, stream } from "../api";
+import { api } from "../api";
 import type { Status } from "../App";
 import RookMark from "../components/RookMark";
 import { PasswordInput, Steps } from "../components/ui";
-import { ConnectProvider } from "../components/Models";
+import { Mode, MODES, ModeChooser, ModeSetup, saveMode } from "../components/AiSetup";
 
 const MIN_PASSWORD = 10; // matches the server's rule for setup and password changes
-
-const SUGGESTED = [
-  { model: "qwen3:4b", note: "Fast all rounder, about 2.5 GB. Fine without a graphics card." },
-  { model: "qwen3:8b", note: "Better reasoning, about 5 GB. Best with a graphics card." },
-  { model: "gemma3:4b", note: "Google's small model, about 3 GB." },
-];
 
 function Brand() {
   return <div className="row"><div className="brand-mark"><RookMark size={18} /></div><span className="wordmark">ROOKS</span></div>;
@@ -80,70 +74,7 @@ export function ModelTest({ auto = false }: { auto?: boolean }) {
   );
 }
 
-function ModelsStep() {
-  const [ollama, setOllama] = useState<{ online: boolean; models: string[]; configured?: boolean } | null>(null);
-  const [pulling, setPulling] = useState("");
-  const [progress, setProgress] = useState<{ status: string; pct: number }>({ status: "", pct: 0 });
-  const [error, setError] = useState("");
-  const check = () => api<{ online: boolean; models: string[]; configured?: boolean }>("/ollama/status").then(setOllama).catch(() => setOllama({ online: false, models: [] }));
-  useEffect(() => { check(); }, []);
-
-  const pull = async (model: string) => {
-    setPulling(model);
-    setError("");
-    await stream("/ollama/pull", { model }, (e) => {
-      if (e.error) setError(String(e.error));
-      const total = Number(e.total ?? 0);
-      const done = Number(e.completed ?? 0);
-      setProgress({ status: String(e.status ?? ""), pct: total ? Math.round((done / total) * 100) : 0 });
-    });
-    setPulling("");
-    check();
-  };
-
-  return (
-    <div className="col gap-lg">
-      <div>
-        <h1>Connect an AI model</h1>
-        <p className="muted" style={{ margin: "4px 0 0" }}>The assistant, research and agents need a model to think with. Pick one way below; you can change it any time in Settings.</p>
-      </div>
-      {error && <div className="alert err" role="alert">{error}</div>}
-      <div className="card col">
-        <h3>Paste a key from one provider</h3>
-        <p className="muted small" style={{ margin: 0 }}>ROOKS checks the key, finds a model that works (free ones first if the account has no credits) and tests it before using it.</p>
-        <ConnectProvider onConnected={() => undefined} localAvailable={!!ollama?.online} />
-      </div>
-      <div className="card col">
-        <div className="row">
-          <Cpu size={16} aria-hidden="true" /><h3 className="grow">Or run models on this computer</h3>
-          {ollama === null ? <Loader2 size={14} className="spin" aria-label="Checking" /> : ollama.online ? <span className="badge ok">Ollama found</span> : null}
-        </div>
-        {ollama && !ollama.online && ollama.configured === false && (
-          <p className="muted small" style={{ margin: 0 }}>Local models are off. On a Mac, install the Ollama app and run setup again; on a server, run <span className="mono">./setup.sh --with local-models</span>. Free and private, but slower than cloud models.</p>
-        )}
-        {ollama && !ollama.online && ollama.configured !== false && (
-          <div className="alert">Ollama is set up but not answering yet. It may still be starting. <button type="button" className="btn sm" onClick={check}>Try again</button></div>
-        )}
-        {ollama?.online && SUGGESTED.map((s) => {
-          const have = ollama.models.some((m) => m === s.model || m === `${s.model}:latest`);
-          return (
-            <div key={s.model} className="row">
-              <div className="grow"><div className="mono">{s.model}</div><div className="muted small">{s.note}</div></div>
-              {have ? <span className="badge ok"><Check size={12} /> Ready</span> : (
-                <button type="button" className="btn sm" disabled={!!pulling} onClick={() => pull(s.model)}>
-                  {pulling === s.model ? <><Loader2 size={14} className="spin" /> {progress.pct}%</> : <><Download size={14} /> Download</>}
-                </button>
-              )}
-            </div>
-          );
-        })}
-        {pulling && <div className="col" aria-live="polite"><div className="progress" role="progressbar" aria-valuenow={progress.pct} aria-valuemin={0} aria-valuemax={100}><div style={{ width: `${progress.pct}%` }} /></div><div className="muted small">{progress.status}</div></div>}
-      </div>
-    </div>
-  );
-}
-
-const STEPS = ["Welcome", "Secure", "Name", "Start", "Done"];
+const STEPS = ["Welcome", "Secure", "Name", "AI", "Done"];
 
 export default function Auth({ status, onDone }: { status: Status; onDone: () => void }) {
   const [step, setStep] = useState(0);
@@ -151,11 +82,27 @@ export default function Auth({ status, onDone }: { status: Status; onDone: () =>
   const [touched, setTouched] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [path, setPath] = useState<"quick" | "custom">("quick");
+  const [mode, setMode] = useState<Mode>("free");  // Free Cloud AI is the first-run default
   const [customising, setCustomising] = useState(false);
+  const [limit, setLimit] = useState(0);
+  const [connected, setConnected] = useState(false);
   const [ready, setReady] = useState<Readiness | null>(null);
 
-  useEffect(() => { if (step >= 3) api<Readiness>("/getting-started").then(setReady).catch(() => setReady(null)); }, [step, customising]);
+  useEffect(() => { if (step >= 3) api<Readiness>("/getting-started").then(setReady).catch(() => setReady(null)); }, [step, customising, connected]);
+  const chooseMode = async () => {
+    setError("");
+    if (mode === "premium") { setCustomising(true); return; }  // saved once the spending limit is set
+    try { await saveMode(mode); setCustomising(true); } catch (err) { setError((err as Error).message); }
+  };
+  const setPremiumLimit = async (cents: number) => {
+    try { const r = await saveMode("premium", cents); setLimit(r.monthly_limit_cents); setError(""); } catch (err) { setError((err as Error).message); }
+  };
+  const skipAi = async () => {
+    // Skipping keeps Free Cloud AI: nothing that costs money can run until you choose otherwise in Settings
+    try { await saveMode("free"); } catch { /* the server already defaults a new workspace to free */ }
+    setMode("free"); setCustomising(false); setStep(4);
+  };
+  const modeTitle = MODES.find((m) => m.id === mode)?.title ?? "";
 
   if (status.setup_complete && step === 0) {
     return <div className="auth"><div className="card auth-card"><Login onDone={onDone} /></div></div>;
@@ -193,7 +140,7 @@ export default function Auth({ status, onDone }: { status: Status; onDone: () =>
 
   return (
     <div className="auth">
-      <div className="card auth-card" style={{ width: customising ? "min(640px, 100%)" : undefined }}>
+      <div className="card auth-card" style={{ width: step === 3 ? "min(640px, 100%)" : undefined }}>
         <Steps labels={STEPS} current={step} />
         {error && <div className="alert err" role="alert" style={{ marginBottom: 14 }}>{error}</div>}
 
@@ -275,31 +222,33 @@ export default function Auth({ status, onDone }: { status: Status; onDone: () =>
         {step === 3 && !customising && (
           <div className="col gap-lg">
             <div>
-              <h1>How do you want to start?</h1>
-              <p className="muted" style={{ margin: "6px 0 0" }}>Your workspace is created and you're signed in.</p>
+              <h1>How should ROOKS use AI?</h1>
+              <p className="muted" style={{ margin: "6px 0 0" }}>Your workspace is created and you're signed in. The assistant, research and missions need an AI model.
+                Free Cloud AI is selected: it needs no download and costs nothing. You can switch at any time in Settings.</p>
             </div>
-            <div className="col" role="radiogroup" aria-label="Starting experience">
-              <button type="button" className="choice" role="radio" aria-checked={path === "quick"} onClick={() => setPath("quick")}>
-                <Rocket size={20} className="prio-1" aria-hidden="true" />
-                <span><strong>Just get started</strong><br /><span className="muted small">Use tasks, notes, documents and calendar right away. Add an AI model later when you want the assistant.</span></span>
-              </button>
-              <button type="button" className="choice" role="radio" aria-checked={path === "custom"} onClick={() => setPath("custom")}>
-                <SlidersHorizontal size={20} className="prio-1" aria-hidden="true" />
-                <span><strong>Set up the assistant now</strong><br /><span className="muted small">Connect a cloud provider or local models so the assistant, research and agents work from the start.</span></span>
-              </button>
+            <ModeChooser value={mode} onChange={setMode} idPrefix="onboard-mode" />
+            {ready && ready.providers > 0 && <div className="alert ok">A model provider is already configured on this server. It is kept whichever mode you choose.</div>}
+            <div className="row wrap">
+              <button type="button" className="btn ghost" onClick={skipAi}>Skip for now</button>
+              <div className="spacer" />
+              <button className="btn primary lg" onClick={chooseMode}>Continue with {modeTitle} <ArrowRight size={16} /></button>
             </div>
-            {ready && ready.providers > 0 && <div className="alert ok">A model provider is already configured on this server.</div>}
-            <button className="btn primary lg" onClick={() => (path === "custom" ? setCustomising(true) : setStep(4))}>Continue <ArrowRight size={16} /></button>
+            <p className="small muted" style={{ margin: 0 }}>Skipping keeps Free Cloud AI with nothing connected. Tasks, notes and calendar work without AI.</p>
           </div>
         )}
 
         {step === 3 && customising && (
           <div className="col gap-lg">
-            <ModelsStep />
-            <div className="row">
-              <button type="button" className="btn ghost" onClick={() => setCustomising(false)}><ArrowLeft size={16} /> Back</button>
+            <div>
+              <h1>{modeTitle}</h1>
+              <p className="muted" style={{ margin: "6px 0 0" }}>{MODES.find((m) => m.id === mode)?.about}</p>
+            </div>
+            <ModeSetup mode={mode} limitCents={limit} onLimit={setPremiumLimit} onConnected={(_, r) => { if (r.ok) setConnected(true); }} />
+            <div className="row wrap">
+              <button type="button" className="btn ghost" onClick={() => setCustomising(false)}><ArrowLeft size={16} /> Choose another way</button>
               <div className="spacer" />
-              <button className="btn primary" onClick={() => { setCustomising(false); setStep(4); }}>Continue <ArrowRight size={16} /></button>
+              <button className={`btn ${connected ? "primary" : ""}`} disabled={mode === "premium" && limit <= 0} onClick={() => { setCustomising(false); setStep(4); }}>
+                {connected ? <>Continue <ArrowRight size={16} /></> : <>Continue without connecting <ArrowRight size={16} /></>}</button>
             </div>
           </div>
         )}
@@ -317,7 +266,7 @@ export default function Auth({ status, onDone }: { status: Status; onDone: () =>
               <li><span className="tick" aria-hidden="true" /><NotebookPen size={16} aria-hidden="true" /><span className="what">Save a note</span></li>
             </ul>
             {ready && ready.providers === 0
-              ? <div className="alert">No AI model is connected yet, so the assistant can't answer. Tasks, notes and calendar work without one. Add a model under Settings, Model providers.</div>
+              ? <div className="alert">No AI model is connected yet, so the assistant can't answer. Tasks, notes and calendar work without one. Connect one under Settings, AI models.</div>
               : ready && <ModelTest />}
             <div className="onboard-note small">
               <strong>Your privacy.</strong> ROOKS runs on your own machine. It sends text to the AI provider you connected, and asks before anything

@@ -85,6 +85,9 @@ def _check(kind: str, project_id: int | None) -> tuple[dict, str]:
             raise HTTPException(403, f"This project is local only, and {dest.get('label')}. Use the browser or a local voice provider.")
         if s["consent"].get(key, {}).get("ref") != s[key]:
             raise HTTPException(403, f"Audio would go to {dest.get('label')}. Agree to that in Settings, Voice, first.")
+    why = llm.mode_allows(s[key])  # Free Cloud AI and Local AI apply to speech providers too
+    if why:
+        raise HTTPException(402 if llm.ai_mode() == "free" else 403, why)
     return llm.split_ref(s[key])
 
 

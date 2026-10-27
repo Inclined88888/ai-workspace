@@ -203,7 +203,13 @@ def embed(texts: list[str], ref: str | None = None) -> list[list[float]]:
     """Embeddings from an OpenAI compatible /embeddings endpoint (Ollama, OpenAI, Gemini and others serve one)."""
     from .llm import _headers, split_ref
 
-    p, model = split_ref(ref or embed_model())
+    from .llm import mode_allows
+
+    ref = ref or embed_model()
+    p, model = split_ref(ref)
+    why = mode_allows(ref)  # Free Cloud AI and Local AI apply to embeddings too
+    if why:
+        raise httpx.HTTPError(why)
     r = httpx.post(p["base_url"].rstrip("/") + "/embeddings", json={"model": model, "input": texts}, headers=_headers(p), timeout=10)
     r.raise_for_status()
     data = sorted(r.json()["data"], key=lambda d: d.get("index", 0))

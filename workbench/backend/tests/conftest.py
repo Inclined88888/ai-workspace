@@ -146,6 +146,8 @@ def client(fake_url, runner, tmp_path_factory):
     with TestClient(main.app) as c:
         h = {"X-Workbench": "1"}
         assert c.post("/api/setup", json={"password": "testpassword1"}, headers=h).status_code == 200
+        # A new workspace starts in Free Cloud AI mode; the scripted model is your own server, so this is Custom AI
+        assert c.put("/api/ai-mode", json={"mode": "custom"}, headers=h).status_code == 200
         r = c.post("/api/providers", json={"name": "Fake", "kind": "openai", "base_url": fake_url, "api_key": "x"}, headers=h)
         pid = r.json()["id"]
         for _ in range(100):  # adding a provider checks it in the background; wait so it cannot take scripted replies

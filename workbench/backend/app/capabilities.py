@@ -33,6 +33,15 @@ def catalog() -> dict:
     from .llm import list_models
 
     providers = db.one("SELECT COUNT(*) AS n FROM providers WHERE enabled = 1")["n"]
+    # Ready means a model the AI mode allows is working, not merely that a provider was saved
+    from fastapi import HTTPException
+
+    from .llm import effective_default
+    try:
+        effective_default()
+        usable, why = providers > 0, ""
+    except HTTPException as e:
+        usable, why = False, str(e.detail)
     search_on = bool(search.provider())
     mail = db.one("SELECT COUNT(*) AS n FROM mail_accounts")["n"]
     cals = db.one("SELECT COUNT(*) AS n FROM calendars WHERE enabled = 1")["n"]
@@ -60,16 +69,16 @@ def catalog() -> dict:
                 "kind": kind, "needs": need if status in ("needs_setup", "optional") else "", "setup": setup, "note": note,
                 "permissions": p["groups"], "tools": tools, **_last(tools)}
 
-    no_model = "Connect an AI model first (a free OpenRouter or Gemini key works)."
+    no_model = why if providers and why else "Connect an AI model first (a free OpenRouter or Gemini key works)."
     caps = [
         cap("chat", "Models", "Conversation with your AI models", "Ask anything in plain English; switch models per chat.",
-            ["Explain this contract clause simply", "Compare the AI models I have connected"], ["list_models"], providers > 0, no_model, "/settings#models",
+            ["Explain this contract clause simply", "Compare the AI models I have connected"], ["list_models"], usable, no_model, "/settings#models",
             note=f"{models} model(s) available from {providers} provider(s)." if providers else ""),
         cap("web", "Research", "Web search and reading pages", "Searches the web and reads pages to answer with sources.",
             ["What changed in Australian super rules this year?", "Read this page and summarise it: https://…"], ["web_search", "read_page"],
             search_on, "Add a free Tavily or Brave key, or the search add-on.", "/settings#search"),
         cap("deep_research", "Research", "Deep Research", "Several rounds of searching and reading, an evidence table and a cited report.",
-            ["Research the best accounting software for a five-person firm"], ["start_research"], search_on and providers > 0,
+            ["Research the best accounting software for a five-person firm"], ["start_research"], search_on and usable,
             "Needs web search and an AI model.", "/research"),
         cap("notes", "Files and Documents", "Notes and documents", "Write, find and update notes and documents; download them as Markdown.",
             ["Write a one-page summary of our meeting and save it", "Find my notes about the benchtop"], ["search_notes", "read_note", "create_note", "append_to_note"]),
@@ -90,7 +99,7 @@ def catalog() -> dict:
             ["Set a check-in to phone me when a client replies"], [], bool(ph["provider"] and ph["verified"] and ph["enabled"]),
             "Set up and verify a phone line under Settings, Calls (needs a Twilio account).", "/settings#calls", kind="optional"),
         cap("missions", "Business Operations", "Missions and workers", "Bigger jobs planned step by step; workers take parts with their own tools.",
-            ["Start a mission: compare three CRM tools and save a summary"], ["start_mission", "list_missions"], providers > 0, no_model, "/missions"),
+            ["Start a mission: compare three CRM tools and save a summary"], ["start_mission", "list_missions"], usable, no_model, "/missions"),
         cap("overview", "Business Operations", "Spending and project status", "Real totals and charts of your AI spending; where a project stands.",
             ["Show my AI spending for the last 30 days", "How is the kitchen project going?"], ["get_usage", "project_status"]),
         cap("checkins", "Automations", "Check-ins and scheduled jobs", "ROOKS checks what you choose on a schedule and tells you only what is new.",

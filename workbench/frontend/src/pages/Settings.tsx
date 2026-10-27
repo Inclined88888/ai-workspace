@@ -1,12 +1,13 @@
-import { Check, Cpu, Download, Loader2, Mail, Plug, RefreshCw, Shield, Trash2 } from "lucide-react";
+import { Check, Cpu, Loader2, Mail, Plug, RefreshCw, Shield, Trash2 } from "lucide-react";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { api, stream } from "../api";
+import { api } from "../api";
 import { useModels, useToast } from "../util";
 import { PasswordInput } from "../components/ui";
 import { ModelTest } from "./Auth";
 import { ModelRoles } from "../components/ModelRoles";
 import { ModelsPanel } from "../components/Models";
+import { AiModePanel, LocalDownloads } from "../components/AiSetup";
 import WebSearchPanel from "../components/WebSearch";
 import AppearancePanel from "../components/AppearancePanel";
 import { ActivityLog, ConnectionsHealth, GitHubPanel, PermissionsPanel, ToolsPanel } from "../components/Trust";
@@ -24,35 +25,13 @@ const MAIL_PRESETS: Record<string, { imap_host: string; smtp_host: string; smtp_
 
 function LocalModels() {
   const [status, setStatus] = useState<{ online: boolean; models: string[] } | null>(null);
-  const [name, setName] = useState("");
-  const [pull, setPull] = useState<{ model: string; pct: number; status: string } | null>(null);
-  const toast = useToast();
   const load = () => api<{ online: boolean; models: string[] }>("/ollama/status").then(setStatus);
   useEffect(() => { load(); }, []);
-  const start = async (e: FormEvent) => {
-    e.preventDefault();
-    const model = name.trim();
-    setPull({ model, pct: 0, status: "starting" });
-    await stream("/ollama/pull", { model }, (ev) => {
-      if (ev.error) toast.err(String(ev.error));
-      const total = Number(ev.total ?? 0);
-      setPull({ model, pct: total ? Math.round((Number(ev.completed ?? 0) / total) * 100) : 0, status: String(ev.status ?? "") });
-    });
-    setPull(null);
-    setName("");
-    load();
-  };
   return (
     <div className="card col gap-lg">
       <div className="row"><Cpu size={16} /><h2>Local models</h2><div className="spacer" />{status && (status.online ? <span className="badge ok">Ollama online</span> : <span className="badge danger">Ollama offline</span>)}<button className="btn ghost sm icon" onClick={load} aria-label="Check Ollama again" title="Check again"><RefreshCw size={13} /></button></div>
-      <div className="row wrap">{status?.models.map((m) => <span key={m} className="badge mono">{m}</span>)}{status?.models.length === 0 && <span className="muted small">No models downloaded yet.</span>}</div>
-      <form className="row" onSubmit={start}>
-        <input className="input grow mono" value={name} onChange={(e) => setName(e.target.value)} placeholder="Model from ollama.com/library, e.g. qwen3:8b, gemma3:12b, llama3.2:3b" />
-        <button className="btn" disabled={!name.trim() || !!pull}>{pull ? <Loader2 size={15} className="spin" /> : <Download size={15} />} Download</button>
-      </form>
-      {pull && <div className="col"><div className="progress"><div style={{ width: `${pull.pct}%` }} /></div><div className="muted small">{pull.model}: {pull.status} {pull.pct ? `${pull.pct}%` : ""}</div></div>}
-      <div className="muted small">Models downloaded here are shared with Chat. Rough guide: a 4B model needs ~4 GB RAM, 8B ~8 GB, 14B ~12 GB. A GPU makes them much faster.</div>
-      {toast.node}
+      <LocalDownloads onDone={load} />
+      <div className="muted small">Models downloaded here are shared with Chat. A graphics card makes them much faster.</div>
     </div>
   );
 }
@@ -208,6 +187,7 @@ export default function Settings({ onChanged }: { onChanged: () => void }) {
   const [localAvailable, setLocalAvailable] = useState(false);
   const location = useLocation();
   const [active, setActive] = useState(SECTIONS[0][0]);
+  const [modeRev, setModeRev] = useState(0);  // remounts the models panel after an AI mode change
   const lock = useRef(0);
   useEffect(() => {  // the section in view is highlighted: the last one whose top has passed the top of the view
     const scroller = document.querySelector(".main");
@@ -268,8 +248,9 @@ export default function Settings({ onChanged }: { onChanged: () => void }) {
           {SECTIONS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
         </select>
         <div className="col gap-lg settings-body">
-          <Section id="s-models" title="AI models" about="Connect at least one provider. ROOKS checks each key with a tiny free request when it can, and never tests paid models without asking.">
-            <div id="models" style={{ scrollMarginTop: 16 }}><ModelsPanel models={models} reloadModels={() => reload(true)} localAvailable={localAvailable} /></div>
+          <Section id="s-models" title="AI models" about="Choose how ROOKS uses AI, then connect a provider. ROOKS checks each key with a tiny free request when it can, and never tests paid models without asking.">
+            <AiModePanel onChanged={() => { setModeRev((n) => n + 1); reload(true); }} />
+            <div id="models" style={{ scrollMarginTop: 16 }}><ModelsPanel key={modeRev} models={models} reloadModels={() => reload(true)} localAvailable={localAvailable} /></div>
             {models.length > 0 && <div className="card col"><h3>Quick check</h3><p className="muted small" style={{ margin: 0 }}>Sends one tiny message through the default model (and its backups if needed).</p><ModelTest /></div>}
             {models.length > 0 && <ModelRoles models={models} />}
             {localAvailable && <LocalModels />}

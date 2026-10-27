@@ -13,11 +13,12 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 prov = FastAPI()
-MODELS = [  # shaped like OpenRouter's /models
-    {"id": "paid-model", "context_length": 200000, "supported_parameters": ["tools"]},
-    {"id": "free-model:free", "context_length": 128000, "supported_parameters": ["tools", "temperature"]},
-    {"id": "notools:free", "context_length": 900000, "supported_parameters": ["temperature"]},
-    {"id": "small:free", "context_length": 8000, "supported_parameters": ["tools"]},
+FREE = {"prompt": "0", "completion": "0"}
+MODELS = [  # shaped like OpenRouter's /models, prices in USD per token as strings
+    {"id": "paid-model", "context_length": 200000, "supported_parameters": ["tools"], "pricing": {"prompt": "0.000003", "completion": "0.000015"}},
+    {"id": "free-model:free", "context_length": 128000, "supported_parameters": ["tools", "temperature"], "pricing": FREE},
+    {"id": "notools:free", "context_length": 900000, "supported_parameters": ["temperature"], "pricing": FREE},
+    {"id": "small:free", "context_length": 8000, "supported_parameters": ["tools"], "pricing": FREE},
 ]
 
 
@@ -116,7 +117,9 @@ def test_good_key_picks_a_free_model_that_answered_with_tools(client, router_lik
     assert good["ok"] is True and good["free_tier"] is True
     # notools:free has the largest context but cannot use tools; paid-model needs credits
     assert good["recommended"] == "free-model:free"
-    assert good["status"]["default"] == {"ref": f"{good['provider_id']}/free-model:free", "source": "auto", "error": ""}
+    d = good["status"]["default"]
+    assert {k: d[k] for k in ("ref", "source", "error")} == {"ref": f"{good['provider_id']}/free-model:free", "source": "auto", "error": ""}
+    assert d["free_basis"] == "price"  # free because OpenRouter listed its price as zero, not because of its name
 
 
 def test_saved_default_for_a_removed_provider_is_ignored(client, router_like):

@@ -18,6 +18,8 @@ from .security import decrypt, encrypt
 PRESETS = {
     # Native Ollama app on the host (fast on Mac: uses the GPU) unless the ollama add-on container is configured
     "ollama": {"name": "Ollama (local)", "base_url": f"{config.OLLAMA_URL or 'http://host.docker.internal:11434'}/v1"},
+    # llama.cpp's llama-server speaks the OpenAI API on port 8080; start it with --jinja so tool calls work
+    "llamacpp": {"name": "llama.cpp (local)", "base_url": f"{config.LLAMACPP_URL or 'http://host.docker.internal:8080'}/v1"},
     "openai": {"name": "OpenAI", "base_url": "https://api.openai.com/v1"},
     "anthropic": {"name": "Anthropic", "base_url": "https://api.anthropic.com/v1"},
     "openrouter": {"name": "OpenRouter", "base_url": "https://openrouter.ai/api/v1",
@@ -58,16 +60,126 @@ def _keep_model(base_url: str, model: str) -> bool:
 
 
 def is_free(p: dict, model: str) -> bool:
-    return (p["kind"] == "ollama" and _local_endpoint(p["base_url"])) or (_is_openrouter(p) and model.endswith(":free"))
+    """True only when ROOKS has evidence that a call to this model costs nothing. A free tier on the provider is not
+    enough on its own:
+    - Ollama on this computer or network (but not Ollama's cloud models, which run on ollama.com);
+    - OpenRouter models ending in :free whose listed price, from OpenRouter's own model list, is zero;
+    - providers you confirmed cannot bill you (a Gemini key from a Google project with no billing account, or a
+      local server with no paid API behind it), because no API reports that; see free_basis."""
+    return bool(free_basis(p, model))
+
+
+def free_basis(p: dict, model: str) -> str:
+    """Why a model counts as free ("" when it does not): "local", "price" or "confirmed"."""
+    if _cloud_tag(model):
+        return ""
+    if p["kind"] == "ollama" and _local_endpoint(p["base_url"]):
+        return "local"
+    if _is_openrouter(p):
+        return "price" if model.endswith(":free") and model in zero_priced(p["id"]) else ""
+    if confirmed_free(p):
+        return "confirmed"
+    return ""
+
+
+def _cloud_tag(model: str) -> bool:
+    # Ollama's cloud models ("gpt-oss:120b-cloud") are served by ollama.com even through a local Ollama
+    return bool(re.search(r"(^|[-:])cloud$", model))
+
+
+def zero_priced(pid: int) -> set[str]:
+    """Models OpenRouter listed with every price at zero, from the last model listing (see list_models_for)."""
+    try:
+        return set(json.loads(db.get_setting(f"provider_prices:{pid}", "") or "{}").get("zero", []))
+    except ValueError:
+        return set()
+
+
+def _prices_age(pid: int) -> float:
+    try:
+        return time.time() - float(json.loads(db.get_setting(f"provider_prices:{pid}", "") or "{}").get("at", 0))
+    except (ValueError, TypeError):
+        return float("inf")
+
+
+# Who may confirm that a provider cannot bill: Gemini (Google reports a key's tier only in AI Studio, not by API) and
+# local servers other than Ollama (llama.cpp, LM Studio), which could be a proxy to a paid API.
+def can_confirm_free(p: dict) -> bool:
+    if _is_openrouter(p):
+        return False  # OpenRouter reports its prices, so only its price list decides
+    return "generativelanguage.googleapis.com" in p["base_url"] or (p["kind"] != "ollama" and _local_endpoint(p["base_url"]))
+
+
+def confirmed_free(p: dict) -> bool:
+    return can_confirm_free(p) and db.get_setting(f"provider_free_confirmed:{p['id']}") == "1"
+
+
+# AI modes. "" means none was chosen (installs from before v11.1): everything works as it did, nothing is restricted.
+MODES = ("free", "premium", "local", "custom")
+
+
+def ai_mode() -> str:
+    m = db.get_setting("ai_mode", "") or ""
+    return m if m in MODES else ""
+
+
+def mode_allows(ref: str) -> str:
+    """"" when the current AI mode allows this model, otherwise the reason it does not."""
+    m = ai_mode()
+    if m not in ("free", "local"):
+        return ""
+    try:
+        p, model = split_ref(ref)
+    except HTTPException as e:
+        return str(e.detail)
+    if m == "local":
+        return "" if is_local(ref) else (f"{model} runs in the cloud ({p['name']}), and ROOKS is set to Local AI. "
+                                         "Pick a local model, or change the AI mode in Settings, under AI models.")
+    if db.get_setting(f"free_blocked:{ref}") == "1":
+        return (f"{model} reported a charge, so ROOKS stopped using it in Free Cloud AI mode. "
+                "Pick another free model, or change the AI mode in Settings.")
+    if is_free(p, model):
+        return ""
+    if _is_openrouter(p) and model.endswith(":free"):
+        why = "its price could not be confirmed as zero from OpenRouter's model list"
+    elif can_confirm_free(p):
+        why = f"you have not confirmed that {p['name']} cannot bill you"
+    else:
+        why = "it is not verified as free"
+    return (f"{model} was not used: ROOKS is in Free Cloud AI mode and {why}. Pick a model marked free, "
+            "or change the AI mode in Settings, under AI models.")
+
+
+async def mode_guard(ref: str) -> None:
+    """Refuse a model call the AI mode does not allow. In Free Cloud AI mode an OpenRouter price list older than six
+    hours is fetched again first, so a model that stopped being free is caught."""
+    if ai_mode() == "free":
+        try:
+            p, model = split_ref(ref)
+        except HTTPException:
+            p, model = None, ""
+        if p and _is_openrouter(p) and model.endswith(":free") and _prices_age(p["id"]) > 6 * 3600:
+            await asyncio.to_thread(list_models_for, p["id"], True)
+    why = mode_allows(ref)
+    if why:
+        raise ModelError(why, 402, retryable=True)
+
+
+def charged_in_free_mode(ref: str, cost_usd) -> None:
+    """A model that reports a cost while in Free Cloud AI mode is never used again in that mode."""
+    if ai_mode() == "free" and isinstance(cost_usd, (int, float)) and cost_usd > 0:
+        db.set_setting(f"free_blocked:{ref}", "1")
+        from . import audit
+        audit.record("system", "free mode: model reported a charge", ref, f"${cost_usd:.6f}; blocked in Free Cloud AI mode", ok=False)
 
 
 def is_local(ref: str) -> bool:
     """True when the model runs on this computer or the local network, so data sent to it does not leave."""
     try:
-        p, _ = split_ref(ref)
+        p, model = split_ref(ref)
     except HTTPException:
         return False
-    return _local_endpoint(p["base_url"])
+    return _local_endpoint(p["base_url"]) and not (p["kind"] == "ollama" and _cloud_tag(model))
 
 
 def _local_endpoint(base_url: str) -> bool:
@@ -187,15 +299,22 @@ def effective_default() -> tuple[str, str]:
 
     A saved default whose provider was removed or disabled is ignored instead of breaking every chat."""
     saved = db.get_setting("default_model")
-    if _ref_ok(saved):
+    if _ref_ok(saved) and not mode_allows(saved):
         return saved, "chosen"
     providers = _ordered_providers()
     if not providers:
         raise HTTPException(400, "No AI model is connected yet. Add a key in Settings, under AI models.")
     for p in providers:
         ref = recommended_ref(p)
-        if ref:
+        if ref and not mode_allows(ref):
             return ref, "auto"
+    m = ai_mode()
+    if m == "free":
+        raise HTTPException(400, "ROOKS is in Free Cloud AI mode and none of your models is verified as free and working. "
+                            "Connect OpenRouter or Google Gemini in Settings, under AI models, or change the AI mode.")
+    if m == "local":
+        raise HTTPException(400, "ROOKS is set to Local AI and no local model is working. Start Ollama or your local server, "
+                            "or change the AI mode in Settings, under AI models.")
     raise HTTPException(400, "None of your AI providers is working right now. Fix the key or connect another provider in Settings, under AI models.")
 
 
@@ -219,6 +338,8 @@ def fallback_refs(primary: str) -> list[str]:
             refs = [r for r in refs if _ref_free(r)]
     out: list[str] = []
     for r in refs:
+        if mode_allows(r):  # Free Cloud AI and Local AI never fall back to a model they do not allow
+            continue
         if r != primary and r not in out:
             out.append(r)
     return out[:3]
@@ -245,16 +366,36 @@ def list_models_for(pid: int, fresh: bool = False) -> list[dict]:
                 if mid and _keep_model(p["base_url"], mid):
                     params = m.get("supported_parameters")
                     meta[mid] = {"tools": ("tools" in params) if isinstance(params, list) else None,
-                                 "ctx": m.get("context_length") if isinstance(m.get("context_length"), int) else None}
+                                 "ctx": m.get("context_length") if isinstance(m.get("context_length"), int) else None,
+                                 **_prices(m.get("pricing"))}
+            if _is_openrouter(p):
+                zero = sorted(n for n, x in meta.items() if x.get("zero_price"))
+                db.set_setting(f"provider_prices:{pid}", json.dumps({"zero": zero, "at": time.time()}))
     except (httpx.HTTPError, ValueError, KeyError, AttributeError) as e:
         _list_errors[pid] = (0, str(e)[:300] or e.__class__.__name__)
     for m in (x.strip() for x in p["models"].split(",")):
         if m:
             meta.setdefault(m, {"tools": None, "ctx": None})
-    out = [{"ref": f"{pid}/{n}", "model": n, "provider": p["name"], "provider_id": pid, "free": is_free(p, n), **meta[n]}
+    out = [{"ref": f"{pid}/{n}", "model": n, "provider": p["name"], "provider_id": pid, "free": is_free(p, n),
+            "free_basis": free_basis(p, n), **{k: v for k, v in meta[n].items() if k != "zero_price"}}
            for n in sorted(meta)]
     _model_cache[pid] = (time.time(), out)
     return out
+
+
+def _prices(pricing) -> dict:
+    """Prices from a model listing that reports them (OpenRouter: USD per token, as strings), per million tokens.
+    zero_price is True only when every listed price parses as zero; a missing or unreadable price is never zero."""
+    if not isinstance(pricing, dict) or not pricing:
+        return {}
+    try:
+        vals = {k: float(v) for k, v in pricing.items() if v not in (None, "")}
+    except (TypeError, ValueError):
+        return {}
+    if "prompt" not in vals or "completion" not in vals:
+        return {}
+    return {"price_in": round(vals["prompt"] * 1_000_000, 4), "price_out": round(vals["completion"] * 1_000_000, 4),
+            "zero_price": all(v == 0 for v in vals.values())}
 
 
 def list_models(fresh: bool = False) -> list[dict]:
@@ -333,7 +474,9 @@ async def complete(ref: str | None, messages: list[dict]) -> str:
 async def stream(ref: str | None, messages: list[dict]) -> AsyncIterator[dict]:
     """Yields {"reasoning": str} and {"delta": str} chunks, then a final {"done": True, "usage": {...}, "ms": int}."""
     try:
-        p, model = split_ref(ref or default_model_ref())
+        ref = ref or default_model_ref()
+        p, model = split_ref(ref)
+        await mode_guard(ref)
         spend_guard()
     except HTTPException as e:
         yield {"error": str(e.detail)}
@@ -376,6 +519,7 @@ async def stream(ref: str | None, messages: list[dict]) -> AsyncIterator[dict]:
     except httpx.HTTPError as e:
         yield {"error": explain(p, 0, str(e) or e.__class__.__name__)}
         return
+    charged_in_free_mode(ref, usage.get("cost"))
     yield {"done": True, "usage": usage, "ms": int((time.monotonic() - started) * 1000), "first_token_ms": first_token_ms}
 
 
@@ -396,6 +540,8 @@ def _cap(p: dict, body: dict) -> dict:
 
 async def _chat_once(ref: str, messages: list[dict], tools: list[dict] | None, ping: bool = False) -> dict:
     p, model = split_ref(ref)
+    # Every model call (chat, missions, workers, research, check-ins, vision, connection checks) passes here
+    await mode_guard(ref)
     # A provider health check can still incur usage charges; it must not
     # bypass a configured monthly spending limit.
     spend_guard()
@@ -427,6 +573,7 @@ async def _chat_once(ref: str, messages: list[dict], tools: list[dict] | None, p
         ]
     usage = data.get("usage") or {}
     cost = usage.get("cost") if isinstance(usage.get("cost"), (int, float)) else None
+    charged_in_free_mode(ref, cost)
     return {"message": out, "usage": usage, "ref": ref, "model": model, "cost_usd": cost}
 
 
@@ -450,6 +597,8 @@ async def chat(ref: str | None, messages: list[dict], tools: list[dict] | None =
         if not chain:
             raise ModelError("This work is set to local models only, and no local model is set up. Connect one (for example "
                              "Ollama) or choose it for this conversation.", 400, retryable=False)
+    if not ref and ai_mode() in ("free", "local"):
+        chain = [r for r in chain if not mode_allows(r)] or chain[:1]  # the first one then fails with the reason
     failed: list[dict] = []
     for i, r in enumerate(chain):
         try:
@@ -536,6 +685,7 @@ async def check_provider(pid: int, max_tries: int = 4, allow_paid: bool = False)
     _model_cache.pop(pid, None)
     models = await asyncio.to_thread(list_models_for, pid, True)
     report: dict = {"ok": False, "provider": p["name"], "models": len(models), "free_models": sum(1 for m in models if m["free"]),
+                    "free_tool_models": sum(1 for m in models if m["free"] and m.get("tools")), "mode": ai_mode(),
                     "recommended": "", "free_tier": None, "tried": [], "error": "", "checked_at": db.now()}
     key = await key_status(p)
     report["free_tier"] = key.get("free_tier")
@@ -549,8 +699,10 @@ async def check_provider(pid: int, max_tries: int = 4, allow_paid: bool = False)
     else:
         # Automatic and startup verification must never send a paid request.
         # A user must deliberately opt in to a bounded paid connection check.
+        if ai_mode() in ("free", "local"):
+            allow_paid = False  # these modes never send a request that could be charged, not even to check a key
         choices = [n for n in candidates(p, models, key.get("free_tier"))
-                   if allow_paid or is_free(p, n) or is_local(f"{pid}/{n}")]
+                   if (allow_paid or is_free(p, n) or is_local(f"{pid}/{n}")) and not mode_allows(f"{pid}/{n}")]
         for name in choices[:max_tries]:
             if time.monotonic() > deadline:
                 report["tried"].append({"model": name, "error": f"Not tried: the check's {CHECK_BUDGET} second limit was reached."})
@@ -568,10 +720,22 @@ async def check_provider(pid: int, max_tries: int = 4, allow_paid: bool = False)
             report.update(ok=True, recommended=name)
             break
         if not report["ok"]:
-            report["error"] = (report["tried"][0]["error"] if report["tried"] else
-                               "No free model available for automatic verification. Use Check and explicitly approve a paid verification request.")
+            report["error"] = (report["tried"][0]["error"] if report["tried"] else _no_candidate(p))
     db.set_setting(f"provider_check:{pid}", json.dumps(report))
     return report
+
+
+def _no_candidate(p: dict) -> str:
+    m = ai_mode()
+    if m == "free":
+        if can_confirm_free(p) and not confirmed_free(p):
+            return (f"Not checked: ROOKS is in Free Cloud AI mode and cannot tell from {p['name']} whether this key can be "
+                    "billed. Confirm it below if it comes from a project with no billing, or change the AI mode.")
+        return (f"Not checked: ROOKS is in Free Cloud AI mode and {p['name']} has no model verified as free. "
+                "No request was sent.")
+    if m == "local":
+        return f"Not checked: ROOKS is set to Local AI and {p['name']} is not on this computer or network."
+    return "No free model available for automatic verification. Use Check and explicitly approve a paid verification request."
 
 
 def parse_json(text: str):
