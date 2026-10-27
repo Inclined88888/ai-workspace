@@ -458,7 +458,7 @@ def _finish(aid: int, status: str, result=None, error: str = "") -> None:
             status, error = "failed", "Computer result exceeds the 16 MiB safety limit."
         else:
             _transient_results[aid] = result
-    db.run("UPDATE computer_actions SET status = ?, result = NULL, error = ?, finished_at = ? WHERE id = ?",
+    db.run("UPDATE computer_actions SET status = ?, result = '', error = ?, finished_at = ? WHERE id = ?",
            status, error, db.now(), aid)
     waiting = _events.get(aid)
     if waiting:
