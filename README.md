@@ -117,6 +117,8 @@ Setup and the full safety model are in `docs/COMPUTER_USE.md` and `companion/REA
 
 **Projects.** One place per client, job or goal: description, goals, instructions for ROOKS, decisions and open questions, and the conversations, missions, tasks and notes that belong to it. Every chat or mission started in a project begins with its brief, so ROOKS carries on without being told again. Facts learned in a project are remembered only there; who you are and how you like things done stay user wide. Per project you can narrow permissions (never widen them), require local models only (cloud models are refused, including as backups), choose a model and set a monthly budget. Archive hides a project; the bin keeps everything; deleting for good needs the project's name typed and keeps its conversations and files, unlinked. See `docs/PROJECTS.md`.
 
+**Terminal and workspace.** The assistant can run commands and create, read and edit files in its own workspace folder, and use the results to keep going (run the tests, read the failure, fix the file, run them again). It all happens in a separate runner container that has only the workspace: no ROOKS data, no API keys. The terminal asks before each command by default (read-only commands on your allow list excepted); risky commands, anything after reading web content, and runs without you watching always ask. Output, exit codes and failures show in the chat steps. See `docs/TERMINAL.md`.
+
 **Workflows.** Missions can start from templates for spreadsheet cleanup, invoice checks, document edits, email drafts, follow-ups, a weekly report and inventory. A template only writes the plan; you review it before anything runs, drafts are never sent, and files are written as new files unless you approve overwriting.
 
 **Files.** Upload PDFs, Word documents (.docx), Markdown, CSV, HTML and code files (up to 25 MB each) on the Files page, or attach them in chat with the paperclip or by dropping them in. Their text is extracted so ROOKS can answer questions about them and search inside them. Images and spreadsheets are stored but not read yet, and scanned PDFs have no text without OCR. Uploaded files count as outside content, so persistent actions after reading one wait for your approval.
@@ -316,6 +318,7 @@ Backend: FastAPI + SQLite. Frontend: React + Vite + TypeScript. The tool server 
 ## Known limits
 
 - Computer Use on macOS has not been tested on a Mac in this work; run `companion/tests/macos_check.py` on yours first. Visual targeting has only been tested with a stand-in vision model.
+- The terminal runner container has not been built with Docker in this work (no Docker daemon in the test environment); the same runner was tested as a plain process.
 - Of the seven workflow templates, only spreadsheet cleanup was run end to end against a real file.
 
 - Single user ROOKS (the `openwebui` add-on supports multiple users).
