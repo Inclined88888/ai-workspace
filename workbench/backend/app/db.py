@@ -297,6 +297,52 @@ CREATE TABLE IF NOT EXISTS phone_calls (
   error TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL
 );
+-- Workers: bounded pieces of a mission, each with a role, a contract and its own tools (workers.py)
+CREATE TABLE IF NOT EXISTS worker_tasks (
+  id INTEGER PRIMARY KEY,
+  mission_id INTEGER NOT NULL,                  -- the parent mission: its project, rules and shared budget
+  role TEXT NOT NULL,                           -- research | evidence | data | document | coding | computer | review | coordinator
+  goal TEXT NOT NULL,
+  inputs TEXT NOT NULL DEFAULT '',
+  expected TEXT NOT NULL DEFAULT '',            -- the expected output
+  acceptance TEXT NOT NULL DEFAULT '',          -- what the check must see to call it done
+  tools TEXT NOT NULL DEFAULT '[]',             -- JSON: the tools it may use (within its role and scope)
+  scope TEXT NOT NULL DEFAULT 'read',           -- read | draft | write (writes always wait for your approval)
+  model TEXT NOT NULL DEFAULT '',
+  budget_cents REAL NOT NULL DEFAULT 0,         -- its cap, reserved from the mission's shared budget when it starts
+  budget_minutes INTEGER NOT NULL DEFAULT 10,
+  max_attempts INTEGER NOT NULL DEFAULT 2,
+  after TEXT NOT NULL DEFAULT '[]',             -- JSON: worker task ids that must be done first
+  review_of INTEGER,                            -- a review task: the task it checks
+  needs_review INTEGER NOT NULL DEFAULT 1,      -- an independent reviewer checks the result before it counts
+  user_started INTEGER NOT NULL DEFAULT 0,      -- computer work runs only after you start it
+  status TEXT NOT NULL DEFAULT 'queued',        -- queued | running | waiting_approval | in_review | needs_you | done | failed | blocked | cancelled
+  attempts INTEGER NOT NULL DEFAULT 0,
+  epoch INTEGER NOT NULL DEFAULT 0,             -- lease fencing: bumped on every claim and cancel; a stale run cannot write
+  lease_until TEXT,
+  reserved_cents REAL NOT NULL DEFAULT 0,       -- what is still held back from the shared budget for it
+  used_cents REAL NOT NULL DEFAULT 0,
+  conversation_id INTEGER,
+  result TEXT NOT NULL DEFAULT '',              -- JSON: summary, output, evidence, tools used
+  verification TEXT NOT NULL DEFAULT 'unverified', -- unverified | verified | rejected | accepted (by you)
+  check_note TEXT NOT NULL DEFAULT '',
+  attention TEXT NOT NULL DEFAULT '',           -- why it needs you
+  notes TEXT NOT NULL DEFAULT '[]',             -- context carried into the next attempt
+  error TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  started_at TEXT,
+  finished_at TEXT
+);
+CREATE INDEX IF NOT EXISTS worker_tasks_m ON worker_tasks(mission_id, id);
+CREATE TABLE IF NOT EXISTS worker_events (
+  id INTEGER PRIMARY KEY,
+  task_id INTEGER NOT NULL,
+  at TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  text TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS worker_events_t ON worker_events(task_id, id);
 
 CREATE TABLE IF NOT EXISTS project_notes (
   id INTEGER PRIMARY KEY,

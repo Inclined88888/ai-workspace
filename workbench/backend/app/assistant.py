@@ -55,6 +55,12 @@ class Ctx:
     untrusted: bool = False            # the conversation contains content from outside the workspace
     project_id: int | None = None      # the project the conversation belongs to (looked up when not given)
     voice: bool = False                # a voice session: spoken style, and nothing learned automatically (the transcript may be discarded)
+    # A worker (workers.py) gets only its role's tools, asks before the writes in ask_tools, and stops before a model
+    # call that budget_check refuses (it gets the turn's cost so far and the last call's cost). Nothing is learned from it.
+    allowed_tools: frozenset | None = None
+    ask_tools: frozenset = frozenset()
+    budget_check: Callable[[float, float], str] | None = None
+    learn: bool = True
 
     def __post_init__(self) -> None:
         if self.project_id is None and self.conversation_id:
@@ -390,7 +396,8 @@ def validate_args(t: Tool, args: dict) -> tuple[dict, list[str]]:
 
 
 def available_tools(ctx: Ctx) -> list[Tool]:
-    return [t for t in TOOLS if t.when(ctx) and permissions.allowed(t.name, ctx.project_id)]
+    return [t for t in TOOLS if t.when(ctx) and permissions.allowed(t.name, ctx.project_id)
+            and (ctx.allowed_tools is None or t.name in ctx.allowed_tools)]
 
 
 def actor(ctx: Ctx) -> str:
@@ -445,6 +452,8 @@ async def _run_tool(name: str, raw_args: str, ctx: Ctx) -> tuple[bool, str]:
     t = TOOL_MAP.get(name)
     if not t or not t.when(ctx):
         return False, f"Unknown tool {name}"
+    if ctx.allowed_tools is not None and name not in ctx.allowed_tools and not ctx.approved:
+        return False, f"Not allowed: {name} is not one of this worker's tools. Do the task with the tools you have, or say what is missing."
     if not permissions.allowed(name, ctx.project_id):
         where = "this project's settings" if permissions.allowed(name) else "Settings, under Permissions"
         return False, f"Not allowed: the user has turned off {name} in {where}."
@@ -534,6 +543,10 @@ def approval_reason(name: str, ctx: Ctx, raw_args: str = "") -> str:
     """Why this call must wait for the user, or '' when it can run now (or is unknown, and will be refused)."""
     if name not in TOOL_MAP:
         return ""
+    if ctx.allowed_tools is not None and name not in ctx.allowed_tools:
+        return ""  # refused when run: not this worker's tool, and no approval can widen a worker's tools
+    if name in ctx.ask_tools:
+        return "Workers ask before changing anything outside their own drafts. Check what it will do, then approve or deny."
     pid = ctx.project_id
     where = "this project's settings" if pid and permissions.mode(name, pid) != permissions.mode(name) else "Settings, Permissions"
     if name in computer_tools.KIND:
@@ -633,6 +646,9 @@ async def decide_approval(aid: int, approve: bool) -> dict:
         return db.one("SELECT * FROM approvals WHERE id = ?", aid)
     agent = db.one("SELECT * FROM agents WHERE id = ?", a["agent_id"]) if a["agent_id"] else None
     mission = db.one("SELECT id FROM missions WHERE conversation_id = ?", a["conversation_id"]) if a["conversation_id"] else None
+    if not mission and a["conversation_id"]:
+        # a worker's action is recorded under its mission, so the worker replays it instead of asking again
+        mission = db.one("SELECT mission_id AS id FROM worker_tasks WHERE conversation_id = ?", a["conversation_id"])
     ctx = Ctx(channel=a["channel"] if a["channel"] != "learn" else "web", conversation_id=a["conversation_id"] or 0, agent=agent,
               mission_id=mission["id"] if mission else None, approved=True)
     ok, out = await run_tool(a["tool"], clear_args, ctx)
@@ -655,6 +671,10 @@ def _note_decision(a: dict, text: str) -> None:
             db.run("UPDATE missions SET plan = ? WHERE id = ?", json.dumps(plan), m["id"])
         missions.event(m["id"], "decision", text, m["current_step"])
         missions.on_approval_decided(a["conversation_id"])
+    else:
+        from . import workers
+
+        workers.on_approval_decided(a["conversation_id"], text)
 
 
 def request_stop(conversation_id: int) -> None:
@@ -813,7 +833,7 @@ async def run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> AsyncI
     _stop_requested.discard(ctx.conversation_id)
     ctx.untrusted = ctx.untrusted or has_external_content(ctx.conversation_id)
     specs = [t.spec() for t in available_tools(ctx)]
-    cost = 0.0
+    cost = last_cost = 0.0
     final = ""
     stopped = False
     noticed = False
@@ -853,13 +873,17 @@ async def run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> AsyncI
         if problem := projects.budget_problem(ctx.project_id):
             yield {"type": "error", "error": problem, "budget": True}
             return
+        if ctx.budget_check and (problem := ctx.budget_check(cost, last_cost)):
+            yield {"type": "error", "error": problem, "budget": True, "cost_cents": round(cost, 3)}
+            return
         msgs = [{"role": "system", "content": system_prompt(ctx, user_text)}, *_history(ctx.conversation_id)]
         try:
             res = await llm.chat(model, msgs, specs, local_only=local_only)
         except HTTPException as e:
             yield {"type": "error", "error": str(e.detail)}
             return
-        cost += usage.record(res, channel=ctx.channel, agent_id=(ctx.agent or {}).get("id"), conversation_id=ctx.conversation_id)
+        last_cost = usage.record(res, channel=ctx.channel, agent_id=(ctx.agent or {}).get("id"), conversation_id=ctx.conversation_id)
+        cost += last_cost
         if res.get("fallback_from") and not noticed:
             noticed = True
             failed = res["fallback_from"][0]
@@ -917,7 +941,7 @@ async def run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> AsyncI
     _stop_requested.discard(ctx.conversation_id)
     yield {"type": "message", "content": final}
     yield {"type": "done", "stopped": stopped, "conversation_id": ctx.conversation_id, "cost_cents": round(cost, 3), "tool_calls": ctx.tool_calls}
-    if not ctx.voice:  # a voice transcript may be discarded at the end: nothing is mined from it in the background
+    if not ctx.voice and ctx.learn:  # a voice transcript may be discarded; a worker reads untrusted material: nothing is mined
         from .learn import after_turn
 
         after_turn(ctx)

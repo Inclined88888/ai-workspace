@@ -85,6 +85,10 @@ def program(goal, results):
         steps = [lambda: call("computer_type", target="e3", label="Document", text=REC, app=F),
                  lambda: call("computer_observe", app=F),
                  lambda: say("Already there, not typing again." if REC[:40] in last else "Not there; would type again.")]
+    elif goal.startswith("You are an independent reviewer"):  # workers: the reviewer approves
+        return say('Read the result and its tool calls.\n{"verdict": "approve", "issues": ""}')
+    elif "Your task: Look through the notes" in goal:  # workers: a research worker
+        steps = [lambda: call("search_notes", query="venue"), lambda: say("The notes do not name a venue yet. Evidence: search_notes returned no match.")]
     elif "spoken briefing" in goal:  # voice: the opening briefing
         steps = [lambda: call("list_tasks"), lambda: say("You have one task due today: send the Acme invoice. What would you like to do?")]
     elif "call Sam" in goal:  # voice: a task asked for by speaking
@@ -130,6 +134,8 @@ async def chat(req: Request):
         return {"choices": [{"message": say(json.dumps({"steps": [
             {"title": "List the inbox folder", "done_when": "The files are listed", "needs_tool": True},
             {"title": "Move the contract into Contracts", "done_when": "contract.txt is inside Contracts", "needs_tool": True}]}))}]}
+    if system.startswith("You check whether a worker"):
+        return {"choices": [{"message": say(json.dumps({"verdict": "done", "evidence": "search_notes ran and its result is reported", "missing": ""}))}]}
     if system.startswith("You check whether"):
         ok = "OK" in msgs[1]["content"]
         return {"choices": [{"message": say(json.dumps({"verdict": "done" if ok else "not_done", "evidence": "tool result shows it", "missing": ""}))}]}

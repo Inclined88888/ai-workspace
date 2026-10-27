@@ -3,6 +3,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import { Empty, Markdown, ModelSelect, relTime, useModels, useToast } from "../util";
+import Workers, { SharedBudget, Worker } from "../components/Workers";
 
 type Tool = { name: string; ok: boolean; preview: string; ms: number };
 type Step = { title: string; done_when: string; needs_tool: boolean; after?: number[]; status: string; attempts: number; result: string; evidence: string;
@@ -13,7 +14,9 @@ type Mission = {
   budget_tool_calls: number; budget_minutes: number; budget_cents: number; used_tool_calls: number; used_cents: number; elapsed_seconds: number;
   events: { at: string; step: number | null; kind: string; text: string }[]; approvals: Approval[]; created_at: string;
   project_id: number | null; template: string; max_attempts: number; review_unverified: number; estimate_cents: number | null;
+  workers: Worker[]; shared_budget: SharedBudget;
 };
+const WORKING = ["queued", "running", "waiting_approval", "in_review"];
 type ProjectRef = { id: number; name: string };
 type Template = { id: string; title: string; about: string; needs: string; inputs: { name: string; label: string; example: string; optional?: boolean }[] };
 const NEEDS: Record<string, string> = { companion: "Needs the ROOKS Companion with the folder allowed", email: "Needs email connected" };
@@ -178,7 +181,8 @@ function Detail({ id, onChanged }: { id: number; onChanged: () => void }) {
         if (stop) return;
         setM(r);
         if (r.status !== lastStatus.current) { lastStatus.current = r.status; onChanged(); }
-        timer = setTimeout(poll, LIVE.includes(r.status) || r.status === "waiting_approval" ? 1200 : 5000);
+        const busy = LIVE.includes(r.status) || r.status === "waiting_approval" || r.workers.some((w) => WORKING.includes(w.status));
+        timer = setTimeout(poll, busy ? 1200 : 5000);
       } catch (e) { if (!stop) toast.err(e); }
     };
     poll();
@@ -282,6 +286,9 @@ function Detail({ id, onChanged }: { id: number; onChanged: () => void }) {
           </ol>
         </div>
       )}
+
+      <Workers missionId={m.id} workers={m.workers} budget={m.shared_budget} cancelled={m.status === "cancelled"}
+        onChange={() => api<Mission>(`/missions/${m.id}`).then(setM).catch(toast.err)} />
 
       {m.report && <div className="card col"><h3>Result</h3><Markdown text={m.report} /><div className="muted small">Steps marked "Not verified" finished without evidence a check could confirm. Treat them as unconfirmed.</div></div>}
 

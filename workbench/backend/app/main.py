@@ -5,7 +5,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import api, assistant_api, browser_proxy, checkins, company, computer, computer_api, config, db, llm, missions, projects_api, proactive_api, scheduler, telegram
+from . import api, assistant_api, browser_proxy, checkins, company, computer, computer_api, config, db, llm, missions, projects_api, proactive_api, scheduler, telegram, workers, workers_api
 from .mcp_server import mcp, mcp_app
 from .security import check_bearer
 from .tools import tools
@@ -18,9 +18,10 @@ async def lifespan(_: FastAPI):
     api.recover_interrupted()
     company.recover()
     missions.recover()
+    workers.recover()
     checkins.recover()
     computer.recover()
-    loops = [asyncio.create_task(fn()) for fn in (api.calendar_loop, scheduler.loop, telegram.loop, company.loop, missions.loop)]
+    loops = [asyncio.create_task(fn()) for fn in (api.calendar_loop, scheduler.loop, telegram.loop, company.loop, missions.loop, workers.loop)]
     loops.append(asyncio.create_task(llm.check_unchecked()))
     async with mcp.session_manager.run():
         yield
@@ -57,6 +58,7 @@ app.include_router(api.api)
 app.include_router(assistant_api.router)
 app.include_router(projects_api.router)
 app.include_router(proactive_api.router)
+app.include_router(workers_api.router)
 app.include_router(computer_api.router)
 app.include_router(computer_api.companion)
 app.include_router(browser_proxy.router)

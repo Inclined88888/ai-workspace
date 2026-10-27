@@ -104,6 +104,10 @@ def view(mid: int) -> dict:
                             "AND status = 'pending' ORDER BY id", m["conversation_id"]) if m["conversation_id"] else []
     m["approvals"] = [approval_view(a) for a in m["approvals"]]
     m["counts"] = {s: sum(1 for st in m["plan"] if st["status"] == s) for s in ("done", "unverified", "failed", "pending", "skipped")}
+    from . import workers
+
+    m["workers"] = workers.listing(mid)
+    m["shared_budget"] = workers.budget(mid)
     return m
 
 
@@ -207,7 +211,10 @@ ACTIVE = ("queued", "running", "waiting_approval")
 def reserved_cents(exclude: int | None = None) -> float:
     """Spend still promised to active missions: what is left of each one's cap."""
     rows = db.all(f"SELECT id, budget_cents, used_cents FROM missions WHERE status IN ({','.join('?' * len(ACTIVE))})", *ACTIVE)
-    return sum(max(0.0, (r["budget_cents"] or 0) - (r["used_cents"] or 0)) for r in rows if r["id"] != exclude)
+    # Workers hold their own reservations (workers.py); an active mission's share excludes what its workers spent or hold
+    held = {r["mission_id"]: r["c"] for r in db.all("SELECT mission_id, SUM(used_cents + reserved_cents) AS c FROM worker_tasks GROUP BY mission_id")}
+    workers = db.one("SELECT COALESCE(SUM(reserved_cents), 0) AS c FROM worker_tasks")["c"]
+    return workers + sum(max(0.0, (r["budget_cents"] or 0) - (r["used_cents"] or 0) - held.get(r["id"], 0)) for r in rows if r["id"] != exclude)
 
 
 def reserve_check(m: dict) -> None:
@@ -219,7 +226,8 @@ def reserve_check(m: dict) -> None:
     if problem := projects.budget_problem(m.get("project_id")):
         raise HTTPException(402, problem)
     limit = float(db.get_setting("monthly_limit_cents", "0") or 0)
-    need = max(0.0, (m["budget_cents"] or 0) - (m["used_cents"] or 0))
+    held = db.one("SELECT COALESCE(SUM(used_cents + reserved_cents), 0) AS c FROM worker_tasks WHERE mission_id = ?", m["id"])["c"]
+    need = max(0.0, (m["budget_cents"] or 0) - (m["used_cents"] or 0) - held)  # its workers' share is reserved by them
     if limit <= 0 or not need:
         return
     spent = db.one("SELECT COALESCE(SUM(cost_cents), 0) AS c FROM usage WHERE ts >= ?", month_start())["c"]
@@ -357,6 +365,9 @@ def _finish_cancel(mid: int) -> None:
     db.run("UPDATE approvals SET status = 'denied', result = 'Mission cancelled' WHERE conversation_id = ? AND status = 'pending'",
            m["conversation_id"])
     _set(mid, plan=plan_, status="cancelled", control="")
+    from . import workers
+
+    workers.cancel_mission(mid)
     event(mid, "cancelled", "Cancelled. Nothing further will run.")
 
 
@@ -364,6 +375,10 @@ def delete(mid: int) -> None:
     m = _get(mid)
     if m["status"] in ("running", "planning"):
         raise HTTPException(409, "Cancel the mission first.")
+    if db.one("SELECT 1 FROM worker_tasks WHERE mission_id = ? AND status IN ('running', 'waiting_approval', 'in_review')", mid):
+        raise HTTPException(409, "Some of its workers are still working. Cancel the mission first.")
+    db.run("DELETE FROM worker_events WHERE task_id IN (SELECT id FROM worker_tasks WHERE mission_id = ?)", mid)
+    db.run("DELETE FROM worker_tasks WHERE mission_id = ?", mid)
     db.run("DELETE FROM mission_events WHERE mission_id = ?", mid)
     db.run("DELETE FROM mission_actions WHERE mission_id = ?", mid)
     db.run("DELETE FROM missions WHERE id = ?", mid)
