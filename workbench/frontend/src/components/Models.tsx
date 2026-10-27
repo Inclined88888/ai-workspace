@@ -55,6 +55,7 @@ function ReportView({ r }: { r: Report }) {
 export function ConnectProvider({ onConnected, localAvailable }: { onConnected: (s: ModelsStatus, r: Report) => void; localAvailable?: boolean }) {
   const [pick, setPick] = useState<string>("openrouter");
   const [key, setKey] = useState("");
+  const [allowPaidCheck, setAllowPaidCheck] = useState(false);
   const [custom, setCustom] = useState({ name: "", base_url: "", kind: "openai", models: "" });
   const [busy, setBusy] = useState(false);
   const [report, setReport] = useState<Report | null>(null);
@@ -67,7 +68,7 @@ export function ConnectProvider({ onConnected, localAvailable }: { onConnected: 
     setReport(null);
     try {
       const body = pick === "custom" ? { ...custom, api_key: key } : pick === "ollama" ? { preset: "ollama" } : { preset: pick, api_key: key };
-      const r = await api<Report>("/providers/connect", { body });
+      const r = await api<Report>("/providers/connect", { body: { ...body, allow_paid_check: allowPaidCheck } });
       setReport(r);
       if (r.ok) setKey("");
       onConnected(r.status, r);
@@ -114,6 +115,13 @@ export function ConnectProvider({ onConnected, localAvailable }: { onConnected: 
           <span className="field-msg muted">Stored encrypted on this server. Pasting a new key for the same provider replaces the old one.</span>
         </div>
       )}
+      {pick !== "ollama" && (
+        <label className="row small" style={{ gap: 8 }}>
+          <input type="checkbox" checked={allowPaidCheck} onChange={(e) => setAllowPaidCheck(e.target.checked)} />
+          I authorize a bounded paid model verification call, which may incur API charges.
+          Leave unchecked to test only known free models.
+        </label>
+      )}
       <div className="row wrap">
         <button className="btn primary" disabled={busy || (pick !== "ollama" && pick !== "custom" && !key.trim()) || (pick === "custom" && !custom.base_url.trim())}>
           {busy ? <><Loader2 size={15} className="spin" /> Checking the key and finding a model that works…</> : "Connect"}
@@ -139,8 +147,10 @@ export function ModelsPanel({ models, reloadModels, localAvailable }: { models: 
   const refreshAll = (s: ModelsStatus) => { setSt(s); setDefaultPick(s.saved_default_broken ? "" : s.saved_default); setBackups(s.fallbacks); reloadModels(); };
 
   const check = async (p: ProviderStatus) => {
+    const allowPaid = p.free_models === 0;
+    if (allowPaid && !window.confirm("This provider has no known free models. A small verification request may incur API charges. Proceed?")) return;
     setChecking(p.id);
-    try { const r = await api<Report>(`/providers/${p.id}/check`, { method: "POST" }); refreshAll(r.status); r.ok ? toast.ok(`${p.name} works`) : toast.err(r.error); }
+    try { const r = await api<Report>(`/providers/${p.id}/check?allow_paid=${allowPaid}`, { method: "POST" }); refreshAll(r.status); r.ok ? toast.ok(`${p.name} works`) : toast.err(r.error); }
     catch (e) { toast.err(e); } finally { setChecking(0); }
   };
   const remove = async (p: ProviderStatus) => {
