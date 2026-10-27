@@ -26,6 +26,8 @@ def status():
     s = computer.settings()
     approvals = db.all("SELECT id, tool, args, reason, created_at FROM approvals WHERE status = 'pending' AND (tool LIKE 'computer_%' "
                        "OR tool LIKE 'browser_%' OR tool LIKE 'files_%') ORDER BY id")
+    for approval in approvals:
+        approval["args"] = "{}"  # Computer UI never receives encrypted or legacy raw inputs
     current = db.one("SELECT id, kind, status, created_at FROM computer_actions WHERE status IN ('queued', 'dispatched') ORDER BY id LIMIT 1")
     return {"settings": s, "devices": computer.devices(), "grants": computer.grants(), "approvals": approvals,
             "current": {**current, "summary": next((h["summary"] for h in computer.history(20) if h["id"] == current["id"]), "")} if current else None,
