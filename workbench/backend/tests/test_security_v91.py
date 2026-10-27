@@ -28,7 +28,7 @@ def test_text_and_idempotency_markers_do_not_retain_content(client, paired):
     assert out["ok"]
     row = db.one("SELECT args, idem_key, result FROM computer_actions WHERE kind = 'type_text' ORDER BY id DESC LIMIT 1")
     assert text not in json.dumps(row)
-    assert row["result"] is None
+    assert not row["result"]  # NOT NULL schema stores an empty string, not sensitive JSON
     assert len(row["idem_key"]) == 64
 
 
