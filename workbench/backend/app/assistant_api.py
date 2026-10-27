@@ -78,9 +78,13 @@ def stop(cid: int):
 # Approvals: persistent actions requested in conversations that contain outside content
 @router.get("/approvals")
 def approvals(status: str = "pending"):
-    if status == "all":
-        return db.all("SELECT * FROM approvals ORDER BY id DESC LIMIT 200")
-    return db.all("SELECT * FROM approvals WHERE status = ? ORDER BY id DESC LIMIT 200", status)
+    from . import computer_tools
+    rows = (db.all("SELECT * FROM approvals ORDER BY id DESC LIMIT 200") if status == "all" else
+            db.all("SELECT * FROM approvals WHERE status = ? ORDER BY id DESC LIMIT 200", status))
+    for row in rows:
+        if row["tool"] in computer_tools.KIND:
+            row["args"] = "{}"  # never disclose persisted typing payloads through history
+    return rows
 
 
 class Decision(BaseModel):
