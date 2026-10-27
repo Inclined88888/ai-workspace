@@ -51,6 +51,25 @@ async def completions(req: Request):
     return {"choices": [{"message": msg}], "usage": {"prompt_tokens": 1000, "completion_tokens": 500}}
 
 
+VOICE: dict = {"heard": "", "audio": []}  # what the fake speech recogniser returns; sizes of audio it received
+
+
+@fake.post("/v1/audio/transcriptions")
+async def transcriptions(req: Request):
+    body = await req.body()  # multipart; read raw so the tests need no multipart parser
+    assert b'name="model"' in body and b'name="file"' in body
+    VOICE["audio"].append(len(body))
+    return {"text": VOICE["heard"]}
+
+
+@fake.post("/v1/audio/speech")
+async def speech(req: Request):
+    from fastapi.responses import Response
+
+    body = await req.json()
+    return Response(content=b"ID3" + body["input"].encode()[:20], media_type="audio/mpeg")
+
+
 @fake.post("/v1/embeddings")
 async def embeddings(req: Request):
     """Deterministic stand in for an embedding model: words hashed into 64 dimensions (tests plumbing, not meaning)."""

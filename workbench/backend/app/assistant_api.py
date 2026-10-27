@@ -38,6 +38,7 @@ class ChatIn(BaseModel):
     channel: str = Field("web", pattern="^(web|cli)$")
     file_ids: list[int] = Field(default_factory=list, max_length=10)
     project_id: int | None = None   # for a new conversation: start it in this project
+    voice: bool = False             # a voice session turn (spoken style; nothing learned automatically)
 
 
 @router.post("/assistant/chat")
@@ -62,7 +63,7 @@ def chat(data: ChatIn):
 
     async def events():
         yield {"type": "start", "conversation_id": cid}
-        async for e in assistant.run_turn(assistant.Ctx(channel=data.channel, conversation_id=cid), message, data.model):
+        async for e in assistant.run_turn(assistant.Ctx(channel=data.channel, conversation_id=cid, voice=data.voice), message, data.model):
             yield e
 
     return sse(events())
@@ -920,3 +921,73 @@ async def workspace_file(path: str = Query(..., max_length=1000), offset: int = 
     from . import workspace
 
     return await workspace._call("/fs/read", {"path": path, "offset": offset, "limit": 2000})
+
+
+# Voice (voice.py)
+class VoiceIn(BaseModel):
+    stt: str | None = Field(None, pattern="^(browser|provider)$")
+    stt_model: str | None = Field(None, max_length=300)
+    tts: str | None = Field(None, pattern="^(browser|provider)$")
+    tts_model: str | None = Field(None, max_length=300)
+    tts_voice: str | None = Field(None, max_length=60)
+    local_only: bool | None = None
+    browser_notice_seen: bool | None = None
+    consent_for: str | None = Field(None, pattern="^(stt_model|tts_model)$")
+
+
+@router.get("/voice")
+def voice_settings():
+    from . import voice
+
+    return voice.settings()
+
+
+@router.put("/voice")
+def voice_configure(data: VoiceIn):
+    from . import voice
+
+    return voice.configure(data.model_dump(exclude_none=True))
+
+
+def _conv_project(cid: int | None) -> int | None:
+    row = db.one("SELECT project_id FROM conversations WHERE id = ?", cid) if cid else None
+    return row["project_id"] if row else None
+
+
+@router.post("/voice/transcribe")
+async def voice_transcribe(request: Request, conversation_id: int | None = Query(None)):
+    """The request body is the recorded audio. It is passed to the speech provider and not kept."""
+    from . import voice
+
+    audio = bytearray()
+    async for chunk in request.stream():
+        audio.extend(chunk)
+        if len(audio) > voice.MAX_AUDIO:
+            raise HTTPException(413, "That recording is too long.")
+    return {"text": await voice.transcribe(bytes(audio), request.headers.get("content-type", "audio/webm"), _conv_project(conversation_id))}
+
+
+class SpeakIn(BaseModel):
+    text: str = Field(..., min_length=1, max_length=4000)
+    conversation_id: int | None = None
+
+
+@router.post("/voice/speak")
+async def voice_speak(data: SpeakIn):
+    from fastapi.responses import Response
+
+    from . import voice
+
+    audio, mime = await voice.speak(data.text, _conv_project(data.conversation_id))
+    return Response(content=audio, media_type=mime, headers={"Cache-Control": "no-store"})
+
+
+class EndIn(BaseModel):
+    keep: bool = False
+
+
+@router.post("/voice/sessions/{cid}/end")
+def voice_end(cid: int, data: EndIn):
+    from . import voice
+
+    return voice.end_session(cid, data.keep)
