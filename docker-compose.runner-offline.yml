@@ -1,0 +1,4 @@
+# Cuts the assistant's runner off from the internet: it can reach only ROOKS. Enable with ./setup.sh --runner-offline
+networks:
+  runner:
+    internal: true

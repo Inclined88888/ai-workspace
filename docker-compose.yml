@@ -126,7 +126,11 @@ services:
   # Where the assistant's terminal commands and file edits run. It sees only the workspace volume: no ROOKS
   # database, no APP_SECRET, no API keys. Reached only by ROOKS, on its own network; no published port.
   runner:
-    build: ./workbench/runner
+    build:
+      context: ./workbench/runner
+      args:
+        # system packages to add (the runner has no sudo); set RUNNER_PACKAGES in .env, then ./setup.sh
+        RUNNER_PACKAGES: ${RUNNER_PACKAGES:-}
     image: ai-workspace/runner:local
     restart: unless-stopped
     networks: [runner]
@@ -231,8 +235,8 @@ services:
 
 networks:
   default:
-  # ROOKS and its runner only. Not internal, so commands can download packages; set internal: true to cut the
-  # runner off from the internet.
+  # ROOKS and its runner only. Not internal, so commands can download packages; ./setup.sh --runner-offline adds
+  # docker-compose.runner-offline.yml, which cuts the runner off from the internet.
   runner:
 
 volumes:

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Guided setup for ROOKS. Safe to re-run: existing .env values, secrets and data are kept.
 #
-#   ./setup.sh                          the light core: one container (assistant, memory, skills, automations,
-#                                       company, notes, tasks, calendar, mail, research)
+#   ./setup.sh                          the light core: ROOKS (assistant, memory, skills, automations, company,
+#                                       notes, tasks, calendar, mail, research) and its runner (the assistant's
+#                                       terminal and workspace files, in a container with no access to ROOKS data)
 #   ./setup.sh --with search,browser    add optional add-ons (comma separated):
 #       search        SearXNG web search without an API key            (~110 MB RAM)
 #       browser       Chromium browser agent                           (~2.4 GB download)
@@ -11,6 +12,7 @@
 #       paperclip     Paperclip company app                            (~13 GB download)
 #       hermes        Hermes Agent                                     (~4.3 GB download)
 #   ./setup.sh --with none              back to the core only (stops add-ons, keeps their data)
+#   ./setup.sh --runner-offline         cut the runner off from the internet (--runner-online undoes it)
 #   ./setup.sh --yes                    accept defaults, no prompts
 # Works with the bash 3.2 that ships with macOS.
 set -euo pipefail
@@ -18,6 +20,7 @@ umask 077
 cd "$(dirname "$0")"
 
 YES=false
+RUNNER_NET=""
 WITH=""
 WITH_GIVEN=false
 while [[ $# -gt 0 ]]; do
@@ -25,6 +28,8 @@ while [[ $# -gt 0 ]]; do
     --yes|-y) YES=true ;;
     --with) WITH=${2:-}; WITH_GIVEN=true; shift ;;
     --with=*) WITH=${1#--with=}; WITH_GIVEN=true ;;
+    --runner-offline) RUNNER_NET=offline ;;
+    --runner-online) RUNNER_NET=online ;;
     -h|--help) sed -n '2,17p' "$0"; exit 0 ;;
     *) echo "Unknown option $1 (see ./setup.sh --help)" >&2; exit 1 ;;
   esac
@@ -178,9 +183,20 @@ has hermes && add_conn "http://hermes:8642/v1" "$(get_env HERMES_API_KEY)"
 set_env WEBUI_OPENAI_API_BASE_URLS "$URLS"; set_env WEBUI_OPENAI_API_KEYS "$KEYS"
 set_env WEBUI_ENABLE_OPENAI_API "$([[ -n "$URLS" ]] && echo true || echo false)"
 
-# NVIDIA GPU for the Ollama add-on (Linux only)
+# Compose files: the base, plus the NVIDIA GPU (Ollama add-on, Linux only) and an offline runner when chosen.
+# A COMPOSE_FILE you set yourself to other files is left alone.
+[[ "$RUNNER_NET" == offline ]] && set_env RUNNER_OFFLINE true
+[[ "$RUNNER_NET" == online ]] && set_env RUNNER_OFFLINE false
+FILES="docker-compose.yml"
 if has local-models && command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1 && docker info 2>/dev/null | grep -qi nvidia; then
-  set_env COMPOSE_FILE "docker-compose.yml:docker-compose.gpu.yml"; info "NVIDIA GPU detected: Ollama will use it."
+  FILES="$FILES:docker-compose.gpu.yml"; info "NVIDIA GPU detected: Ollama will use it."
+fi
+if [[ "$(get_env RUNNER_OFFLINE)" == true ]]; then FILES="$FILES:docker-compose.runner-offline.yml"; info "The runner has no internet access."; fi
+CUR="$(get_env COMPOSE_FILE)"
+if [[ -z "$CUR" || "$CUR" =~ ^docker-compose\.yml(:docker-compose\.(gpu|runner-offline)\.yml)*$ ]]; then
+  if [[ "$FILES" == docker-compose.yml ]]; then set_env COMPOSE_FILE ""; else set_env COMPOSE_FILE "$FILES"; fi
+else
+  info "COMPOSE_FILE is your own ($CUR); leaving it as is."
 fi
 
 echo; bold "Starting${ADDONS:+ (add-ons: $ADDONS)}"

@@ -322,6 +322,25 @@ def run_cancel(a: dict) -> dict:
     return {"id": cid, "cancelled": True}
 
 
+PROBE = os.environ.get("RUNNER_PROBE", "1.1.1.1:443")  # host:port tried to tell whether commands can reach the internet; "" = unknown
+_probe = {"at": 0.0, "internet": None}
+
+
+def internet() -> bool | None:
+    """Can commands here reach the internet? Checked at most once a minute. None when not checked."""
+    if not PROBE:
+        return None
+    if time.monotonic() - _probe["at"] > 60:
+        host, _, port = PROBE.rpartition(":")
+        try:
+            socket.create_connection((host, int(port)), timeout=2).close()
+            _probe["internet"] = True
+        except (OSError, ValueError):
+            _probe["internet"] = False
+        _probe["at"] = time.monotonic()
+    return _probe["internet"]
+
+
 def health() -> dict:
     warnings = []
     if any(k in os.environ for k in ("APP_SECRET", "TOOLS_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "GEMINI_API_KEY")):
@@ -329,7 +348,7 @@ def health() -> dict:
     if os.path.exists("/data/workbench.db"):
         warnings.append("The ROOKS database is visible to the runner.")
     return {"ok": bool(TOKEN), "workspace": WS, "mode": MODE, "uid": os.getuid(), "max_parallel": MAX_PARALLEL,
-            "max_timeout": MAX_TIMEOUT, "warnings": warnings, "running": len(_running)}
+            "max_timeout": MAX_TIMEOUT, "warnings": warnings, "running": len(_running), "internet": internet()}
 
 
 ROUTES = {"/exec": run_exec, "/cancel": run_cancel, "/fs/list": fs_list, "/fs/read": fs_read, "/fs/write": fs_write, "/fs/edit": fs_edit}

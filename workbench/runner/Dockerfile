@@ -1,7 +1,10 @@
 # ROOKS runner: where the assistant's terminal commands and file edits happen. It sees only the workspace volume:
 # no ROOKS database, no APP_SECRET, no API keys.
 FROM python:3.12-slim
-RUN apt-get update && apt-get install -y --no-install-recommends bash git curl ca-certificates procps less \
+# Extra system packages (the runner has no sudo, so add them here): RUNNER_PACKAGES in .env, then ./setup.sh
+ARG RUNNER_PACKAGES=""
+RUN case "$RUNNER_PACKAGES" in *[!a-zA-Z0-9.+:=\ -]*) echo "RUNNER_PACKAGES may only list package names" >&2; exit 1 ;; esac \
+    && apt-get update && apt-get install -y --no-install-recommends bash git curl ca-certificates procps less $RUNNER_PACKAGES \
     && rm -rf /var/lib/apt/lists/*
 RUN useradd --create-home --uid 1001 runner && mkdir -p /workspace && chown runner /workspace
 COPY runner.py /opt/rooks/runner.py
