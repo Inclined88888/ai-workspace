@@ -223,6 +223,7 @@ def delete_provider(pid: int):
 
 
 class ConnectIn(BaseModel):
+    allow_paid_check: bool = False  # explicit user opt-in; connection alone never authorizes billing
     preset: str = Field("", max_length=40)
     api_key: str = Field("", max_length=500)
     # custom endpoints only
@@ -258,13 +259,13 @@ async def connect_provider(data: ConnectIn):
         pid = db.run("INSERT INTO providers(name, kind, base_url, api_key_enc, models, enabled, created_at) VALUES (?, ?, ?, ?, ?, 1, ?)",
                      name, kind, base, encrypt(data.api_key.strip()), data.models, db.now())
     audit.record("user", "provider connected", name, base)
-    report = await llm.check_provider(pid)
+    report = await llm.check_provider(pid, allow_paid=data.allow_paid_check)
     return {**report, "provider_id": pid, "status": models_status()}
 
 
 @api.post("/providers/{pid}/check")
-async def check_provider(pid: int):
-    report = await llm.check_provider(pid)
+async def check_provider(pid: int, allow_paid: bool = False):
+    report = await llm.check_provider(pid, allow_paid=allow_paid)
     return {**report, "provider_id": pid, "status": models_status()}
 
 
