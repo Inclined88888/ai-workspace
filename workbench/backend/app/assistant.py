@@ -280,10 +280,10 @@ async def run_tool(name: str, raw_args: str, ctx: Ctx, approved: bool = False) -
     started = time.monotonic()
     t = TOOL_MAP.get(name)
 
-    def done(ok: bool, out: str, outcome: str, verified: bool | None = None, evidence: str = "") -> tuple[bool, str]:
+    def done(ok: bool, out: str, outcome: str, verified: bool | None = None, evidence: str = "", ref=None) -> tuple[bool, str]:
         receipts.record_tool(ctx, name, outcome, verified, evidence, ctx.from_text, int((time.monotonic() - started) * 1000))
         ctx.receipts.append({"tool": name, "effect": t.effect if t else "read", "outcome": outcome, "verified": verified,
-                             "evidence": evidence})
+                             "evidence": evidence, "ref": ref})
         return ok, out
 
     if not t or not t.when(ctx):
@@ -322,7 +322,7 @@ async def run_tool(name: str, raw_args: str, ctx: Ctx, approved: bool = False) -
     verified, evidence = receipts.verify(name, args, result)
     if verified is False:  # the tool returned, but what it was asked to do is not there
         return done(False, f"Error: the change could not be confirmed: {evidence}", "check_failed", False, evidence)
-    return done(True, out, "verified" if verified else "ok", verified, evidence)
+    return done(True, out, "verified" if verified else "ok", verified, evidence, receipts.ref_of(name, result))
 
 
 def system_prompt(ctx: Ctx, user_text: str) -> str:
@@ -359,9 +359,8 @@ def system_prompt(ctx: Ctx, user_text: str) -> str:
 
 
 INTERRUPTED = "Error: not run. The turn was interrupted before this tool ran."
-CLAIM_NUDGE = ("[Automatic check, not from the user: your answer said \"{claim}\", but no tool call in this turn made and "
-               "confirmed that change. If the user asked for it, call the right tool now. Otherwise answer again without "
-               "saying it was done. Workbench cannot send email, only save drafts.]")
+CLAIM_NUDGE = ("[Automatic check, not from the user: your answer said \"{claim}\", but {why}. Fix it with the right tool "
+               "call if the user asked for it, or answer again saying only what is actually true.]")
 
 
 def _history(conversation_id: int, budget_chars: int = 300_000) -> list[dict]:
@@ -466,16 +465,16 @@ async def run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> AsyncI
         mid = _save(ctx.conversation_id, "assistant", msg.get("content") or "", calls)
         if not calls:
             final = msg.get("content") or ""
-            claim = receipts.unbacked_claim(final, ctx.receipts)
+            claim, why = receipts.unbacked_claim(final, ctx.receipts)
             if claim and not nudged:
                 # Never let an unconfirmed "done" reach the user: withdraw it and give the model one chance to act or correct it
                 nudged = True
                 db.run("DELETE FROM messages WHERE id = ?", mid)
-                _save(ctx.conversation_id, "user", CLAIM_NUDGE.format(claim=claim), name="claim_check")
+                _save(ctx.conversation_id, "user", CLAIM_NUDGE.format(claim=claim, why=why), name="claim_check")
                 yield {"type": "claim_check", "backed": False, "retrying": True, "claim": claim}
                 continue
             if claim:
-                final += f"\n\n**Not verified:** I said \"{claim}\", but no change from this turn confirms it. Treat it as not done."
+                final += f"\n\n**Not verified:** I said \"{claim}\", but {why}. Check this before relying on it."
                 db.run("UPDATE messages SET content = ? WHERE id = ?", final, mid)
                 receipts.record_turn(ctx, "unbacked", claim)
                 yield {"type": "claim_check", "backed": False, "retrying": False, "claim": claim}

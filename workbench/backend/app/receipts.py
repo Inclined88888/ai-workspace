@@ -14,6 +14,15 @@ from . import db
 Check = tuple[bool | None, str]  # (verified, evidence); None = nothing to check or not checkable
 
 
+def ref_of(name: str, result: Any) -> Any:
+    """The id of the row a tool changed, so later checks can read what was really saved."""
+    if name == "create_task":
+        return (result or {}).get("id")
+    if name == "update_task":
+        return (result or {}).get("id")
+    return None
+
+
 def _task(args: dict, r: Any) -> Check:
     t = db.one("SELECT * FROM tasks WHERE id = ?", (r or {}).get("id"))
     if not t:
@@ -145,13 +154,51 @@ def claims(text: str) -> list[tuple[str, str]]:
     return out
 
 
-def unbacked_claim(text: str, receipts: list[dict]) -> str:
-    """The first claim in the answer that no verified change from this turn supports, or ''."""
+NO_CHANGE = "no tool call in this turn made and confirmed that change"
+PRIORITY = {"none": 0, "no": 0, "low": 1, "medium": 2, "normal": 2, "high": 3, "urgent": 3}
+PRIORITY_NAME = {0: "none", 1: "low", 2: "medium", 3: "high"}
+_PRIORITY_RE = re.compile(r"\bpriority\W{0,3}(?:is\s+|of\s+|set\s+to\s+)?(none|low|medium|normal|high|urgent)\b|"
+                          r"\b(low|medium|normal|high|urgent)[\s-]priority\b", re.I)
+_DUE_RE = re.compile(r"\bdue\b\W{0,4}(?:on\s+|by\s+|date\W{0,3})?(\d{4}-\d{2}-\d{2})", re.I)
+
+
+def _task_facts(receipts: list[dict]) -> list[dict]:
+    rows = []
+    for r in receipts:
+        if r["verified"] is True and r["tool"] in ("create_task", "update_task") and r.get("ref"):
+            t = db.one("SELECT title, priority, due FROM tasks WHERE id = ?", r["ref"])
+            if t:
+                rows.append(t)
+    return rows
+
+
+def contradiction(text: str, receipts: list[dict]) -> tuple[str, str]:
+    """A detail the answer states about a saved task that differs from what was actually saved: (sentence, reason)."""
+    facts = _task_facts(receipts)
+    if not facts:
+        return "", ""
+    for raw in re.split(r"(?<=[.!?])\s+|\n+", text or ""):
+        for m in _PRIORITY_RE.finditer(raw):
+            said = PRIORITY[(m.group(1) or m.group(2)).lower()]
+            if all(f["priority"] != said for f in facts):
+                saved = ", ".join(f"{PRIORITY_NAME.get(f['priority'], f['priority'])} ({f['title']})" for f in facts)
+                return raw.strip()[:160], f"the saved priority is {saved}, not {PRIORITY_NAME[said]}"
+        for m in _DUE_RE.finditer(raw):
+            if all(f["due"] != m.group(1) for f in facts):
+                saved = ", ".join(f"{f['due'] or 'none'} ({f['title']})" for f in facts)
+                return raw.strip()[:160], f"the saved due date is {saved}, not {m.group(1)}"
+    return "", ""
+
+
+def unbacked_claim(text: str, receipts: list[dict]) -> tuple[str, str]:
+    """The first statement in the answer that this turn's confirmed changes do not support: (sentence, reason)."""
     changed = any(r["verified"] is True and r["effect"] != "read" for r in receipts)
     for kind, sentence in claims(text):
-        if kind == "sent" or not changed:  # nothing in Workbench sends mail, so a send claim is never backed
-            return sentence
-    return ""
+        if kind == "sent":  # nothing in Workbench sends mail, so a send claim is never backed
+            return sentence, "Workbench cannot send email, only save drafts"
+        if not changed:
+            return sentence, NO_CHANGE
+    return contradiction(text, receipts)
 
 
 # The ledger

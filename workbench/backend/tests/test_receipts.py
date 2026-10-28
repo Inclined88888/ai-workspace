@@ -86,3 +86,33 @@ def test_an_unreachable_model_is_a_recorded_failure_not_a_crash(client):
     assert any(e.get("type") == "error" and "unreachable" in e["error"] for e in ev)
     assert db.one("SELECT outcome FROM turn_checks WHERE model = ? ORDER BY id DESC", f"{pid}/m")["outcome"] == "model_error"
     client.delete(f"/api/providers/{pid}")
+
+
+def test_an_answer_that_misstates_what_was_saved_is_caught(client):
+    """Benchmark leak, qwen3:4b: saved priority 3 but told the user 'priority: low'."""
+    from app import db
+
+    leak = "Task added! ID: 11. Title: clean the gutters. Due: 2026-11-08 (priority: low)."
+    SCRIPT[:] = [tool_call("create_task", {"title": "clean the gutters", "due": "2026-11-08", "priority": 3}),
+                 {"role": "assistant", "content": leak},
+                 lambda msgs: {"role": "assistant", "content": "Correction: it was saved as high priority."
+                               if "saved priority is high" in msgs[-1]["content"] else "NO NUDGE"}]
+    ev = events(client.post("/api/assistant/chat", json={"message": "Add 'clean the gutters' for 2026-11-08, low priority."}))
+    check = next(e for e in ev if e["type"] == "claim_check")
+    assert check["retrying"] and "priority: low" in check["claim"]
+    assert next(e for e in ev if e["type"] == "message")["content"].startswith("Correction")
+    # stated twice: reaches the user flagged with the real value
+    SCRIPT[:] = [tool_call("create_task", {"title": "sweep the deck", "due": "2026-11-09", "priority": 3}),
+                 {"role": "assistant", "content": "Added, due 2026-11-10, priority: low."},
+                 {"role": "assistant", "content": "Added, due 2026-11-10, priority: low."}]
+    ev = events(client.post("/api/assistant/chat", json={"message": "add sweep the deck"}))
+    final = next(e for e in ev if e["type"] == "message")["content"]
+    assert "**Not verified:**" in final and "saved" in final
+    assert db.one("SELECT outcome FROM turn_checks ORDER BY id DESC LIMIT 1")["outcome"] == "unbacked"
+
+
+def test_a_correct_restatement_passes(client):
+    SCRIPT[:] = [tool_call("create_task", {"title": "Oil change", "due": "2026-12-05", "priority": 1}),
+                 {"role": "assistant", "content": "Added 'Oil change', due 2026-12-05, low priority."}]
+    ev = events(client.post("/api/assistant/chat", json={"message": "oil change dec 5 low priority"}))
+    assert not [e for e in ev if e["type"] == "claim_check"]
