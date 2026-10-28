@@ -187,20 +187,36 @@ Automated tests (`cd workbench/backend && pytest`): **24 passed** (14 before). T
 
 | Scenario | Result | Evidence |
 | --- | --- | --- |
-| A. Local assistant, real tool, no cloud | **PASS** (qwen3:4b, before the native adapter) | Real Ollama, real agent loop: "Add a task to renew my passport, due 2026-12-01, high priority" led to a native `create_task` call and the row was written to SQLite. 338 s on CPU. The run through the new native adapter is in progress; its result is not claimed here. |
+| A. Local assistant, real tool, no cloud | **PASS** (qwen3:4b, on both the old `/v1` path and the new native path) | Real Ollama, real agent loop: "Add a task to renew my passport, due 2026-12-01, high priority" led to a native `create_task` call and the row was written to SQLite. 338 s, then 344 s on the native path. Broader measurement: the 50-task benchmark below. |
 | B. Live research with citations | **BLOCKED** in core | No search provider without the SearXNG add-on or a key (F7). Reading a real public page with a local model is part of the in-progress run. |
 | C. File operations | **NOT TESTED** | No file tools exist (F10). Notes and documents are database rows. |
 | D. Model switching | **PASS** (automated, fake providers) | `test_ollama_uses_native_api_with_a_real_context_window`: the same server switches between an OpenAI-shaped and an Ollama-native provider per conversation, with tools working on both |
 | E. Integrated workflow | **PASS** (automated, scripted model) | `test_skill_created_after_complex_task`: agenda, tasks and notes in one request |
 | F. Failure recovery | **PASS** (automated) | `test_interrupted_turn_does_not_break_the_conversation` (failed before the fix), `test_tool_errors_go_back_to_the_model`, full-window error test |
-| G. Prompt injection boundary | **PASS** (automated, scripted model that obeys the injection) | `test_injected_page_cannot_make_lasting_changes_without_approval`, `test_taint_carries_over_to_the_next_turn`, `test_unattended_runs_refuse_gated_actions`, `test_no_skill_is_learned_from_untrusted_content`. A real local model facing the same page is in the in-progress run. |
+| G. Prompt injection boundary | **PASS** (automated, scripted model that obeys the injection); **inconclusive** on a real model | The four tests named in the original row. The real qwen3:4b read the poisoned page, then the next model call hit the old 300 s timeout, so it never decided. The empty memory table proves nothing. |
 | H. Fresh install | **NOT TESTED** | No clean machine or Docker build was exercised here |
 | I. Continuity across web, CLI, Telegram | **PARTIAL** | All three call the same `run_turn` and database (VERIFIED in code). The approval flow is wired into all three; only the HTTP API path is under test. |
+
+Live finding: the background learning call and the next turn competed for Ollama's single slot, both hit the 300 s read timeout, and the user saw a bare `ReadTimeout`. Fixed in the receipts commit: local timeout 900 s (`OLLAMA_TIMEOUT_S`), and timeouts are clear, recorded errors.
 
 Other checks:
 * Frontend `tsc --noEmit` and `vite build`: clean.
 * `browser-agent` tests: 24 passed with `CHROME_PATH` pointing at an installed Chromium. Without it, 6 failed, because `pyproject.toml` leaves Playwright unpinned (`>=1.50`). Playwright 1.64.1 then expected a browser build that was not installed. This will hit users too; pin it.
 * Measured cost of local inference here: qwen3:4b on 4 CPU cores generates about 4.8 tokens/s with thinking on. A single tool turn took minutes. That is usable for scheduled jobs and unusable for interactive chat without a GPU or Apple silicon.
+
+## 9b. Receipts and the reliability record (phase 1 of "earned trust")
+
+* `receipts.py` checks every change in the database after the tool runs. A tool that returns without making the change fails with "the change could not be confirmed".
+* Final answers that claim a change with no confirmed change behind them are withdrawn and retried once. If the claim is still unbacked, it is shown marked **Not verified**.
+* Every tool call and turn is recorded per model in `tool_runs` and `turn_checks`. They are exposed by `GET /api/reliability`, `ws reliability`, and the model picker.
+* Tests: `tests/test_receipts.py`, 8 tests, including a precision test on the claim detector (8 true claims, 8 non-claims).
+* Limits:
+  * The claim detector is pattern based. A claim worded outside its patterns passes unchecked; the benchmark's loose matcher exists to find those cases.
+  * `browse_web` results cannot be verified and say so.
+  * Phase 2 (changing behavior per model based on the record) is not built.
+* Benchmark: `bench/local_tasks.py`, 50 real requests checked against the database. Results are in the next section.
+
+BENCH_RESULTS
 
 ## 10. Continuation point
 
