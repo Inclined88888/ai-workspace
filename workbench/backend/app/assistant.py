@@ -458,6 +458,10 @@ async def run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> AsyncI
         except HTTPException as e:
             receipts.record_turn(ctx, "model_error", str(e.detail))
             yield {"type": "error", "error": str(e.detail)}
+            done_so_far = receipts.summary(ctx.receipts)
+            if done_so_far:  # the model failed after tools changed things: say what is now true
+                _save(ctx.conversation_id, "assistant", done_so_far)
+                yield {"type": "message", "content": done_so_far}
             return
         cost += usage.record(res, channel=ctx.channel, agent_id=(ctx.agent or {}).get("id"), conversation_id=ctx.conversation_id)
         msg = res["message"]

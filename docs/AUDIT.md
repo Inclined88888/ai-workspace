@@ -216,7 +216,42 @@ Other checks:
   * Phase 2 (changing behavior per model based on the record) is not built.
 * Benchmark: `bench/local_tasks.py`, 50 real requests checked against the database. Results are in the next section.
 
-BENCH_RESULTS
+### Benchmark results: qwen3:4b, Ollama 0.40.12, 4 CPU cores, no GPU
+
+The run stopped at 25 of 50 tasks when it reached this environment's 2 hour job limit. These are only the completed tasks. Covered: 15 task creations, 8 notes, 2 status updates. **Not yet run:** the remaining status updates, memory, calendar events, email drafts, and the "change nothing" questions.
+
+| Measure | Result |
+| --- | --- |
+| Expected change present in the database (ground truth) | 24 of 25 (96%) |
+| False success claims that reached the user | **0** |
+| Answers that claimed success | 21 |
+| Claim checks fired | 1 |
+| Tool calls recovered from text | 0 (qwen3:4b always returned structured calls) |
+| Median time per request | 352 s (CPU only; not interactive speed) |
+
+The one failure was "clean the gutters, low priority":
+* The model saved priority 3 (high) and answered "low priority (3)".
+* The claim check caught the contradiction and asked for a correction.
+* The correction call then hit the 900 s timeout.
+* The user would have seen only the error, so a later commit now reports what was saved when the model fails after changing something.
+* The commit "Never hand the user a blank answer" called this an empty answer. That was a misreading of the result row: it was a timeout. The empty-answer handling is still correct, but this case did not exercise it.
+
+Defects the benchmark found and the fixes that followed:
+
+1. **An answer that misstated a saved detail.** Before the fix, this leaked to the user. The answer is now checked against what was saved.
+2. **No report of what changed when the model failed mid-turn.** The user now gets a summary of the saved changes.
+
+Grader correction:
+* "before 2026-11-30", saved as 2026-11-29, was first graded a failure. It is a correct reading and the answer stated it truthfully.
+* The row is marked `regraded`, with the reason, in the results file.
+
+Results came from two commits (`da59c75`, `adaf120`), recorded per row. To finish the run on a machine with time or a GPU:
+
+```
+cd workbench/backend && python bench/local_tasks.py --model qwen3:4b --out results.jsonl
+```
+
+The run resumes where it stopped.
 
 ## 10. Continuation point
 

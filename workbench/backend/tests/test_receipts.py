@@ -129,3 +129,26 @@ def test_an_empty_answer_is_replaced_by_what_really_happened(client):
     SCRIPT[:] = [{"role": "assistant", "content": ""}]
     ev = events(client.post("/api/assistant/chat", json={"message": "hello"}))
     assert "empty answer" in next(e for e in ev if e["type"] == "message")["content"]
+
+
+def test_a_model_failure_after_changes_still_reports_what_was_saved(client, monkeypatch):
+    """Benchmark, qwen3:4b: the correction call timed out after the task was saved; the user only saw the error."""
+    from fastapi import HTTPException
+
+    from app import llm
+
+    real = llm.chat
+    calls = {"n": 0}
+
+    async def flaky(ref, messages, tools=None):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise HTTPException(504, "Ollama (local) did not answer within 900 s")
+        return await real(ref, messages, tools)
+
+    monkeypatch.setattr(llm, "chat", flaky)
+    SCRIPT[:] = [tool_call("create_task", {"title": "clean the gutters", "due": "2026-11-08", "priority": 3})]
+    ev = events(client.post("/api/assistant/chat", json={"message": "gutters"}))
+    assert any(e.get("type") == "error" for e in ev)
+    msg = next(e for e in ev if e["type"] == "message")["content"]
+    assert "clean the gutters" in msg and "priority high" in msg
