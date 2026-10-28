@@ -19,6 +19,7 @@ log = logging.getLogger("learn")
 _lock = asyncio.Lock()
 _tasks: set[asyncio.Task] = set()
 SKILL_MIN_TOOL_CALLS = 3
+MAX_PER_CONVERSATION = 5  # durable facts learned from one conversation, in total
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,48}$")
 
 
@@ -115,8 +116,9 @@ async def summarize(conv_id: int) -> bool:
 MEMORY_PROMPT = (
     "You maintain long term memory about ONE user. From the new messages, extract durable facts worth remembering for "
     "future conversations: who they are (name, work, location, family), goals and ongoing projects, preferences and "
-    "how they like things done, important people and commitments. Only facts the USER stated or clearly confirmed. "
-    "Skip small talk, one-off requests and anything already known. "
+    "how they like things done, important people and commitments. Prefer, in order: profile facts, hard preferences, and "
+    "constraints (things they must or must never have). Only facts the USER stated or clearly confirmed. "
+    "Skip small talk, one-off requests, temporary details (today's plans, a single errand) and anything already known. "
     "If a new fact corrects or updates one already known (they moved, changed jobs, changed a preference), set replaces "
     "to that memory's id instead of adding a contradiction. Never include passwords, API keys, tokens or card numbers. "
     'Reply with only a JSON array (possibly empty) of {"content": "...", "kind": "profile|preference|fact", "replaces": id or null}. '
@@ -159,7 +161,11 @@ async def mine_memories(conv_id: int) -> int:
         return 0
     known_norm = {_norm(k["content"]) for k in db.all(f"SELECT content FROM memories WHERE {where}", *wargs)}
     added = 0
-    for it in items[:5]:
+    # At most MAX_PER_CONVERSATION facts per conversation, across all its turns (proposals waiting for approval count)
+    taken = db.one("SELECT COUNT(*) AS n FROM memories WHERE conversation_id = ? AND source = 'auto'", conv_id)["n"] + \
+        db.one("SELECT COUNT(*) AS n FROM approvals WHERE conversation_id = ? AND tool = 'remember' AND channel = 'learn'", conv_id)["n"]
+    room = max(0, MAX_PER_CONVERSATION - taken)
+    for it in items[:room]:
         if not isinstance(it, dict) or not isinstance(it.get("content"), str):
             continue
         content = it["content"].strip()[:500]
@@ -221,22 +227,27 @@ async def mine_skill(conv_id: int) -> str:
     skills = db.all("SELECT name, description FROM skills")
     payload = ("Existing skills:\n" + "\n".join(f"- {s['name']}: {s['description']}" for s in skills) +
                "\n\nTranscript:\n" + "\n".join(lines))
+    # Only a task that succeeded is a candidate: every tool call worked and the turn ended with an answer
+    from .assistant import EXTERNAL_TOOLS, FAILED_RESULT, Ctx, request_approval
+
+    tools = [r for r in rows if r["role"] == "tool"]
+    final = next((r for r in reversed(rows) if r["role"] == "assistant" and not r["tool_calls"]), None)
+    if len(tools) < SKILL_MIN_TOOL_CALLS or any(FAILED_RESULT.match(r["content"] or "") for r in tools) or not final or \
+            not (final["content"] or "").strip() or final["content"].startswith(("Stopped.", "I stopped after", "I ran out of time")):
+        return ""
     out = await _model_json(conv, SKILL_PROMPT, payload[:24000], "skill")
     if isinstance(out, dict) and out.get("save") is True:
-        from .assistant import EXTERNAL_TOOLS, Ctx, request_approval
-
-        if permissions.must_ask("save_skill") or any(r["role"] == "tool" and r["name"] in EXTERNAL_TOOLS for r in rows):
-            # The procedure was written from outside content: a skill is loaded into every later prompt, so the
-            # user reviews it first.
-            args = json.dumps({k: str(out.get(k, "")) for k in ("name", "description", "steps")})
-            request_approval("save_skill", args, Ctx(channel="learn", conversation_id=conv_id),
-                             "Learned from a task that read outside content (web, search or email).")
-            return ""
         try:
-            r = upsert_skill(str(out.get("name", "")), str(out.get("description", "")), str(out.get("steps", "")))
-            return next(iter(r.values()))
+            check_skill_text(str(out.get("description", "")), str(out.get("steps", "")))
         except HTTPException:
             return ""
+        # Never saved by itself: offered to the user, who saves or dismisses it (a skill goes into every later prompt)
+        args = json.dumps({k: str(out.get(k, "")) for k in ("name", "description", "steps")})
+        outside = any(r["name"] in EXTERNAL_TOOLS for r in tools)
+        request_approval("save_skill", args, Ctx(channel="learn", conversation_id=conv_id),
+                         f"Offered after a task that succeeded with {len(tools)} tool calls. Save it as a skill?"
+                         + (" It was learned from a task that read outside content (web, search or email): check the steps." if outside else ""))
+        return str(out.get("name", ""))
     return ""
 
 

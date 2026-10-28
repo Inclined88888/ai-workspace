@@ -53,7 +53,7 @@ TOOL_GROUP = {tool: g for g, (_, _, tools) in GROUPS.items() for tool in tools}
 TOOL_RISK = {tool: risk for _, (_, _, tools) in GROUPS.items() for tool, risk in tools.items()}
 # Actions that speak for the user to other people, or run a coding agent on their computer: approval every time,
 # whatever the group's setting
-ALWAYS_ASK = {"github_create_issue", "github_comment", "run_coding_agent", "create_checkin"}
+ALWAYS_ASK = {"github_create_issue", "github_comment", "run_coding_agent", "create_checkin", "save_skill"}
 TOOL_GROUP = {tool: g for g, (_, _, tools) in GROUPS.items() for tool in tools}
 TOOL_RISK = {tool: risk for _, (_, _, tools) in GROUPS.items() for tool, risk in tools.items()}
 

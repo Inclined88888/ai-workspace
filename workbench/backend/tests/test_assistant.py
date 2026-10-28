@@ -52,8 +52,15 @@ def test_skill_created_after_complex_task(client):
         tool_call("search_notes", {"query": "plan"}, "c"),
         {"role": "assistant", "content": "Here is your week."},
     ]
+    from app import db
+
+    db.run("DELETE FROM skills WHERE name = 'weekly-plan'")
     events(client.post("/api/assistant/chat", json={"message": "Plan my week"}))
-    skill = wait_for(lambda: [s for s in client.get("/api/skills").json() if s["name"] == "weekly-plan"])
+    # offered, never saved by itself: it waits as an approval until the user says yes
+    offer = wait_for(lambda: [a for a in client.get("/api/approvals").json() if a["tool"] == "save_skill" and "succeeded with 3 tool calls" in a["reason"]])
+    assert offer and not [s for s in client.get("/api/skills").json() if s["name"] == "weekly-plan"]
+    assert client.post(f"/api/approvals/{offer[0]['id']}", json={"approve": True}).json()["status"] == "approved"
+    skill = [s for s in client.get("/api/skills").json() if s["name"] == "weekly-plan"]
     assert skill and "get_agenda" in skill[0]["steps"]
     CALLS.clear()
     SCRIPT[:] = [{"role": "assistant", "content": "x"}]
