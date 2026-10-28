@@ -1,4 +1,4 @@
-import { Brain, Check, Copy, KeyRound, Loader2, MessageSquare, Plus, Search, Send, Sparkles, Trash2, Wrench } from "lucide-react";
+import { Brain, Check, Copy, KeyRound, Loader2, MessageSquare, Plus, Search, Send, ShieldAlert, Sparkles, Trash2, Wrench } from "lucide-react";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, stream } from "../api";
@@ -7,6 +7,7 @@ import { Empty, Markdown, ModelSelect, relTime, useModels, useToast } from "../u
 type Conv = { id: number; title: string; channel: string; updated_at: string; model: string };
 type Msg = { id: number; role: string; content: string; tool_calls: string[]; name: string };
 type Step = { kind: "call" | "result"; name: string; text: string; ok?: boolean };
+type Approval = { id: number; tool: string; args: string; effect: string; reason: string };
 type Memory = { id: number; content: string; kind: string; source: string; updated_at: string };
 type Skill = { id: number; name: string; description: string; steps: string; uses: number; source: string; enabled: number };
 
@@ -19,6 +20,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   const [q, setQ] = useState("");
   const [messages, setMessages] = useState<Msg[]>([]);
   const [steps, setSteps] = useState<Step[]>([]);
+  const [approvals, setApprovals] = useState<Approval[]>([]);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [model, setModel] = useState("");
@@ -29,11 +31,25 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
 
   const loadConvs = () => api<Conv[]>(`/conversations${q ? `?q=${encodeURIComponent(q)}` : ""}`).then(setConvs).catch(toast.err);
   useEffect(() => { const t = setTimeout(loadConvs, 200); return () => clearTimeout(t); }, [q]);
+  const loadConv = (id: number) => {
+    api<{ messages: Msg[]; model: string }>(`/conversations/${id}`).then((c) => { setMessages(c.messages); setModel(c.model || ""); }).catch(toast.err);
+    api<Approval[]>(`/approvals?conversation_id=${id}`).then(setApprovals).catch(toast.err);
+  };
   useEffect(() => {
     setSteps([]);
+    setApprovals([]);
     if (!cid) return setMessages([]);
-    api<{ messages: Msg[]; model: string }>(`/conversations/${cid}`).then((c) => { setMessages(c.messages); setModel(c.model || ""); }).catch(toast.err);
+    loadConv(cid);
   }, [cid]);
+
+  const decide = async (a: Approval, approve: boolean) => {
+    try {
+      const r = await api<{ status: string; result: string }>(`/approvals/${a.id}`, { method: "POST", body: { approve } });
+      setApprovals((xs) => xs.filter((x) => x.id !== a.id));
+      if (r.status === "failed") toast.err(r.result);
+      if (cid) loadConv(cid);
+    } catch (e) { toast.err(e); }
+  };
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, steps]);
 
   const send = async (e?: FormEvent) => {
@@ -50,6 +66,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
       if (t === "start") newId = Number(ev.conversation_id);
       if (t === "tool_call") setSteps((s) => [...s, { kind: "call", name: String(ev.name), text: String(ev.args) }]);
       if (t === "tool_result") setSteps((s) => [...s, { kind: "result", name: String(ev.name), text: String(ev.preview), ok: Boolean(ev.ok) }]);
+      if (t === "approval_required") setApprovals((a) => [...a, { id: Number(ev.id), tool: String(ev.tool), args: String(ev.args), effect: String(ev.effect), reason: String(ev.reason) }]);
       if (t === "message") setMessages((m) => [...m, { id: Date.now() + 1, role: "assistant", content: String(ev.content), tool_calls: [], name: "" }]);
       if (t === "error" || (!t && ev.error)) toast.err(String(ev.error));
     });
@@ -117,6 +134,17 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
                 ))}
               </div>
             )}
+            {approvals.map((a) => (
+              <div key={a.id} className="card col" style={{ gap: 8 }}>
+                <div className="row"><ShieldAlert size={16} /> <b>Approve {a.tool}?</b></div>
+                <div className="small muted">{a.reason} {a.effect === "persistent" ? "This would change how the assistant behaves from now on." : "This acts outside the workspace."}</div>
+                <pre className="small mono" style={{ whiteSpace: "pre-wrap", margin: 0 }}>{a.args}</pre>
+                <div className="row">
+                  <button className="btn primary sm" onClick={() => decide(a, true)}>Approve</button>
+                  <button className="btn sm" onClick={() => decide(a, false)}>Deny</button>
+                </div>
+              </div>
+            ))}
             {busy && <div className="row muted"><Loader2 size={15} className="spin" /> Working…</div>}
             <div ref={endRef} />
           </div>

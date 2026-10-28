@@ -69,6 +69,7 @@ Native Ollama uses the Mac GPU; the `local-models` add-on would run on CPU insid
 * **Tools.** Notes (search, read, create, append), tasks, calendar (agenda, create event), mail (search, save draft only, never send), web search and page reading, the browser agent when that add-on is on, memory, skills and schedules. Each tool step shows live in the chat.
 * **Memory.** After a conversation it quietly extracts durable facts about you (profile, preferences, facts), at most 5 per conversation, skipping duplicates. Relevant ones are injected into every new conversation. You can also say "remember that…" or "forget…". Review and edit everything under **Memory & skills**. Turn learning off in Assistant settings.
 * **Skills.** When a task took 3 or more tool calls, it can save the procedure as a named skill and improve it on later use. Skills are listed to the model and loaded on demand, so they cost almost nothing until used.
+* **Approvals.** Web pages and email can contain instructions written by someone else (prompt injection). Once a conversation has read either, actions that leave the workspace or change the assistant's future behaviour (remember, forget, save a skill, schedule a task, create a calendar event, browse, delegate) are held until you approve them in the chat, with `ws approve <id>`, or refused outright in unattended runs (schedules, company agents). Web and email content is labelled as untrusted for the model, and skills are never learned from such turns. This narrows the damage an injection can do; it does not make the model immune to it.
 * **History.** Every conversation is full text searchable, by you and by the assistant (`search_history`).
 * **Models.** Switch per conversation from the model menu. Any provider in Settings works.
 * **Terminal.** `cli/ws` is a zero dependency Python CLI: `cli/ws login`, then `cli/ws` for a REPL or `cli/ws "what's on today?"` for one shot. Also `cli/ws memory`, `skills`, `inbox`, `schedules`.
@@ -181,7 +182,7 @@ Model choice: `BROWSER_LLM_PROVIDER=auto` uses Anthropic if `ANTHROPIC_API_KEY` 
 
 ## Models and providers
 
-**Local.** With native Ollama: `ollama pull qwen3:8b`. With the `local-models` add-on: Workbench → Settings → Local models, or `docker compose exec ollama ollama pull qwen3:8b`. Rough memory needs: 4B ≈ 4 GB, 8B ≈ 8 GB, 14B ≈ 12 GB.
+**Local.** With native Ollama: `ollama pull qwen3:8b`. Workbench talks to Ollama on its native API with a 16K token window (`OLLAMA_NUM_CTX`). Through Ollama's OpenAI endpoint the window is fixed at Ollama's default of 4096 tokens and longer prompts are cut from the start without an error, which removed the system prompt and tool rules from long chats and research. If a prompt still fills the window you get an error instead of an answer built on half a prompt. Models that print a tool call as text (`<tool_call>{...}</tool_call>`) instead of returning a structured call still get the tool run, but only for well formed calls to tools that were offered; the chat marks those steps. With the `local-models` add-on: Workbench → Settings → Local models, or `docker compose exec ollama ollama pull qwen3:8b`. Rough memory needs: 4B ≈ 4 GB, 8B ≈ 8 GB, 14B ≈ 12 GB.
 
 **Free.** Three ways to run at $0, all one click in Settings → Model providers (free models show "(free)" in every model menu):
 

@@ -97,7 +97,11 @@ async def _handle(client: httpx.AsyncClient, msg: dict) -> None:
         return
     await _api(client, "sendChatAction", chat_id=chat_id, action="typing")
     ctx = assistant.Ctx(channel="telegram", conversation_id=_conversation(chat_id))
-    reply, _ = await assistant.ask(ctx, text)
+    reply, events = await assistant.ask(ctx, text)
+    held = [e for e in events if e["type"] == "approval_required"]
+    if held:
+        reply += "\n\n" + "\n".join(f"Waiting for your approval: #{e['id']} {e['tool']}. Approve or deny it in the "
+                                    f"workspace (Assistant) or with: ws approve {e['id']}" for e in held)
     await send(client, chat_id, reply)
 
 

@@ -101,6 +101,23 @@ def delete_conversation(cid: int):
     return {"ok": True}
 
 
+# Approvals: actions held by assistant.needs_approval
+@router.get("/approvals")
+def approvals(status: str = "pending", conversation_id: int | None = None):
+    if conversation_id:
+        return db.all("SELECT * FROM pending_actions WHERE status = ? AND conversation_id = ? ORDER BY id", status, conversation_id)
+    return db.all("SELECT * FROM pending_actions WHERE status = ? ORDER BY id DESC LIMIT 200", status)
+
+
+class DecisionIn(BaseModel):
+    approve: bool
+
+
+@router.post("/approvals/{aid}")
+async def decide(aid: int, data: DecisionIn):
+    return await assistant.decide(aid, data.approve)
+
+
 # Memory
 class MemoryIn(BaseModel):
     content: str = Field(..., min_length=3, max_length=1000)

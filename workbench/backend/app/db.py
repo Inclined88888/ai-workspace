@@ -259,6 +259,21 @@ CREATE TABLE IF NOT EXISTS usage (
   priced INTEGER NOT NULL DEFAULT 0             -- 1 when a price was known for the model
 );
 CREATE INDEX IF NOT EXISTS usage_ts ON usage(ts);
+
+-- Actions the assistant wanted to take that need the user's approval (see assistant.needs_approval)
+CREATE TABLE IF NOT EXISTS pending_actions (
+  id INTEGER PRIMARY KEY,
+  conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  tool TEXT NOT NULL,
+  args TEXT NOT NULL DEFAULT '{}',              -- JSON as the model sent it
+  effect TEXT NOT NULL,                         -- external | persistent
+  reason TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'pending',       -- pending | approved | denied | done | failed
+  result TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  decided_at TEXT
+);
+CREATE INDEX IF NOT EXISTS pending_actions_status ON pending_actions(status, conversation_id);
 """
 
 

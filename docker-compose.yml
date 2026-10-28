@@ -99,6 +99,8 @@ services:
       WORKSPACE_NAME: ${WORKSPACE_NAME:-AI Workspace}
       WORKSPACE_TIMEZONE: ${WORKSPACE_TIMEZONE:-UTC}
       DEFAULT_MODEL: ${DEFAULT_MODEL:-qwen3:4b}
+      # Context window requested from Ollama (tokens). More needs more RAM: about 2.4 GB of cache per 16K on a 4B model
+      OLLAMA_NUM_CTX: ${OLLAMA_NUM_CTX:-16384}
       # Add-ons: empty unless enabled by setup.sh --with ...
       CHAT_URL: ${CHAT_URL:-}
       SEARXNG_URL: ${SEARXNG_URL:-}
