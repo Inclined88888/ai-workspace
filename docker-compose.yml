@@ -17,6 +17,9 @@ services:
       - ollama:/root/.ollama
     environment:
       OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-10m}
+      # Ollama's own default is 4096 tokens, too small for agent tools plus a web page. Applies to clients that
+      # do not send num_ctx (Open WebUI, the browser agent); Workbench sends its own (Settings > General).
+      OLLAMA_CONTEXT_LENGTH: ${OLLAMA_CONTEXT_LENGTH:-16384}
     # Not published to the host by default. Uncomment to use Ollama from other tools.
     # ports:
     #   - "127.0.0.1:11434:11434"
@@ -105,6 +108,10 @@ services:
       OLLAMA_URL: ${OLLAMA_URL:-}
       # Set to true when Workbench is served over HTTPS (reverse proxy)
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      # Address of your reverse proxy as seen by this container, so its X-Forwarded-For is trusted
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
+      # Context window requested from Ollama (also editable in Settings > General)
+      OLLAMA_NUM_CTX: ${OLLAMA_CONTEXT_LENGTH:-16384}
       # Seed external providers on first start (also editable in Settings)
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -136,6 +143,8 @@ services:
       # Model providers (auto picks Anthropic, then Gemini, then local Ollama)
       BROWSER_LLM_PROVIDER: ${BROWSER_LLM_PROVIDER:-auto}
       BROWSER_LLM_MODEL: ${BROWSER_LLM_MODEL:-}
+      # The local model setup.sh pulled, used when the browser falls back to Ollama
+      OLLAMA_DEFAULT_MODEL: ${DEFAULT_MODEL:-qwen3:4b}
       OLLAMA_HOST: ${OLLAMA_URL:-http://host.docker.internal:11434}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
@@ -185,6 +194,9 @@ services:
     shm_size: 1gb
     depends_on:
       - workbench
+    extra_hosts:
+      # Native Ollama on the host (OLLAMA_URL=http://host.docker.internal:11434)
+      - "host.docker.internal:host-gateway"
     ports:
       # Dashboard (memory, skills, cron, sessions, messaging setup), behind basic auth
       - "${BIND_ADDRESS:-127.0.0.1}:${HERMES_DASHBOARD_PORT:-3300}:9119"

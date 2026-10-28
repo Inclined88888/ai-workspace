@@ -79,7 +79,7 @@ PROVIDERS: dict[str, Provider] = {
         Provider("openai", "OpenAI", ("OPENAI_API_KEY",), None, _openai, "Pass --model with a current OpenAI model id."),
         Provider("openrouter", "OpenRouter", ("OPENROUTER_API_KEY",), None, _openrouter,
                  "Any OpenRouter model id, including its ':free' models."),
-        Provider("ollama", "Ollama (local)", (), "qwen3:8b", _ollama,
+        Provider("ollama", "Ollama (local)", (), os.getenv("OLLAMA_DEFAULT_MODEL") or "qwen3:8b", _ollama,
                  "Free and private. Needs a capable model (8B+); small models often loop or stop early."),
         Provider("openai-compatible", "Any OpenAI compatible API", ("OPENAI_COMPATIBLE_BASE_URL",), None, _compatible,
                  "LM Studio, vLLM, LiteLLM, Groq, Together and others."),

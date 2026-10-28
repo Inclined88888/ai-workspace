@@ -21,7 +21,9 @@ if [[ -n "$(get ANTHROPIC_API_KEY)" ]]; then
 elif [[ -n "$(get OPENROUTER_API_KEY)" ]]; then
   provider=openrouter; base_url=https://openrouter.ai/api/v1; model=anthropic/claude-sonnet-5.5
 else
-  provider=custom; base_url=http://ollama:11434/v1; model=$(get DEFAULT_MODEL)
+  # The Ollama add-on container or native Ollama on the host, whichever setup.sh configured
+  ollama=$(get OLLAMA_URL); ollama=${ollama:-http://ollama:11434}
+  provider=custom; base_url=${ollama%/}/v1; model=$(get DEFAULT_MODEL)
 fi
 
 hx hermes config set model.provider "$provider" >/dev/null

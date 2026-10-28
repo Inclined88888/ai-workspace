@@ -12,6 +12,8 @@ from fastapi import FastAPI, Request
 
 SCRIPT: list = []          # queued replies: dict message or callable(messages) -> dict
 CALLS: list[dict] = []     # every request body the fake model received
+OLLAMA_SCRIPT: list = []   # queued native Ollama messages for /api/chat
+OLLAMA_CALLS: list[dict] = []
 
 
 def _port() -> int:
@@ -26,6 +28,7 @@ fake = FastAPI()
 
 
 @fake.post("/v1/chat/completions")
+@fake.post("/proxy/v1/chat/completions")
 async def completions(req: Request):
     body = await req.json()
     CALLS.append(body)
@@ -41,6 +44,22 @@ async def completions(req: Request):
     else:
         msg = {"role": "assistant", "content": "ok"}
     return {"choices": [{"message": msg}], "usage": {"prompt_tokens": 1000, "completion_tokens": 500}}
+
+
+@fake.post("/api/chat")
+async def ollama_chat(req: Request):
+    """Ollama's native chat API: tool call arguments are objects, usage is prompt_eval_count/eval_count."""
+    body = await req.json()
+    OLLAMA_CALLS.append(body)
+    nxt = OLLAMA_SCRIPT.pop(0) if OLLAMA_SCRIPT else {"role": "assistant", "content": "ok"}
+    msg = nxt(body["messages"]) if callable(nxt) else nxt
+    if body.get("stream"):
+        from fastapi.responses import PlainTextResponse
+
+        lines = [{"message": {"role": "assistant", "content": w}, "done": False} for w in ("Hel", "lo")]
+        lines.append({"message": {"role": "assistant", "content": ""}, "done": True, "prompt_eval_count": 7, "eval_count": 2})
+        return PlainTextResponse("\n".join(json.dumps(x) for x in lines), media_type="application/x-ndjson")
+    return {"model": body["model"], "message": msg, "done": True, "prompt_eval_count": 1200, "eval_count": 30}
 
 
 @fake.get("/v1/models")

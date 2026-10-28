@@ -111,9 +111,14 @@ async def mine_skill(conv_id: int) -> str:
         return ""
     rows = db.all("SELECT role, content, tool_calls, name FROM messages WHERE conversation_id = ? AND id >= ? ORDER BY id",
                   conv_id, last_user["id"])
+    from .assistant import UNTRUSTED_TOOLS
+
     lines = []
     for r in rows:
-        if r["role"] == "tool":
+        if r["role"] == "tool" and r["name"] in UNTRUSTED_TOOLS:
+            # Third party text (web pages, email) never reaches the skill writer: it could plant instructions
+            lines.append(f"TOOL RESULT {r['name']}: ({len(r['content'])} characters of external content, not shown)")
+        elif r["role"] == "tool":
             lines.append(f"TOOL RESULT {r['name']}: {r['content'][:600]}")
         elif r["tool_calls"]:
             calls = ", ".join(f"{c['function']['name']}({c['function']['arguments'][:200]})" for c in json.loads(r["tool_calls"]))

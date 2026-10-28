@@ -235,6 +235,7 @@ class AssistantSettings(BaseModel):
     learning_enabled: bool | None = None
     brave_api_key: str | None = Field(None, max_length=200)
     tavily_api_key: str | None = Field(None, max_length=200)
+    search_fallback: bool | None = None  # keyless DuckDuckGo when no search provider is configured
     telegram_token: str | None = Field(None, max_length=200)
     telegram_allowed_users: str | None = Field(None, max_length=500)
 
@@ -246,6 +247,7 @@ def get_assistant_settings():
         "timezone": assistant.timezone_name(),
         "learning_enabled": learn.enabled(),
         "search_provider": search.provider(),
+        "search_fallback": db.get_setting("search_fallback", "1") == "1",
         "telegram": telegram.status(),
         "cli_token_set": bool(db.get_setting("cli_token_hash", "")),
     }
@@ -267,6 +269,8 @@ def put_assistant_settings(data: AssistantSettings):
             db.run("UPDATE schedules SET next_run = ? WHERE id = ?", scheduler.next_run(s["cron"]), s["id"])
     if data.learning_enabled is not None:
         db.set_setting("learning_enabled", "1" if data.learning_enabled else "0")
+    if data.search_fallback is not None:
+        db.set_setting("search_fallback", "1" if data.search_fallback else "0")
     for field, name in (("brave_api_key", "BRAVE_API_KEY"), ("tavily_api_key", "TAVILY_API_KEY")):
         value = getattr(data, field)
         if value is not None:

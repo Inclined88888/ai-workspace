@@ -8,7 +8,7 @@ Everything heavier is an **optional add-on, off by default**:
 
 | Add-on | Turn on with | Adds | Cost |
 | --- | --- | --- | --- |
-| `search` | SearXNG | Free private web search (otherwise use a Brave or Tavily key, or none) | small |
+| `search` | SearXNG | Dependable free private web search (without it: a Brave or Tavily key, or DuckDuckGo's keyless page as a fallback) | small |
 | `browser` | browser-use + Chromium | Browser agent page and a `browse_web` tool | ≈ 2.5 GB image |
 | `local-models` | Ollama in Docker | Local models (on a Mac, native Ollama is faster and is detected by setup) | ≈ 8.5 GB image + models |
 | `openwebui` | Open WebUI | A second chat app with RAG knowledge bases and multi user accounts | ≈ 6.5 GB image |
@@ -66,7 +66,8 @@ Native Ollama uses the Mac GPU; the `local-models` add-on would run on CPU insid
 
 **Assistant** is the main page: one chat that can use every part of the workspace.
 
-* **Tools.** Notes (search, read, create, append), tasks, calendar (agenda, create event), mail (search, save draft only, never send), web search and page reading, the browser agent when that add-on is on, memory, skills and schedules. Each tool step shows live in the chat.
+* **Tools.** Notes (search, read, create, append), tasks, calendar (agenda, events, create event), mail (search, read, save draft only, never send), web search and page reading, the browser agent when that add-on is on, memory, skills and schedules. Each tool step shows live in the chat.
+* **Prompt injection guard.** Web pages and email are written by other people and can carry instructions aimed at the assistant. Once a turn has read any (web search, a page, the browser agent, email), it cannot save memories, skills or schedules for the rest of that turn; it tells you what it wanted to do and you confirm in a new message. Text from web pages and email is also never shown to the background skill writer. This narrows the risk; it does not remove it. Read what the assistant did, especially with the browser agent, which can still click and fill forms.
 * **Memory.** After a conversation it quietly extracts durable facts about you (profile, preferences, facts), at most 5 per conversation, skipping duplicates. Relevant ones are injected into every new conversation. You can also say "remember that…" or "forget…". Review and edit everything under **Memory & skills**. Turn learning off in Assistant settings.
 * **Skills.** When a task took 3 or more tool calls, it can save the procedure as a named skill and improve it on later use. Skills are listed to the model and loaded on demand, so they cost almost nothing until used.
 * **History.** Every conversation is full text searchable, by you and by the assistant (`search_history`).
@@ -181,7 +182,9 @@ Model choice: `BROWSER_LLM_PROVIDER=auto` uses Anthropic if `ANTHROPIC_API_KEY` 
 
 ## Models and providers
 
-**Local.** With native Ollama: `ollama pull qwen3:8b`. With the `local-models` add-on: Workbench → Settings → Local models, or `docker compose exec ollama ollama pull qwen3:8b`. Rough memory needs: 4B ≈ 4 GB, 8B ≈ 8 GB, 14B ≈ 12 GB.
+**Local.** With native Ollama: `ollama pull qwen3:8b`. With the `local-models` add-on: Workbench → Settings → Local models, or `docker compose exec ollama ollama pull qwen3:8b`. Rough memory needs for the weights: 4B ≈ 4 GB, 8B ≈ 8 GB, 14B ≈ 12 GB, plus the context window below.
+
+**Context window.** Ollama's own default is 4096 tokens. The assistant's tool list, your memories and one web page together are larger than that, and Ollama cuts what does not fit, so tool use quietly breaks. Workbench therefore talks to Ollama through its native API and asks for 16K tokens (Settings → General → Local model context window; `OLLAMA_CONTEXT_LENGTH` in `.env` sets the default). The `local-models` add-on also starts Ollama with that default for Open WebUI and the browser agent. Native Ollama apps ignore `.env`: if you use Open WebUI or the browser agent with native Ollama, set `OLLAMA_CONTEXT_LENGTH=16384` where `ollama serve` runs. A bigger window needs more RAM, roughly 1.2 GB per extra 8K tokens for Qwen3 4B or 8B with an unquantized cache. Hermes asks for its own 64K window; when Hermes and Workbench share one Ollama, the model reloads whenever they alternate.
 
 **Free.** Three ways to run at $0, all one click in Settings → Model providers (free models show "(free)" in every model menu):
 
@@ -200,7 +203,7 @@ Anthropic is reached through its [OpenAI SDK compatibility layer](https://platfo
 ## Remote access and security
 
 - By default every port binds to `127.0.0.1`. Reach it remotely with an SSH tunnel (`ssh -L 3000:localhost:3000 -L 3100:localhost:3100 you@server`) or a reverse proxy.
-- For a public domain put Caddy, Traefik or nginx with HTTPS in front, set `WEBUI_PUBLIC_URL` and `PAPERCLIP_PUBLIC_URL` to the https URLs and `COOKIE_SECURE=true`, then `docker compose up -d`. Paperclip only answers on hostnames in `PAPERCLIP_PUBLIC_URL` and `PAPERCLIP_ALLOWED_HOSTNAMES`.
+- For a public domain put Caddy, Traefik or nginx with HTTPS in front, set `WEBUI_PUBLIC_URL` and `PAPERCLIP_PUBLIC_URL` to the https URLs and `COOKIE_SECURE=true`, then `docker compose up -d`. Set `FORWARDED_ALLOW_IPS` to the proxy's address as Workbench sees it, so login throttling sees real client addresses; X-Forwarded-For from anyone else is ignored. Paperclip only answers on hostnames in `PAPERCLIP_PUBLIC_URL` and `PAPERCLIP_ALLOWED_HOSTNAMES`.
 - Remote access from your phone: a VPN such as Tailscale is the simplest safe option. Add the Tailscale hostname to `PAPERCLIP_ALLOWED_HOSTNAMES`.
 - Workbench is a single owner app. Passwords are hashed with scrypt; mail, CalDAV and provider credentials are encrypted at rest with a key derived from `APP_SECRET`. **Back up `.env`**: if you lose `APP_SECRET`, stored credentials cannot be decrypted and must be re-entered.
 - Ollama, SearXNG, the browser agent and Hermes' API are not published to the host. The Hermes dashboard is (port 3300, basic auth, bound to `BIND_ADDRESS`); it stores API keys, so keep it on localhost or behind a VPN.
@@ -244,6 +247,6 @@ Backend: FastAPI + SQLite. Frontend: React + Vite + TypeScript. The tool server 
 - Memory extraction and skill saving cost one extra small model call after a conversation. Turn learning off if that matters.
 - Calendar: ICS feeds are read only; CalDAV supports reading and creating, not editing or deleting remote events.
 - Mail: password/app password IMAP only, no OAuth providers, plain text sending, no attachments.
-- Web search needs the `search` add-on or a Brave or Tavily key. Research quality depends on the model and the search results. Verify claims against the sources.
+- Web search works with no setup through DuckDuckGo's keyless results page, but that page is meant for people: it rate limits and can change without notice, and automated use may conflict with DuckDuckGo's terms. Turn it off in Assistant settings if that matters to you. For dependable search use the `search` add-on (SearXNG) or a Brave or Tavily key. Research quality depends on the model and the search results. Verify claims against the sources.
 - The Paperclip add-on runs in its own login. Workbench links to it but does not share a sign in.
 - Browser agent results are the agent's own report. Small local models are unreliable at browsing.

@@ -120,12 +120,15 @@ def get_settings():
         "default_model": db.get_setting("default_model", ""),
         "chat_url": config.CHAT_URL,
         "tools_url": "http://workbench:8000/tools/openapi.json",
+        "ollama_num_ctx": llm.ollama_num_ctx(),
     }
 
 
 class SettingsIn(BaseModel):
     workspace_name: str | None = Field(None, max_length=80)
     default_model: str | None = Field(None, max_length=300)
+    # Context window Workbench asks Ollama for. Larger fits more tools and pages but needs more RAM.
+    ollama_num_ctx: int | None = Field(None, ge=2048, le=1_048_576)
 
 
 @api.put("/settings")
@@ -136,6 +139,8 @@ def put_settings(data: SettingsIn):
         if data.default_model:
             llm.split_ref(data.default_model)
         db.set_setting("default_model", data.default_model)
+    if data.ollama_num_ctx is not None:
+        db.set_setting("ollama_num_ctx", str(data.ollama_num_ctx))
     return get_settings()
 
 

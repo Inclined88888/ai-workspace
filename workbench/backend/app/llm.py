@@ -4,6 +4,7 @@ Model references are "<provider_id>/<model>", e.g. "1/qwen3:4b" or "3/openai/gpt
 """
 
 import json
+import os
 import re
 import time
 from typing import AsyncIterator
@@ -61,16 +62,31 @@ def is_free(p: dict, model: str) -> bool:
 
 THINK_RE = re.compile(r"<think>.*?</think>", re.S)
 TIMEOUT = httpx.Timeout(connect=10, read=300, write=30, pool=10)
+# Ollama's own default window is 4096 tokens, smaller than the assistant's tools, memories and one web page together,
+# and its OpenAI compatible endpoint cannot change it. Ollama providers therefore use the native API with num_ctx.
+OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "16384"))
+
+
+def ollama_num_ctx() -> int:
+    try:
+        return max(2048, int(db.get_setting("ollama_num_ctx", "") or OLLAMA_NUM_CTX))
+    except ValueError:
+        return OLLAMA_NUM_CTX
 
 
 def seed_providers() -> None:
-    if db.one("SELECT id FROM providers LIMIT 1"):
+    first_start = not db.one("SELECT id FROM providers LIMIT 1")
+    # Ollama turned on after the first start (setup.sh re-run with local models) is added once per URL,
+    # so a provider you deleted on purpose does not come back on every restart
+    if config.OLLAMA_URL and db.get_setting("ollama_seeded_url") != config.OLLAMA_URL:
+        if not db.one("SELECT id FROM providers WHERE kind = 'ollama' LIMIT 1"):
+            db.run(
+                "INSERT INTO providers(name, kind, base_url, created_at) VALUES (?, 'ollama', ?, ?)",
+                PRESETS["ollama"]["name"], PRESETS["ollama"]["base_url"], db.now(),
+            )
+        db.set_setting("ollama_seeded_url", config.OLLAMA_URL)
+    if not first_start:
         return
-    if config.OLLAMA_URL:
-        db.run(
-            "INSERT INTO providers(name, kind, base_url, created_at) VALUES (?, 'ollama', ?, ?)",
-            PRESETS["ollama"]["name"], PRESETS["ollama"]["base_url"], db.now(),
-        )
     for kind, key in config.SEED_KEYS.items():
         if key:
             p = PRESETS[kind]
@@ -168,8 +184,107 @@ def _body(p: dict, model: str, messages: list[dict], stream: bool) -> dict:
     return body
 
 
+# Ollama native API (/api/chat): same messages and tools as OpenAI, plus options.num_ctx
+def _ollama_url(p: dict) -> str:
+    return re.sub(r"/v1/?$", "", p["base_url"].rstrip("/")) + "/api/chat"
+
+
+def _ollama_messages(messages: list[dict]) -> list[dict]:
+    names: dict[str, str] = {}
+    out = []
+    for m in messages:
+        if m["role"] == "assistant" and m.get("tool_calls"):
+            calls = []
+            for tc in m["tool_calls"]:
+                fn = tc["function"]
+                names[tc.get("id", "")] = fn["name"]
+                try:
+                    args = json.loads(fn.get("arguments") or "{}")
+                except ValueError:
+                    args = {}
+                calls.append({"function": {"name": fn["name"], "arguments": args if isinstance(args, dict) else {}}})
+            out.append({"role": "assistant", "content": m.get("content") or "", "tool_calls": calls})
+        elif m["role"] == "tool":
+            out.append({"role": "tool", "content": m.get("content") or "", "tool_name": names.get(m.get("tool_call_id", ""), "")})
+        else:
+            out.append({"role": m["role"], "content": m.get("content") or ""})
+    return out
+
+
+def _ollama_body(model: str, messages: list[dict], stream: bool, tools: list[dict] | None = None) -> dict:
+    body: dict = {"model": model, "messages": _ollama_messages(messages), "stream": stream,
+                  "options": {"num_ctx": ollama_num_ctx()}}
+    if tools:
+        body["tools"] = tools
+    return body
+
+
+class NoNativeApi(Exception):
+    """The "Ollama" endpoint has no /api/chat (an OpenAI compatible server or proxy): use /v1 instead."""
+
+
+def _ollama_usage(data: dict) -> dict:
+    return {"prompt_tokens": data.get("prompt_eval_count") or 0, "completion_tokens": data.get("eval_count") or 0}
+
+
+async def _ollama_chat(p: dict, model: str, messages: list[dict], tools: list[dict] | None) -> tuple[dict, dict]:
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+        r = await client.post(_ollama_url(p), headers=_headers(p), json=_ollama_body(model, messages, False, tools))
+    if r.status_code in (404, 405):
+        raise NoNativeApi
+    if r.status_code >= 400:
+        raise HTTPException(502, f"{p['name']} error {r.status_code}: {r.text[:400]}")
+    data = r.json()
+    msg = data.get("message") or {}
+    out = {"role": "assistant", "content": THINK_RE.sub("", msg.get("content") or "").strip()}
+    calls = []
+    for i, tc in enumerate(msg.get("tool_calls") or []):
+        fn = tc.get("function") or {}
+        if not fn.get("name"):
+            continue
+        args = fn.get("arguments")
+        calls.append({"id": tc.get("id") or f"call_{i}", "type": "function",
+                      "function": {"name": fn["name"], "arguments": json.dumps(args) if isinstance(args, dict) else (args or "{}")}})
+    if calls:
+        out["tool_calls"] = calls
+    return out, _ollama_usage(data)
+
+
+async def _ollama_stream(p: dict, model: str, messages: list[dict]) -> AsyncIterator[dict]:
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+        async with client.stream("POST", _ollama_url(p), headers=_headers(p), json=_ollama_body(model, messages, True)) as r:
+            if r.status_code in (404, 405):
+                raise NoNativeApi
+            if r.status_code >= 400:
+                text = (await r.aread()).decode(errors="replace")
+                yield {"error": f"{p['name']} error {r.status_code}: {text[:400]}"}
+                return
+            async for line in r.aiter_lines():
+                try:
+                    chunk = json.loads(line) if line.strip() else None
+                except ValueError:
+                    continue
+                if not chunk:
+                    continue
+                if chunk.get("error"):
+                    yield {"error": f"{p['name']}: {chunk['error']}"}
+                    return
+                msg = chunk.get("message") or {}
+                if msg.get("thinking"):
+                    yield {"reasoning": msg["thinking"]}
+                if msg.get("content"):
+                    yield {"delta": msg["content"]}
+                if chunk.get("done"):
+                    yield {"usage": _ollama_usage(chunk)}
+
+
 async def complete(ref: str | None, messages: list[dict]) -> str:
     p, model = split_ref(ref or default_model_ref())
+    if p["kind"] == "ollama":
+        try:
+            return (await _ollama_chat(p, model, messages, None))[0]["content"]
+        except NoNativeApi:
+            pass
     async with httpx.AsyncClient(timeout=TIMEOUT) as client:
         r = await client.post(f"{p['base_url'].rstrip('/')}/chat/completions", headers=_headers(p), json=_body(p, model, messages, False))
     if r.status_code >= 400:
@@ -184,6 +299,21 @@ async def stream(ref: str | None, messages: list[dict]) -> AsyncIterator[dict]:
     started = time.monotonic()
     first_token_ms = None
     usage: dict = {}
+    if p["kind"] == "ollama":
+        try:
+            async for e in _ollama_stream(p, model, messages):
+                if "usage" in e:
+                    usage = e["usage"]
+                    continue
+                if "delta" in e and first_token_ms is None:
+                    first_token_ms = int((time.monotonic() - started) * 1000)
+                yield e
+                if "error" in e:
+                    return
+            yield {"done": True, "usage": usage, "ms": int((time.monotonic() - started) * 1000), "first_token_ms": first_token_ms}
+            return
+        except NoNativeApi:
+            pass  # nothing was yielded yet: the 404 arrives before any chunk
     async with httpx.AsyncClient(timeout=TIMEOUT) as client:
         async with client.stream(
             "POST", f"{p['base_url'].rstrip('/')}/chat/completions", headers=_headers(p), json=_body(p, model, messages, True)
@@ -226,6 +356,12 @@ async def chat(ref: str | None, messages: list[dict], tools: list[dict] | None =
     """
     ref = ref or default_model_ref()
     p, model = split_ref(ref)
+    if p["kind"] == "ollama":
+        try:
+            out, usage = await _ollama_chat(p, model, messages, tools)
+            return {"message": out, "usage": usage, "ref": ref, "model": model, "cost_usd": None}
+        except NoNativeApi:
+            pass
     body = _body(p, model, messages, False)
     if tools:
         body["tools"] = tools  # tool_choice left to the default ("auto"): some Claude models reject forced choice

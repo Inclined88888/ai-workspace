@@ -221,13 +221,13 @@ function Usage() {
 
 export default function Settings({ onChanged }: { onChanged: () => void }) {
   const { models, reload } = useModels();
-  const [s, setS] = useState({ workspace_name: "", default_model: "", chat_url: "", tools_url: "" });
+  const [s, setS] = useState({ workspace_name: "", default_model: "", chat_url: "", tools_url: "", ollama_num_ctx: 16384 });
   const [pw, setPw] = useState({ current: "", new: "" });
   const toast = useToast();
   useEffect(() => { api<typeof s>("/settings").then(setS); }, []);
 
   const save = async () => {
-    try { setS(await api("/settings", { method: "PUT", body: { workspace_name: s.workspace_name, default_model: s.default_model } })); toast.ok("Saved"); onChanged(); }
+    try { setS(await api("/settings", { method: "PUT", body: { workspace_name: s.workspace_name, default_model: s.default_model, ollama_num_ctx: s.ollama_num_ctx } })); toast.ok("Saved"); onChanged(); }
     catch (e) { toast.err(e); }
   };
   const changePw = async (e: FormEvent) => {
@@ -245,6 +245,9 @@ export default function Settings({ onChanged }: { onChanged: () => void }) {
           <label className="field">Workspace name<input className="input" value={s.workspace_name} onChange={(e) => setS({ ...s, workspace_name: e.target.value })} /></label>
           <label className="field">Default model <span className="hint">Used for research, writing assist, task breakdown and mail drafts unless you pick another.</span>
             <div className="row"><div className="grow"><ModelSelect value={s.default_model} onChange={(v) => setS({ ...s, default_model: v })} models={models} /></div><button className="btn icon" onClick={() => reload(true)} title="Refresh model list"><RefreshCw size={14} /></button></div>
+          </label>
+          <label className="field">Local model context window (tokens) <span className="hint">What Workbench asks Ollama for. The assistant's tools plus one web page need roughly 8K; 16K leaves room for history. Larger windows need more RAM.</span>
+            <input className="input" type="number" min={2048} step={1024} value={s.ollama_num_ctx} onChange={(e) => setS({ ...s, ollama_num_ctx: Number(e.target.value) || 16384 })} />
           </label>
           <div><button className="btn primary" onClick={save}>Save</button></div>
         </div>

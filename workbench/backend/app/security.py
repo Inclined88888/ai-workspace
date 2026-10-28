@@ -93,6 +93,9 @@ _attempts: dict[str, list[float]] = {}
 
 
 def throttle(ip: str) -> None:
+    if len(_attempts) > 10_000:  # bound memory: drop clients with no attempt in the window
+        for k in [k for k, v in _attempts.items() if not v or v[-1] < time.time() - 300]:
+            _attempts.pop(k, None)
     window = [t for t in _attempts.get(ip, []) if t > time.time() - 300]
     _attempts[ip] = window
     if len(window) >= 10:

@@ -229,7 +229,7 @@ function SkillsTab() {
   );
 }
 
-type ASettings = { assistant_name: string; timezone: string; learning_enabled: boolean; search_provider: string; cli_token_set: boolean;
+type ASettings = { assistant_name: string; timezone: string; learning_enabled: boolean; search_provider: string; search_fallback: boolean; cli_token_set: boolean;
   telegram: { configured: boolean; running: boolean; bot: string; error: string; allowed_users: string } };
 
 function SettingsTab() {
@@ -261,7 +261,8 @@ function SettingsTab() {
       </div>
       <div className="card col">
         <h3>Web search</h3>
-        <div className="muted small">Currently: {s.search_provider || "not set up"}. Add a Brave Search or Tavily API key, or enable the SearXNG add-on.</div>
+        <div className="muted small">Currently: {s.search_provider || "not set up"}. Without a key or the SearXNG add-on, the assistant uses DuckDuckGo's keyless results page, which can rate limit. For dependable keyless search enable the SearXNG add-on, or add a Brave Search or Tavily API key.</div>
+        <label className="check"><input type="checkbox" checked={s.search_fallback} onChange={(e) => put({ search_fallback: e.target.checked })} /> Fall back to DuckDuckGo when no search provider is set up</label>
         <div className="row wrap">
           <input className="input grow" type="password" placeholder="Brave Search API key" value={f.brave} onChange={(e) => setF({ ...f, brave: e.target.value })} />
           <input className="input grow" type="password" placeholder="Tavily API key" value={f.tavily} onChange={(e) => setF({ ...f, tavily: e.target.value })} />
