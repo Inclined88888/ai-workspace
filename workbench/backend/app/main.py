@@ -5,7 +5,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import api, assistant_api, browser_proxy, checkins, company, computer, computer_api, config, db, llm, missions, projects_api, proactive_api, scheduler, telegram, workers, workers_api
+from . import api, assistant_api, coding, coordinator, browser_proxy, checkins, company, computer, computer_api, config, db, llm, missions, projects_api, proactive_api, scheduler, telegram, workers, workers_api
 from .mcp_server import mcp, mcp_app
 from .security import check_bearer
 from .tools import tools
@@ -21,7 +21,8 @@ async def lifespan(_: FastAPI):
     workers.recover()
     checkins.recover()
     computer.recover()
-    loops = [asyncio.create_task(fn()) for fn in (api.calendar_loop, scheduler.loop, telegram.loop, company.loop, missions.loop, workers.loop)]
+    coding.recover()
+    loops = [asyncio.create_task(fn()) for fn in (api.calendar_loop, scheduler.loop, telegram.loop, company.loop, missions.loop, workers.loop, coordinator.loop)]
     loops.append(asyncio.create_task(llm.check_unchecked()))
     async with mcp.session_manager.run():
         yield

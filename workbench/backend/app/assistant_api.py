@@ -155,7 +155,10 @@ def conversation(cid: int):
         raise HTTPException(404, "Not found")
     from . import blocks
 
-    rows = db.all("SELECT id, role, content, tool_calls, tool_call_id, name, created_at FROM messages WHERE conversation_id = ? ORDER BY id", cid)
+    from . import coordinator
+
+    rows = db.all("SELECT id, role, content, tool_calls, tool_call_id, name, job_id, created_at FROM messages WHERE conversation_id = ? ORDER BY id", cid)
+    jobs = coordinator.for_conversation(cid)
     for r in rows:
         r["tool_calls_raw"] = r["tool_calls"]
     built = blocks.for_conversation(rows)
@@ -167,7 +170,46 @@ def conversation(cid: int):
             r["content"] = r["content"][:400]
             if r["id"] in built:
                 r["blocks"] = built[r["id"]]
-    return {**c, "messages": rows, "blocks_version": blocks.VERSION}
+        if r.pop("job_id", None) and r["id"] in jobs["messages"]:
+            r["blocks"] = jobs["messages"][r["id"]]
+            r["update"] = True  # posted by ROOKS when work finished, not a reply to a message
+    return {**c, "messages": rows, "jobs": jobs["open"], "blocks_version": blocks.VERSION}
+
+
+@router.get("/conversations/{cid}/jobs")
+def conversation_jobs(cid: int, after: int = 0):
+    """Work still running for this conversation, and whether ROOKS has posted anything new since message `after`
+    (the chat polls this while a job is open)."""
+    from . import coordinator
+
+    if not db.one("SELECT 1 FROM conversations WHERE id = ?", cid):
+        raise HTTPException(404, "Not found")
+    newer = db.one("SELECT COUNT(*) AS n FROM messages WHERE conversation_id = ? AND id > ? AND job_id IS NOT NULL", cid, after)["n"]
+    return {"jobs": coordinator.open_jobs(cid), "new_messages": newer}
+
+
+@router.get("/coding/agents")
+async def coding_agents(fresh: bool = False):
+    from . import coding
+
+    return await coding.detect(fresh)
+
+
+@router.get("/coding/{rid}")
+def coding_run(rid: int):
+    from . import coding
+
+    v = coding.view(rid)
+    if not v:
+        raise HTTPException(404, "Coding task not found")
+    return v
+
+
+@router.post("/coding/{rid}/stop")
+async def coding_stop(rid: int):
+    from . import coding
+
+    return await coding.stop(rid)
 
 
 class TruncateIn(BaseModel):

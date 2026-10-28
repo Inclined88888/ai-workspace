@@ -30,10 +30,10 @@ ONLINE_SECONDS = 40
 DEFAULT_TIMEOUT = 30
 
 READ_KINDS = {"observe", "screenshot", "wait_for", "browser_snapshot", "files_list", "files_read", "capture", "files_history",
-              "sheet_read", "doc_read"}
+              "sheet_read", "doc_read", "agents_detect", "agent_poll"}
 WRITE_KINDS = {"open_app", "focus", "click", "type_text", "key", "scroll", "set_value", "menu", "click_visual", "browser_open",
                "browser_click", "browser_fill", "browser_select", "browser_back", "files_move", "files_mkdir", "files_copy", "files_write",
-               "files_undo", "sheet_update", "sheet_dedupe", "doc_write"}
+               "files_undo", "sheet_update", "sheet_dedupe", "doc_write", "agent_start", "agent_stop"}
 KINDS = READ_KINDS | WRITE_KINDS
 
 # Applications ROOKS never drives, whatever the settings: shells (no back door to arbitrary commands), password and
@@ -189,6 +189,8 @@ def classify(kind: str, args: dict) -> tuple[str, str]:
     """(risk, reason). risk is read, write or consequential."""
     if kind in READ_KINDS:
         return "read", ""
+    if kind == "agent_start":
+        return "consequential", "a coding agent changes files in a folder on your computer"
     label = " ".join(str(args.get(k) or "") for k in ("label", "target_label", "text_hint"))
     if kind == "menu" and isinstance(args.get("path"), list) and args["path"]:
         label = str(args["path"][-1])

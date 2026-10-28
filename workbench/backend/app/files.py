@@ -1,7 +1,7 @@
 """File uploads: stored under DATA_DIR/files, text extracted for search, chat and research.
 
-Readable: plain text and code, Markdown, CSV, JSON, HTML, PDF and Word (.docx). Other files (images, spreadsheets,
-archives) are stored and can be downloaded, but have no text. Uploaded content is treated as outside content by the
+Readable: plain text and code, Markdown, CSV, JSON, HTML, PDF, Word (.docx) and Excel (.xlsx, read by tables.py).
+Other files (images, older spreadsheet formats, archives) are stored and can be downloaded, but have no text. Uploaded content is treated as outside content by the
 assistant: it may contain planted instructions, so persistent actions after reading it need approval.
 """
 
@@ -58,6 +58,10 @@ def extract(name: str, mime: str, data: bytes) -> tuple[str, str]:
             return text, "" if text else "No text found: this PDF may be scanned images (no OCR yet)."
         if ext == ".docx":
             return _docx_text(data), ""
+        if ext == ".xlsx":
+            from .tables import text_of
+
+            return text_of(data), ""
         if ext in (".html", ".htm") or mime == "text/html":
             import trafilatura
 

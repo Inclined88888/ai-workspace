@@ -32,7 +32,7 @@ TOOL_TIMEOUT_S = 180
 
 # Tools whose results come from outside the workspace (web pages, search results, email). Once a conversation has
 # seen such content, it may carry instructions planted by someone else (prompt injection).
-EXTERNAL_TOOLS = {"web_search", "read_page", "browse_web", "search_email", "read_file", "search_files", "github_search", "github_read_issue",
+EXTERNAL_TOOLS = {"web_search", "read_page", "browse_web", "search_email", "read_file", "search_files", "analyze_table", "github_search", "github_read_issue",
                   "computer_observe", "computer_wait_for", "browser_snapshot", "files_read", "files_list", "sheet_read", "doc_read",
                   "computer_locate"}
 # Tools whose effects outlive the conversation. In a conversation with outside content they wait for the user's
@@ -135,6 +135,12 @@ async def _browse(goal: str, max_steps: int = 15) -> dict:
                 return {"status": j["status"], "answer": res.get("final"), "agent_claims_success": res.get("success"),
                         "urls": (res.get("urls") or [])[-8:], "error": j.get("error")}
     return {"status": "still running", "job_id": jid}
+
+
+def _tables():
+    from . import tables
+
+    return tables
 
 
 def _files():
@@ -290,6 +296,12 @@ TOOLS: list[Tool] = [
          lambda query: _files().search(query, 8), ("query",)),
     Tool("read_file", "Read an uploaded file's text by id. Long files come in parts: pass start to continue.", {"file_id": I(), "start": I()},
          lambda file_id, start=0: _files().get_text(file_id, start), ("file_id",)),
+    Tool("analyze_table", "Compute real figures for an uploaded spreadsheet (CSV, TSV, Excel .xlsx): rows, each column's type, "
+         "sum, mean, median, min, max or most common values, and optionally a total of one column per group (group_by, value). "
+         "Use it for any question about a spreadsheet's numbers instead of estimating from text.",
+         {"file_id": I(), "sheet": S("sheet name, optional"), "group_by": S("column to group by, optional"),
+          "value": S("numeric column to total per group, optional; empty counts rows")},
+         lambda file_id, sheet="", group_by="", value="": _tables().analyze(file_id, sheet, group_by, value), ("file_id",)),
     # Web
     Tool("web_search", "Search the web. Returns titles, URLs and snippets.", {"query": S()},
          lambda query: research.web_search(query, 6), ("query",)),
@@ -367,6 +379,33 @@ TOOLS += [
          "Takes a few minutes; tell the user it is running.", {"question": S(), "depth": I("1 quick, 3 standard, 5 deep")},
          _start_research, ("question",), when=_top),
 ]
+def _coding():
+    from . import coding
+
+    return coding
+
+
+def _coding_on(ctx: Ctx) -> bool:
+    return ctx.channel in ("web", "cli") and computer_tools.available(ctx) and "coding" in computer_tools._caps()
+
+
+async def _run_coding(task: str, folder: str, agent: str = "codex", ctx: Ctx | None = None) -> dict:
+    return await _coding().start(task, folder, agent, ctx)
+
+
+async def _coding_status() -> dict:
+    return await _coding().status_tool()
+
+
+TOOLS += [
+    Tool("coding_agents", "Which official coding agents (Codex CLI, Claude Code) the user's paired computer has, how each is signed in "
+         "and billed, whether it is ready, and recent coding tasks.", {}, _coding_status, when=_coding_on, timeout=90),
+    Tool("run_coding_agent", "Run a coding task with an official coding agent on the user's paired computer, in one folder they allowed "
+         "for ROOKS. It always waits for the user's approval, runs in the agent's sandbox, and the result is posted in this "
+         "conversation when it finishes. agent: codex (default) or claude. Check coding_agents first.",
+         {"task": S("complete instructions for the agent"), "folder": S("absolute path of an allowed folder on that computer"),
+          "agent": S("codex or claude")}, _run_coding, ("task", "folder"), when=_coding_on, timeout=150),
+]
 TOOLS += github.tools(Tool, S, I)
 TOOLS += computer_tools.tools(Tool, S, I, B)
 # Workspace and terminal, executed by the isolated runner (workspace.py)
@@ -389,7 +428,7 @@ TOOLS += [
 TOOL_MAP = {t.name: t for t in TOOLS}
 # Seconds each tool may run. Slow outside calls get longer; anything that only touches the workspace stays short.
 TIMEOUTS = {"web_search": 30, "read_page": 40, "browse_web": TOOL_TIMEOUT_S + 20, "search_email": 60, "create_event": 60,
-            "search_files": 20, "read_file": 20}
+            "search_files": 20, "read_file": 20, "analyze_table": 30}
 for _t in TOOLS:
     _t.timeout = _t.timeout or TIMEOUTS.get(_t.name, 90 if _t.name in computer_tools.KIND else 45)
 MAX_STRING = 50_000
@@ -562,12 +601,12 @@ def _internet_content(ctx: Ctx) -> bool:
 
 def has_external_content(conversation_id: int) -> bool:
     """True once the conversation has seen outside content: web, email, or an uploaded file (as a tool result, or
-    attached to a message)."""
+    attached to a message), or a result the coordinator posted (a research report, a mission or coding agent's output)."""
     from .files import ATTACH_MARK
 
     marks = ",".join("?" * len(EXTERNAL_TOOLS))
     return bool(db.one(f"SELECT 1 FROM messages WHERE conversation_id = ? AND ((role = 'tool' AND name IN ({marks})) "
-                       "OR (role = 'user' AND instr(content, ?) > 0)) LIMIT 1", conversation_id, *sorted(EXTERNAL_TOOLS), ATTACH_MARK))
+                       "OR (role = 'user' AND instr(content, ?) > 0) OR (role = 'assistant' AND name = 'rooks_update')) LIMIT 1", conversation_id, *sorted(EXTERNAL_TOOLS), ATTACH_MARK))
 
 
 def _already_done(name: str, raw_args: str, ctx: Ctx) -> bool:
@@ -601,6 +640,8 @@ def approval_reason(name: str, ctx: Ctx, raw_args: str = "") -> str:
         if ctx.channel in UNATTENDED - {"mission"} and permissions.TOOL_RISK.get(name) != permissions.READ:
             return "This runs without you watching (schedule, Telegram or an agent), so terminal commands and file changes wait for your approval."
         return workspace.approval_reason(name, raw_args, permissions.mode(name, pid), ctx.untrusted or has_external_content(ctx.conversation_id))
+    if name == "run_coding_agent":
+        return _coding().approval_reason(raw_args) if permissions.allowed(name, pid) else ""
     if permissions.must_ask(name, pid):
         return ("This posts to GitHub in your name, so it always waits for your approval." if name in permissions.ALWAYS_ASK
                 else f"You asked to approve this kind of action first ({where}).")
@@ -741,6 +782,16 @@ def recall(user_text: str, project_id: int | None = None) -> list[dict]:
     return out
 
 
+WORKFLOW_GUIDE = (
+    "You are the user's one place to get work done; the pages of ROOKS are for detail. Pick the right capability: a question "
+    "that needs many sources: start_research (the report is posted in this conversation when it is ready). A bigger job with "
+    "several steps: start_mission (its plan is posted here for the user to approve; nothing runs before that). Numbers in "
+    "a spreadsheet: analyze_table, never estimates. A document: create_note with kind document. Code in a folder on the "
+    "user's computer: coding_agents, then run_coding_agent (it always asks the user first). Before long or consequential "
+    "work, state the plan in one to three short lines. Say plainly when something waits for the user's approval or is "
+    "still running; never say it is done.")
+
+
 def system_prompt(ctx: Ctx, user_text: str) -> str:
     now = local_now()
     name = assistant_name()
@@ -759,6 +810,8 @@ def system_prompt(ctx: Ctx, user_text: str) -> str:
         parts.append("Web search is not set up in this workspace. If a request needs the web, say in one sentence that web "
                      "search can be turned on in Settings, under Web search; meanwhile you can still read a specific page "
                      "with read_page if you or the user know its address (for a company, try its likely website).")
+    if ctx.channel not in UNATTENDED:
+        parts.append(WORKFLOW_GUIDE)
     if ctx.project_id:
         from . import projects
 

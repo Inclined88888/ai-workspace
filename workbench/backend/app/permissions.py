@@ -20,7 +20,7 @@ GROUPS: dict[str, tuple[str, str, dict[str, str]]] = {
         "get_agenda": READ, "list_events": READ, "list_calendars": READ, "create_event": WRITE}),
     "email": ("Email", "Search and read mail, save drafts (never sends)", {
         "search_email": READ, "read_email": READ, "save_email_draft": WRITE}),
-    "files": ("Files", "Search and read files you uploaded", {"search_files": READ, "read_file": READ}),
+    "files": ("Files", "Search, read and analyse files you uploaded", {"search_files": READ, "read_file": READ, "analyze_table": READ}),
     "web": ("Web", "Search the web and read pages", {"web_search": READ, "read_page": READ}),
     "browser": ("Browser add-on", "Drive a real browser on websites", {"browse_web": CONSEQUENTIAL}),
     "memory": ("Memory", "Remember and forget facts about you", {
@@ -46,10 +46,13 @@ GROUPS["computer"] = ("Computer Use", "Look at and use apps, ROOKS's browser and
     "files_mkdir": WRITE, "files_move": WRITE, "files_copy": WRITE, "files_write": WRITE,
     "computer_set_value": WRITE, "computer_menu": WRITE, "files_history": READ, "files_undo": WRITE, "sheet_read": READ,
     "sheet_update": WRITE, "sheet_dedupe": WRITE, "doc_read": READ, "doc_write": WRITE, "computer_locate": READ, "computer_click_visual": WRITE})
+GROUPS["coding"] = ("Coding agents", "Run Codex or Claude Code on your paired computer, in a folder you allowed (always asks first)",
+                    {"coding_agents": READ, "run_coding_agent": CONSEQUENTIAL})
 TOOL_GROUP = {tool: g for g, (_, _, tools) in GROUPS.items() for tool in tools}
 TOOL_RISK = {tool: risk for _, (_, _, tools) in GROUPS.items() for tool, risk in tools.items()}
-# Actions that speak for the user to other people: approval every time, whatever the group's setting
-ALWAYS_ASK = {"github_create_issue", "github_comment"}
+# Actions that speak for the user to other people, or run a coding agent on their computer: approval every time,
+# whatever the group's setting
+ALWAYS_ASK = {"github_create_issue", "github_comment", "run_coding_agent"}
 TOOL_GROUP = {tool: g for g, (_, _, tools) in GROUPS.items() for tool in tools}
 TOOL_RISK = {tool: risk for _, (_, _, tools) in GROUPS.items() for tool, risk in tools.items()}
 

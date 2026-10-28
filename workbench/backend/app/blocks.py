@@ -125,6 +125,32 @@ def _project(d: dict) -> list[dict]:
     return [b for b in out if b]
 
 
+def _table_analysis(d: dict) -> list[dict]:
+    fmt = lambda v: v if isinstance(v, (int, float)) and not isinstance(v, bool) else None  # noqa: E731
+    out: list = [{"type": "kpis", "items": [{"label": "Rows", "value": d["rows"], "format": "number"},
+                                            {"label": "Columns", "value": d["columns"], "format": "number"},
+                                            *[{"label": f"Total {c['column'][:40]}", "value": c["sum"], "format": "number"}
+                                              for c in d["summary"] if c.get("type") == "number"][:2]]}]
+    rows = []
+    for c in d["summary"][:MAX_ITEMS]:
+        if c.get("type") == "number":
+            detail = f"sum {c['sum']:g}, mean {c['mean']:g}, median {c['median']:g}, min {c['min']:g}, max {c['max']:g}" if c.get("mean") is not None else ""
+        else:
+            detail = ", ".join(f"{t['value']} ({t['count']})" for t in c.get("top", [])[:3])
+        rows.append({"column": _s(c["column"], 80), "type": _s(c.get("type"), 10), "filled": fmt(c["filled"]), "empty": fmt(c["empty"]),
+                     "detail": _s(detail, 200)})
+    out.append({"type": "table", "title": f"{_s(d['name'], 120)}{' / ' + _s(d['sheet'], 60) if d.get('sheet') else ''}: columns",
+                "columns": [{"key": "column", "label": "Column"}, {"key": "type", "label": "Type"},
+                            {"key": "filled", "label": "Filled", "format": "number"}, {"key": "empty", "label": "Empty", "format": "number"},
+                            {"key": "detail", "label": "Figures"}], "rows": rows, "note": _s(d.get("note"), 300)})
+    g = d.get("groups")
+    if g and g.get("items"):
+        out.append({"type": "chart", "kind": "bar", "title": f"{_s(g['value'], 60)} by {_s(g['by'], 60)}", "format": "number",
+                    "points": [{"label": _s(i["label"], 60), "value": fmt(i["value"])} for i in g["items"][:12]]})
+    out.append(records("file", [{"id": _num(d.get("file_id")), "name": _s(d.get("name"), 200)}]))
+    return out
+
+
 def from_tool(name: str, args: dict, ok: bool, content: str) -> list[dict]:
     """Blocks for one tool result, or [] when there is nothing better to show than the text."""
     if not ok:
@@ -189,6 +215,11 @@ def _build(name: str, args: dict, d) -> list:
                 or {"type": "notice", "tone": "info", "text": "No missions yet."}]
     if name == "start_mission" and isinstance(d, dict):
         return [records("mission", [{"id": _num(d.get("id")), "goal": _s(d.get("goal")), "status": _s(d.get("status"), 20), "live": True}], "Mission started")]
+    if name == "analyze_table" and isinstance(d, dict):
+        return _table_analysis(d)
+    if name == "run_coding_agent" and isinstance(d, dict):
+        return [{"type": "job", "kind": "coding", "id": _num(d.get("id")), "title": _s(args.get("task")), "status": _s(d.get("status"), 20),
+                 "agent": _s(d.get("agent"), 40), "folder": _s(d.get("folder"), 300), "live": True}]
     if name == "start_research" and isinstance(d, dict):
         return [records("research", [{"id": _num(d.get("id")), "question": _s(d.get("question")), "status": _s(d.get("status"), 20), "live": True}],
                         "Research started")]

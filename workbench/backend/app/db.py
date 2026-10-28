@@ -616,6 +616,24 @@ CREATE TABLE IF NOT EXISTS jobs (
   updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS jobs_open ON jobs(stage, kind);
+
+-- Coding tasks run by an official coding agent on the paired computer (coding.py)
+CREATE TABLE IF NOT EXISTS coding_runs (
+  id INTEGER PRIMARY KEY,
+  conversation_id INTEGER,
+  agent TEXT NOT NULL,                          -- codex | claude
+  task TEXT NOT NULL,
+  folder TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'running',       -- running | done | failed | cancelled
+  device_run TEXT NOT NULL DEFAULT '',          -- the companion's id for the run
+  progress TEXT NOT NULL DEFAULT '[]',          -- short progress items (commands, files, notes)
+  next INTEGER NOT NULL DEFAULT 0,
+  result TEXT NOT NULL DEFAULT '',
+  error TEXT NOT NULL DEFAULT '',
+  billing TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 """
 
 
