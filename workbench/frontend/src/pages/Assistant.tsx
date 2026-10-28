@@ -13,7 +13,7 @@ import { Block, validateAll } from "../rich/schema";
 type Conv = { id: number; title: string; channel: string; updated_at: string; model: string; project_id?: number | null };
 type ProjectRef = { id: number; name: string };
 type Msg = { id: number; role: string; content: string; tool_calls: string[]; name: string; files?: string[]; created_at?: string; blocks?: unknown;
-  live?: { blocks: Block[]; tools: { name: string; ok: boolean }[] } };
+  update?: boolean; live?: { blocks: Block[]; tools: { name: string; ok: boolean }[] } };
 type View = Msg & { blocks: Block[]; tools: { name: string; ok: boolean }[] };
 const FAILED = /^(Error|Not |Unknown tool|Invalid arguments)/;
 
@@ -27,7 +27,8 @@ function toView(messages: Msg[]): View[] {
     if (m.role === "user") { blocks = []; tools = []; out.push({ ...m, blocks: [], tools: [] }); }
     else if (m.role === "tool") { blocks = blocks.concat(validateAll(m.blocks)); tools.push({ name: m.name, ok: !FAILED.test(m.content) }); }
     else if (m.role === "assistant") {
-      if (m.live) out.push({ ...m, blocks: m.live.blocks, tools: m.live.tools });
+      if (m.update) out.push({ ...m, blocks: validateAll(m.blocks), tools: [] });  // posted by ROOKS when work finished
+      else if (m.live) out.push({ ...m, blocks: m.live.blocks, tools: m.live.tools });
       else if (!m.tool_calls.length) { out.push({ ...m, blocks, tools }); blocks = []; tools = []; }
       else if (m.content) out.push({ ...m, blocks: [], tools: [] });  // a thought between tool calls
     }
@@ -245,10 +246,35 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
     if (!cid) { setConvProject(null); return setMessages([]); }
     loadConversation(cid);
   }, [cid]);
+  const [openJobs, setOpenJobs] = useState(0);
   function loadConversation(id: number) {
-    return api<{ messages: Msg[]; model: string; project_id: number | null }>(`/conversations/${id}`)
-      .then((c) => { setMessages(c.messages); setModel(c.model || ""); setConvProject(c.project_id); }).catch(toast.err);
+    return api<{ messages: Msg[]; model: string; project_id: number | null; jobs?: unknown[] }>(`/conversations/${id}`)
+      .then((c) => {
+        setMessages(c.messages); setModel(c.model || ""); setConvProject(c.project_id); setOpenJobs(c.jobs?.length ?? 0);
+      }).catch(toast.err);
   }
+  // Research, missions and coding tasks started here post their results into this conversation: while one is open,
+  // check every few seconds (only while the tab is visible) and show what arrived.
+  useEffect(() => {
+    if (!cid || busy || !openJobs) return;
+    let stop = false;
+    let t: ReturnType<typeof setTimeout>;
+    const tick = async () => {
+      if (stop) return;
+      if (document.visibilityState === "visible") {
+        const last = messages.reduce((n, m) => (m.id > n ? m.id : n), 0);
+        try {
+          const r = await api<{ jobs: unknown[]; new_messages: number }>(`/conversations/${cid}/jobs?after=${last}`);
+          if (stop) return;
+          if (r.new_messages > 0) { await loadConversation(cid); return; }
+          if (!r.jobs.length) { setOpenJobs(0); return; }
+        } catch { /* try again next time */ }
+      }
+      t = setTimeout(tick, 4000);
+    };
+    t = setTimeout(tick, 4000);
+    return () => { stop = true; clearTimeout(t); };
+  }, [cid, busy, openJobs, messages]); // eslint-disable-line react-hooks/exhaustive-deps
   // Moving to another conversation closes a voice session (it stops listening); an accepted call opens one
   const firstCid = useRef(true);
   useEffect(() => {
@@ -561,6 +587,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
                       const showLive = i === lastAnswer && steps.length > 0;
                       return (
                         <div className="msg-assistant col" style={{ gap: 8 }}>
+                          {m.update && <div className="msg-update-label small faint">Update from ROOKS</div>}
                           {showLive ? activity : m.tools.length > 0 && (
                             <details className="activity done">
                               <summary className="activity-head"><Wrench size={12} aria-hidden="true" /><span className="grow truncate">{(() => { const l = m.tools.map((t) => STEP_LABEL[t.name] ?? t.name).filter((v, k, a) => a.indexOf(v) === k).join(", ").toLowerCase(); return l.charAt(0).toUpperCase() + l.slice(1); })()}</span>

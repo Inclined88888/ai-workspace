@@ -17,7 +17,11 @@ export type Block =
   | { type: "chart"; kind: "bar" | "line" | "donut"; title: string; format: Format; points: { label: string; value: number }[] }
   | { type: "sources"; items: { n: number | null; title: string; url: string; site: string; snippet: string; date: string }[] }
   | { type: "list"; title: string; items: string[] }
-  | { type: "notice"; tone: "info" | "warn"; text: string };
+  | { type: "notice"; tone: "info" | "warn"; text: string }
+  | { type: "job"; kind: JobKind; id: number; title: string; status: string; live: boolean; progress: string[];
+      steps: { title: string; status: string }[]; agent: string; folder: string; billing: string; error: string; estimate_cents: number | null };
+
+export type JobKind = "mission" | "research" | "coding";
 
 const isStr = (v: unknown): v is string => typeof v === "string";
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
@@ -84,6 +88,16 @@ export function validate(raw: unknown): Block | null {
       if (!Array.isArray(raw.items)) return null;
       const items = cap(raw.items.filter(isStr));
       return items.length ? { type: "list", title: isStr(raw.title) ? raw.title : "", items } : null;
+    }
+    case "job": {
+      if (!["mission", "research", "coding"].includes(raw.kind as string) || !isNum(raw.id)) return null;
+      const s = (k: string, n = 2000) => (isStr(raw[k]) ? (raw[k] as string).slice(0, n) : "");
+      const progress = Array.isArray(raw.progress) ? cap(raw.progress.filter(isStr), 8) : isStr(raw.progress) && raw.progress ? [raw.progress] : [];
+      const steps = Array.isArray(raw.steps) ? cap(raw.steps.filter(isObj).filter((x) => isStr(x.title))
+        .map((x) => ({ title: (x.title as string).slice(0, 200), status: isStr(x.status) ? x.status : "" })), 20) : [];
+      return { type: "job", kind: raw.kind as JobKind, id: raw.id, title: s("title", 300), status: s("status", 30), live: raw.live === true,
+        progress, steps, agent: s("agent", 40), folder: s("folder", 300), billing: s("billing", 200), error: s("error", 600),
+        estimate_cents: isNum(raw.estimate_cents) ? raw.estimate_cents : null };
     }
     case "notice":
       return isStr(raw.text) ? { type: "notice", tone: raw.tone === "warn" ? "warn" : "info", text: raw.text.slice(0, 1000) } : null;

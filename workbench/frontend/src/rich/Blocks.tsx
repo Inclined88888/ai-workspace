@@ -2,7 +2,8 @@ import { ArrowUpDown, Check, Copy, Download, ExternalLink, FileText, Loader2, Pa
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api";
-import { Block, fmt, Kind, Rec } from "./schema";
+import { Block, fmt, JobKind, Kind, Rec } from "./schema";
+import RichText from "./RichText";
 
 const Chart = lazy(() => import("./Chart"));
 
@@ -19,6 +20,7 @@ const STATUS_LABEL: Record<string, string> = {
   queued: "Starting", running: "Working", waiting_approval: "Needs approval", paused: "Paused", partial: "Finished with gaps",
   failed: "Failed", cancelled: "Cancelled", error: "Failed",
 };
+const FINAL = ["done", "failed", "cancelled", "error", "partial", "deleted"];
 
 const str = (v: unknown) => (v === null || v === undefined ? "" : String(v));
 const id = (r: Rec) => (typeof r.id === "number" ? r.id : null);
@@ -82,6 +84,7 @@ function RecordCard({ kind, r: raw }: { kind: Kind; r: Rec }) {
   const status = str(r.status);
   const badge = status ? <span className={`badge ${STATUS_TONE[status] ?? ""}`}>{(status === "running" || status === "planning") && <Loader2 size={10} className="spin" />} {STATUS_LABEL[status] ?? status}</span> : null;
   const [preview, setPreview] = useState<string | null>(null);
+  const [docBody, setDocBody] = useState<string | null>(null);
   const navigate = useNavigate();
   let title = "", meta: string[] = [], body = "", actions: React.ReactNode = null;
   switch (kind) {
@@ -98,6 +101,11 @@ function RecordCard({ kind, r: raw }: { kind: Kind; r: Rec }) {
       title = str(r.title) || "Untitled"; body = str(r.excerpt); meta = [str(r.kind)];
       const route = r.kind === "document" ? "documents" : "notes";
       actions = rid !== null && <>
+        <Act label={docBody === null ? "Preview" : "Hide preview"} run={async () => {
+          if (docBody !== null) { setDocBody(null); return; }
+          const d = await api<{ body: string }>(`/docs/${rid}`);
+          setDocBody(d.body || "(This document is empty.)");
+        }} />
         <Link className="btn ghost sm" to={`/${route}/${rid}`}><FileText size={12} /> Open</Link>
         <Act label="Download" icon={<Download size={12} />} run={async () => {
           const d = await api<{ title: string; body: string }>(`/docs/${rid}`);
@@ -165,8 +173,78 @@ function RecordCard({ kind, r: raw }: { kind: Kind; r: Rec }) {
       </div>
       {body && <div className="small rcard-body">{body}</div>}
       {preview !== null && <pre className="rcard-preview">{preview}</pre>}
+      {docBody !== null && <div className="rcard-preview doc-preview"><RichText text={docBody} /></div>}
       {actions && <div className="row wrap rcard-actions">{actions}</div>}
     </li>
+  );
+}
+
+type Job = Extract<Block, { type: "job" }>;
+const JOB_PATH: Record<JobKind, string> = { mission: "missions", research: "research", coding: "coding" };
+
+/** Work started from the conversation, kept current while it runs. Its controls call the same endpoints as the
+ *  Missions and Research pages, so approvals, budgets and limits apply exactly as they do there. */
+function JobCard({ b: initial }: { b: Job }) {
+  const [b, setB] = useState(initial);
+  const [tick, setTick] = useState(0);
+  useEffect(() => setB(initial), [initial]);
+  const live = !FINAL.includes(b.status);
+  useEffect(() => {
+    if (!live) return;
+    let stop = false;
+    const t = setTimeout(async () => {
+      try {
+        const d = await api<Record<string, unknown>>(`/${JOB_PATH[b.kind]}/${b.id}`);
+        if (stop) return;
+        const plan = Array.isArray(d.plan) ? (d.plan as { title: string; status: string }[]) : null;
+        setB((c) => ({ ...c, status: str(d.status), error: str(d.error),
+          progress: Array.isArray(d.progress) ? (d.progress as string[]).slice(-6) : d.progress ? [str(d.progress)] : c.progress,
+          steps: plan ? plan.map((s) => ({ title: s.title, status: s.status })) : c.steps }));
+      } catch { /* keep the last known state */ }
+      if (!stop) setTick((n) => n + 1);
+    }, tick === 0 ? 0 : 3000);
+    return () => { stop = true; clearTimeout(t); };
+  }, [live, tick]); // eslint-disable-line react-hooks/exhaustive-deps
+  const refresh = () => setTick((n) => n + 1);
+  const s = b.status;
+  const badge = <span className={`badge ${STATUS_TONE[s] ?? ""}`}>{["running", "planning", "queued"].includes(s) && <Loader2 size={10} className="spin" />} {STATUS_LABEL[s] ?? s}</span>;
+  const label = { mission: "Mission", research: "Research", coding: b.agent || "Coding task" }[b.kind];
+  const done = b.steps.filter((x) => x.status === "done").length;
+  let actions: React.ReactNode = null;
+  if (b.kind === "mission") {
+    actions = <>
+      {s === "review" && <Act label="Approve plan and start" icon={<Play size={12} />} tone="primary" run={async () => { await api(`/missions/${b.id}/start`, { method: "POST" }); refresh(); }} />}
+      <Link className="btn sm" to={`/missions/${b.id}`}>{s === "review" ? "Change the plan" : ["waiting_approval", "review_step"].includes(s) ? "Answer it" : "Open mission"}</Link>
+      {["running", "queued", "waiting_approval"].includes(s) && <Act label="Pause" icon={<Pause size={12} />} run={async () => { await api(`/missions/${b.id}/pause`, { method: "POST" }); refresh(); }} />}
+      {s === "paused" && <Act label="Resume" icon={<Play size={12} />} run={async () => { await api(`/missions/${b.id}/start`, { method: "POST" }); refresh(); }} />}
+      {["failed", "partial"].includes(s) && <Act label="Retry" run={async () => { await api(`/missions/${b.id}/start`, { method: "POST" }); refresh(); }} />}
+      {!FINAL.includes(s) && <Act label="Stop" icon={<Square size={11} />} tone="ghost danger"
+        run={async () => { if (confirm("Stop this mission? Steps not yet done will not run.")) { await api(`/missions/${b.id}/cancel`, { method: "POST" }); refresh(); } }} />}</>;
+  } else if (b.kind === "research") {
+    actions = <>
+      <Link className="btn sm" to={`/research/${b.id}`}>{s === "done" ? "Full report and sources" : "Open"}</Link>
+      {s === "running" && <Act label="Stop" icon={<Square size={11} />} tone="ghost danger" run={async () => { await api(`/research/${b.id}/cancel`, { method: "POST" }); refresh(); }} />}
+      {s === "error" && <Act label="Retry" run={async () => { await api(`/research/${b.id}/retry`, { method: "POST" }); refresh(); }} />}</>;
+  } else {
+    actions = s === "running" ? <Act label="Stop" icon={<Square size={11} />} tone="ghost danger" run={async () => { await api(`/coding/${b.id}/stop`, { method: "POST" }); refresh(); }} />
+      : <Link className="btn ghost sm" to="/computer">Computer</Link>;
+  }
+  return (
+    <div className="rblock">
+      <div className="rcard job-card">
+        <div className="row" style={{ alignItems: "flex-start" }}>
+          <div className="grow"><div className="small faint">{label}</div><div className="rcard-title">{b.title}</div>
+            <div className="small muted">{[b.kind === "mission" && b.steps.length ? `${done} of ${b.steps.length} steps` : "",
+              b.kind === "mission" && s === "review" && b.estimate_cents ? `estimated up to ${fmt(b.estimate_cents, "cents")}` : "",
+              b.folder ? `in ${b.folder}` : "", b.billing].filter(Boolean).join(" · ")}</div></div>
+          {badge}
+        </div>
+        {b.kind === "mission" && s === "review" && b.steps.length > 0 && <ol className="job-steps small">{b.steps.map((x, i) => <li key={i}>{x.title}</li>)}</ol>}
+        {live && b.progress.length > 0 && <ul className="job-progress small muted">{b.progress.slice(-4).map((p, i) => <li key={i} className="truncate">{p}</li>)}</ul>}
+        {b.error && FINAL.includes(s) && s !== "done" && <div className="small" role="alert" style={{ color: "var(--danger)" }}>{b.error}</div>}
+        <div className="row wrap rcard-actions">{actions}</div>
+      </div>
+    </div>
   );
 }
 
@@ -236,6 +314,8 @@ export function BlockView({ b, onSource }: { b: Block; onSource?: (n: number) =>
       );
     case "list":
       return <div className="rblock">{b.title && <div className="rblock-title">{b.title}</div>}<ul className="rlist">{b.items.map((t, i) => <li key={i}>{t}</li>)}</ul></div>;
+    case "job":
+      return <JobCard b={b} />;
     case "notice":
       return <div className={`chat-note ${b.tone === "warn" ? "warn" : ""}`} role="status">{b.text}</div>;
   }
