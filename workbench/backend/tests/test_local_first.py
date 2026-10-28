@@ -134,3 +134,22 @@ def test_email_reading_tool_and_old_tool_output_is_trimmed(client):
     assert {"read_email", "search_email", "list_events"} <= names
     old_tool = next(m for m in last["messages"] if m["role"] == "tool")
     assert len(old_tool["content"]) < 1700 and "cut" in old_tool["content"]
+
+
+def test_search_test_reports_provider_results_and_errors(client, monkeypatch):
+    from fastapi import HTTPException
+
+    from app import search
+
+    async def works(query, count=6):
+        return [{"title": "Result", "url": "https://example.org", "snippet": ""}]
+
+    async def blocked(query, count=6):
+        raise HTTPException(502, "DuckDuckGo refused the search (HTTP 429, often a rate limit).")
+
+    monkeypatch.setattr(search, "web_search", works)
+    r = client.post("/api/assistant/search-test").json()
+    assert r["ok"] and r["results"] == 1 and r["sample"][0]["url"] == "https://example.org" and r["provider"]
+    monkeypatch.setattr(search, "web_search", blocked)
+    r = client.post("/api/assistant/search-test").json()
+    assert not r["ok"] and "429" in r["error"]

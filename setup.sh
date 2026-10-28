@@ -2,7 +2,8 @@
 # Guided setup for AI Workspace. Safe to re-run: existing .env values, secrets and data are kept.
 #
 #   ./setup.sh                          the light core: one container (assistant, memory, skills, automations,
-#                                       company, notes, tasks, calendar, mail, research)
+#                                       company, notes, tasks, calendar, mail, research); a first install
+#                                       also offers the search add-on (on by default)
 #   ./setup.sh --with search,browser    add optional add-ons (comma separated):
 #       search        SearXNG web search without an API key            (~110 MB RAM)
 #       browser       Chromium browser agent                           (~2.4 GB download)
@@ -94,6 +95,13 @@ if $WITH_GIVEN; then
   set_env ADDONS "$ADDONS"
 else
   ADDONS=$(get_env ADDONS)
+fi
+# First install without --with: offer private web search. Without it the assistant falls back to DuckDuckGo's
+# keyless page, which rate limits. --yes takes the default (on).
+if $FIRST_RUN && ! $WITH_GIVEN; then
+  echo; bold "Web search"
+  ask SEARCH "Turn on private web search (SearXNG, about 110 MB of RAM, no key needed)? (Y/n)" "y"
+  if [[ "$SEARCH" =~ ^[Yy] ]]; then ADDONS="search"; set_env ADDONS "$ADDONS"; fi
 fi
 set_env COMPOSE_PROFILES "$ADDONS"
 

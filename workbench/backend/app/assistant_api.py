@@ -285,6 +285,25 @@ def put_assistant_settings(data: AssistantSettings):
     return get_assistant_settings()
 
 
+@router.post("/assistant/search-test")
+async def search_test():
+    """One real query through the active provider, so the settings page can show whether search works."""
+    import time
+
+    provider = search.provider()
+    started = time.monotonic()
+    try:
+        hits = await search.web_search("open source personal assistant", 5)
+        return {"provider": provider, "ok": bool(hits), "results": len(hits), "ms": int((time.monotonic() - started) * 1000),
+                "error": "" if hits else "The search ran but returned no results.",
+                "sample": [{"title": h["title"], "url": h["url"]} for h in hits[:3]]}
+    except HTTPException as e:
+        return {"provider": provider, "ok": False, "results": 0, "ms": int((time.monotonic() - started) * 1000), "error": str(e.detail), "sample": []}
+    except Exception as e:  # noqa: BLE001 - network errors are the answer here, not a server failure
+        return {"provider": provider, "ok": False, "results": 0, "ms": int((time.monotonic() - started) * 1000),
+                "error": str(e) or e.__class__.__name__, "sample": []}
+
+
 @router.post("/cli-token")
 def new_cli_token():
     token = "wb_" + secrets.token_urlsafe(32)

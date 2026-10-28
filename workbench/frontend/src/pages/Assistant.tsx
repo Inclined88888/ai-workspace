@@ -240,6 +240,25 @@ function SkillsTab() {
   );
 }
 
+type SearchResult = { provider: string; ok: boolean; results: number; ms: number; error: string; sample: { title: string; url: string }[] };
+
+function SearchTest() {
+  const [r, setR] = useState<SearchResult | null>(null);
+  const [busy, setBusy] = useState(false);
+  const run = async () => {
+    setBusy(true);
+    try { setR(await api<SearchResult>("/assistant/search-test", { method: "POST" })); } finally { setBusy(false); }
+  };
+  return (
+    <div className="col" style={{ gap: 6 }}>
+      <div className="row"><button className="btn sm" onClick={run} disabled={busy}>{busy ? <Loader2 size={13} className="spin" /> : <Search size={13} />} Test search</button>
+        {r && <span className={`badge ${r.ok ? "ok" : "danger"}`}>{r.provider || "none"}: {r.ok ? `${r.results} results in ${r.ms} ms` : "failed"}</span>}</div>
+      {r && !r.ok && <div className="alert err">{r.error}</div>}
+      {r && r.ok && <div className="faint small">{r.sample.map((x) => x.title || x.url).join(" · ")}</div>}
+    </div>
+  );
+}
+
 type ASettings = { tool_mode: "all" | "compact" | "auto"; assistant_name: string; timezone: string; learning_enabled: boolean; search_provider: string; search_fallback: boolean; cli_token_set: boolean;
   telegram: { configured: boolean; running: boolean; bot: string; error: string; allowed_users: string } };
 
@@ -280,6 +299,7 @@ function SettingsTab() {
         <h3>Web search</h3>
         <div className="muted small">Currently: {s.search_provider || "not set up"}. Without a key or the SearXNG add-on, the assistant uses DuckDuckGo's keyless results page, which can rate limit. For dependable keyless search enable the SearXNG add-on, or add a Brave Search or Tavily API key.</div>
         <label className="check"><input type="checkbox" checked={s.search_fallback} onChange={(e) => put({ search_fallback: e.target.checked })} /> Fall back to DuckDuckGo when no search provider is set up</label>
+        <SearchTest />
         <div className="row wrap">
           <input className="input grow" type="password" placeholder="Brave Search API key" value={f.brave} onChange={(e) => setF({ ...f, brave: e.target.value })} />
           <input className="input grow" type="password" placeholder="Tavily API key" value={f.tavily} onChange={(e) => setF({ ...f, tavily: e.target.value })} />
