@@ -250,8 +250,21 @@ def _provider(pid: int) -> dict:
     return p
 
 
+def _key(p: dict) -> str:
+    return decrypt(p["api_key_enc"]) or "none"
+
+
+def engine(p: dict) -> str:
+    """'any-llm' when this Anthropic connection uses the optional native engine (anyllm_engine.py), else ''."""
+    if p["kind"] != "anthropic" or db.get_setting(f"provider_engine:{p['id']}", "") != "any-llm":
+        return ""
+    from . import anyllm_engine
+
+    return "any-llm" if anyllm_engine.available() else ""
+
+
 def _headers(p: dict) -> dict:
-    key = decrypt(p["api_key_enc"]) or "none"
+    key = _key(p)
     h = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
     if p["kind"] == "anthropic":
         h["x-api-key"] = key
@@ -451,6 +464,14 @@ def explain(p: dict, status: int, text: str) -> str:
 
 
 async def _call(p: dict, body: dict) -> dict:
+    if engine(p):
+        from . import anyllm_engine
+
+        try:
+            return await anyllm_engine.call(p, body)
+        except Exception as e:  # noqa: BLE001 - any-llm and the SDK raise their own types; explain them the same way
+            status, text = anyllm_engine.error_text(e)
+            raise ModelError(explain(p, status, text), status, status != 400) from e
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT) as client:
             r = await client.post(f"{p['base_url'].rstrip('/')}/chat/completions", headers=_headers(p), json=body)
@@ -471,8 +492,9 @@ async def complete(ref: str | None, messages: list[dict]) -> str:
     return res["message"].get("content") or ""
 
 
-async def stream(ref: str | None, messages: list[dict]) -> AsyncIterator[dict]:
-    """Yields {"reasoning": str} and {"delta": str} chunks, then a final {"done": True, "usage": {...}, "ms": int}."""
+async def stream(ref: str | None, messages: list[dict], cap: bool = False) -> AsyncIterator[dict]:
+    """Yields {"reasoning": str} and {"delta": str} chunks, then a final {"done": True, "usage": {...}, "ms": int}.
+    cap: a capability test, with output capped like a connection check."""
     try:
         ref = ref or default_model_ref()
         p, model = split_ref(ref)
@@ -484,10 +506,30 @@ async def stream(ref: str | None, messages: list[dict]) -> AsyncIterator[dict]:
     started = time.monotonic()
     first_token_ms = None
     usage: dict = {}
+    if engine(p):
+        from . import anyllm_engine
+
+        body = _cap(p, _body(p, model, messages, True)) if cap else _body(p, model, messages, True)
+        try:
+            async for chunk in anyllm_engine.stream(p, body):
+                if chunk.get("usage"):
+                    usage = chunk["usage"]
+                for choice in chunk["choices"]:
+                    if delta := choice["delta"].get("content"):
+                        if first_token_ms is None:
+                            first_token_ms = int((time.monotonic() - started) * 1000)
+                        yield {"delta": delta}
+        except Exception as e:  # noqa: BLE001
+            status, text = anyllm_engine.error_text(e)
+            yield {"error": explain(p, status, text)}
+            return
+        yield {"done": True, "usage": usage, "ms": int((time.monotonic() - started) * 1000), "first_token_ms": first_token_ms}
+        return
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT) as client:
             async with client.stream(
-                "POST", f"{p['base_url'].rstrip('/')}/chat/completions", headers=_headers(p), json=_body(p, model, messages, True)
+                "POST", f"{p['base_url'].rstrip('/')}/chat/completions", headers=_headers(p),
+                json=_cap(p, _body(p, model, messages, True)) if cap else _body(p, model, messages, True)
             ) as r:
                 if r.status_code >= 400:
                     text = (await r.aread()).decode(errors="replace")

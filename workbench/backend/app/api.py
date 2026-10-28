@@ -422,6 +422,8 @@ def models(fresh: bool = False):
         default = llm.default_model_ref()
     except HTTPException:
         default = ""
+    from . import verify
+
     mode = llm.ai_mode()
     out = [dict(m) for m in llm.list_models(fresh)]  # copies: the list is cached, and flags must follow the current mode
     if mode in ("free", "local"):
@@ -429,7 +431,58 @@ def models(fresh: bool = False):
         for m in out:
             why = llm.mode_allows(m["ref"])
             m["allowed"], m["blocked"] = not why, why[:200]
+    recommended = {f"{p['id']}/{llm.check_info(p['id']).get('recommended')}" for p in db.all("SELECT id FROM providers WHERE enabled = 1")
+                   if llm.check_info(p["id"]).get("ok")}
+    for m in out:
+        # verified: a real request with a tool attached succeeded (the connection check, or the capability test)
+        m["verified"] = m["ref"] in recommended or bool(verify.results(m["ref"]).get("tools", {}).get("ok"))
+        m["status"] = "blocked" if m.get("allowed") is False else "ready" if m["verified"] else "untested"
     return {"models": out, "default": default, "mode": mode}
+
+
+@api.get("/connection-directory")
+def connections_directory():
+    """Every way ROOKS can reach a model, grouped by what it is (connections.py)."""
+    from . import connections
+
+    return connections.directory()
+
+
+class CapTestIn(BaseModel):
+    ref: str = Field(..., max_length=300)
+    caps: list[str] = Field(default_factory=lambda: ["chat", "tools", "tool_roundtrip", "streaming", "json"], max_length=8)
+    allow_paid: bool = False
+
+
+@api.post("/connection-directory/test")
+async def connections_test(data: CapTestIn):
+    """Test chosen capabilities of one model, each separately; recorded with time and what happened."""
+    from . import verify
+
+    return await verify.run(data.ref, data.caps, data.allow_paid)
+
+
+class EngineIn(BaseModel):
+    engine: Literal["", "any-llm"]
+
+
+@api.put("/providers/{pid}/engine")
+def provider_engine(pid: int, data: EngineIn):
+    """Anthropic connections only: use the optional any-llm engine (native Messages API) or the compatibility endpoint."""
+    from . import anyllm_engine
+
+    p = db.one("SELECT * FROM providers WHERE id = ?", pid)
+    if not p:
+        raise HTTPException(404, "Provider not found")
+    if data.engine and p["kind"] != "anthropic":
+        raise HTTPException(400, "The any-llm engine is offered for Anthropic connections only.")
+    if data.engine and not anyllm_engine.available():
+        raise HTTPException(400, "any-llm is not installed. Install it with: pip install any-llm-sdk==1.40.2")
+    db.set_setting(f"provider_engine:{pid}", data.engine)
+    for k in [r["key"] for r in db.all("SELECT key FROM settings WHERE key LIKE ?", f"cap_check:{pid}/%")]:
+        db.run("DELETE FROM settings WHERE key = ?", k)  # results were for the other engine: test again
+    audit.record("user", "provider engine", p["name"], data.engine or "compatibility")
+    return {"ok": True, "engine": llm.engine(p) or "compatibility"}
 
 
 @api.get("/ollama/status")

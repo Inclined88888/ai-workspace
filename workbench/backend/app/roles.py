@@ -51,7 +51,10 @@ def _info(ref: str) -> dict:
         vis = json.loads(db.get_setting(f"vision_check:{ref}", "") or "{}")
     except ValueError:
         vis = {}
-    return {"p": p, "model": model, "listed": listed, "tools_tested": check.get("ok") and check.get("recommended") == model,
+    from .verify import results
+
+    tested = (check.get("ok") and check.get("recommended") == model) or bool(results(ref).get("tools", {}).get("ok"))
+    return {"p": p, "model": model, "listed": listed, "tools_tested": tested,
             "json": js, "vision": vis}
 
 
