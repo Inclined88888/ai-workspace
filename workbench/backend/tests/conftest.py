@@ -1,5 +1,6 @@
 """Test harness: a scripted OpenAI compatible model server plus a fresh Workbench app per test session."""
 
+import asyncio
 import json
 import os
 import socket
@@ -9,6 +10,7 @@ import time
 import pytest
 import uvicorn
 from fastapi import FastAPI, Request
+from fastapi.responses import StreamingResponse
 
 SCRIPT: list = []          # queued replies: dict message or callable(messages) -> dict
 CALLS: list[dict] = []     # every request body the fake model received
@@ -27,6 +29,18 @@ def _port() -> int:
 fake = FastAPI()
 
 
+def stream_chunks(chunks, native=False):
+    async def body():
+        for chunk in chunks:
+            if "_gate" in chunk:
+                if not await asyncio.to_thread(chunk["_gate"].wait, 3):
+                    yield 'data: {"error": "consumer buffered the stream"}\n\n'
+                continue
+            yield (json.dumps(chunk) + "\n") if native else ("data: " + json.dumps(chunk) + "\n\n")
+            await asyncio.sleep(0.001)
+    return StreamingResponse(body(), media_type="application/x-ndjson" if native else "text/event-stream")
+
+
 @fake.post("/v1/chat/completions")
 @fake.post("/proxy/v1/chat/completions")
 async def completions(req: Request):
@@ -43,6 +57,15 @@ async def completions(req: Request):
         msg = nxt(body["messages"]) if callable(nxt) else nxt
     else:
         msg = {"role": "assistant", "content": "ok"}
+    if body.get("stream"):
+        if isinstance(msg, list):
+            return stream_chunks(msg)
+        chunks = [{"choices": [{"index": 0, "delta": {"content": msg.get("content", "")}}]}]
+        for i, tc in enumerate(msg.get("tool_calls", [])):
+            chunks.append({"choices": [{"index": 0, "delta": {"tool_calls": [{"index": i, **tc}]}}]})
+        chunks.append({"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                       "usage": {"prompt_tokens": 1000, "completion_tokens": 500}})
+        return stream_chunks(chunks)
     return {"choices": [{"message": msg}], "usage": {"prompt_tokens": 1000, "completion_tokens": 500}}
 
 
@@ -51,14 +74,18 @@ async def ollama_chat(req: Request):
     """Ollama's native chat API: tool call arguments are objects, usage is prompt_eval_count/eval_count."""
     body = await req.json()
     OLLAMA_CALLS.append(body)
-    nxt = OLLAMA_SCRIPT.pop(0) if OLLAMA_SCRIPT else {"role": "assistant", "content": "ok"}
+    scripted = bool(OLLAMA_SCRIPT)
+    nxt = OLLAMA_SCRIPT.pop(0) if scripted else {"role": "assistant", "content": "ok"}
     msg = nxt(body["messages"]) if callable(nxt) else nxt
     if body.get("stream"):
-        from fastapi.responses import PlainTextResponse
-
-        lines = [{"message": {"role": "assistant", "content": w}, "done": False} for w in ("Hel", "lo")]
-        lines.append({"message": {"role": "assistant", "content": ""}, "done": True, "prompt_eval_count": 7, "eval_count": 2})
-        return PlainTextResponse("\n".join(json.dumps(x) for x in lines), media_type="application/x-ndjson")
+        if isinstance(msg, list):
+            return stream_chunks(msg, native=True)
+        if scripted:
+            lines = [{"message": msg, "done": False}, {"done": True, "prompt_eval_count": 1200, "eval_count": 30}]
+        else:
+            lines = [{"message": {"role": "assistant", "content": w}, "done": False} for w in ("Hel", "lo")]
+            lines.append({"message": {"role": "assistant", "content": ""}, "done": True, "prompt_eval_count": 7, "eval_count": 2})
+        return stream_chunks(lines, native=True)
     return {"model": body["model"], "message": msg, "done": True, "prompt_eval_count": 1200, "eval_count": 30}
 
 

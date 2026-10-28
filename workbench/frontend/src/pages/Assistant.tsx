@@ -21,6 +21,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   const [steps, setSteps] = useState<Step[]>([]);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+  const [partial, setPartial] = useState("");
   const [model, setModel] = useState("");
   const { models } = useModels();
   const endRef = useRef<HTMLDivElement>(null);
@@ -34,7 +35,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
     if (!cid) return setMessages([]);
     api<{ messages: Msg[]; model: string }>(`/conversations/${cid}`).then((c) => { setMessages(c.messages); setModel(c.model || ""); }).catch(toast.err);
   }, [cid]);
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, steps]);
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, steps, partial]);
 
   const send = async (e?: FormEvent) => {
     e?.preventDefault();
@@ -42,18 +43,27 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
     if (!msg || busy) return;
     setText("");
     setBusy(true);
+    setPartial("");
     setSteps([]);
     setMessages((m) => [...m, { id: Date.now(), role: "user", content: msg, tool_calls: [], name: "" }]);
     let newId = cid;
-    await stream("/assistant/chat", { message: msg, conversation_id: cid, model: model || null }, (ev) => {
+    try { await stream("/assistant/chat", { message: msg, conversation_id: cid, model: model || null }, (ev) => {
       const t = ev.type as string | undefined;
       if (t === "start") newId = Number(ev.conversation_id);
-      if (t === "tool_call") setSteps((s) => [...s, { kind: "call", name: String(ev.name), text: String(ev.args) }]);
+      if (t === "delta") setPartial((s) => s + String(ev.content));
+      if (t === "tool_call") {
+        setPartial("");
+        setSteps((s) => [...s, { kind: "call", name: String(ev.name), text: String(ev.args) }]);
+      }
       if (t === "tool_result") setSteps((s) => [...s, { kind: "result", name: String(ev.name), text: String(ev.preview), ok: Boolean(ev.ok) }]);
-      if (t === "message") setMessages((m) => [...m, { id: Date.now() + 1, role: "assistant", content: String(ev.content), tool_calls: [], name: "" }]);
+      if (t === "message") {
+        setPartial("");
+        setMessages((m) => [...m, { id: Date.now() + 1, role: "assistant", content: String(ev.content), tool_calls: [], name: "" }]);
+      }
       if (t === "error" || (!t && ev.error)) toast.err(String(ev.error));
-    });
+    }); } catch (err) { toast.err(err); }
     setBusy(false);
+    setPartial("");
     loadConvs();
     if (newId && newId !== cid) navigate(`/assistant/${newId}`, { replace: true });
   };
@@ -117,6 +127,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
                 ))}
               </div>
             )}
+            {partial && <Markdown text={partial} />}
             {busy && <div className="row muted"><Loader2 size={15} className="spin" /> Working…</div>}
             <div ref={endRef} />
           </div>

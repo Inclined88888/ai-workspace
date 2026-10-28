@@ -386,6 +386,143 @@ async def chat(ref: str | None, messages: list[dict], tools: list[dict] | None =
     return {"message": out, "usage": usage, "ref": ref, "model": model, "cost_usd": cost}
 
 
+class _TextStream:
+    """Hold only a possible tag suffix; inline thinking must not leak into the answer."""
+    def __init__(self):
+        self.pending = ""
+        self.thinking = False
+
+    def feed(self, text: str, final: bool = False) -> list[dict]:
+        self.pending += text
+        out = []
+        while self.pending:
+            tag = "</think>" if self.thinking else "<think>"
+            pos = self.pending.find(tag)
+            if pos >= 0:
+                if pos:
+                    out.append({"reasoning" if self.thinking else "delta": self.pending[:pos]})
+                self.pending = self.pending[pos + len(tag):]
+                self.thinking = not self.thinking
+                continue
+            keep = 0 if final else next((n for n in range(len(tag) - 1, 0, -1) if self.pending.endswith(tag[:n])), 0)
+            text = self.pending[:-keep] if keep else self.pending
+            if text:
+                out.append({"reasoning" if self.thinking else "delta": text})
+            self.pending = self.pending[-keep:] if keep else ""
+            break
+        return out
+
+
+async def _chat_chunks(p: dict, model: str, messages: list[dict], tools: list[dict] | None) -> AsyncIterator[dict]:
+    native = p["kind"] == "ollama"
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+        # Only an unavailable native endpoint falls back, never an interrupted or rejected generation.
+        for attempt in range(2 if native else 1):
+            body = _ollama_body(model, messages, True, tools) if native else _body(p, model, messages, True)
+            if tools:
+                body["tools"] = tools
+            if "openrouter.ai" in p["base_url"]:
+                body["usage"] = {"include": True}
+            url = _ollama_url(p) if native else f"{p['base_url'].rstrip('/')}/chat/completions"
+            finished = False
+            async with client.stream("POST", url, headers=_headers(p), json=body) as r:
+                if native and r.status_code in (404, 405):
+                    native = False
+                    continue
+                if r.status_code >= 400:
+                    text = (await r.aread()).decode(errors="replace")
+                    raise HTTPException(502, f"{p['name']} error {r.status_code}: {text[:400]}")
+                async for line in r.aiter_lines():
+                    if not line.strip() or (not native and not line.startswith("data:")):
+                        continue
+                    data = line if native else line[5:].strip()
+                    if data == "[DONE]":
+                        finished = True
+                        break
+                    try:
+                        chunk = json.loads(data)
+                    except ValueError as e:
+                        raise HTTPException(502, f"{p['name']}: invalid stream data") from e
+                    if chunk.get("error"):
+                        raise HTTPException(502, f"{p['name']}: {str(chunk['error'])[:400]}")
+                    if native:
+                        msg = chunk.get("message") or {}
+                        if msg.get("thinking"):
+                            yield {"reasoning": msg["thinking"]}
+                        if msg.get("content"):
+                            yield {"delta": msg["content"]}
+                        if msg.get("tool_calls"):
+                            yield {"native_calls": msg["tool_calls"]}
+                        if chunk.get("done"):
+                            finished = True
+                            yield {"usage": _ollama_usage(chunk)}
+                            break
+                    else:
+                        if chunk.get("usage"):
+                            yield {"usage": chunk["usage"]}
+                        for choice in chunk.get("choices") or []:
+                            if choice.get("index", 0) != 0:
+                                continue
+                            d = choice.get("delta") or {}
+                            if d.get("reasoning") or d.get("reasoning_content"):
+                                yield {"reasoning": d.get("reasoning") or d["reasoning_content"]}
+                            if d.get("content"):
+                                yield {"delta": d["content"]}
+                            if d.get("tool_calls"):
+                                yield {"fragments": d["tool_calls"]}
+                            if choice.get("finish_reason"):
+                                finished = True
+                if not finished:
+                    raise HTTPException(502, f"{p['name']}: stream ended before completion")
+            return
+
+
+async def chat_stream(ref: str | None, messages: list[dict], tools: list[dict] | None = None) -> AsyncIterator[dict]:
+    """Text/reasoning deltas, then one assembled result with the same fields as chat()."""
+    ref = ref or default_model_ref()
+    p, model = split_ref(ref)
+    text = _TextStream()
+    content, calls, usage = [], {}, {}
+    async for e in _chat_chunks(p, model, messages, tools):
+        if "usage" in e:
+            usage = e["usage"]
+        if "reasoning" in e:
+            yield {"reasoning": e["reasoning"]}
+        if "delta" in e:
+            for part in text.feed(e["delta"]):
+                if "delta" in part:
+                    content.append(part["delta"])
+                yield part
+        for tc in e.get("native_calls", []):
+            fn = tc.get("function") or {}
+            args = fn.get("arguments")
+            i = len(calls)
+            calls[i] = {"id": tc.get("id") or f"call_{i}", "type": "function",
+                        "function": {"name": fn.get("name", ""), "arguments": json.dumps(args) if isinstance(args, dict) else (args or "{}")}}
+        for tc in e.get("fragments", []):
+            i = tc.get("index", 0)
+            call = calls.setdefault(i, {"id": "", "type": "function", "function": {"name": "", "arguments": ""}})
+            call["id"] += tc.get("id") or ""
+            fn = tc.get("function") or {}
+            for key in ("name", "arguments"):
+                call["function"][key] += fn.get(key) or ""
+    for part in text.feed("", final=True):
+        if "delta" in part:
+            content.append(part["delta"])
+        yield part
+    out = {"role": "assistant", "content": "".join(content).strip()}
+    if calls:
+        out["tool_calls"] = []
+        for i, call in sorted(calls.items()):
+            if not call["function"]["name"]:
+                raise HTTPException(502, f"{p['name']}: tool call has no name")
+            call["id"] = call["id"] or f"call_{i}"
+            call["function"]["arguments"] = call["function"]["arguments"] or "{}"
+            out["tool_calls"].append(call)
+    cost = usage.get("cost") if isinstance(usage.get("cost"), (int, float)) else None
+    yield {"message": out, "usage": usage, "ref": ref, "model": model, "cost_usd": cost}
+
+
 def parse_json(text: str):
     """Extract the first JSON object or array from model output."""
     text = THINK_RE.sub("", text)

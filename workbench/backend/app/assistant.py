@@ -345,7 +345,7 @@ def _save(conversation_id: int, role: str, content: str = "", tool_calls: list |
 
 
 async def run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> AsyncIterator[dict]:
-    """Run one user turn. Yields events: tool_call, tool_result, message, error, done."""
+    """Run one user turn. Yields events: delta, thought, tool_call, tool_result, message, error, done."""
     conv = db.one("SELECT * FROM conversations WHERE id = ?", ctx.conversation_id)
     if not conv:
         raise HTTPException(404, "Conversation not found")
@@ -368,9 +368,18 @@ async def run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> AsyncI
                 return
         msgs = [{"role": "system", "content": system_prompt(ctx, user_text)}, *_history(ctx.conversation_id)]
         try:
-            res = await llm.chat(model, msgs, specs)
+            async for part in llm.chat_stream(model, msgs, specs):
+                if "delta" in part:
+                    yield {"type": "delta", "content": part["delta"]}
+                elif "reasoning" in part:
+                    yield {"type": "thought", "content": part["reasoning"]}
+                elif "message" in part:
+                    res = part
         except HTTPException as e:
             yield {"type": "error", "error": str(e.detail)}
+            return
+        except (httpx.HTTPError, ValueError) as e:
+            yield {"type": "error", "error": str(e) or "Model connection failed"}
             return
         cost += usage.record(res, channel=ctx.channel, agent_id=(ctx.agent or {}).get("id"), conversation_id=ctx.conversation_id)
         msg = res["message"]
