@@ -465,6 +465,11 @@ async def run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> AsyncI
         mid = _save(ctx.conversation_id, "assistant", msg.get("content") or "", calls)
         if not calls:
             final = msg.get("content") or ""
+            if not final.strip():  # never hand the user a blank answer: say what really happened
+                final = receipts.summary(ctx.receipts) or "(The model returned an empty answer. Nothing was changed.)"
+                db.run("UPDATE messages SET content = ? WHERE id = ?", final, mid)
+                receipts.record_turn(ctx, "empty_answer")
+                break
             claim, why = receipts.unbacked_claim(final, ctx.receipts)
             if claim and not nudged:
                 # Never let an unconfirmed "done" reach the user: withdraw it and give the model one chance to act or correct it

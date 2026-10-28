@@ -29,7 +29,8 @@ def _task(args: dict, r: Any) -> Check:
         return False, "no task was saved"
     if args.get("due") and t["due"] != str(args["due"])[:10]:
         return False, f"task #{t['id']} was saved with due {t['due']}, not {args['due']}"
-    return True, f"task #{t['id']} \"{t['title']}\" saved" + (f", due {t['due']}" if t["due"] else "")
+    return True, (f"task #{t['id']} \"{t['title']}\" saved" + (f", due {t['due']}" if t["due"] else "") +
+                  f", priority {PRIORITY_NAME.get(t['priority'], t['priority'])}")
 
 
 def _task_update(args: dict, r: Any) -> Check:
@@ -188,6 +189,15 @@ def contradiction(text: str, receipts: list[dict]) -> tuple[str, str]:
                 saved = ", ".join(f"{f['due'] or 'none'} ({f['title']})" for f in facts)
                 return raw.strip()[:160], f"the saved due date is {saved}, not {m.group(1)}"
     return "", ""
+
+
+def summary(receipts: list[dict]) -> str:
+    """What this turn really did, from the receipts alone: used when the model gives no usable answer."""
+    lines = [f"- {r['evidence']}" for r in receipts if r["verified"] is True and r["effect"] != "read"]
+    failed = [f"- {r['tool']} failed ({r['outcome']})" for r in receipts if r["outcome"] not in ("ok", "verified")]
+    if not lines and not failed:
+        return ""
+    return "\n".join(["Here is what was actually done:", *lines, *failed])
 
 
 def unbacked_claim(text: str, receipts: list[dict]) -> tuple[str, str]:

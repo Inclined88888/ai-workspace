@@ -116,3 +116,16 @@ def test_a_correct_restatement_passes(client):
                  {"role": "assistant", "content": "Added 'Oil change', due 2026-12-05, low priority."}]
     ev = events(client.post("/api/assistant/chat", json={"message": "oil change dec 5 low priority"}))
     assert not [e for e in ev if e["type"] == "claim_check"]
+
+
+def test_an_empty_answer_is_replaced_by_what_really_happened(client):
+    """Benchmark, qwen3:4b: after the priority correction request the model answered with nothing."""
+    SCRIPT[:] = [tool_call("create_task", {"title": "clean the gutters", "due": "2026-11-08", "priority": 3}),
+                 {"role": "assistant", "content": "Added with low priority."},
+                 {"role": "assistant", "content": ""}]
+    ev = events(client.post("/api/assistant/chat", json={"message": "gutters, low priority"}))
+    final = next(e for e in ev if e["type"] == "message")["content"]
+    assert final.startswith("Here is what was actually done") and "priority high" in final
+    SCRIPT[:] = [{"role": "assistant", "content": ""}]
+    ev = events(client.post("/api/assistant/chat", json={"message": "hello"}))
+    assert "empty answer" in next(e for e in ev if e["type"] == "message")["content"]
