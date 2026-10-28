@@ -1,0 +1,71 @@
+{
+  "name": "rooks-desktop",
+  "productName": "ROOKS",
+  "version": "1.0.0",
+  "description": "ROOKS on your desktop: the same assistant as the web app, with a local server it looks after",
+  "main": "src/main.js",
+  "license": "MIT",
+  "author": "ROOKS",
+  "homepage": "https://github.com/Inclined88888/ai-workspace",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/supervisor.test.js test/settings.test.js",
+    "test:e2e": "node test/e2e.js",
+    "dist:linux": "electron-builder --linux AppImage deb --x64 --publish never",
+    "dist:dir": "electron-builder --linux dir --x64 --publish never",
+    "test:installed": "node test/smoke_installed.js"
+  },
+  "devDependencies": {
+    "electron": "38.8.6",
+    "electron-builder": "26.0.12"
+  },
+  "build": {
+    "appId": "dev.rooks.desktop",
+    "productName": "ROOKS",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**",
+      "package.json"
+    ],
+    "asar": true,
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Office",
+      "icon": "build/icon.png",
+      "executableName": "rooks-desktop",
+      "synopsis": "Your AI assistant for work",
+      "maintainer": "ROOKS <noreply@example.invalid>",
+      "desktop": {
+        "entry": {
+          "StartupWMClass": "ROOKS"
+        }
+      }
+    },
+    "deb": {
+      "depends": [
+        "libnotify4",
+        "libxtst6",
+        "libnss3"
+      ]
+    },
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg"
+      ],
+      "hardenedRuntime": true
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "publish": []
+  }
+}

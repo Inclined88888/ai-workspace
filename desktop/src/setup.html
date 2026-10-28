@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:">
+  <title>ROOKS</title>
+  <link rel="stylesheet" href="setup.css">
+</head>
+<body>
+  <main class="wrap">
+    <div class="mark" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="26" height="26"><path fill="currentColor" d="M5 21h14v-2H5v2Zm1-3h12l-1-6h1V9h-2V6h-2v3h-2V6h-2v3H8V6H6v3H6v3h1l-1 6Z"/></svg>
+    </div>
+
+    <section id="welcome" hidden aria-labelledby="welcome-h">
+      <h1 id="welcome-h">Where is your ROOKS?</h1>
+      <p class="muted">ROOKS runs on a server: this computer, or one you reach over the internet. You can change this later.</p>
+      <div class="choices" role="radiogroup" aria-label="Where ROOKS runs">
+        <label class="choice"><input type="radio" name="mode" value="local" checked>
+          <span><strong>On this computer</strong><span class="muted">The standard install (Docker). The app starts it and keeps it running.</span></span></label>
+        <label class="choice"><input type="radio" name="mode" value="remote">
+          <span><strong>A ROOKS server</strong><span class="muted">Your own ROOKS at an https address.</span></span></label>
+      </div>
+      <div id="local-fields" class="fields">
+        <label for="dir">ROOKS install folder</label>
+        <div class="row"><input id="dir" type="text" spellcheck="false" autocomplete="off"><button type="button" id="choose" class="btn">Choose…</button></div>
+        <p id="detected" class="small muted" role="status"></p>
+        <label class="check"><input type="checkbox" id="stop" checked> Stop ROOKS when I quit the app (only if the app started it)</label>
+        <details class="small"><summary>No install yet?</summary>
+          <p>Install ROOKS with Docker by running this in a terminal, then come back:</p>
+          <pre>curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/development/rooks-v15/install.sh | AI_WORKSPACE_REF=development/rooks-v15 bash</pre>
+        </details>
+      </div>
+      <div id="remote-fields" class="fields" hidden>
+        <label for="url">Server address</label>
+        <input id="url" type="url" placeholder="https://rooks.example.com" spellcheck="false" autocomplete="url">
+        <p class="small muted">You sign in on the next screen, as in a browser.</p>
+      </div>
+      <p id="error" class="error" role="alert" hidden></p>
+      <button type="button" id="go" class="btn primary">Continue</button>
+    </section>
+
+    <section id="status" hidden aria-labelledby="status-h">
+      <h1 id="status-h">ROOKS</h1>
+      <p id="status-text" class="status" role="status" aria-live="polite">Starting…</p>
+      <div class="row">
+        <button type="button" id="retry" class="btn primary" hidden>Retry</button>
+        <button type="button" id="open" class="btn" hidden>Open ROOKS</button>
+        <button type="button" id="log" class="btn">Server log</button>
+        <button type="button" id="change" class="btn">Change where ROOKS is</button>
+      </div>
+      <h2>This computer</h2>
+      <p class="small muted">ROOKS can act on this computer only through the ROOKS Companion, only after you pair it, and only in folders you choose. It asks before each action.</p>
+      <p id="companion-state" class="small"></p>
+      <div class="row">
+        <button type="button" id="pair" class="btn">Let ROOKS use this computer…</button>
+        <button type="button" id="folder" class="btn">Allow a folder…</button>
+      </div>
+      <p id="companion-msg" class="small" role="status"></p>
+    </section>
+  </main>
+  <script src="setup.js"></script>
+</body>
+</html>
