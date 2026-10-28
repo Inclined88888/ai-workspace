@@ -40,7 +40,7 @@ export function ModelSelect({
   onChange,
   models,
   allowDefault = true,
-  defaultLabel = "Default model",
+  defaultLabel = "Automatic",
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -48,26 +48,35 @@ export function ModelSelect({
   allowDefault?: boolean;
   defaultLabel?: string;
 }) {
-  // In Free Cloud AI and Local AI modes the models the mode allows come first; the others are listed but cannot be
-  // picked, with the reason as a tooltip, so nothing paid is chosen by accident and nothing is hidden.
-  const usable = models.filter((m) => m.allowed !== false);
+  // One picker everywhere. Ready: a real request with a tool attached succeeded. Not tested yet: listed by the provider
+  // but never tried, so it may not work (it can still be picked, in its own group). Not available: the AI mode does
+  // not allow it; listed, disabled, with the reason as a tooltip, so nothing paid is chosen by accident.
   const blocked = models.filter((m) => m.allowed === false);
+  const ready = models.filter((m) => m.allowed !== false && m.status !== "untested");
+  const untested = models.filter((m) => m.allowed !== false && m.status === "untested");
   const groups = new Map<string, Model[]>();
-  usable.forEach((m) => groups.set(m.provider, [...(groups.get(m.provider) ?? []), m]));
-  const sorted = (list: Model[]) => (blocked.length ? [...list].sort((a, b) => Number(!!b.free) - Number(!!a.free)) : list);
+  ready.forEach((m) => groups.set(m.provider, [...(groups.get(m.provider) ?? []), m]));
+  const sorted = (list: Model[]) => [...list].sort((a, b) => Number(!!b.free) - Number(!!a.free));
+  const current = value ? models.find((m) => m.ref === value) : undefined;
   return (
     <select className="input" aria-label="AI model" title="AI model" value={value} onChange={(e) => onChange(e.target.value)}>
       {allowDefault && <option value="">{defaultLabel}</option>}
-      {value && blocked.some((m) => m.ref === value) && <option value={value}>{value.replace(/^\d+\//, "")} (not usable in this AI mode)</option>}
+      {value && !current && <option value={value}>{value.replace(/^\d+\//, "")} (no longer offered by its provider)</option>}
+      {value && current?.allowed === false && <option value={value}>{current.model} (not usable in this AI mode)</option>}
       {[...groups.entries()].map(([provider, list]) => (
         <optgroup key={provider} label={provider}>
-          {sorted(list).map((m) => (
-            <option key={m.ref} value={m.ref}>
-              {m.model}{m.free ? "  (free)" : ""}
+          {sorted(list).map((m) => <option key={m.ref} value={m.ref}>{m.model}{m.free ? "  (free)" : ""}</option>)}
+        </optgroup>
+      ))}
+      {untested.length > 0 && (
+        <optgroup label="Not tested yet (may not work)">
+          {sorted(untested).slice(0, 200).map((m) => (
+            <option key={m.ref} value={m.ref} title="Never tried. Test it under Settings, AI models, All model connections.">
+              {m.model} · {m.provider}{m.free ? "  (free)" : ""}
             </option>
           ))}
         </optgroup>
-      ))}
+      )}
       {blocked.length > 0 && (
         <optgroup label="Not available in this AI mode">
           {blocked.slice(0, 60).map((m) => (

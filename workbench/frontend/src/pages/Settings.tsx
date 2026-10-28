@@ -7,6 +7,7 @@ import { PasswordInput } from "../components/ui";
 import { ModelTest } from "./Auth";
 import { ModelRoles } from "../components/ModelRoles";
 import { ModelsPanel } from "../components/Models";
+import ConnectionDirectory from "../components/ConnectionDirectory";
 import { AiModePanel, LocalDownloads } from "../components/AiSetup";
 import WebSearchPanel from "../components/WebSearch";
 import AppearancePanel from "../components/AppearancePanel";
@@ -287,6 +288,7 @@ export default function Settings({ onChanged }: { onChanged: () => void }) {
             <AiModePanel onChanged={() => { setModeRev((n) => n + 1); reload(true); }} />
             <div id="models" style={{ scrollMarginTop: 16 }}><ModelsPanel key={modeRev} models={models} reloadModels={() => reload(true)} localAvailable={localAvailable} /></div>
             {models.length > 0 && <div className="card col"><h3>Quick check</h3><p className="muted small" style={{ margin: 0 }}>Sends one tiny message through the default model (and its backups if needed).</p><ModelTest /></div>}
+            <ConnectionDirectory key={`dir-${modeRev}`} />
             {models.length > 0 && <ModelRoles models={models} />}
             {localAvailable && <LocalModels />}
           </Section>
