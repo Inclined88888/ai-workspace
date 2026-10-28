@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rooks-cli"
+version = "1.0.0"
+description = "ROOKS in the terminal: the same assistant, conversations, work and approvals as the web app"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = []  # the standard library only
+
+[project.optional-dependencies]
+keyring = ["keyring>=24"]  # keep the token in the system keychain instead of a private file
+
+[project.scripts]
+rooks = "rooks_cli.main:main"
+
+[tool.setuptools]
+packages = ["rooks_cli"]
