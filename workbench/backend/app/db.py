@@ -8,6 +8,7 @@ from . import config
 
 _local = threading.local()
 
+# Frozen baseline for new and pre-migration installs; future changes belong in MIGRATIONS.
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
@@ -279,8 +280,23 @@ def conn() -> sqlite3.Connection:
     return c
 
 
+def _migration_1(c: sqlite3.Connection) -> None:
+    pass  # existing installs already have the baseline schema
+
+
+MIGRATIONS = [_migration_1]  # position + 1 is the version; append, never reorder
+
+
 def init() -> None:
     conn().executescript(SCHEMA)
+    # The lock covers the version read too, so concurrent starts cannot apply a migration twice.
+    with tx() as c:
+        version = int(get_setting("schema_version", "0"))
+        if not 0 <= version <= len(MIGRATIONS):
+            raise RuntimeError(f"Unsupported database schema version {version}; use a compatible Workbench version")
+        for i in range(version, len(MIGRATIONS)):
+            MIGRATIONS[i](c)
+            set_setting("schema_version", str(i + 1))
 
 
 @contextmanager
