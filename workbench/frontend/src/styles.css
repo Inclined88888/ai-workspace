@@ -757,3 +757,14 @@ button.card:hover { border-color: var(--accent); }
 .cap { display: inline-flex; align-items: center; gap: 3px; font-size: var(--t-xs); padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
 .cap.passed { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, var(--border)); }
 .cap.failed { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, var(--border)); }
+
+/* v13: navigation areas */
+.nav-more > summary { list-style: none; cursor: pointer; }
+.nav-more > summary::-webkit-details-marker { display: none; }
+.nav-more[open] > summary { color: var(--text); }
+.area-tabs { display: flex; gap: 2px; padding: 10px 32px 0; border-bottom: 1px solid var(--border); overflow-x: auto; scrollbar-width: none; }
+.area-tab { padding: 7px 12px; border-radius: var(--radius-sm) var(--radius-sm) 0 0; color: var(--muted); text-decoration: none; font-size: var(--t-sm);
+  border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+.area-tab:hover { color: var(--text); background: var(--panel-2); }
+.area-tab.active { color: var(--accent-text); border-bottom-color: var(--accent); font-weight: 600; }
+@media (max-width: 900px) { .area-tabs { padding: 8px 16px 0; } }

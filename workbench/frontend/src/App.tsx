@@ -1,6 +1,6 @@
 import {
-  Bot, Brain, Flag, FolderOpen, MonitorPlay, Building2, CalendarClock, CalendarDays, MessageSquare, CheckSquare, Globe, Columns3, ExternalLink, FileText, Home, LogOut, Mail, Menu, Moon, NotebookPen,
-  Palette, PanelLeftClose, PanelLeftOpen, Search, Settings as SettingsIcon, Sun, Sparkles, X, FolderKanban,
+  Bot, Brain, Flag, Building2, CalendarDays, MessageSquare, Globe, Columns3, ExternalLink, Home, LogOut, Mail, Menu, Moon, NotebookPen,
+  MoreHorizontal, Palette, PanelLeftClose, PanelLeftOpen, Search, Settings as SettingsIcon, Sun, Sparkles, X, FolderKanban,
 } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { Link, NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
@@ -59,31 +59,50 @@ export type Status = {
   local_models_enabled: boolean;
 };
 
-// Grouped around what ROOKS does for you; every route existed before, so deep links keep working
+// Primary navigation is a few areas around what you need; each area's pages share a row of tabs (AreaTabs). Every
+// route that existed before still works, so deep links and bookmarks keep opening the same page.
+export const AREAS = {
+  library: { label: "Library", pages: [["/notes", "Notes"], ["/documents", "Documents"], ["/files", "Files"], ["/research", "Research"]] },
+  planner: { label: "Planner", pages: [["/tasks", "Tasks"], ["/calendar", "Calendar"], ["/automations", "Automations"]] },
+  work: { label: "Work", pages: [["/missions", "Missions"], ["/computer", "Computer"], ["/company", "Agent team"]] },
+} as const;
+type Area = keyof typeof AREAS;
+function areaOf(path: string): Area | null {
+  for (const [k, a] of Object.entries(AREAS) as [Area, (typeof AREAS)[Area]][]) {
+    if (a.pages.some(([to]) => path === to || path.startsWith(`${to}/`))) return k;
+  }
+  return null;
+}
 const NAV = [
+  { to: "/assistant", label: "Assistant", icon: MessageSquare },
   { to: "/", label: "Home", icon: Home },
   { to: "/needs-you", label: "Needs you", icon: NeedsYouIcon, count: true },
-  { section: "ROOKS" },
-  { to: "/assistant", label: "Assistant", icon: MessageSquare },
   { to: "/projects", label: "Projects", icon: FolderKanban },
-  { to: "/missions", label: "Missions", icon: Flag },
-  { to: "/research", label: "Research", icon: Search },
-  { to: "/computer", label: "Computer", icon: MonitorPlay },
-  { to: "/automations", label: "Automations", icon: CalendarClock },
-  { to: "/capabilities", label: "What ROOKS can do", icon: Sparkles },
-  { section: "Your workspace" },
-  { to: "/tasks", label: "Tasks", icon: CheckSquare },
-  { to: "/calendar", label: "Calendar", icon: CalendarDays },
-  { to: "/notes", label: "Notes", icon: NotebookPen },
-  { to: "/documents", label: "Documents", icon: FileText },
-  { to: "/files", label: "Files", icon: FolderOpen },
-  { to: "/mail", label: "Mail", icon: Mail },
-  { section: "More" },
-  { to: "/assistant-memory", label: "Memory & skills", icon: Brain },
-  { to: "/company", label: "Agent team", icon: Building2 },
-  { to: "/browser", label: "Browser agent", icon: Globe, addon: "browser" },
-  { to: "/compare", label: "Compare models", icon: Columns3 },
+  { to: "/notes", label: "Library", icon: NotebookPen, area: "library" },
+  { to: "/tasks", label: "Planner", icon: CalendarDays, area: "planner" },
+  { to: "/missions", label: "Work", icon: Flag, area: "work" },
 ] as const;
+const MORE = [
+  { to: "/mail", label: "Mail", icon: Mail },
+  { to: "/assistant-memory", label: "Memory & skills", icon: Brain },
+  { to: "/capabilities", label: "What ROOKS can do", icon: Sparkles },
+  { to: "/compare", label: "Compare models", icon: Columns3 },
+  { to: "/browser", label: "Browser agent", icon: Globe, addon: "browser" },
+] as const;
+
+/** The tabs of the area the current page belongs to (Library, Planner, Work), so related pages are one click apart. */
+function AreaTabs() {
+  const { pathname } = useLocation();
+  const area = areaOf(pathname);
+  if (!area) return null;
+  return (
+    <nav className="area-tabs" aria-label={AREAS[area].label}>
+      {AREAS[area].pages.map(([to, label]) => (
+        <NavLink key={to} to={to} className={({ isActive }) => `area-tab ${isActive ? "active" : ""}`}>{label}</NavLink>
+      ))}
+    </nav>
+  );
+}
 
 function NavCount() {
   const n = useAttentionCount();
@@ -192,16 +211,22 @@ export default function App() {
           <Search size={15} aria-hidden="true" /><span className="nav-label grow">Search</span><kbd className="kbd nav-label">Ctrl K</kbd>
         </button>
         <nav aria-label="Main" className="col" style={{ gap: 2 }}>
-          {NAV.filter((item) => !("addon" in item) || (item.addon === "browser" && status.browser_enabled)).map((item, i) =>
-            "section" in item ? (
-              <div key={i} className="nav-section"><span className="nav-label">{item.section}</span></div>
-            ) : (
-              <NavLink key={item.to} to={item.to} end={item.to === "/"} className="nav-link" title={collapsed ? item.label : undefined}>
+          {NAV.map((item) => (
+            <NavLink key={item.to} to={item.to} end={item.to === "/"} title={collapsed ? item.label : undefined}
+              className={({ isActive }) => `nav-link ${isActive || ("area" in item && areaOf(location.pathname) === item.area) ? "active" : ""}`}
+              aria-current={"area" in item && areaOf(location.pathname) === item.area ? "page" : undefined}>
+              <item.icon size={17} aria-hidden="true" /> <span className="nav-label">{item.label}</span>
+              {"count" in item && <NavCount />}
+            </NavLink>
+          ))}
+          <details className="nav-more" open={MORE.some((m) => location.pathname.startsWith(m.to)) || undefined}>
+            <summary className="nav-link" title={collapsed ? "More" : undefined}><MoreHorizontal size={17} aria-hidden="true" /> <span className="nav-label">More</span></summary>
+            {MORE.filter((item) => !("addon" in item) || (item.addon === "browser" && status.browser_enabled)).map((item) => (
+              <NavLink key={item.to} to={item.to} className="nav-link" title={collapsed ? item.label : undefined}>
                 <item.icon size={17} aria-hidden="true" /> <span className="nav-label">{item.label}</span>
-                {"count" in item && <NavCount />}
               </NavLink>
-            ),
-          )}
+            ))}
+          </details>
           {(status.chat_url || status.paperclip_url || status.hermes_url) && <div className="nav-section"><span className="nav-label">Add-ons</span></div>}
           {status.chat_url && (
             <a className="nav-link" href={status.chat_url} target="_blank" rel="noreferrer" title={collapsed ? "Open WebUI (opens in a new tab)" : undefined}>
@@ -245,9 +270,14 @@ export default function App() {
           <button type="button" className="btn ghost icon" onClick={openPalette} aria-label="Search and jump" title="Search and jump"><Search size={18} /></button>
           <Link to="/assistant" className="btn ghost icon" aria-label="Ask ROOKS" title="Ask ROOKS"><MessageSquare size={18} /></Link>
         </div>
+        <AreaTabs />
         <Suspense fallback={<PageLoading />}>
         <Routes>
           <Route path="/" element={<Dashboard />} />
+          <Route path="/overview" element={<Navigate to="/" replace />} />
+          <Route path="/library" element={<Navigate to="/notes" replace />} />
+          <Route path="/planner" element={<Navigate to="/tasks" replace />} />
+          <Route path="/work" element={<Navigate to="/missions" replace />} />
           <Route path="/assistant" element={<Assistant tab="chat" />} />
           <Route path="/assistant/:id" element={<Assistant tab="chat" />} />
           <Route path="/assistant-memory" element={<Assistant tab="memory" />} />
