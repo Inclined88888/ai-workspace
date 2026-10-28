@@ -5,7 +5,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import api, assistant_api, browser_proxy, company, config, db, llm, scheduler, telegram
+from . import api, assistant, assistant_api, browser_proxy, company, config, db, llm, mcp_client, scheduler, telegram
 from .mcp_server import mcp, mcp_app
 from .security import check_bearer
 from .tools import tools
@@ -18,12 +18,14 @@ async def lifespan(_: FastAPI):
     api.recover_interrupted()
     company.recover()
     loops = [asyncio.create_task(fn()) for fn in (api.calendar_loop, scheduler.loop, telegram.loop, company.loop)]
+    loops.append(asyncio.create_task(mcp_client.refresh_all()))  # in the background: a slow server must not delay startup
     async with mcp.session_manager.run():
         yield
     for t in loops:
         t.cancel()
 
 
+assistant.EXTERNAL.append(mcp_client.tools)
 app = FastAPI(title="Workbench", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 
 

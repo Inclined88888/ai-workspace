@@ -110,6 +110,8 @@ services:
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       # Address of your reverse proxy as seen by this container, so its X-Forwarded-For is trusted
       FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
+      # Let Settings > MCP servers launch stdio servers (commands run inside this container). HTTP servers always work.
+      MCP_STDIO: ${MCP_STDIO:-false}
       # Context window requested from Ollama (also editable in Settings > General)
       OLLAMA_NUM_CTX: ${OLLAMA_CONTEXT_LENGTH:-16384}
       # Seed external providers on first start (also editable in Settings)

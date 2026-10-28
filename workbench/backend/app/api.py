@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from . import calendar_sync, config, db, llm, mail, research, services
+from . import calendar_sync, config, db, llm, mail, mcp_client, research, services
 from .security import (
     COOKIE, check_session, decrypt, encrypt, hash_password, make_session, require_user, throttle, verify_password,
 )
@@ -242,6 +242,84 @@ async def ollama_pull(data: PullIn):
         yield {"done": True}
 
     return sse(gen())
+
+
+# Outside MCP servers. Browser session only, not the terminal token: a stdio server runs a command in this container.
+def _mcp_out(r: dict) -> dict:
+    tools = json.loads(r["tools"] or "[]")
+    allowed = {t.strip() for t in r["allowed_tools"].split(",") if t.strip()}
+    return {**{k: r[k] for k in ("id", "name", "transport", "url", "command", "allowed_tools", "enabled", "last_error", "last_refreshed")},
+            "args": json.loads(r["args"] or "[]"), "has_headers": bool(r["headers_enc"]), "has_env": bool(r["env_enc"]),
+            "tools": [{"name": t["name"], "assistant_name": mcp_client.tool_name(r["name"], t["name"]), "description": t["description"],
+                       "offered": not allowed or t["name"] in allowed} for t in tools]}
+
+
+@api.get("/mcp-servers")
+def mcp_servers():
+    return {"servers": [_mcp_out(r) for r in db.all("SELECT * FROM mcp_servers ORDER BY id")], "stdio_allowed": config.MCP_STDIO}
+
+
+class McpServerIn(BaseModel):
+    name: str = Field(..., pattern=r"^[a-z0-9][a-z0-9-]{0,23}$", description="short-kebab-case, used in tool names")
+    transport: Literal["http", "stdio"] = "http"
+    url: str = Field("", max_length=1000)
+    command: str = Field("", max_length=500)
+    args: list[str] = Field(default_factory=list, max_length=50)
+    headers: dict[str, str] | None = Field(None, description="Sent on every request, e.g. Authorization. None keeps the saved ones")
+    env: dict[str, str] | None = Field(None, description="Extra environment for stdio servers. None keeps the saved ones")
+    allowed_tools: str = Field("", max_length=4000)
+    enabled: bool = True
+
+
+def _check_mcp(data: McpServerIn) -> None:
+    if data.transport == "http" and not data.url.startswith(("http://", "https://")):
+        raise HTTPException(400, "An HTTP MCP server needs a URL starting with http:// or https://")
+    if data.transport == "stdio":
+        if not config.MCP_STDIO:
+            raise HTTPException(400, "Stdio MCP servers are off. Set MCP_STDIO=true in .env to let Workbench launch commands.")
+        if not data.command.strip():
+            raise HTTPException(400, "A stdio MCP server needs a command")
+
+
+@api.post("/mcp-servers")
+async def add_mcp_server(data: McpServerIn):
+    _check_mcp(data)
+    if db.one("SELECT id FROM mcp_servers WHERE name = ?", data.name):
+        raise HTTPException(409, f"There is already a server named {data.name}")
+    sid = db.run("INSERT INTO mcp_servers(name, transport, url, command, args, headers_enc, env_enc, allowed_tools, enabled, created_at) "
+                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", data.name, data.transport, data.url.strip(), data.command.strip(),
+                 json.dumps(data.args), encrypt(json.dumps(data.headers)) if data.headers else "",
+                 encrypt(json.dumps(data.env)) if data.env else "", data.allowed_tools, int(data.enabled), db.now())
+    return _mcp_out(await mcp_client.refresh(sid))
+
+
+@api.put("/mcp-servers/{sid}")
+async def edit_mcp_server(sid: int, data: McpServerIn):
+    _check_mcp(data)
+    row = db.one("SELECT * FROM mcp_servers WHERE id = ?", sid)
+    if not row:
+        raise HTTPException(404, "MCP server not found")
+    if data.name != row["name"] and db.one("SELECT id FROM mcp_servers WHERE name = ?", data.name):
+        raise HTTPException(409, f"There is already a server named {data.name}")
+    db.run("UPDATE mcp_servers SET name = ?, transport = ?, url = ?, command = ?, args = ?, allowed_tools = ?, enabled = ? WHERE id = ?",
+           data.name, data.transport, data.url.strip(), data.command.strip(), json.dumps(data.args), data.allowed_tools,
+           int(data.enabled), sid)
+    if data.headers is not None:
+        db.run("UPDATE mcp_servers SET headers_enc = ? WHERE id = ?", encrypt(json.dumps(data.headers)) if data.headers else "", sid)
+    if data.env is not None:
+        db.run("UPDATE mcp_servers SET env_enc = ? WHERE id = ?", encrypt(json.dumps(data.env)) if data.env else "", sid)
+    return _mcp_out(await mcp_client.refresh(sid))
+
+
+@api.post("/mcp-servers/{sid}/refresh")
+async def refresh_mcp_server(sid: int):
+    return _mcp_out(await mcp_client.refresh(sid))
+
+
+@api.delete("/mcp-servers/{sid}")
+def delete_mcp_server(sid: int):
+    db.run("DELETE FROM mcp_servers WHERE id = ?", sid)
+    return {"ok": True}
 
 
 # Dashboard

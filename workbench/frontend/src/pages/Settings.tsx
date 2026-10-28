@@ -6,6 +6,9 @@ import { ModelSelect, useModels, useToast } from "../util";
 
 type Provider = { id: number; name: string; kind: string; base_url: string; models: string; enabled: number; has_key: boolean; key_hint: string };
 type Presets = Record<string, { name: string; base_url: string; note?: string }>;
+type McpTool = { name: string; assistant_name: string; description: string; offered: boolean };
+type McpServer = { id: number; name: string; transport: "http" | "stdio"; url: string; command: string; args: string[]; allowed_tools: string;
+  enabled: number; last_error: string; last_refreshed: string | null; has_headers: boolean; has_env: boolean; tools: McpTool[] };
 type MailAccount = { id: number; name: string; email: string; imap_host: string; smtp_host: string };
 
 const MAIL_PRESETS: Record<string, { imap_host: string; smtp_host: string; smtp_port: number; smtp_security: "ssl" | "starttls"; note: string }> = {
@@ -14,6 +17,90 @@ const MAIL_PRESETS: Record<string, { imap_host: string; smtp_host: string; smtp_
   Gmail: { imap_host: "imap.gmail.com", smtp_host: "smtp.gmail.com", smtp_port: 465, smtp_security: "ssl", note: "Needs 2 step verification and an app password (myaccount.google.com/apppasswords). Some Workspace admins disable this." },
   Other: { imap_host: "", smtp_host: "", smtp_port: 465, smtp_security: "ssl", note: "Ask your provider for IMAP (port 993, SSL) and SMTP settings." },
 };
+
+// "Key: value" lines, as typed in the form, to an object
+const pairs = (text: string) => Object.fromEntries(text.split("\n").map((l) => l.split(/:(.*)/s).map((x) => x.trim())).filter(([k, v]) => k && v));
+
+function McpServers() {
+  const [list, setList] = useState<McpServer[]>([]);
+  const [stdio, setStdio] = useState(false);
+  const empty = { name: "", transport: "http" as "http" | "stdio", url: "", command: "", args: "", headers: "", env: "", allowed_tools: "" };
+  const [form, setForm] = useState(empty);
+  const [busy, setBusy] = useState<number | "add" | null>(null);
+  const [open, setOpen] = useState<number | null>(null);
+  const toast = useToast();
+  const load = () => api<{ servers: McpServer[]; stdio_allowed: boolean }>("/mcp-servers").then((r) => { setList(r.servers); setStdio(r.stdio_allowed); }).catch(toast.err);
+  useEffect(() => { load(); }, []);
+  const body = (s: McpServer, patch: Partial<{ enabled: boolean }>) => ({ name: s.name, transport: s.transport, url: s.url, command: s.command, args: s.args, allowed_tools: s.allowed_tools, enabled: !!s.enabled, ...patch });
+
+  const add = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy("add");
+    try {
+      const r = await api<McpServer>("/mcp-servers", { body: {
+        name: form.name.trim(), transport: form.transport, url: form.url.trim(), command: form.command.trim(),
+        args: form.args.trim() ? form.args.trim().split(/\s+/) : [], headers: form.headers.trim() ? pairs(form.headers) : null,
+        env: form.env.trim() ? pairs(form.env) : null, allowed_tools: form.allowed_tools.trim() } });
+      setForm(empty);
+      if (r.last_error) toast.err(`Added, but it did not connect: ${r.last_error}`); else toast.ok(`Connected: ${r.tools.length} tools`);
+      load();
+    } catch (err) { toast.err(err); } finally { setBusy(null); }
+  };
+  const refresh = async (s: McpServer) => {
+    setBusy(s.id);
+    try { const r = await api<McpServer>(`/mcp-servers/${s.id}/refresh`, { method: "POST" }); if (r.last_error) toast.err(r.last_error); load(); }
+    finally { setBusy(null); }
+  };
+  const toggle = async (s: McpServer) => { await api(`/mcp-servers/${s.id}`, { method: "PUT", body: body(s, { enabled: !s.enabled }) }); load(); };
+  const remove = async (s: McpServer) => { if (confirm(`Remove ${s.name}?`)) { await api(`/mcp-servers/${s.id}`, { method: "DELETE" }); load(); } };
+
+  return (
+    <div className="card col gap-lg">
+      <div className="row"><Plug size={16} /><h2>MCP servers</h2></div>
+      <div className="muted small">Connect outside tools over the Model Context Protocol. Their tools join the assistant's as <span className="mono">mcp__name__tool</span> and ask before they run until you allow them in Assistant → Settings → Tool permissions. What they return counts as outside content, like a web page. Only add servers you trust: a server sees everything the assistant sends it.</div>
+      <div className="card flush">
+        {list.length === 0 && <div className="list-item faint small" style={{ cursor: "default" }}>No servers yet.</div>}
+        {list.map((s) => (
+          <div key={s.id} className="col" style={{ padding: "10px 14px", borderBottom: "1px solid var(--border)", gap: 4 }}>
+            <div className="row">
+              <input type="checkbox" checked={!!s.enabled} onChange={() => toggle(s)} />
+              <strong className="mono grow" style={{ cursor: "pointer" }} onClick={() => setOpen(open === s.id ? null : s.id)}>{s.name}</strong>
+              {s.last_error ? <span className="badge danger">error</span> : <span className="badge ok">{s.tools.filter((t) => t.offered).length} tools</span>}
+              <button className="btn ghost sm icon" onClick={() => refresh(s)} title="Reconnect and list tools">{busy === s.id ? <Loader2 size={13} className="spin" /> : <RefreshCw size={13} />}</button>
+              <button className="btn ghost sm icon" onClick={() => remove(s)}><Trash2 size={13} /></button>
+            </div>
+            <div className="faint small mono truncate">{s.transport === "http" ? s.url : `${s.command} ${s.args.join(" ")}`}{s.has_headers ? " · headers set" : ""}{s.has_env ? " · env set" : ""}</div>
+            {s.last_error && <div className="alert err small">{s.last_error}</div>}
+            {open === s.id && s.tools.map((t) => (
+              <div key={t.name} className="small" style={{ opacity: t.offered ? 1 : 0.5 }}><span className="mono">{t.assistant_name}</span> <span className="faint">{t.description}</span></div>
+            ))}
+          </div>
+        ))}
+      </div>
+      <form className="col" onSubmit={add}>
+        <div className="row wrap">
+          <input className="input mono" style={{ width: 160 }} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value.toLowerCase() })} placeholder="name (e.g. github)" />
+          <select className="input" style={{ width: 150 }} value={form.transport} onChange={(e) => setForm({ ...form, transport: e.target.value as "http" | "stdio" })}>
+            <option value="http">HTTP</option><option value="stdio" disabled={!stdio}>Command (stdio){stdio ? "" : " (off)"}</option>
+          </select>
+          {form.transport === "http"
+            ? <input className="input grow mono" value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder="https://example.com/mcp" />
+            : <><input className="input mono" style={{ width: 160 }} value={form.command} onChange={(e) => setForm({ ...form, command: e.target.value })} placeholder="command, e.g. uvx" />
+                <input className="input grow mono" value={form.args} onChange={(e) => setForm({ ...form, args: e.target.value })} placeholder="arguments, space separated" /></>}
+        </div>
+        <div className="row wrap">
+          {form.transport === "http"
+            ? <textarea className="input grow mono" rows={2} value={form.headers} onChange={(e) => setForm({ ...form, headers: e.target.value })} placeholder={"Headers, one per line (stored encrypted)\nAuthorization: Bearer ..."} />
+            : <textarea className="input grow mono" rows={2} value={form.env} onChange={(e) => setForm({ ...form, env: e.target.value })} placeholder={"Environment, one per line (stored encrypted)\nAPI_KEY: ..."} />}
+          <input className="input grow mono" value={form.allowed_tools} onChange={(e) => setForm({ ...form, allowed_tools: e.target.value })} placeholder="Only these tools, comma separated (empty = all)" />
+        </div>
+        {!stdio && <div className="faint small">Command servers run programs inside the Workbench container, so they are off. Set MCP_STDIO=true in .env to allow them.</div>}
+        <div><button className="btn primary" disabled={!form.name || busy === "add"}>{busy === "add" ? <Loader2 size={14} className="spin" /> : <Plus size={14} />} Add and connect</button></div>
+      </form>
+      {toast.node}
+    </div>
+  );
+}
 
 function Providers() {
   const [list, setList] = useState<Provider[]>([]);
@@ -254,6 +341,7 @@ export default function Settings({ onChanged }: { onChanged: () => void }) {
         <Usage />
         <LocalModels />
         <Providers />
+        <McpServers />
         <MailAccounts />
         <div className="card col">
           <h2>Calendars</h2>

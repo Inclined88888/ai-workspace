@@ -24,6 +24,7 @@ BROWSER_API_KEY = os.getenv("BROWSER_API_KEY", "")
 PAPERCLIP_URL = os.getenv("PAPERCLIP_URL", "")
 HERMES_URL = os.getenv("HERMES_URL", "")
 SESSION_DAYS = int(os.getenv("SESSION_DAYS", "30"))
+MCP_STDIO = _bool("MCP_STDIO")  # let Workbench launch stdio MCP servers (runs commands inside its container)
 CALENDAR_SYNC_MINUTES = int(os.getenv("CALENDAR_SYNC_MINUTES", "15"))
 
 SEED_KEYS = {

@@ -5,14 +5,27 @@ import { api, stream } from "../api";
 import { Empty, Markdown, ModelSelect, relTime, useModels, useToast } from "../util";
 
 type Conv = { id: number; title: string; channel: string; updated_at: string; model: string };
-type Msg = { id: number; role: string; content: string; tool_calls: string[]; name: string };
 type Step = { kind: "call" | "result"; name: string; text: string; ok?: boolean };
+type Msg = { id: number; role: string; content: string; tool_calls: string[]; name: string; steps?: Step[] };
 type Memory = { id: number; content: string; kind: string; source: string; updated_at: string };
 type Approval = { id: number; name: string; args: string; reason: string; description?: string };
 type Action = { id: number; ts: string; name: string; arguments: string; decision: string; ok: number; result: string; channel: string; conversation_id: number };
 type Skill = { id: number; name: string; description: string; steps: string; uses: number; source: string; enabled: number };
 
 const CHANNEL: Record<string, string> = { web: "Web", cli: "Terminal", telegram: "Telegram", schedule: "Schedule" };
+
+function Steps({ steps }: { steps: Step[] }) {
+  return (
+    <div className="col" style={{ gap: 4 }}>
+      {steps.map((s, i) => (
+        <div key={i} className="small mono faint row" style={{ alignItems: "flex-start" }}>
+          {s.kind === "call" ? <Wrench size={12} style={{ marginTop: 3 }} /> : s.ok ? <Check size={12} style={{ marginTop: 3 }} /> : <span style={{ color: "var(--danger)" }}>✕</span>}
+          <span className="truncate">{s.kind === "call" ? `${s.name} ${s.text}` : s.text}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function Chat({ tabs }: { tabs: React.ReactNode }) {
   const { id } = useParams();
@@ -21,6 +34,8 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   const [q, setQ] = useState("");
   const [messages, setMessages] = useState<Msg[]>([]);
   const [steps, setSteps] = useState<Step[]>([]);
+  const stepsRef = useRef<Step[]>([]);  // the steps of the run in progress, moved onto the answer they led to
+  const addStep = (st: Step) => { stepsRef.current = [...stepsRef.current, st]; setSteps(stepsRef.current); };
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [partial, setPartial] = useState("");
@@ -35,6 +50,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   useEffect(() => { const t = setTimeout(loadConvs, 200); return () => clearTimeout(t); }, [q]);
   useEffect(() => {
     setSteps([]);
+    stepsRef.current = [];
     setApproval(null);
     if (!cid) return setMessages([]);
     api<{ messages: Msg[]; model: string; pending_approvals: { id: number; name: string; arguments: string; reason: string }[] }>(`/conversations/${cid}`).then((c) => {
@@ -51,19 +67,25 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
     setPartial("");
     setApproval(null);
     let newId = cid;
+    let paused = false;  // the approval card says it; no "I need your approval" bubble as well
     try { await stream(path, body, (ev) => {
       const t = ev.type as string | undefined;
       if (t === "start") newId = Number(ev.conversation_id);
       if (t === "delta") setPartial((s) => s + String(ev.content));
       if (t === "tool_call") {
         setPartial("");
-        setSteps((s) => [...s, { kind: "call", name: String(ev.name), text: String(ev.args) }]);
+        addStep({ kind: "call", name: String(ev.name), text: String(ev.args) });
       }
-      if (t === "tool_result") setSteps((s) => [...s, { kind: "result", name: String(ev.name), text: String(ev.preview), ok: Boolean(ev.ok) }]);
+      if (t === "tool_result") addStep({ kind: "result", name: String(ev.name), text: String(ev.preview), ok: Boolean(ev.ok) });
+      if (t === "approval") paused = true;
       if (t === "approval") setApproval({ id: Number(ev.id), name: String(ev.name), args: String(ev.args), reason: String(ev.reason || ""), description: String(ev.description || "") });
+      if (t === "message" && (!ev.content || paused)) return;
       if (t === "message") {
         setPartial("");
-        setMessages((m) => [...m, { id: Date.now() + 1, role: "assistant", content: String(ev.content), tool_calls: [], name: "" }]);
+        const done = stepsRef.current;
+        stepsRef.current = [];
+        setSteps([]);
+        setMessages((m) => [...m, { id: Date.now() + 1, role: "assistant", content: String(ev.content), tool_calls: [], name: "", steps: done }]);
       }
       if (t === "error" || (!t && ev.error)) toast.err(String(ev.error));
     }); } catch (err) { toast.err(err); }
@@ -79,6 +101,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
     if (!msg || busy) return;
     setText("");
     setSteps([]);
+    stepsRef.current = [];
     setMessages((m) => [...m, { id: Date.now(), role: "user", content: msg, tool_calls: [], name: "" }]);
     await run("/assistant/chat", { message: msg, conversation_id: cid, model: model || null });
   };
@@ -132,18 +155,10 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
               ? <div key={m.id} className="bubble-user" style={{ alignSelf: "flex-end", maxWidth: "85%" }}>{m.content}</div>
               : <div key={m.id} className="col" style={{ gap: 4 }}>
                   {m.tool_calls.length > 0 && <div className="small mono faint row"><Wrench size={12} /> {m.tool_calls.join(", ")}</div>}
+                  {m.steps && m.steps.length > 0 && <Steps steps={m.steps} />}
                   {m.content && <Markdown text={m.content} />}
                 </div>)}
-            {steps.length > 0 && (
-              <div className="col" style={{ gap: 4 }}>
-                {steps.map((s, i) => (
-                  <div key={i} className="small mono faint row" style={{ alignItems: "flex-start" }}>
-                    {s.kind === "call" ? <Wrench size={12} style={{ marginTop: 3 }} /> : s.ok ? <Check size={12} style={{ marginTop: 3 }} /> : <span style={{ color: "var(--danger)" }}>✕</span>}
-                    <span className="truncate">{s.kind === "call" ? `${s.name} ${s.text}` : s.text}</span>
-                  </div>
-                ))}
-              </div>
-            )}
+            {steps.length > 0 && <Steps steps={steps} />}
             {partial && <Markdown text={partial} />}
             {approval && !busy && (
               <div className="card col" style={{ borderColor: "var(--warn, #d97706)", gap: 8 }}>

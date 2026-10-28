@@ -285,10 +285,16 @@ def _migration_1(c: sqlite3.Connection) -> None:
 
 
 def _script(c: sqlite3.Connection, sql: str) -> None:
-    # Not executescript: it commits the open transaction first, and migrations must apply all or nothing
-    for stmt in sql.split(";"):
-        if stmt.strip():
-            c.execute(stmt)
+    # Not executescript: it commits the open transaction first, and migrations must apply all or nothing.
+    # sqlite3.complete_statement knows comments and strings, so a ";" inside them does not split a statement.
+    buf = ""
+    for line in sql.splitlines(keepends=True):
+        buf += line
+        if sqlite3.complete_statement(buf):
+            c.execute(buf)
+            buf = ""
+    if buf.strip():
+        c.execute(buf)
 
 
 def _migration_2(c: sqlite3.Connection) -> None:
@@ -332,7 +338,29 @@ CREATE INDEX IF NOT EXISTS actions_ts ON actions(ts);
 """)
 
 
-MIGRATIONS = [_migration_1, _migration_2]  # position + 1 is the version; append, never reorder
+def _migration_3(c: sqlite3.Connection) -> None:
+    # Outside MCP servers whose tools the assistant can use
+    _script(c, """
+CREATE TABLE IF NOT EXISTS mcp_servers (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,                    -- short-kebab-case; tools are named mcp__<name>__<tool>
+  transport TEXT NOT NULL DEFAULT 'http',       -- http (streamable HTTP) | stdio
+  url TEXT NOT NULL DEFAULT '',
+  command TEXT NOT NULL DEFAULT '',
+  args TEXT NOT NULL DEFAULT '[]',              -- JSON list
+  headers_enc TEXT NOT NULL DEFAULT '',         -- encrypted JSON object
+  env_enc TEXT NOT NULL DEFAULT '',             -- encrypted JSON object
+  allowed_tools TEXT NOT NULL DEFAULT '',       -- comma separated; empty = all
+  enabled INTEGER NOT NULL DEFAULT 1,
+  tools TEXT NOT NULL DEFAULT '[]',             -- cached listing: [{"name", "description", "input_schema"}]
+  last_error TEXT NOT NULL DEFAULT '',
+  last_refreshed TEXT,
+  created_at TEXT NOT NULL
+)
+""")
+
+
+MIGRATIONS = [_migration_1, _migration_2, _migration_3]  # position + 1 is the version; append, never reorder
 
 
 def init() -> None:

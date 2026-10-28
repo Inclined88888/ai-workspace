@@ -46,6 +46,7 @@ class Tool:
     reads_untrusted: bool = False      # returns text written by third parties (web, email)
     persists: bool = False             # writes instructions or state that later turns trust
     schema: dict | None = None         # full JSON schema (MCP tools), instead of params and required
+    takes_dict: bool = False           # fn receives the arguments as one dict (MCP tools), never ctx
 
     def spec(self) -> dict:
         params = self.schema or {"type": "object", "properties": self.params, "required": list(self.required)}
@@ -297,14 +298,15 @@ async def run_tool(name: str, raw_args: str, ctx: Ctx) -> tuple[bool, str]:
             raise ValueError("arguments must be an object")
     except ValueError as e:
         return False, f"Invalid arguments: {e}"
-    sig = inspect.signature(t.fn)
-    if "ctx" in sig.parameters:
-        args["ctx"] = ctx
-    args = {k: v for k, v in args.items() if k in sig.parameters}
+    if not t.takes_dict:
+        sig = inspect.signature(t.fn)
+        if "ctx" in sig.parameters:
+            args["ctx"] = ctx
+        args = {k: v for k, v in args.items() if k in sig.parameters}
     if t.reads_untrusted:
         ctx.untrusted = True
     try:
-        result = t.fn(**args)
+        result = t.fn(args) if t.takes_dict else t.fn(**args)
         if inspect.isawaitable(result):
             result = await asyncio.wait_for(result, TOOL_TIMEOUT_S)
         return True, json.dumps(result, default=str, ensure_ascii=False)[:20000]
