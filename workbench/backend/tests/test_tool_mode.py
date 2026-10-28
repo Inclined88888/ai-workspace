@@ -80,3 +80,28 @@ def test_tool_mode_defaults_and_validation(client, settings):
     assert client.get('/api/assistant/settings').json()['tool_mode'] == 'auto'
     assert client.put('/api/assistant/settings', json={'tool_mode': 'invalid'}).status_code == 422
     assert client.get('/api/assistant/settings').json()['tool_mode'] == 'auto'
+
+
+def test_compact_keeps_delegation_for_company_agents(client, settings):
+    from app import assistant, db
+    db.set_setting('tool_mode', 'compact')
+    boss = {'id': 1, 'name': 'CEO', 'model': ''}
+    ctx = assistant.Ctx(channel='agent', conversation_id=0, agent=boss)
+    names = {t.name for t in assistant.available_tools(ctx, 'Write the quarterly plan')}
+    assert {'delegate_task', 'list_team'} <= names
+    names = {t.name for t in assistant.available_tools(assistant.Ctx(channel='web', conversation_id=0), 'Write the quarterly plan')}
+    assert not {'delegate_task', 'list_team'} & names
+
+
+def test_loading_a_skill_offers_the_tools_it_names(client, settings):
+    from conftest import tool_call
+    from app import db, learn
+    db.set_setting('tool_mode', 'compact')
+    learn.upsert_skill('inbox-triage', 'Sort the inbox', '1. search_email for unread\n2. read_email each one\n3. summarise', source='user')
+    SCRIPT[:] = [tool_call('load_skill', {'name': 'inbox-triage'}), {'content': 'done'}]
+    CALLS.clear()
+    events(client.post('/api/assistant/chat', json={'message': 'Do my morning triage'}))
+    first, second = [{t['function']['name'] for t in c['tools']} for c in CALLS if c.get('tools')][:2]
+    assert not {'search_email', 'read_email'} & first
+    assert {'search_email', 'read_email'} <= second
+    db.run("DELETE FROM skills WHERE name = 'inbox-triage'")

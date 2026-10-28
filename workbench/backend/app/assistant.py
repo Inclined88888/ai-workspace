@@ -258,6 +258,8 @@ def available_tools(ctx: Ctx, user_text: str = "", model: str | None = None) -> 
         p, _ = llm.split_ref(model or llm.default_model_ref())
         compact = p["kind"] == "ollama" and llm.ollama_num_ctx() < 32768
     names = set(COMPACT_TOOLS)
+    if ctx.agent:  # a manager must always be able to hand work down, whatever the task text says
+        names.update({"delegate_task", "list_team"})
     if compact:
         words = set(re.findall(r"\w+", user_text.lower()))
         names.update(words & TOOL_MAP.keys())  # explicit tool names work too
@@ -428,6 +430,11 @@ async def run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> AsyncI
             ok, out = await run_tool(fn["name"], fn["arguments"], ctx)
             _save(ctx.conversation_id, "tool", out, tool_call_id=call["id"], name=fn["name"])
             yield {"type": "tool_result", "name": fn["name"], "ok": ok, "preview": out[:300]}
+            if ok and fn["name"] == "load_skill":
+                # Compact mode may not have offered the tools this skill's steps name; offer them from now on
+                offered = {s["function"]["name"] for s in specs}
+                specs += [t.spec() for t in TOOLS if t.name not in offered and t.when(ctx)
+                          and re.search(rf"\b{re.escape(t.name)}\b", out)]
     else:
         final = f"I stopped after {MAX_STEPS} steps without finishing. Tell me how to continue."
         _save(ctx.conversation_id, "assistant", final)
