@@ -90,7 +90,7 @@ with sync_playwright() as pw:
     expect(p.locator(".alert.ok")).to_contain_text("Connected and tested")
     p.get_by_role("button", name="Continue").click()
     p.get_by_role("button", name="Open ROOKS").click()
-    p.locator("aside").get_by_role("link", name="Assistant", exact=True).click()
+    p.locator("aside").get_by_role("button", name="New chat", exact=True).click()
     send(p, "How should I plan my week?")
     expect(p.get_by_text("Pick three outcomes")).to_be_visible()
     reqs = [r for r in st.ai_requests() if r["path"].endswith("/chat/completions")]
@@ -125,8 +125,15 @@ with sync_playwright() as pw:
     expect(p.get_by_text("Research finished")).to_be_visible(timeout=30000)
     expect(p.get_by_text("The instant asset write-off threshold stays at")).to_be_visible()
     check("B [engine stand-in] the finished report appears in the open conversation without reloading", True)
-    expect(p.get_by_role("link", name="Full report and sources").last).to_have_attribute("href", f"/research/{rid}")
-    check("B the report links to its full page", True)
+    expect(p.get_by_role("link", name="Sources and evidence").last).to_have_attribute("href", f"/research/{rid}")
+    check("B the report links to its full page with the evidence", True)
+    p.get_by_role("button", name="Preview report").last.click()
+    panel = p.get_by_role("complementary", name="Research report preview")
+    expect(panel).to_contain_text("$20,000")
+    check("B [v14] the report opens beside the conversation, which stays where it was", "/assistant/" in p.url)
+    p.keyboard.press("Escape")
+    expect(panel).to_have_count(0)
+    check("B [v14] Escape closes the preview", True)
     shot(p, "v13-B-research")
 
     # C. Upload a spreadsheet in the conversation and get computed figures [stand-in AI decides; figures computed by ROOKS]
@@ -148,17 +155,18 @@ with sync_playwright() as pw:
     send(p, "Write a document about the onboarding plan")
     expect(p.get_by_text("is saved")).to_be_visible()
     p.get_by_role("button", name="Preview").last.click()
-    prev = p.locator(".doc-preview").last
+    prev = p.get_by_role("complementary", name="Document preview")
     expect(prev.locator("h2", has_text="Week 1")).to_be_visible()
-    check("D the preview renders the document (headings, bold, lists)", prev.locator("strong", has_text="Set up").count() == 1 and prev.locator("li").count() >= 3)
+    check("D [v14] the preview opens beside the conversation and renders the document (headings, bold, lists)", prev.locator("strong", has_text="Set up").count() == 1 and prev.locator("li").count() >= 3)
     with p.expect_download() as dl:
         p.get_by_role("button", name="Download").last.click()
     path = dl.value.path()
     body = open(path).read() if path else ""
     check("D the download is the document's Markdown", dl.value.suggested_filename == "Onboarding plan.md" and "## Week 2" in body, dl.value.suggested_filename)
-    p.get_by_role("link", name="Open").last.click()
+    prev.get_by_role("link", name="Open in its page").click()
     expect(p).to_have_url(re.compile(r"/documents/\d+"))
-    check("D Open goes to the document, inside the Library area", p.get_by_role("navigation", name="Library").count() == 1)
+    check("D Open goes to the document, with its Notes and Documents tabs",
+          p.get_by_role("navigation", name="Notes and documents").count() == 1)
     shot(p, "v13-D-document")
 
     # E. A mission: plan posted for approval, approved in the conversation, result posted [stand-in AI, real mission engine]

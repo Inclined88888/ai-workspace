@@ -44,8 +44,12 @@ with sync_playwright() as pw:
     errors: list[str] = []
     p.on("pageerror", lambda e: errors.append(str(e)))
 
-    # Skip link first, and it moves focus past the sidebar
+    # The chat opens with the message box focused (typing is the first thing to do)
     p.goto(st.url + "/")
+    p.wait_for_load_state("networkidle")
+    check("ROOKS opens on the assistant with the message box focused", focused(p)["cls"].startswith("composer-input"), focused(p))
+    # Skip link first on other pages, and it moves focus past the sidebar
+    p.goto(st.url + "/projects")
     p.wait_for_load_state("networkidle")
     p.keyboard.press("Tab")
     f = focused(p)
@@ -55,11 +59,14 @@ with sync_playwright() as pw:
     p.keyboard.press("Tab")
     check("after skipping, the next stop is inside the page content", focused(p)["inMain"], focused(p))
 
-    # Sidebar by keyboard, with a visible focus ring
-    p.goto(st.url + "/")
+    # Sidebar by keyboard, with a visible focus ring: open the Workspace fold, then Tasks
+    p.goto(st.url + "/projects")
     p.wait_for_load_state("networkidle")
+    f = tab_to(p, lambda f: f["text"] == "Workspace")
+    check("Tab reaches the Workspace fold in the sidebar", f)
+    p.keyboard.press("Enter")
     f = tab_to(p, lambda f: f["href"] == "/tasks")
-    check("Tab reaches Tasks in the sidebar", f)
+    check("Tab reaches Tasks and calendar inside it", f)
     check("the focused link shows a focus ring", f and f["ring"], f)
     p.keyboard.press("Enter")
     expect(p).to_have_url(st.url + "/tasks")
@@ -92,7 +99,7 @@ with sync_playwright() as pw:
     # Conversations and the composer
     p.goto(st.url + "/assistant")
     p.wait_for_load_state("networkidle")
-    f = tab_to(p, lambda f: f["href"] == f"/assistant/{conv['id']}")
+    f = tab_to(p, lambda f: f["href"] == f"/assistant/{conv['id']}", back=True)  # from the message box back to the sidebar's recent chats
     check("a conversation in the list can be reached with Tab", f, f)
     p.keyboard.press("Enter")
     expect(p).to_have_url(st.url + f"/assistant/{conv['id']}")
@@ -108,12 +115,12 @@ with sync_playwright() as pw:
     check("Enter sends, and the answer arrives", True)
 
     # Phone: the menu opens and closes from the keyboard; search closes it so overlays never stack
-    ph = b.new_context(viewport={"width": 390, "height": 844})
+    ph = b.new_context(viewport={"width": 390, "height": 844}, has_touch=True, is_mobile=True)  # a phone: touch, no autofocus
     ph.request.post(st.url + "/api/login", headers=H, data={"password": PASSWORD})
     q = ph.new_page()
     q.goto(st.url + "/")
     q.wait_for_load_state("networkidle")
-    f = tab_to(q, lambda f: "menu" in f["text"].lower(), limit=10)
+    f = tab_to(q, lambda f: "menu" in f["text"].lower(), limit=20)  # Chrome starts Tab near the message box after load
     check("the phone menu button is reachable", f, f)
     q.keyboard.press("Enter")
     expect(q.locator(".sidebar.open")).to_be_visible()

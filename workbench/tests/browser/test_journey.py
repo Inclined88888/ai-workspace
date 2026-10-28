@@ -14,26 +14,27 @@ from playwright.sync_api import expect, sync_playwright
 
 from harness import PASSWORD, Stack, api, axe, browser, check, finish, shot
 
-# v13: a short sidebar of areas; each area's pages are tabs at the top of the page, the rest is under More
-SIDEBAR = ["Assistant", "Home", "Needs you", "Projects", "Library", "Planner", "Work", "Settings"]
-TABS = {"Library": ["Notes", "Documents", "Files", "Research"], "Planner": ["Tasks", "Calendar", "Automations"],
-        "Work": ["Missions", "Computer", "Agent team"]}
-MORE = ["Mail", "Memory & skills", "What ROOKS can do", "Compare models"]
+# v14: the sidebar is the everyday items, recent conversations, and a Workspace fold for detailed pages
+SIDEBAR = ["New chat", "Search", "Projects", "Needs your review", "Settings"]
+WORKSPACE = {"Notes": "Notes and documents", "Files": "Files", "Research": "Research", "Tasks": "Tasks and calendar",
+             "Missions": "Missions", "Computer": "Computer", "Mail": "Mail", "Memory & skills": "Memory and skills",
+             "Home": "Overview", "What ROOKS can do": "What ROOKS can do", "Compare models": "Compare models"}
 
 
 def go(p, name: str) -> None:
-    """Open a page the way a person finds it: the sidebar, an area's tabs, or More."""
+    """Open a page the way a person finds it: the sidebar, or the Workspace fold, or a tab on that page."""
     side = p.locator("aside").get_by_role("link", name=name, exact=True)
     if side.count() and side.first.is_visible():
         side.first.click()
         return
-    area = next((a for a, pages in TABS.items() if name in pages), None)
-    if area:
-        p.locator("aside").get_by_role("link", name=area, exact=True).click()
-        p.get_by_role("navigation", name=area).get_by_role("link", name=name, exact=True).click()
+    if name in ("Automations", "Calendar", "Agent team", "Documents"):
+        go(p, {"Automations": "Tasks", "Calendar": "Tasks", "Agent team": "Missions", "Documents": "Notes"}[name])
+        p.get_by_role("link", name=name, exact=True).first.click()
         return
-    p.locator("aside summary", has_text="More").click()
-    p.locator("aside").get_by_role("link", name=name, exact=True).click()
+    fold = p.locator("aside").get_by_role("button", name="Workspace")
+    if fold.get_attribute("aria-expanded") != "true":
+        fold.click()
+    p.locator("aside").get_by_role("link", name=WORKSPACE[name], exact=True).click()
 
 with sync_playwright() as pw:
     st = Stack("journey")
@@ -78,26 +79,26 @@ with sync_playwright() as pw:
     check("the last step says which timezone reminders use", "Australia/Sydney" in p.inner_text("body"))
     p.get_by_role("button", name="Open ROOKS").click()
 
-    # 3. Every major area can be found from the sidebar and opens
-    expect(p.get_by_role("heading", name=re.compile("Good (morning|afternoon|evening)"))).to_be_visible()
-    missing = [a for a in SIDEBAR if p.locator("aside").get_by_role("link", name=a, exact=True).count() == 0]
-    check("every area is in the sidebar", not missing, missing)
-    check("the sidebar is short (8 links before More)", p.locator("aside nav[aria-label=Main] > a.nav-link").count() <= 8,
-          p.locator("aside nav[aria-label=Main] > a.nav-link").count())
-    for area, pages in TABS.items():
-        p.locator("aside").get_by_role("link", name=area, exact=True).click()
-        tabs = p.get_by_role("navigation", name=area)
-        check(f"{area} shows its pages as tabs", all(tabs.get_by_role("link", name=n, exact=True).count() == 1 for n in pages), pages)
-    for a in ["Projects", "Missions", "Research", "Computer", "Automations", "What ROOKS can do", "Settings", "Mail", "Agent team"]:
+    # 3. ROOKS opens on the assistant; every page is still one or two clicks away
+    expect(p.get_by_role("heading", name="What can I help you get done?")).to_be_visible()
+    check("ROOKS opens on the assistant, not a dashboard", p.url.rstrip("/") == st.url)
+    missing = [a for a in SIDEBAR if p.locator("aside").get_by_role("link", name=re.compile(f"^{a}")).count() +
+               p.locator("aside").get_by_role("button", name=re.compile(f"^{a}")).count() == 0]
+    check("the everyday items are in the sidebar", not missing, missing)
+    check("the sidebar has no more than 6 everyday items before the Workspace fold",
+          p.locator("aside nav[aria-label=Main] > .nav-link").count() <= 6, p.locator("aside nav[aria-label=Main] > .nav-link").count())
+    check("the Workspace fold starts closed", p.locator("aside").get_by_role("button", name="Workspace").get_attribute("aria-expanded") == "false")
+    for a in ["Projects", "Missions", "Research", "Computer", "Automations", "What ROOKS can do", "Settings", "Mail", "Agent team", "Home"]:
         go(p, a)
         expect(p.locator("main h1").first).to_be_visible()
     check("each page opens with its own heading", True)
     axe(p, "Settings after setup")
 
-    # 4. Ask ROOKS from Home and see the work done
-    go(p, "Home")
-    p.fill("#home-ask", "Remind me to call the plumber tomorrow")
-    p.get_by_role("button", name="Ask ROOKS").click()
+    # 4. Ask ROOKS from the start screen (New chat) and see the work done
+    p.locator("aside").get_by_role("button", name="New chat").click()
+    expect(p.get_by_role("heading", name="What can I help you get done?")).to_be_visible()
+    p.get_by_label("Message ROOKS").fill("Remind me to call the plumber tomorrow")
+    p.keyboard.press("Enter")
     expect(p.get_by_text(re.compile("Call the plumber.*is on your task list for tomorrow"))).to_be_visible()
     check("the assistant answered and says what it did", True)
     tasks = api(p, "/tasks")["body"]
@@ -108,7 +109,7 @@ with sync_playwright() as pw:
     # 5. Finish the task in Tasks
     go(p, "Tasks")
     p.get_by_role("button", name='Mark "Call the plumber" as done').click()
-    expect(p.get_by_text("Call the plumber")).to_have_count(0)
+    expect(p.locator("main").get_by_text("Call the plumber")).to_have_count(0)
     done = [t for t in api(p, "/tasks?status=done")["body"] if t["title"] == "Call the plumber"] or \
            [t for t in api(p, "/tasks?include_done=true")["body"] if t["title"] == "Call the plumber" and t["status"] == "done"]
     check("completing the task is saved", done, done)
@@ -120,7 +121,7 @@ with sync_playwright() as pw:
     title.fill("Plumber questions")
     body = p.locator("textarea.editor-body")
     body.fill("Ask about the hot water system.")
-    go(p, "Home")  # no pause: the save must not be lost
+    p.locator("aside").get_by_role("link", name="Projects", exact=True).click()  # no pause: the save must not be lost
     p.wait_for_timeout(800)
     notes = api(p, "/docs?kind=note")["body"]
     check("a note edited and left at once is saved", any("hot water" in (n.get("body") or n.get("preview") or "") for n in notes),

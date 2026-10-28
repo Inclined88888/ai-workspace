@@ -1,17 +1,15 @@
-import {
-  Bot, Brain, Flag, Building2, CalendarDays, MessageSquare, Globe, Columns3, ExternalLink, Home, LogOut, Mail, Menu, Moon, NotebookPen,
-  MoreHorizontal, Palette, PanelLeftClose, PanelLeftOpen, Search, Settings as SettingsIcon, Sun, Sparkles, X, FolderKanban,
-} from "lucide-react";
+import { Menu, Moon, Search, SquarePen, Sun } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
-import { Link, NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { api } from "./api";
 import Auth from "./pages/Auth";
-import Dashboard from "./pages/Dashboard";
+import Assistant from "./pages/Assistant";
 import RookMark from "./components/RookMark";
 import { apply, cache, cached, normalise } from "./appearance";
 import ComputerBar from "./components/ComputerBar";
 import CallInvites from "./components/CallInvites";
-import NeedsYou, { NeedsYouIcon, useAttentionCount } from "./pages/NeedsYou";
+import NeedsYou from "./pages/NeedsYou";
+import Sidebar from "./components/Sidebar";
 import CommandPalette, { openPalette } from "./components/CommandPalette";
 
 // Pages load on first visit, so the first screen downloads only what it needs. Once the app is idle every page is
@@ -22,7 +20,7 @@ function page<T extends React.ComponentType<any>>(load: () => Promise<{ default:
   preloads.push(load);
   return lazy(load);
 }
-const Assistant = page(() => import("./pages/Assistant"));
+const Dashboard = page(() => import("./pages/Dashboard"));
 const Automations = page(() => import("./pages/Automations"));
 const Company = page(() => import("./pages/Company"));
 const Browser = page(() => import("./pages/Browser"));
@@ -59,54 +57,25 @@ export type Status = {
   local_models_enabled: boolean;
 };
 
-// Primary navigation is a few areas around what you need; each area's pages share a row of tabs (AreaTabs). Every
-// route that existed before still works, so deep links and bookmarks keep opening the same page.
-export const AREAS = {
-  library: { label: "Library", pages: [["/notes", "Notes"], ["/documents", "Documents"], ["/files", "Files"], ["/research", "Research"]] },
-  planner: { label: "Planner", pages: [["/tasks", "Tasks"], ["/calendar", "Calendar"], ["/automations", "Automations"]] },
-  work: { label: "Work", pages: [["/missions", "Missions"], ["/computer", "Computer"], ["/company", "Agent team"]] },
-} as const;
-type Area = keyof typeof AREAS;
-function areaOf(path: string): Area | null {
-  for (const [k, a] of Object.entries(AREAS) as [Area, (typeof AREAS)[Area]][]) {
-    if (a.pages.some(([to]) => path === to || path.startsWith(`${to}/`))) return k;
-  }
-  return null;
-}
-const NAV = [
-  { to: "/assistant", label: "Assistant", icon: MessageSquare },
-  { to: "/", label: "Home", icon: Home },
-  { to: "/needs-you", label: "Needs you", icon: NeedsYouIcon, count: true },
-  { to: "/projects", label: "Projects", icon: FolderKanban },
-  { to: "/notes", label: "Library", icon: NotebookPen, area: "library" },
-  { to: "/tasks", label: "Planner", icon: CalendarDays, area: "planner" },
-  { to: "/missions", label: "Work", icon: Flag, area: "work" },
-] as const;
-const MORE = [
-  { to: "/mail", label: "Mail", icon: Mail },
-  { to: "/assistant-memory", label: "Memory & skills", icon: Brain },
-  { to: "/capabilities", label: "What ROOKS can do", icon: Sparkles },
-  { to: "/compare", label: "Compare models", icon: Columns3 },
-  { to: "/browser", label: "Browser agent", icon: Globe, addon: "browser" },
+// Pages that are views of one thing share a row of tabs, so each is one click from the others. The sidebar's Workspace
+// fold names the group (Notes and documents, Tasks and calendar, Missions); every page is also in Search (Ctrl K).
+const GROUPS = [
+  { label: "Notes and documents", pages: [["/notes", "Notes"], ["/documents", "Documents"]] },
+  { label: "Tasks and calendar", pages: [["/tasks", "Tasks"], ["/calendar", "Calendar"], ["/automations", "Automations"]] },
+  { label: "Missions", pages: [["/missions", "Missions"], ["/company", "Agent team"]] },
 ] as const;
 
-/** The tabs of the area the current page belongs to (Library, Planner, Work), so related pages are one click apart. */
-function AreaTabs() {
+function PageTabs() {
   const { pathname } = useLocation();
-  const area = areaOf(pathname);
-  if (!area) return null;
+  const group = GROUPS.find((g) => g.pages.some(([to]) => pathname === to || pathname.startsWith(`${to}/`)));
+  if (!group) return null;
   return (
-    <nav className="area-tabs" aria-label={AREAS[area].label}>
-      {AREAS[area].pages.map(([to, label]) => (
+    <nav className="area-tabs" aria-label={group.label}>
+      {group.pages.map(([to, label]) => (
         <NavLink key={to} to={to} className={({ isActive }) => `area-tab ${isActive ? "active" : ""}`}>{label}</NavLink>
       ))}
     </nav>
   );
-}
-
-function NavCount() {
-  const n = useAttentionCount();
-  return n > 0 ? <span className="nav-count" aria-label={`${n} waiting`}>{n > 99 ? "99+" : n}</span> : null;
 }
 
 function readCollapsed(): boolean {
@@ -145,6 +114,7 @@ export default function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const location = useLocation();
+  const navigate = useNavigate();
   const toggleCollapsed = () => {
     setCollapsed((c) => {
       try { localStorage.setItem("wb-sidebar", c ? "open" : "collapsed"); } catch { /* storage unavailable */ }
@@ -198,66 +168,8 @@ export default function App() {
   return (
     <div className={`shell ${collapsed ? "collapsed" : ""}`}>
       <a className="skip-link" href="#main">Skip to content</a>
-      <aside className={`sidebar ${menuOpen ? "open" : ""}`} aria-label="Sidebar">
-        <div className="brand">
-          <div className="brand-mark"><RookMark size={18} /></div>
-          <div className="nav-label" style={{ minWidth: 0 }}>
-            <span className="wordmark">ROOKS</span>
-            {status.workspace_name !== "ROOKS" && <span className="brand-sub truncate">{status.workspace_name}</span>}
-          </div>
-          <button className="btn ghost sm icon mobile-only" style={{ marginLeft: "auto" }} onClick={() => setMenuOpen(false)} aria-label="Close menu" title="Close menu"><X size={16} /></button>
-        </div>
-        <button type="button" className="nav-search" onClick={openPalette} title="Search and jump (Ctrl+K)" aria-label="Search and jump (Ctrl+K)">
-          <Search size={15} aria-hidden="true" /><span className="nav-label grow">Search</span><kbd className="kbd nav-label">Ctrl K</kbd>
-        </button>
-        <nav aria-label="Main" className="col" style={{ gap: 2 }}>
-          {NAV.map((item) => (
-            <NavLink key={item.to} to={item.to} end={item.to === "/"} title={collapsed ? item.label : undefined}
-              className={({ isActive }) => `nav-link ${isActive || ("area" in item && areaOf(location.pathname) === item.area) ? "active" : ""}`}
-              aria-current={"area" in item && areaOf(location.pathname) === item.area ? "page" : undefined}>
-              <item.icon size={17} aria-hidden="true" /> <span className="nav-label">{item.label}</span>
-              {"count" in item && <NavCount />}
-            </NavLink>
-          ))}
-          <details className="nav-more" open={MORE.some((m) => location.pathname.startsWith(m.to)) || undefined}>
-            <summary className="nav-link" title={collapsed ? "More" : undefined}><MoreHorizontal size={17} aria-hidden="true" /> <span className="nav-label">More</span></summary>
-            {MORE.filter((item) => !("addon" in item) || (item.addon === "browser" && status.browser_enabled)).map((item) => (
-              <NavLink key={item.to} to={item.to} className="nav-link" title={collapsed ? item.label : undefined}>
-                <item.icon size={17} aria-hidden="true" /> <span className="nav-label">{item.label}</span>
-              </NavLink>
-            ))}
-          </details>
-          {(status.chat_url || status.paperclip_url || status.hermes_url) && <div className="nav-section"><span className="nav-label">Add-ons</span></div>}
-          {status.chat_url && (
-            <a className="nav-link" href={status.chat_url} target="_blank" rel="noreferrer" title={collapsed ? "Open WebUI (opens in a new tab)" : undefined}>
-              <Sparkles size={17} aria-hidden="true" /> <span className="nav-label">Open WebUI</span> <ExternalLink size={12} className="nav-label" style={{ marginLeft: "auto" }} aria-label="opens in a new tab" />
-            </a>
-          )}
-          {status.paperclip_url && (
-            <a className="nav-link" href={status.paperclip_url} target="_blank" rel="noreferrer" title={collapsed ? "Paperclip (opens in a new tab)" : undefined}>
-              <Building2 size={17} aria-hidden="true" /> <span className="nav-label">Paperclip</span> <ExternalLink size={12} className="nav-label" style={{ marginLeft: "auto" }} aria-label="opens in a new tab" />
-            </a>
-          )}
-          {status.hermes_url && (
-            <a className="nav-link" href={status.hermes_url} target="_blank" rel="noreferrer" title={collapsed ? "Hermes (opens in a new tab)" : undefined}>
-              <Bot size={17} aria-hidden="true" /> <span className="nav-label">Hermes</span> <ExternalLink size={12} className="nav-label" style={{ marginLeft: "auto" }} aria-label="opens in a new tab" />
-            </a>
-          )}
-        </nav>
-        <div className="spacer" />
-        <div className="nav-section"><span className="nav-label">System</span></div>
-        <NavLink to="/settings" className="nav-link" title={collapsed ? "Settings" : undefined}><SettingsIcon size={17} aria-hidden="true" /> <span className="nav-label">Settings</span></NavLink>
-        <div className="sidebar-foot">
-          <ThemeToggle />
-          <Link to="/settings#appearance" className="btn ghost icon" aria-label="Appearance: themes and fonts" title="Themes and fonts"><Palette size={16} /></Link>
-          <button className="btn ghost icon desktop-only" onClick={toggleCollapsed} aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} title={collapsed ? "Expand sidebar" : "Collapse sidebar"} aria-expanded={!collapsed}>
-            {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
-          </button>
-          <div className="spacer nav-label" />
-          <button className="btn ghost sm" onClick={logout} title="Sign out" aria-label="Sign out"><LogOut size={14} /> <span className="nav-label">Sign out</span></button>
-        </div>
-      </aside>
-      {menuOpen && <div className="modal-back" style={{ zIndex: 35 }} onClick={() => setMenuOpen(false)} />}
+      <Sidebar status={status} collapsed={collapsed} open={menuOpen} onClose={() => setMenuOpen(false)} onToggle={toggleCollapsed} onLogout={logout} />
+      {menuOpen && <div className="modal-back drawer-back" onClick={() => setMenuOpen(false)} />}
       <main className="main" id="main" tabIndex={-1}>
         <ComputerBar />
         <CallInvites />
@@ -267,14 +179,15 @@ export default function App() {
           <RookMark size={18} />
           <strong className={`truncate ${status.workspace_name === "ROOKS" ? "wordmark" : ""}`}>{status.workspace_name}</strong>
           <div className="spacer" />
-          <button type="button" className="btn ghost icon" onClick={openPalette} aria-label="Search and jump" title="Search and jump"><Search size={18} /></button>
-          <Link to="/assistant" className="btn ghost icon" aria-label="Ask ROOKS" title="Ask ROOKS"><MessageSquare size={18} /></Link>
+          <ThemeToggle />
+          <button type="button" className="btn ghost icon" onClick={openPalette} aria-label="Search" title="Search"><Search size={18} /></button>
+          <button type="button" className="btn ghost icon" onClick={() => { navigate("/"); window.dispatchEvent(new Event("rooks:newchat")); }} aria-label="New chat" title="New chat"><SquarePen size={18} /></button>
         </div>
-        <AreaTabs />
+        <PageTabs />
         <Suspense fallback={<PageLoading />}>
         <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/overview" element={<Navigate to="/" replace />} />
+          <Route path="/" element={<Assistant tab="chat" />} />
+          <Route path="/overview" element={<Dashboard />} />
           <Route path="/library" element={<Navigate to="/notes" replace />} />
           <Route path="/planner" element={<Navigate to="/tasks" replace />} />
           <Route path="/work" element={<Navigate to="/missions" replace />} />

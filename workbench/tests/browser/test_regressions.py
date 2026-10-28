@@ -35,11 +35,11 @@ with sync_playwright() as pw:
     p.locator("textarea").first.fill("Take your time with this one")
     p.keyboard.press("Enter")
     p.wait_for_timeout(500)
-    p.locator(f'a.list-link[href="/assistant/{c2}"]').click()
+    p.locator(f'a.recent-link[href="/assistant/{c2}"]').click()
     p.wait_for_timeout(6000)
     check("a slow reply does not appear in the conversation you moved to", p.get_by_text("slow answer").count() == 0)
     check("you stay where you moved to", p.url.endswith(f"/assistant/{c2}"), p.url)
-    p.locator(f'a.list-link[href="/assistant/{a}"]').click()
+    p.locator(f'a.recent-link[href="/assistant/{a}"]').click()
     expect(p.get_by_text("Here is the slow answer you asked for.")).to_be_visible()
     check("the reply is saved in its own conversation", True)
 
@@ -48,17 +48,17 @@ with sync_playwright() as pw:
     p.locator("textarea").first.fill("Take your time, new chat")
     p.keyboard.press("Enter")
     p.wait_for_timeout(500)
-    p.locator(f'a.list-link[href="/assistant/{c2}"]').click()
+    p.locator(f'a.recent-link[href="/assistant/{c2}"]').click()
     p.wait_for_timeout(6000)
     check("a new chat finishing later does not take you away from where you are", p.url.endswith(f"/assistant/{c2}"), p.url)
 
     # Was: what you typed followed you into other conversations (and could be sent to the wrong one)
     p.goto(st.url + f"/assistant/{a}")
     p.locator("textarea").first.fill("draft for the first conversation")
-    p.locator(f'a.list-link[href="/assistant/{c2}"]').click()
+    p.locator(f'a.recent-link[href="/assistant/{c2}"]').click()
     expect(p).to_have_url(st.url + f"/assistant/{c2}")
     check("another conversation starts with its own empty message box", p.locator("textarea").first.input_value() == "")
-    p.locator(f'a.list-link[href="/assistant/{a}"]').click()
+    p.locator(f'a.recent-link[href="/assistant/{a}"]').click()
     expect(p.locator("textarea").first).to_have_value("draft for the first conversation")
     check("going back brings the draft back", True)
 
@@ -125,11 +125,11 @@ with sync_playwright() as pw:
     check("research with no reports shows one clear empty state", p.locator("main .empty").count() == 1, p.locator("main .empty").count())
 
     # Was: the computer status was fetched every 2 seconds even with Computer Use off
-    p.goto(st.url + "/")
+    p.goto(st.url + "/overview")
     seen = []
     p.on("request", lambda r: seen.append(r.url) if r.url.endswith("/api/computer") else None)
     p.wait_for_timeout(20000)
-    # Home itself reads it once for its summary; the bar then checks every 15 s (it used to be every 2 s: about 10 here)
+    # Overview itself reads it once for its summary; the bar then checks every 15 s (it used to be every 2 s: about 10 here)
     check("with Computer Use off the status is checked at most every 15 seconds", len(seen) <= 3, len(seen))
 
     # Was: research, mail and other lists opened on click only (no keyboard); now each row has a real link or button

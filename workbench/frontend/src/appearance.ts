@@ -27,13 +27,13 @@ export type Appearance = {
 };
 
 export const PRESETS: Theme[] = [
-  { id: "rooks", name: "ROOKS", mode: "light", bg: "#f7f7f8", panel: "#ffffff", text: "#18181b", accent: "#3f4bd1" },
+  { id: "rooks", name: "ROOKS", mode: "light", bg: "#faf9f6", panel: "#ffffff", text: "#1d1c1a", accent: "#3f4bd1" },
   { id: "paper", name: "Paper", mode: "light", bg: "#f5f0e6", panel: "#fffdf7", text: "#2a241d", accent: "#a8481f", font: "literata" },
   { id: "sage", name: "Sage", mode: "light", bg: "#eef2ec", panel: "#fafcf8", text: "#1d281e", accent: "#2f7445" },
   { id: "sky", name: "Sky", mode: "light", bg: "#edf3f9", panel: "#ffffff", text: "#132131", accent: "#1d68b0" },
   { id: "blossom", name: "Blossom", mode: "light", bg: "#fbf0f3", panel: "#fffafc", text: "#371d27", accent: "#b02e66" },
   { id: "contrast-light", name: "High contrast", mode: "light", bg: "#ffffff", panel: "#ffffff", text: "#000000", accent: "#0035c8" },
-  { id: "rooks-dark", name: "ROOKS dark", mode: "dark", bg: "#0f0f12", panel: "#17171b", text: "#ececf1", accent: "#5a66ea" },
+  { id: "rooks-dark", name: "ROOKS dark", mode: "dark", bg: "#141413", panel: "#1b1b1a", text: "#ecebe8", accent: "#5b63d6" },
   { id: "graphite", name: "Graphite", mode: "dark", bg: "#1a1b1e", panel: "#222327", text: "#e6e6e8", accent: "#7aa7f5" },
   { id: "midnight", name: "Midnight", mode: "dark", bg: "#0a0f1d", panel: "#111a2d", text: "#dce5f4", accent: "#6f8dff" },
   { id: "forest", name: "Forest", mode: "dark", bg: "#0e1611", panel: "#152019", text: "#dbeadf", accent: "#4fb37a" },

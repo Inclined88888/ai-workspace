@@ -4,6 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { Block, fmt, JobKind, Kind, Rec } from "./schema";
 import RichText from "./RichText";
+import { usePreview } from "./Preview";
 
 const Chart = lazy(() => import("./Chart"));
 
@@ -57,6 +58,8 @@ function useLive(kind: Kind, r: Rec): Rec {
   return cur;
 }
 
+const QUIET = "quiet";  // an action whose result is visible by itself (a preview opening): no "Done" after it
+
 function Act({ label, icon, run, tone = "" }: { label: string; icon?: React.ReactNode; run: () => Promise<unknown>; tone?: string }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
@@ -64,7 +67,7 @@ function Act({ label, icon, run, tone = "" }: { label: string; icon?: React.Reac
     <>
       <button type="button" className={`btn sm ${tone}`} disabled={busy} onClick={async () => {
         setBusy(true); setMsg("");
-        try { await run(); setMsg("Done"); } catch (e) { setMsg((e as Error).message); } finally { setBusy(false); }
+        try { if ((await run()) !== QUIET) setMsg("Done"); } catch (e) { setMsg((e as Error).message); } finally { setBusy(false); }
       }}>{busy ? <Loader2 size={12} className="spin" /> : icon} {label}</button>
       {msg && <span className={`small ${msg === "Done" ? "muted" : ""}`} role={msg === "Done" ? "status" : "alert"} style={msg === "Done" ? undefined : { color: "var(--danger)" }}>{msg}</span>}
     </>
@@ -86,6 +89,7 @@ function RecordCard({ kind, r: raw }: { kind: Kind; r: Rec }) {
   const [preview, setPreview] = useState<string | null>(null);
   const [docBody, setDocBody] = useState<string | null>(null);
   const navigate = useNavigate();
+  const openPreview = usePreview();
   let title = "", meta: string[] = [], body = "", actions: React.ReactNode = null;
   switch (kind) {
     case "task":
@@ -102,6 +106,7 @@ function RecordCard({ kind, r: raw }: { kind: Kind; r: Rec }) {
       const route = r.kind === "document" ? "documents" : "notes";
       actions = rid !== null && <>
         <Act label={docBody === null ? "Preview" : "Hide preview"} run={async () => {
+          if (openPreview) { openPreview({ kind: "doc", id: rid, title }); return QUIET; }
           if (docBody !== null) { setDocBody(null); return; }
           const d = await api<{ body: string }>(`/docs/${rid}`);
           setDocBody(d.body || "(This document is empty.)");
@@ -117,6 +122,7 @@ function RecordCard({ kind, r: raw }: { kind: Kind; r: Rec }) {
       title = str(r.name); body = str(r.excerpt); meta = [typeof r.size === "number" ? `${Math.max(1, Math.round(r.size / 1024))} KB` : ""];
       actions = rid !== null && <>
         <Act label={preview === null ? "Preview" : "Hide preview"} run={async () => {
+          if (openPreview) { openPreview({ kind: "file", id: rid, title }); return QUIET; }
           if (preview !== null) { setPreview(null); return; }
           const d = await api<{ text: string }>(`/files/${rid}`).catch(() => null);
           setPreview(d?.text ?? (str(r.excerpt) || "No text could be extracted from this file."));
@@ -186,6 +192,7 @@ const JOB_PATH: Record<JobKind, string> = { mission: "missions", research: "rese
  *  Missions and Research pages, so approvals, budgets and limits apply exactly as they do there. */
 function JobCard({ b: initial }: { b: Job }) {
   const [b, setB] = useState(initial);
+  const openPreview = usePreview();
   const [tick, setTick] = useState(0);
   useEffect(() => setB(initial), [initial]);
   const live = !FINAL.includes(b.status);
@@ -222,7 +229,8 @@ function JobCard({ b: initial }: { b: Job }) {
         run={async () => { if (confirm("Stop this mission? Steps not yet done will not run.")) { await api(`/missions/${b.id}/cancel`, { method: "POST" }); refresh(); } }} />}</>;
   } else if (b.kind === "research") {
     actions = <>
-      <Link className="btn sm" to={`/research/${b.id}`}>{s === "done" ? "Full report and sources" : "Open"}</Link>
+      {s === "done" && openPreview && <button type="button" className="btn sm" onClick={() => openPreview({ kind: "research", id: b.id, title: b.title })}>Preview report</button>}
+      <Link className="btn ghost sm" to={`/research/${b.id}`}>{s === "done" ? "Sources and evidence" : "Open"}</Link>
       {s === "running" && <Act label="Stop" icon={<Square size={11} />} tone="ghost danger" run={async () => { await api(`/research/${b.id}/cancel`, { method: "POST" }); refresh(); }} />}
       {s === "error" && <Act label="Retry" run={async () => { await api(`/research/${b.id}/retry`, { method: "POST" }); refresh(); }} />}</>;
   } else {

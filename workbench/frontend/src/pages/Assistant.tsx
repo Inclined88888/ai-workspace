@@ -1,13 +1,16 @@
-import { BarChart3, BookOpenCheck, Brain, CalendarRange, Check, ChevronDown, ChevronRight, Copy, Download, FileSpreadsheet, FilePen, Flag, FolderKanban, FolderTree, Paperclip, KeyRound, Loader2, MessageSquare, Mic, MonitorPlay, Pencil, Plus, Repeat, RotateCcw, Search, Send, ShieldAlert, Sparkles, Square, Trash2, Upload, Wrench, X } from "lucide-react";
-import { FormEvent, Fragment, useEffect, useRef, useState } from "react";
+import { Brain, CalendarRange, Check, ChevronDown, ChevronRight, Copy, Download, FileSpreadsheet, FilePen, Paperclip, KeyRound, Loader2, Mic, Pencil, Plus, RotateCcw, Search, Send, ShieldAlert, Sparkles, Square, Trash2, Upload, Wrench, X } from "lucide-react";
+import { FormEvent, Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, FileMeta, stream, uploadFile } from "../api";
 import { Empty, Markdown, ModelSelect, relTime, useModels, useToast } from "../util";
 import { shortRef } from "../components/Models";
 import WebSearchPanel from "../components/WebSearch";
 import VoiceSession from "../components/Voice";
+import RookMark from "../components/RookMark";
+import { conversationsChanged } from "../components/Sidebar";
 import RichText from "../rich/RichText";
 import Blocks from "../rich/Blocks";
+import { PreviewItem, PreviewPanel, PreviewProvider } from "../rich/Preview";
 import { Block, validateAll } from "../rich/schema";
 
 type Conv = { id: number; title: string; channel: string; updated_at: string; model: string; project_id?: number | null };
@@ -40,17 +43,10 @@ function toView(messages: Msg[]): View[] {
 }
 
 const STARTS: { icon: typeof Search; title: string; about: string; send?: string; fill?: string; attach?: boolean }[] = [
-  { icon: Search, title: "Research a topic", about: "Searches, reads sources and cites them", fill: "Research " },
-  { icon: FolderKanban, title: "Check my projects", about: "Goals, open questions, tasks and missions", send: "How is my most recent project going?" },
-  { icon: CalendarRange, title: "Plan my week", about: "From your calendar and tasks", send: "Plan my week from my calendar and tasks" },
-  { icon: BarChart3, title: "Show my AI spending", about: "Totals and a chart from real usage", send: "Show my AI model spending for the last 30 days" },
-  { icon: FilePen, title: "Create a document", about: "Written and saved as a note you can download", fill: "Write a one-page document about " },
-  { icon: FileSpreadsheet, title: "Analyse a spreadsheet", about: "Attach a file and ask about it", attach: true },
-  { icon: Repeat, title: "Create a recurring reminder", about: "An automation on a schedule", fill: "Every Monday at 9am, remind me to " },
-  { icon: Flag, title: "Start a mission", about: "A bigger job: you approve the plan first", fill: "/mission " },
-  { icon: FolderTree, title: "Organise my files", about: "On your computer, with the ROOKS Companion", fill: "Organise the files in my Downloads folder into folders by type" },
-  { icon: MonitorPlay, title: "Use my computer", about: "Apps and folders you allow, visible and stoppable", fill: "On my computer, " },
-  { icon: BookOpenCheck, title: "Compare my AI models", about: "A table of the models you have connected", send: "Compare the AI models I have connected" },
+  { icon: FilePen, title: "Write", about: "A document, email draft or note, saved so you can preview and download it", fill: "Write " },
+  { icon: Search, title: "Research", about: "Searches, reads sources and writes a cited report", fill: "Research " },
+  { icon: FileSpreadsheet, title: "Analyse", about: "Attach a spreadsheet or document and ask about it", attach: true },
+  { icon: CalendarRange, title: "Plan", about: "From your calendar, tasks and projects", fill: "Plan " },
 ];
 type Step = { name: string; args: string; status: "running" | "ok" | "error" | "approval"; preview?: string; detail?: string; ms?: number; startedAt: number };
 type Memory = { id: number; content: string; kind: string; source: string; updated_at: string; created_at?: string; conversation_id?: number | null;
@@ -76,7 +72,26 @@ const STEP_LABEL: Record<string, string> = {
   list_missions: "Checking your missions", start_mission: "Starting a mission", start_research: "Starting research",
   search_files: "Searching your files", read_file: "Reading a file", github_search: "Searching GitHub", github_read_issue: "Reading a GitHub issue",
   github_create_issue: "Opening a GitHub issue", github_comment: "Commenting on GitHub", computer_observe: "Looking at the screen",
+  analyze_table: "Checking the spreadsheet figures", coding_agents: "Checking your coding tools", run_coding_agent: "Preparing a coding task",
+  create_checkin: "Setting up a check-in", read_email: "Reading an email", list_events: "Checking your calendar",
 };
+/** What a step is doing, in plain words; never a raw tool name. */
+function stepLabel(name: string): string {
+  if (STEP_LABEL[name]) return STEP_LABEL[name];
+  if (/^(computer|files|sheet|doc)_/.test(name)) return "Using your computer";
+  if (name.startsWith("browser_")) return "Using the browser";
+  if (name.startsWith("github_")) return "Working on GitHub";
+  return "Working";
+}
+const PAST: Record<string, string> = { Reading: "Read", Running: "Ran", Writing: "Wrote", Forgetting: "Forgot", Setting: "Set", Finding: "Found",
+  Using: "Used", Saving: "Saved", Creating: "Created", Updating: "Updated", Preparing: "Prepared", Browsing: "Browsed", Handing: "Handed",
+  Starting: "Started", Opening: "Opened", Commenting: "Commented", Looking: "Looked", Editing: "Edited", Adding: "Added", Checking: "Checked",
+  Searching: "Searched", Working: "Worked" };
+/** "Searching your notes" -> "searched your notes", for a summary of finished work. */
+function pastLabel(name: string): string {
+  const [first, ...rest] = stepLabel(name).split(" ");
+  return [(PAST[first] ?? first).toLowerCase(), ...rest].join(" ");
+}
 const WORKSPACE_TOOLS = new Set(["run_command", "workspace_list", "workspace_read", "workspace_write", "workspace_edit"]);
 
 /** "exit code 1", "timed out", "stopped by you" from a terminal result, for the step's badge. */
@@ -160,13 +175,12 @@ const APPROVAL_LABEL: Record<string, string> = {
 };
 type Skill = { id: number; name: string; description: string; steps: string; uses: number; source: string; enabled: number; warnings?: string[] };
 
-const CHANNEL: Record<string, string> = { web: "Web", cli: "Terminal", telegram: "Telegram", schedule: "Schedule" };
 
 // Drafts per conversation, in this tab's session storage
 const draftKey = (c: number | null) => `rooks:draft:${c ?? "new"}`;
 const readDraft = (c: number | null) => { try { return sessionStorage.getItem(draftKey(c)) ?? ""; } catch { return ""; } };
 
-function Chat({ tabs }: { tabs: React.ReactNode }) {
+function Chat() {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
@@ -193,8 +207,10 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   const note = (kind: Note["kind"], text: string, extra: Partial<Note> = {}) => setNotes((n) => [...n, { id: Date.now() + Math.random(), kind, text, ...extra }]);
   const autoAsked = useRef(false);
   const [convs, setConvs] = useState<Conv[]>([]);
-  const [q, setQ] = useState("");
   const [messages, setMessages] = useState<Msg[]>([]);
+  // A document, file or report open beside the conversation; closing returns focus to the conversation
+  const [preview, setPreview] = useState<PreviewItem | null>(null);
+  const closePreview = useCallback(() => { setPreview(null); inputRef.current?.focus(); }, []);
   const [steps, setSteps] = useState<Step[]>([]);
   const [text, setText] = useState(() => readDraft(id ? Number(id) : null));
   const [busy, setBusy] = useState(false);
@@ -206,8 +222,6 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   const [liveBlocks, setLiveBlocks] = useState<Block[]>([]);
   const [editing, setEditing] = useState<Msg | null>(null);
   const [openSteps, setOpenSteps] = useState(false);
-  const [showList, setShowList] = useState(false);  // phones: the conversation list replaces the chat while open
-  useEffect(() => setShowList(false), [id]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   // A voice session in this chat; an accepted call invitation arrives with what ROOKS opens by saying
   const [voice, setVoice] = useState<{ opening?: string } | null>(() => {
@@ -233,9 +247,9 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   const projectId = cid ? convProject : startProject;
   const project = projectList.find((p) => p.id === projectId);
 
-  const loadConvs = () => api<Conv[]>(`/conversations${q ? `?q=${encodeURIComponent(q)}` : ""}`).then(setConvs).catch(toast.err);
+  const loadConvs = () => { conversationsChanged(); return api<Conv[]>("/conversations").then(setConvs).catch(toast.err); };
   const loadPending = () => api<Approval[]>("/approvals").then(setPending).catch(() => setPending([]));
-  useEffect(() => { const t = setTimeout(loadConvs, 200); return () => clearTimeout(t); }, [q]);
+  useEffect(() => { loadConvs(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { loadPending(); }, []);
   const [searchOn, setSearchOn] = useState(true);
   useEffect(() => { api<{ providers: number; search_provider: string }>("/getting-started").then((r) => { setNoModel(r.providers === 0); setSearchOn(!!r.search_provider); }).catch(() => setNoModel(false)); }, []);
@@ -253,6 +267,10 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
     setSteps([]);
     setUsed([]);
     setNotes([]);
+    setPreview(null);
+    // With a mouse or trackpad the message box takes focus, ready to type; on touch screens it waits for a tap (no
+    // keyboard popping up over the conversation)
+    if (window.matchMedia?.("(pointer: fine)").matches) setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 0);
     if (!cid) { setConvProject(null); return setMessages([]); }
     loadConversation(cid);
   }, [cid]);
@@ -451,12 +469,6 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
     } catch (e) { note("err", (e as Error).message); }
   };
 
-  const remove = async (c: Conv) => {
-    if (!confirm(`Delete "${c.title}"? Memories learned from it are kept.`)) return;
-    await api(`/conversations/${c.id}`, { method: "DELETE" });
-    if (c.id === cid) navigate("/assistant");
-    loadConvs();
-  };
 
   const stop = async () => {
     if (!running) return;
@@ -472,7 +484,6 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   const view = toView(messages);
   const lastUser = view.map((m) => m.role).lastIndexOf("user");
   const lastAnswer = view.map((m) => (m.role === "assistant" && !m.update ? "a" : "")).lastIndexOf("a");  // updates are not replies
-  const doneSteps = steps.filter((s) => s.status === "ok").length;
   const current = [...steps].reverse().find((s) => s.status === "running" || s.status === "approval");
   const failed = steps.filter((s) => s.status === "error").length;
   // errors and terminal work are shown open: their output is the point
@@ -484,7 +495,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
         <li key={i} className={`tstep ${s.status}`}>
           <div className="row" style={{ gap: 6 }}>
             {s.status === "running" ? <Loader2 size={12} className="spin" /> : s.status === "ok" ? <Check size={12} /> : s.status === "approval" ? <ShieldAlert size={12} /> : <X size={12} style={{ color: "var(--danger)" }} />}
-            <span>{STEP_LABEL[s.name] ?? s.name}</span>
+            <span>{stepLabel(s.name)}</span>
             <span className="faint">{s.status === "approval" ? "waiting for your approval" : s.status === "running" ? "working…" : s.status === "error" ? "needs attention" : "done"}{s.ms !== undefined ? ` · ${s.ms < 1000 ? `${s.ms} ms` : `${(s.ms / 1000).toFixed(1)} s`}` : ""}</span>
           </div>
           {s.detail ? (() => {
@@ -495,7 +506,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
                   {badge && <span className={`badge ${badge.tone}`} style={{ marginRight: 6 }}>{badge.text}</span>}
                   {argSummary(s.args, s.name) || "no arguments"}
                 </summary>
-                <pre className="terminal" aria-label={`Output of ${STEP_LABEL[s.name] ?? s.name}`}>{s.detail.replace(/^Error: (?=\$ )/, "")}</pre>
+                <pre className="terminal" aria-label={`Output of ${stepLabel(s.name)}`}>{s.detail.replace(/^Error: (?=\$ )/, "")}</pre>
               </details>
             );
           })() : (
@@ -512,10 +523,11 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   const activity = steps.length > 0 && (
     <div className={`activity ${failed ? "has-error" : ""}`}>
       <button type="button" className="activity-head" aria-expanded={stepsOpen} onClick={() => setOpenSteps(!openSteps)}>
-        {busy ? <Loader2 size={13} className="spin" /> : failed ? <X size={13} style={{ color: "var(--danger)" }} /> : <Check size={13} />}
-        <span className="grow truncate">{current ? `${STEP_LABEL[current.name] ?? current.name}${current.status === "approval" ? ": waiting for your approval" : "…"}`
-          : `${busy ? "Working" : "Used"} ${steps.length} ${steps.length === 1 ? "step" : "steps"}${failed ? `, ${failed} needed attention` : ""}`}</span>
-        <span className="faint small">{doneSteps}/{steps.length}</span>
+        {busy ? <span className="working-mark" aria-hidden="true"><RookMark size={13} /></span> : failed ? <X size={13} style={{ color: "var(--danger)" }} /> : <Check size={13} />}
+        <span className="grow truncate">{current ? `${stepLabel(current.name)}${current.status === "approval" ? ": waiting for your approval" : "…"}`
+          : busy ? "Working…" : (() => { const l = [...new Set(steps.map((st) => pastLabel(st.name)))].join(", "); return l.charAt(0).toUpperCase() + l.slice(1); })()
+            + (failed ? ` (${failed} did not work)` : "")}</span>
+        <span className="faint small">{stepsOpen ? "Hide details" : "Details"}</span>
         {stepsOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
       </button>
       {stepsOpen && stepList}
@@ -523,51 +535,25 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   );
 
   return (
-    <div className={`split ${showList ? "" : "has-selection"}`} style={{ height: "calc(100vh - 0px)" }}>
-      <div className="split-list">
-        <div className="col" style={{ padding: 14, borderBottom: "1px solid var(--border)" }}>
-          <div className="row"><h2 className="grow">Conversations</h2><button className="btn primary sm" onClick={() => { setShowList(false); navigate("/assistant"); }}><Plus size={14} /> New</button>
-            <button type="button" className="btn ghost sm icon mobile-only" onClick={() => setShowList(false)} aria-label="Back to the chat" title="Back to the chat"><X size={15} /></button></div>
-          <div className="row" style={{ position: "relative" }}>
-            <Search size={14} className="faint" style={{ position: "absolute", left: 10 }} />
-            <input className="input" style={{ paddingLeft: 30 }} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search all conversations" aria-label="Search all conversations" />
-          </div>
-        </div>
-        <div className="scroll">
-          {convs.length === 0 && <Empty icon={<MessageSquare size={22} />} title={q ? "No matches" : "No conversations yet"} />}
-          {convs.map((c) => (
-            <div key={c.id} className={`list-item ${c.id === cid ? "active" : ""}`}>
-              <Link className="list-link grow" to={`/assistant/${c.id}`} aria-current={c.id === cid ? "page" : undefined}>
-                <div className="truncate">{c.title}</div>
-                <div className="faint small">{c.channel && c.channel !== "web" ? `${CHANNEL[c.channel] ?? c.channel} · ` : ""}{relTime(c.updated_at)}
-                  {c.project_id ? ` · ${projectList.find((p) => p.id === c.project_id)?.name ?? "project"}` : ""}</div>
-              </Link>
-              <button className="btn ghost sm icon" aria-label={`Delete conversation ${c.title}`} title="Delete conversation" onClick={(e) => { e.stopPropagation(); remove(c); }}><Trash2 size={13} /></button>
-            </div>
-          ))}
-        </div>
-      </div>
-      <div className="split-main chat-main"
+    <PreviewProvider value={setPreview}>
+    <div className={`chat-page ${view.length === 0 && !busy ? "welcome" : ""} ${preview ? "with-preview" : ""}`}>
+      <div className="chat-main"
         onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setDragOver(true); } }}
         onDragLeave={(e) => { if (e.currentTarget === e.target) setDragOver(false); }}
         onDrop={(e) => { if (e.dataTransfer.files.length) { e.preventDefault(); setDragOver(false); attach(e.dataTransfer.files); } }}>
         {dragOver && <div className="drop-hint" aria-hidden="true">Drop to attach</div>}
-        <div className="toolbar">
-          <button type="button" className="btn ghost sm icon mobile-only" onClick={() => setShowList(true)} aria-label="Show conversations" title="Conversations"><MessageSquare size={16} /></button>
-          <strong className="truncate grow chat-title" style={{ minWidth: 0 }}>{convs.find((c) => c.id === cid)?.title ?? (cid ? "Conversation" : "New conversation")}</strong>
-          {!voice && <button type="button" className="btn sm" onClick={() => setVoice({})} disabled={busy} title="Talk with ROOKS: it listens, answers aloud, and you can interrupt"><Mic size={14} /> Voice</button>}
-          {tabs}
-        </div>
+        {(cid || busy) && (
+          <div className="chat-head">
+            <h1 className="chat-title truncate">{convs.find((c) => c.id === cid)?.title ?? (cid ? "Conversation" : "New chat")}</h1>
+            {project && <Link to={`/projects/${project.id}`} className="chat-project truncate" title="This conversation works in a project: its brief, memories and rules apply">{project.name}</Link>}
+          </div>
+        )}
         <div className="chat-scroll">
           <div className="chat-column col gap-lg">
             {view.length === 0 && !busy && (
-              <div className="chat-start">
-                <div className="chat-hello"><Sparkles size={22} aria-hidden="true" /><h2>What can ROOKS do for you?</h2>
-                  <p className="muted">Ask in plain English. Results come back as tables, cards and charts you can act on. Anything with lasting effects after reading the web waits for your approval.</p></div>
-                {!noModel && <div className="start-grid" role="list">{STARTS.map((s) => (
-                  <button key={s.title} type="button" role="listitem" className="start-card" onClick={() => startWith(s)}>
-                    <s.icon size={18} aria-hidden="true" /><span className="start-title">{s.title}</span><span className="start-about">{s.about}</span>
-                  </button>))}</div>}
+              <div className="welcome-head">
+                <span className="welcome-mark" aria-hidden="true"><RookMark size={28} /></span>
+                <h1 className="welcome-title">{project ? `What should we do in ${project.name}?` : "What can I help you get done?"}</h1>
               </div>
             )}
             {noModel && view.length === 0 && (
@@ -600,9 +586,9 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
                           {m.update && <div className="msg-update-label small faint">Update from ROOKS</div>}
                           {showLive ? activity : m.tools.length > 0 && (
                             <details className="activity done">
-                              <summary className="activity-head"><Wrench size={12} aria-hidden="true" /><span className="grow truncate">{(() => { const l = m.tools.map((t) => STEP_LABEL[t.name] ?? t.name).filter((v, k, a) => a.indexOf(v) === k).join(", ").toLowerCase(); return l.charAt(0).toUpperCase() + l.slice(1); })()}</span>
+                              <summary className="activity-head"><Wrench size={12} aria-hidden="true" /><span className="grow truncate">{(() => { const l = m.tools.map((t) => pastLabel(t.name)).filter((v, k, a) => a.indexOf(v) === k).join(", "); return l.charAt(0).toUpperCase() + l.slice(1); })()}</span>
                                 {m.tools.some((t) => !t.ok) && <span className="badge warn">{m.tools.filter((t) => !t.ok).length} failed</span>}</summary>
-                              <ol className="tsteps">{m.tools.map((t, k) => <li key={k} className={`tstep ${t.ok ? "ok" : "error"}`}>{t.ok ? <Check size={12} /> : <X size={12} />} {STEP_LABEL[t.name] ?? t.name}</li>)}</ol>
+                              <ol className="tsteps">{m.tools.map((t, k) => <li key={k} className={`tstep ${t.ok ? "ok" : "error"}`}>{t.ok ? <Check size={12} /> : <X size={12} />} {stepLabel(t.name)}</li>)}</ol>
                             </details>
                           )}
                           {m.content && <RichText text={m.content} sources={cites} />}
@@ -646,7 +632,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
                 )}
               </div>
             )}
-            {busy && steps.length === 0 && <div className="row muted thinking" role="status"><Loader2 size={15} className="spin" /> Thinking…</div>}
+            {busy && steps.length === 0 && <div className="row muted thinking" role="status"><span className="working-mark" aria-hidden="true"><RookMark size={15} /></span> Thinking…</div>}
             <Approvals items={pending} onDone={() => { loadPending(); if (cid) loadConversation(cid); }} toast={toast} />
             <div ref={endRef} />
           </div>
@@ -674,7 +660,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
               </div>
             )}
             <textarea ref={inputRef} className="composer-input" rows={1} value={text} onChange={(e) => { setText(e.target.value); setMenuIdx(0); e.target.style.height = "auto"; e.target.style.height = `${Math.min(e.target.scrollHeight, 240)}px`; }}
-              aria-label="Message ROOKS" placeholder="Ask ROOKS anything. / for commands"
+              aria-label="Message ROOKS" placeholder={view.length === 0 ? "Ask ROOKS to do something" : "Reply to ROOKS"}
               aria-autocomplete="list" aria-controls={slashOpen ? "slash-menu" : undefined}
               onKeyDown={(e) => {
                 if (slashOpen && (e.key === "ArrowDown" || e.key === "ArrowUp")) { e.preventDefault(); setMenuIdx((i) => (i + (e.key === "ArrowDown" ? 1 : slashMatches.length - 1)) % slashMatches.length); return; }
@@ -689,19 +675,29 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
               </button>
               <input ref={fileInput} type="file" multiple hidden onChange={(e) => { if (e.target.files) attach(e.target.files); e.target.value = ""; }} />
               <button type="button" className="btn ghost icon" onClick={() => setVoice({})} disabled={busy || !!voice} aria-label="Start a voice conversation" title="Talk instead of typing"><Mic size={16} /></button>
-              <div className="composer-model"><ModelSelect value={model} onChange={setModel} models={models} defaultLabel={autoRef ? `Automatic (${shortRef(autoRef, models)})` : "Automatic"} /></div>
-              {project && <Link to={`/projects/${project.id}`} className="badge accent truncate" style={{ maxWidth: 200 }} title="This conversation works in a project: its brief, memories and rules apply">Project: {project.name}</Link>}
+              <div className="composer-model" title={autoRef ? `Automatic uses ${shortRef(autoRef, models)} now` : "Automatic picks a working model"}>
+                <ModelSelect value={model} onChange={setModel} models={models} defaultLabel="Automatic" /></div>
               <div className="spacer" />
-              <span className="faint small hide-narrow">Shift+Enter for a new line</span>
               {busy && running
                 ? <button type="button" className="btn danger-solid" onClick={stop} aria-label="Stop" title="Stop after the current step"><Square size={13} /> Stop</button>
                 : <button className="btn primary" disabled={busy || uploading > 0 || (!text.trim() && !attached.length)} aria-label="Send message" title="Send"><Send size={15} /></button>}
             </div>
           </div>
+          {view.length === 0 && !busy && !noModel && !text && (
+            <div className="welcome-starts" role="list" aria-label="Ways to start">
+              {STARTS.map((s) => (
+                <button key={s.title} type="button" role="listitem" className="start-chip" onClick={() => startWith(s)} title={s.about}>
+                  <s.icon size={15} aria-hidden="true" />{s.title}
+                </button>
+              ))}
+            </div>
+          )}
         </form>
       </div>
+      {preview && <PreviewPanel item={preview} onClose={closePreview} />}
       {toast.node}
     </div>
+    </PreviewProvider>
   );
 }
 
@@ -933,19 +929,19 @@ function SettingsTab() {
   );
 }
 
+const SUB: [string, string, string][] = [["memory", "Memory", "What ROOKS remembers about you; review, edit or forget anything."],
+  ["skills", "Skills", "Procedures ROOKS learned or you saved. Each one was approved before it was saved."],
+  ["settings", "Assistant settings", "Name, timezone, learning and how the assistant works."]];
+
 export default function Assistant({ tab }: { tab: "chat" | "memory" | "skills" | "settings" }) {
-  const navigate = useNavigate();
-  const tabs = (
-    <div className="tabs">
-      {(["chat", "memory", "skills", "settings"] as const).map((t) => (
-        <button key={t} className={`tab ${tab === t ? "active" : ""}`} onClick={() => navigate(t === "chat" ? "/assistant" : `/assistant-${t}`)}>{t[0].toUpperCase() + t.slice(1)}</button>
-      ))}
-    </div>
-  );
-  if (tab === "chat") return <Chat tabs={tabs} />;
+  if (tab === "chat") return <Chat />;
+  const cur = SUB.find(([t]) => t === tab)!;
   return (
     <div className="page" style={{ maxWidth: 900 }}>
-      <div className="page-head"><h1 className="grow">Assistant</h1>{tabs}</div>
+      <div className="page-head"><div><h1>{cur[1]}</h1><p className="muted">{cur[2]}</p></div></div>
+      <nav className="tabs" aria-label="Memory and skills">
+        {SUB.map(([t, label]) => <Link key={t} to={`/assistant-${t}`} className={`tab ${tab === t ? "active" : ""}`} aria-current={tab === t ? "page" : undefined}>{label}</Link>)}
+      </nav>
       {tab === "memory" && <MemoryTab />}
       {tab === "skills" && <SkillsTab />}
       {tab === "settings" && <SettingsTab />}
