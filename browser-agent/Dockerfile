@@ -15,6 +15,8 @@ RUN pip install --no-cache-dir ".[server]" \
  && test -x /usr/local/bin/chromium-agent \
  && useradd --create-home --uid 1000 agent && mkdir -p /data && chown agent /data
 COPY examples ./examples
+# Readable by the non-root user whatever the permissions of the source checkout
+RUN chmod -R a+rX /app
 USER agent
 VOLUME /data
 EXPOSE 8100

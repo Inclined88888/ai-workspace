@@ -8,7 +8,9 @@
 # A truncated curl | bash download cannot call main until the final line arrives.
 main() (
   set -euo pipefail
-  umask 077
+  # The code must stay readable by the containers' non-root users; secrets are protected separately (setup.sh
+  # keeps .env at mode 600). An owner-only umask here made every container fail to read its own code.
+  umask 022
   local repo=${AI_WORKSPACE_REPO:-Inclined88888/ai-workspace}
   local ref=${AI_WORKSPACE_REF:-main}
   local dir=${AI_WORKSPACE_DIR:-$HOME/ai-workspace}

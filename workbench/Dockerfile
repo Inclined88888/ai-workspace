@@ -15,6 +15,8 @@ COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/app ./app
 COPY --from=web /web/dist ./static
+# Readable by the non-root user whatever the permissions of the source checkout
+RUN chmod -R a+rX /app
 RUN useradd --create-home --uid 1000 workbench && mkdir -p /data && chown workbench /data
 USER workbench
 VOLUME /data

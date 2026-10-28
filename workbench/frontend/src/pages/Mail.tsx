@@ -113,6 +113,7 @@ export default function MailPage() {
   if (!account) {
     return (
       <div className="page">
+        <div className="page-head"><div><h1>Mail</h1><p className="muted">Read your inbox and review drafts ROOKS prepares. Nothing is ever sent without you.</p></div></div>
         <Empty icon={<Mail size={28} />} title="No mail account connected" hint="Connect an account in Settings to read mail and let ROOKS prepare drafts. Gmail, iCloud and Fastmail work with an app password. Outlook.com and Microsoft 365 are not supported (they require OAuth)." />
         <div className="row" style={{ justifyContent: "center" }}><Link className="btn primary" to="/settings#mail">Connect mail</Link></div>
       </div>

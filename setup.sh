@@ -88,6 +88,15 @@ FIRST_RUN=false
 [[ ! -e .env || -f .env ]] || fail '.env must be a regular file.'
 if [[ ! -f .env ]]; then cp .env.example .env; chmod 600 .env; FIRST_RUN=true; fi
 chmod 600 .env
+# Code must be readable inside the containers, which run as non-root users. Installs made by the earlier installer
+# (umask 077) have owner-only files and folders; make tracked ones readable again. Git ignores read bits, so this
+# leaves no local changes, and .env and data are not tracked, so they stay private.
+if [[ -d .git ]] && command -v git >/dev/null 2>&1; then
+  chmod go+rx . 2>/dev/null || true
+  git ls-files | awk -F/ '{p=""; for (i = 1; i < NF; i++) { p = p (i > 1 ? "/" : "") $i; print p }}' | sort -u |
+    while IFS= read -r d; do chmod go+rx "$d" 2>/dev/null || true; done
+  git ls-files -z | xargs -0 chmod go+r 2>/dev/null || true
+fi
 # Upgrades: add settings introduced since this .env was created (existing values are never touched)
 while IFS= read -r line; do
   key=${line%%=*}
@@ -194,7 +203,8 @@ fi
 if [[ "$(get_env RUNNER_OFFLINE)" == true ]]; then FILES="$FILES:docker-compose.runner-offline.yml"; info "The runner has no internet access."; fi
 CUR="$(get_env COMPOSE_FILE)"
 if [[ -z "$CUR" || "$CUR" =~ ^docker-compose\.yml(:docker-compose\.(gpu|runner-offline)\.yml)*$ ]]; then
-  if [[ "$FILES" == docker-compose.yml ]]; then set_env COMPOSE_FILE ""; else set_env COMPOSE_FILE "$FILES"; fi
+  # Always explicit: newer Docker Compose (v5) rejects an empty COMPOSE_FILE in .env
+  set_env COMPOSE_FILE "$FILES"
 else
   info "COMPOSE_FILE is your own ($CUR); leaving it as is."
 fi

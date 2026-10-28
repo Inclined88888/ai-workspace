@@ -8,6 +8,7 @@ RUN case " $RUNNER_PACKAGES" in *[!a-zA-Z0-9.+:=\ -]*|*" -"*) echo "RUNNER_PACKA
     && rm -rf /var/lib/apt/lists/*
 RUN useradd --create-home --uid 1001 runner && mkdir -p /workspace && chown runner /workspace
 COPY runner.py /opt/rooks/runner.py
+RUN chmod -R a+rX /opt/rooks  # readable by the runner user whatever the checkout's permissions
 USER runner
 ENV WORKSPACE=/workspace RUNNER_MODE=container PYTHONUNBUFFERED=1
 VOLUME /workspace

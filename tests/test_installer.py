@@ -60,6 +60,16 @@ class InstallerTests(unittest.TestCase):
         self.assertIn('search,browser', (self.dest / '.rooks/args').read_text())
         self.assertEqual((self.dest / '.env').stat().st_mode & 0o777, 0o600)
 
+    def test_installed_code_is_readable_by_container_users(self):
+        # Regression: an owner-only umask made the checkout mode 600, Docker copied that into the images, and the
+        # non-root container users could not read ROOKS's own code (both containers restarted forever).
+        self.run_install()
+        self.assertEqual((self.dest / 'setup.sh').stat().st_mode & 0o044, 0o044)
+        self.assertEqual((self.dest / '.env').stat().st_mode & 0o777, 0o600)
+        for dockerfile in ('workbench/Dockerfile', 'workbench/runner/Dockerfile', 'browser-agent/Dockerfile'):
+            self.assertIn('chmod -R a+rX', (ROOT / dockerfile).read_text(), dockerfile)
+        self.assertIn('git ls-files -z | xargs -0 chmod go+r', (ROOT / 'setup.sh').read_text())
+
     def test_fast_forward_preserves_secret(self):
         self.run_install()
         (self.dest / '.env').write_text('KEEP-MY-SECRET\n')
