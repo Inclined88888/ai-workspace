@@ -669,7 +669,8 @@ def init() -> None:
         _add_column(t, "project_id", "INTEGER")
     _add_column("projects", "isolated", "INTEGER NOT NULL DEFAULT 0")
     _add_column("conversations", "summary", "TEXT NOT NULL DEFAULT ''")
-    _add_column("messages", "job_id", "INTEGER")  # a message the coordinator delivered for this job
+    _add_column("messages", "job_id", "INTEGER")
+    _add_column("approvals", "scope", "TEXT NOT NULL DEFAULT ''")  # the context the request was made in (assistant.request_approval)  # a message the coordinator delivered for this job
     _add_column("conversations", "summary_upto", "INTEGER NOT NULL DEFAULT 0")
     for col, ddl in (("depends", "INTEGER NOT NULL DEFAULT 0"), ("max_attempts", "INTEGER NOT NULL DEFAULT 2"),
                      ("review_unverified", "INTEGER NOT NULL DEFAULT 0"), ("estimate_cents", "REAL"), ("template", "TEXT NOT NULL DEFAULT ''")):

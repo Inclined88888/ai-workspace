@@ -53,16 +53,20 @@ def list_models(query: str = "") -> dict:
     return {"default": ref, "count": len(out), "models": out[:60], "truncated": len(out) > 60}
 
 
-def project_status(project: str = "") -> dict:
+def project_status(project: str = "", from_project: int | None = None) -> dict:
     """Where a project stands: goals, open questions, recent decisions, open tasks, missions, research and spend.
     project is a name (or part of one); empty means your most recently updated active project."""
     from . import projects
 
     q = (project or "").strip()
-    row = (db.one("SELECT id FROM projects WHERE status = 'active' AND lower(name) LIKE ? ORDER BY updated_at DESC LIMIT 1", f"%{q.lower()}%")
-           if q else db.one("SELECT id FROM projects WHERE status = 'active' ORDER BY updated_at DESC LIMIT 1"))
+    # From inside a project only that project; from outside, any project that is not isolated (scope.py)
+    seen = ("id = ?", [from_project]) if from_project else ("isolated = 0", [])
+    row = (db.one(f"SELECT id FROM projects WHERE status = 'active' AND {seen[0]} AND lower(name) LIKE ? ORDER BY updated_at DESC LIMIT 1",
+                  *seen[1], f"%{q.lower()}%")
+           if q else db.one(f"SELECT id FROM projects WHERE status = 'active' AND {seen[0]} ORDER BY updated_at DESC LIMIT 1", *seen[1]))
     if not row:
-        return {"found": False, "message": f"No active project matches '{q}'." if q else "There are no active projects yet."}
+        return {"found": False, "message": (f"No active project matches '{q}' that this conversation can see." if q else
+                                            "There are no active projects this conversation can see.")}
     o = projects.overview(row["id"])
     return {"found": True, "id": o["id"], "name": o["name"], "goals": o["goals"], "description": o["description"][:400],
             "budget_cents": o["budget_cents"], "spend_cents_this_month": o["spend_cents"], "local_only": bool(o["local_only"]),

@@ -220,14 +220,32 @@ def search_memories_keyword(query: str, limit: int = 8) -> list[dict]:
                   "WHERE memories_fts MATCH ? ORDER BY bm25(memories_fts) LIMIT ?", q, limit)
 
 
-def search_history(query: str, limit: int = 8) -> list[dict]:
+def search_history(query: str, limit: int = 8, ctx: Ctx | None = None) -> list[dict]:
+    """Past conversations matching the words. From a conversation (ctx), only those inside its project boundary
+    (scope.py); the conversation list page passes no ctx and searches everything."""
+    from . import scope
+
     q = _any_words(query)
     if not q:
         return []
+    where, args = scope.visible(ctx.project_id, "c") if ctx else ("1 = 1", [])
     return db.all(
         "SELECT m.conversation_id, c.title, m.role, substr(m.content, 1, 400) AS excerpt, m.created_at FROM messages m "
         "JOIN messages_fts f ON f.rowid = m.id JOIN conversations c ON c.id = m.conversation_id "
-        "WHERE messages_fts MATCH ? ORDER BY bm25(messages_fts) LIMIT ?", q, limit)
+        f"WHERE messages_fts MATCH ? AND {where} ORDER BY bm25(messages_fts) LIMIT ?", q, *args, limit)
+
+
+def _scoped(table: str, rows, ctx: "Ctx | None"):
+    from . import scope
+
+    return scope.filter_rows(table, rows, ctx) if isinstance(rows, list) else rows
+
+
+def _in_scope(table: str, row_id: int, ctx: "Ctx | None") -> None:
+    """None when the item is inside this conversation's project boundary; raises a plain refusal otherwise."""
+    from . import scope
+
+    scope.require(table, row_id, ctx)
 
 
 def _load_skill(name: str, ctx: Ctx) -> dict:
@@ -277,24 +295,26 @@ def _team(ctx: Ctx) -> list[dict]:
 TOOLS: list[Tool] = [
     # Notes and documents
     Tool("search_notes", "Search the user's notes and documents by keywords.", {"query": S(), "kind": S("note, document or empty")},
-         lambda query="", kind=None: tools.search_notes(query, kind or None, 10)),
-    Tool("read_note", "Read a note or document by id.", {"doc_id": I()}, lambda doc_id: tools.read_note(doc_id), ("doc_id",)),
+         lambda query="", kind=None, ctx=None: _scoped("docs", tools.search_notes(query, kind or None, 25), ctx)[:10]),
+    Tool("read_note", "Read a note or document by id.", {"doc_id": I()},
+         lambda doc_id, ctx=None: _in_scope("docs", doc_id, ctx) or tools.read_note(doc_id), ("doc_id",)),
     Tool("create_note", "Create a note (kind note) or document (kind document). Body is Markdown.",
          {"title": S(), "body": S(), "kind": S("note or document"), "tags": S("comma separated")},
          lambda title, body="", kind="note", tags="", ctx=None: _link("docs", tools.create_note(services.DocIn(
              title=title, body=body, kind=kind if kind in ("note", "document") else "note", tags=tags)), ctx),
          ("title",)),
     Tool("append_to_note", "Append Markdown to an existing note.", {"doc_id": I(), "text": S()},
-         lambda doc_id, text: tools.append_note(doc_id, tools.AppendIn(text=text)), ("doc_id", "text")),
+         lambda doc_id, text, ctx=None: _in_scope("docs", doc_id, ctx) or tools.append_note(doc_id, tools.AppendIn(text=text)), ("doc_id", "text")),
     # Tasks and calendar
     Tool("list_tasks", "List the user's open tasks.", {"include_done": B(), "project": S()},
-         lambda include_done=False, project=None: tools.list_tasks(include_done, project or None)),
+         lambda include_done=False, project=None, ctx=None: _scoped("tasks", tools.list_tasks(include_done, project or None), ctx)),
     Tool("create_task", "Create a task. due is YYYY-MM-DD, priority 0 to 3.", {"title": S(), "notes": S(), "due": S(), "priority": I(), "project": S()},
          lambda title, notes="", due=None, priority=0, project="", ctx=None: _link("tasks", tools.create_task(services.TaskIn(
              title=title, notes=notes, due=due or None, priority=priority, project=project)), ctx),
          ("title",)),
     Tool("update_task", "Update a task; status 'done' completes it.", {"task_id": I(), "status": S("todo, doing or done"), "title": S(), "due": S()},
-         lambda task_id, status=None, title=None, due=None: tools.update_task(task_id, services.TaskPatch(status=status, title=title, due=due or None)),
+         lambda task_id, status=None, title=None, due=None, ctx=None: _in_scope("tasks", task_id, ctx) or
+         tools.update_task(task_id, services.TaskPatch(status=status, title=title, due=due or None)),
          ("task_id",)),
     Tool("get_agenda", "The user's upcoming events and due or overdue tasks.", {"days": I()}, lambda days=7: tools.get_agenda(days)),
     Tool("create_event", "Create a calendar event. Timed events need an ISO time with offset; all day uses YYYY-MM-DD.",
@@ -307,15 +327,16 @@ TOOLS: list[Tool] = [
          lambda to, subject, body: tools.save_draft(tools.DraftIn(to=to, subject=subject, body=body)), ("to", "subject", "body")),
     # Uploaded files
     Tool("search_files", "Search the text of files the user uploaded (PDF, Word, text). Returns file ids and excerpts.", {"query": S()},
-         lambda query: _files().search(query, 8), ("query",)),
+         lambda query, ctx=None: _scoped("files", _files().search(query, 25), ctx)[:8], ("query",)),
     Tool("read_file", "Read an uploaded file's text by id. Long files come in parts: pass start to continue.", {"file_id": I(), "start": I()},
-         lambda file_id, start=0: _files().get_text(file_id, start), ("file_id",)),
+         lambda file_id, start=0, ctx=None: _in_scope("files", file_id, ctx) or _files().get_text(file_id, start), ("file_id",)),
     Tool("analyze_table", "Compute real figures for an uploaded spreadsheet (CSV, TSV, Excel .xlsx): rows, each column's type, "
          "sum, mean, median, min, max or most common values, and optionally a total of one column per group (group_by, value). "
          "Use it for any question about a spreadsheet's numbers instead of estimating from text.",
          {"file_id": I(), "sheet": S("sheet name, optional"), "group_by": S("column to group by, optional"),
           "value": S("numeric column to total per group, optional; empty counts rows")},
-         lambda file_id, sheet="", group_by="", value="": _tables().analyze(file_id, sheet, group_by, value), ("file_id",)),
+         lambda file_id, sheet="", group_by="", value="", ctx=None: _in_scope("files", file_id, ctx) or
+         _tables().analyze(file_id, sheet, group_by, value), ("file_id",)),
     # Web
     Tool("web_search", "Search the web. Returns titles, URLs and snippets.", {"query": S()},
          lambda query: research.web_search(query, 6), ("query",)),
@@ -334,7 +355,7 @@ TOOLS: list[Tool] = [
          "answer an open question by its q id (resolve).", {"kind": S(), "text": S(), "resolve": I()},
          lambda kind="decision", text="", resolve=0, ctx=None: _project_note(kind, text, resolve, ctx), when=lambda ctx: bool(ctx.project_id)),
     Tool("search_history", "Full text search over past conversations with the user.", {"query": S()},
-         lambda query: search_history(query), ("query",)),
+         lambda query, ctx=None: search_history(query, 8, ctx), ("query",)),
     # Skills
     Tool("load_skill", "Load the steps of a saved skill by name before doing that kind of task.", {"name": S()},
          lambda name, ctx=None: _load_skill(name, ctx), ("name",)),
@@ -390,9 +411,10 @@ TOOLS += [
          "Use it to compare models with real data.", {"query": S("part of a model or provider name, optional")},
          lambda query="": overview.list_models(query)),
     Tool("project_status", "Where a project stands: goals, open questions, decisions, open tasks, missions, research and spend.",
-         {"project": S("project name, or empty for the most recent")}, lambda project="": overview.project_status(project)),
+         {"project": S("project name, or empty for the most recent")},
+         lambda project="", ctx=None: overview.project_status(project, ctx.project_id if ctx else None)),
     Tool("list_missions", "The user's missions with progress and workers.", {"status": S("optional status filter")},
-         lambda status="": overview.list_missions(status)),
+         lambda status="", ctx=None: {"missions": _scoped("missions", overview.list_missions(status)["missions"], ctx)}),
     Tool("start_mission", "Start a mission for a bigger multi-step job. ROOKS plans it and the user approves the plan before anything runs.",
          {"goal": S()}, _start_mission, ("goal",), when=_top),
     Tool("start_research", "Start a Deep Research run on a question: it searches, reads sources and writes a cited report with an evidence table. "
@@ -551,7 +573,7 @@ async def _run_tool(name: str, raw_args: str, ctx: Ctx) -> tuple[bool, str]:
     t = TOOL_MAP.get(name)
     if not t or not t.when(ctx):
         return False, f"Unknown tool {name}"
-    if ctx.allowed_tools is not None and name not in ctx.allowed_tools and not ctx.approved:
+    if ctx.allowed_tools is not None and name not in ctx.allowed_tools:  # an approval never widens a worker's tools
         return False, f"Not allowed: {name} is not one of this worker's tools. Do the task with the tools you have, or say what is missing."
     if not permissions.allowed(name, ctx.project_id):
         where = "this project's settings" if permissions.allowed(name) else "Settings, under Permissions"
@@ -721,8 +743,11 @@ def request_approval(name: str, raw_args: str, ctx: Ctx, reason: str) -> int:
     stored_args = "enc:" + encrypt(raw_args or "{}") if private else (raw_args or "{}")
     # The notice can be forwarded to Telegram, so Computer Use content stays out of it; ROOKS itself shows it in full.
     display_args = f"({_approval_summary(name, raw_args)}; open ROOKS to see exactly what it will do)" if private else (raw_args or "{}")[:1500]
-    aid = db.run("INSERT INTO approvals(tool, args, reason, channel, conversation_id, agent_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                 name, stored_args, reason, ctx.channel, ctx.conversation_id, (ctx.agent or {}).get("id"), db.now())
+    # What the request may do when approved is fixed now: the same tools, project, mission and agent, never more
+    scope = json.dumps({"allowed_tools": sorted(ctx.allowed_tools) if ctx.allowed_tools is not None else None,
+                        "project_id": ctx.project_id, "mission_id": ctx.mission_id, "task_id": ctx.task_id, "channel": ctx.channel})
+    aid = db.run("INSERT INTO approvals(tool, args, reason, channel, conversation_id, agent_id, scope, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                 name, stored_args, reason, ctx.channel, ctx.conversation_id, (ctx.agent or {}).get("id"), scope, db.now())
     if ctx.channel in UNATTENDED:
         deliver(f"Approval needed: {name}", f"{reason}\n\nRequested: {name} {display_args}\n\nApprove or deny under Assistant.",
                 "inbox", f"approval:{aid}")
@@ -755,12 +780,45 @@ async def decide_approval(aid: int, approve: bool) -> dict:
     if not mission and a["conversation_id"]:
         # a worker's action is recorded under its mission, so the worker replays it instead of asking again
         mission = db.one("SELECT mission_id AS id FROM worker_tasks WHERE conversation_id = ?", a["conversation_id"])
+    try:
+        scope = json.loads(a.get("scope") or "{}")
+    except ValueError:
+        scope = {}
+    allowed = scope.get("allowed_tools")
     ctx = Ctx(channel=a["channel"] if a["channel"] != "learn" else "web", conversation_id=a["conversation_id"] or 0, agent=agent,
-              mission_id=mission["id"] if mission else None, approved=True)
+              mission_id=scope.get("mission_id") or (mission["id"] if mission else None), approved=True,
+              allowed_tools=frozenset(allowed) if isinstance(allowed, list) else None,
+              project_id=scope.get("project_id") if "project_id" in scope else None)
+    # An approval authorises this action, not more: it cannot run a tool outside the requester's tools, or spend past a
+    # budget that was reached while it waited
+    refusal = ""
+    if ctx.allowed_tools is not None and a["tool"] not in ctx.allowed_tools:
+        refusal = f"Not run: {a['tool']} is not one of the tools this work may use, so an approval cannot add it."
+    elif problem := _budget_refusal(ctx, agent):
+        refusal = f"Not run: {problem}"
+    if refusal:
+        db.run("UPDATE approvals SET status = 'failed', result = ? WHERE id = ?", refusal, aid)
+        _note_decision(a, f"The user approved {a['tool']}, but it was not run: {refusal}")
+        return db.one("SELECT * FROM approvals WHERE id = ?", aid)
     ok, out = await run_tool(a["tool"], clear_args, ctx)
     db.run("UPDATE approvals SET status = ?, result = ? WHERE id = ?", "approved" if ok else "failed", out[:4000], aid)
     _note_decision(a, f"The user approved {a['tool']} {safe_mention}; it was run: {out[:300]}")
     return db.one("SELECT * FROM approvals WHERE id = ?", aid)
+
+
+def _budget_refusal(ctx: Ctx, agent: dict | None) -> str:
+    from . import missions, projects
+    from .usage import over_budget
+
+    if problem := projects.budget_problem(ctx.project_id):
+        return problem
+    if agent and (problem := over_budget(agent)):
+        return problem
+    if ctx.mission_id:
+        m = db.one("SELECT * FROM missions WHERE id = ?", ctx.mission_id)
+        if m and (problem := missions._over_budget(m)):
+            return problem
+    return ""
 
 
 def _note_decision(a: dict, text: str) -> None:
