@@ -8,7 +8,7 @@ cd "$(dirname "$0")"
 PY="${ROOKS_PY:-python3}"
 (cd ../../frontend && npm run build > /dev/null) || { echo "The frontend did not build"; exit 1; }
 fail=0
-for t in test_journey.py test_keyboard.py test_regressions.py test_v13_scenarios.py test_v14_shell.py screens.py; do
+for t in test_journey.py test_keyboard.py test_regressions.py test_v13_scenarios.py test_v14_shell.py test_v15_web.py screens.py; do
   echo "== $t"
   "$PY" "$t" || fail=1
 done

@@ -920,3 +920,13 @@ body { background: var(--bg); }
 .state-key > div { display: flex; align-items: center; gap: 6px; }
 .state-key dd { margin: 0; }
 @media (max-width: 900px) { .pick-hint { display: none; } }
+
+/* v15: previews of images, PDFs and spreadsheets, and the saved-file check */
+.preview-image { display: block; max-width: 100%; height: auto; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--panel-2); }
+.preview-pdf { width: 100%; height: min(70vh, 900px); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel-2); }
+.preview-table-wrap { overflow: auto; max-height: 65vh; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.preview-table { margin: 0; font-size: 12.5px; }
+.preview-table th { position: sticky; top: 0; background: var(--panel); }
+.preview-check { margin: 4px 0 0; }
+.preview-check.ok { color: var(--ok, var(--muted)); }
+.preview-check.warn { color: var(--warn); }

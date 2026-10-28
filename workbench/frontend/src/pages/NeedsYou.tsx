@@ -100,7 +100,8 @@ export function useAttentionCount(): number {
   useEffect(() => {
     const load = () => api<{ count: number }>("/needs-you/count").then((r) => setN(r.count)).catch(() => undefined);
     load();
-    const t = window.setInterval(() => { if (document.visibilityState === "visible") load(); }, 30000);
+    // Changes arrive through the live connection (live.ts); this slow check only covers a browser without it
+    const t = window.setInterval(() => { if (document.visibilityState === "visible") load(); }, typeof EventSource === "undefined" ? 30000 : 300000);
     window.addEventListener("wb:attention", load);
     return () => { window.clearInterval(t); window.removeEventListener("wb:attention", load); };
   }, []);

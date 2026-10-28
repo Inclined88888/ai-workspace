@@ -99,6 +99,11 @@ def reply(body):
         if not n:
             return call("analyze_table", file_id=int(f.group(1)), group_by="Region", value="Revenue")
         return say("**North** sells the most: 1,500.50 of the 2,300.50 total revenue. One East row has no revenue.")
+    fm = re.match(r"find the file (.+?)[.?!]*$", goal, re.I)  # v15: file cards with Preview
+    if fm:
+        if not n:
+            return call("search_files", query=fm.group(1).strip())
+        return say("Here is what I found.")
     if goal.lower().startswith("write a document"):
         if not n:
             return call("create_note", title="Onboarding plan", kind="document",

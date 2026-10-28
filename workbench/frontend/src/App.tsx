@@ -11,6 +11,7 @@ import CallInvites from "./components/CallInvites";
 import NeedsYou from "./pages/NeedsYou";
 import Sidebar from "./components/Sidebar";
 import CommandPalette, { openPalette } from "./components/CommandPalette";
+import { startLive } from "./live";
 
 // Pages load on first visit, so the first screen downloads only what it needs. Once the app is idle every page is
 // fetched in the background, so moving between pages stays instant.
@@ -143,6 +144,7 @@ export default function App() {
     return () => window.removeEventListener("wb:unauthorized", onUnauthorized);
   }, []);
   useEffect(() => { if (status?.signed_in) preloadPages(); }, [status?.signed_in]);
+  useEffect(() => (status?.signed_in ? startLive() : undefined), [status?.signed_in]);
   useEffect(() => setMenuOpen(false), [location.pathname]);
   useEffect(() => {  // one overlay at a time: opening search closes the phone menu
     const close = () => setMenuOpen(false);

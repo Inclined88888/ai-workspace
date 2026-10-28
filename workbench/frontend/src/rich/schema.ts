@@ -19,7 +19,7 @@ export type Block =
   | { type: "list"; title: string; items: string[] }
   | { type: "notice"; tone: "info" | "warn"; text: string }
   | { type: "job"; kind: JobKind; id: number; title: string; status: string; live: boolean; progress: string[];
-      steps: { title: string; status: string }[]; agent: string; folder: string; billing: string; error: string; estimate_cents: number | null };
+      steps: { title: string; status: string }[]; agent: string; folder: string; billing: string; error: string; estimate_cents: number | null; status_text: string };
 
 export type JobKind = "mission" | "research" | "coding";
 
@@ -97,7 +97,7 @@ export function validate(raw: unknown): Block | null {
         .map((x) => ({ title: (x.title as string).slice(0, 200), status: isStr(x.status) ? x.status : "" })), 20) : [];
       return { type: "job", kind: raw.kind as JobKind, id: raw.id, title: s("title", 300), status: s("status", 30), live: raw.live === true,
         progress, steps, agent: s("agent", 40), folder: s("folder", 300), billing: s("billing", 200), error: s("error", 600),
-        estimate_cents: isNum(raw.estimate_cents) ? raw.estimate_cents : null };
+        estimate_cents: isNum(raw.estimate_cents) ? raw.estimate_cents : null, status_text: s("status_text", 80) };
     }
     case "notice":
       return isStr(raw.text) ? { type: "notice", tone: raw.tone === "warn" ? "warn" : "info", text: raw.text.slice(0, 1000) } : null;

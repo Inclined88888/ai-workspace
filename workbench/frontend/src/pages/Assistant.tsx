@@ -5,7 +5,7 @@ import { api, FileMeta, stream, uploadFile } from "../api";
 import { Empty, Markdown, ModelSelect, relTime, useModels, useToast } from "../util";
 import { shortRef } from "../components/Models";
 import WebSearchPanel from "../components/WebSearch";
-import VoiceSession from "../components/Voice";
+import VoiceSession, { voiceAvailable } from "../components/Voice";
 import RookMark from "../components/RookMark";
 import { conversationsChanged } from "../components/Sidebar";
 import RichText from "../rich/RichText";
@@ -209,6 +209,8 @@ function Chat() {
   const [convs, setConvs] = useState<Conv[]>([]);
   const [messages, setMessages] = useState<Msg[]>([]);
   // A document, file or report open beside the conversation; closing returns focus to the conversation
+  const [canVoice, setCanVoice] = useState(false);
+  useEffect(() => { voiceAvailable().then(setCanVoice); }, []);
   const [preview, setPreview] = useState<PreviewItem | null>(null);
   const closePreview = useCallback(() => { setPreview(null); inputRef.current?.focus(); }, []);
   const [steps, setSteps] = useState<Step[]>([]);
@@ -674,7 +676,7 @@ function Chat() {
                 {uploading ? <Loader2 size={16} className="spin" /> : <Paperclip size={16} />}
               </button>
               <input ref={fileInput} type="file" multiple hidden onChange={(e) => { if (e.target.files) attach(e.target.files); e.target.value = ""; }} />
-              <button type="button" className="btn ghost icon" onClick={() => setVoice({})} disabled={busy || !!voice} aria-label="Start a voice conversation" title="Talk instead of typing"><Mic size={16} /></button>
+              {canVoice && <button type="button" className="btn ghost icon" onClick={() => setVoice({})} disabled={busy || !!voice} aria-label="Start a voice conversation" title="Talk instead of typing"><Mic size={16} /></button>}
               <div className="composer-model" title={autoRef ? `Automatic uses ${shortRef(autoRef, models)} now` : "Automatic picks a working model"}>
                 <ModelSelect value={model} onChange={setModel} models={models} defaultLabel="Automatic" /></div>
               <div className="spacer" />

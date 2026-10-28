@@ -196,6 +196,60 @@ def projects_list():
     return projects_api.list_projects()
 
 
+# Files: a table view of spreadsheets, inline viewing of PDFs and images, and a check that what is on disk is what was saved
+INLINE = {"application/pdf", "image/png", "image/jpeg", "image/gif", "image/webp"}
+
+
+@router.get("/files/{fid}/table")
+def file_table(fid: int, sheet: str = "", limit: int = Query(200, ge=1, le=2000)):
+    from . import tables
+
+    t = tables.load(fid, sheet)
+    return {**t, "rows": t["rows"][:limit], "total_rows": len(t["rows"]), "shown_rows": min(limit, len(t["rows"]))}
+
+
+@router.get("/files/{fid}/view")
+def file_view(fid: int):
+    """Shown inside ROOKS: PDFs and images only, under their own type, never sniffed; anything else is a download."""
+    from fastapi.responses import FileResponse
+
+    from . import files
+
+    f = db.one("SELECT name, mime, path FROM files WHERE id = ?", fid)
+    if not f:
+        raise HTTPException(404, "File not found")
+    if f["mime"] not in INLINE:
+        raise HTTPException(415, "Only PDFs and images are shown inside ROOKS; download this file to open it.")
+    headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-store"}
+    if f["mime"] != "application/pdf":  # an image needs nothing else; a PDF needs the browser's viewer, which a sandbox blocks
+        headers["Content-Security-Policy"] = "sandbox; default-src 'none'; img-src 'self'"
+    return FileResponse(files.root() / f["path"], media_type=f["mime"], filename=f["name"], content_disposition_type="inline", headers=headers)
+
+
+@router.get("/files/{fid}/verify")
+def file_verify(fid: int):
+    """Reads the file from disk now and compares it with what ROOKS recorded when it was written. A preview is not proof
+    that a file was saved; this is."""
+    import hashlib
+
+    from . import files
+
+    f = db.one("SELECT id, name, size, sha256, path FROM files WHERE id = ?", fid)
+    if not f:
+        raise HTTPException(404, "File not found")
+    p = files.root() / f["path"]
+    if not p.exists():
+        return {"file_id": fid, "name": f["name"], "exists": False, "matches": False, "checked_at": db.now(),
+                "text": "The file is missing from disk."}
+    data = p.read_bytes()
+    digest = hashlib.sha256(data).hexdigest()
+    matches = bool(f["sha256"]) and digest == f["sha256"]
+    return {"file_id": fid, "name": f["name"], "exists": True, "size": len(data), "sha256": digest, "recorded_sha256": f["sha256"],
+            "matches": matches, "checked_at": db.now(),
+            "text": "Saved and checked: what is on disk is what ROOKS wrote." if matches else
+                    "On disk, but it differs from what ROOKS recorded." if f["sha256"] else "On disk; ROOKS has no record to compare it with."}
+
+
 @router.get("/capabilities")
 def capabilities():
     """What ROOKS can do here: each tool's group, risk, time limit, whether it asks first, and whether it is set up."""

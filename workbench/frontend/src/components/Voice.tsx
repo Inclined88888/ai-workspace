@@ -33,6 +33,18 @@ function recognitionCtor(): RecognitionCtor | null {
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
 }
 
+/** Whether this browser can hold a voice conversation with the current settings: speech recognition for the browser
+ *  option, recording for a speech provider. The microphone button is shown only when this is true. */
+export async function voiceAvailable(): Promise<boolean> {
+  try {
+    const s = await api<{ stt: string }>("/voice");
+    if (s.stt === "provider") return !!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== "undefined";
+    return !!recognitionCtor();
+  } catch {
+    return false;
+  }
+}
+
 /** Text as it should sound: no markdown symbols, links read as their words. */
 export function spoken(text: string): string {
   return text.replace(/```[\s\S]*?```/g, " ").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").replace(/[*_#`>|]/g, "").replace(/\s+/g, " ").trim();

@@ -5,6 +5,7 @@ import { api } from "../api";
 import { Block, fmt, JobKind, Kind, Rec } from "./schema";
 import RichText from "./RichText";
 import { usePreview } from "./Preview";
+import type { WorkItem } from "../live";
 
 const Chart = lazy(() => import("./Chart"));
 
@@ -202,10 +203,11 @@ function JobCard({ b: initial }: { b: Job }) {
     let stop = false;
     const t = setTimeout(async () => {
       try {
-        const d = await api<Record<string, unknown>>(`/${JOB_PATH[b.kind]}/${b.id}`);
+        const [d, w] = await Promise.all([api<Record<string, unknown>>(`/${JOB_PATH[b.kind]}/${b.id}`),
+          api<WorkItem>(`/v1/work/${b.kind}:${b.id}`).catch(() => null)]);
         if (stop) return;
         const plan = Array.isArray(d.plan) ? (d.plan as { title: string; status: string }[]) : null;
-        setB((c) => ({ ...c, status: str(d.status), error: str(d.error),
+        setB((c) => ({ ...c, status: str(d.status), error: str(d.error), status_text: w?.status_text ?? c.status_text,
           progress: Array.isArray(d.progress) ? (d.progress as string[]).slice(-6) : d.progress ? [str(d.progress)] : c.progress,
           steps: plan ? plan.map((s) => ({ title: s.title, status: s.status })) : c.steps }));
       } catch { /* keep the last known state */ }
@@ -214,8 +216,17 @@ function JobCard({ b: initial }: { b: Job }) {
     return () => { stop = true; clearTimeout(t); };
   }, [live, tick]); // eslint-disable-line react-hooks/exhaustive-deps
   const refresh = () => setTick((n) => n + 1);
+  useEffect(() => {  // the live connection says this work changed: show it now instead of at the next poll
+    const on = (e: Event) => {
+      const it = ((e as CustomEvent<WorkItem[]>).detail ?? []).find((w) => w.id === `${b.kind}:${b.id}`);
+      if (it) setB((c) => ({ ...c, status: it.native_status, status_text: it.status_text, error: it.error || c.error }));
+    };
+    window.addEventListener("rooks:work", on);
+    return () => window.removeEventListener("rooks:work", on);
+  }, [b.kind, b.id]);
   const s = b.status;
-  const badge = <span className={`badge ${STATUS_TONE[s] ?? ""}`}>{["running", "planning", "queued"].includes(s) && <Loader2 size={10} className="spin" />} {STATUS_LABEL[s] ?? s}</span>;
+  // The words come from the server (work.py), the same in the browser, the terminal and the desktop app
+  const badge = <span className={`badge ${STATUS_TONE[s] ?? ""}`}>{["running", "planning", "queued"].includes(s) && <Loader2 size={10} className="spin" />} {b.status_text || STATUS_LABEL[s] || s}</span>;
   const label = { mission: "Mission", research: "Research", coding: b.agent || "Coding task" }[b.kind];
   const done = b.steps.filter((x) => x.status === "done").length;
   let actions: React.ReactNode = null;

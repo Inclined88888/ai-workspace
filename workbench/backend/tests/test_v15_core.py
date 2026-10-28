@@ -169,3 +169,28 @@ def test_capabilities_say_what_is_set_up_and_what_asks_first(client):
     assert caps["create_note"]["state"] == "available" and caps["create_note"]["risk"] == "write"
     assert caps["github_create_issue"]["state"] == "needs_setup" and caps["github_create_issue"]["asks_first"]
     assert caps["read_email"]["outside_content"] and not caps["create_note"]["outside_content"]
+
+
+# Files: what is shown and whether what is on disk is what was saved
+def test_a_saved_file_is_checked_on_disk_and_a_changed_one_is_reported(client):
+    from app import db, files
+
+    fid = client.post("/api/files?name=ledger.csv", content=b"Item,Cost\nPaper,12\nInk,30\n", headers={"Content-Type": "text/csv"}).json()["id"]
+    v = client.get(f"/api/v1/files/{fid}/verify").json()
+    assert v["matches"] and v["exists"] and v["text"].startswith("Saved and checked")
+    t = client.get(f"/api/v1/files/{fid}/table").json()
+    assert t["header"] == ["Item", "Cost"] and t["total_rows"] == 2 and t["rows"][1] == ["Ink", "30"]
+    path = files.root() / db.one("SELECT path FROM files WHERE id = ?", fid)["path"]
+    path.write_bytes(b"Item,Cost\nPaper,999\n")  # changed behind ROOKS's back
+    v = client.get(f"/api/v1/files/{fid}/verify").json()
+    assert not v["matches"] and "differs" in v["text"]
+    path.unlink()
+    assert client.get(f"/api/v1/files/{fid}/verify").json()["exists"] is False
+
+
+def test_only_pdfs_and_images_are_shown_inline(client):
+    fid = client.post("/api/files?name=x.html", content=b"<script>1</script>", headers={"Content-Type": "text/html"}).json()["id"]
+    assert client.get(f"/api/v1/files/{fid}/view").status_code == 415
+    pid = client.post("/api/files?name=p.png", content=b"\x89PNG\r\n\x1a\nnot really", headers={"Content-Type": "image/png"}).json()["id"]
+    r = client.get(f"/api/v1/files/{pid}/view")
+    assert r.status_code == 200 and r.headers["x-content-type-options"] == "nosniff" and "sandbox" in r.headers["content-security-policy"]

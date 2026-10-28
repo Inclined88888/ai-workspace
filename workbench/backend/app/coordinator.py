@@ -80,6 +80,14 @@ def state(job: dict) -> dict:
             return {**b, "status": "deleted", "live": False}
         b.update(title=c["task"][:300], status=c["status"], agent=c["agent"], folder=c["folder"], progress=c["progress"][-6:],
                  billing=c["billing"], error=c["error"][:300], live=c["status"] not in ("done", "failed", "cancelled"))
+    if b.get("status") and b["status"] != "deleted":  # the same words every client shows (work.py)
+        from . import work
+
+        try:
+            phase, outcome = work.phase_of({"mission": "mission", "research": "research", "coding": "coding"}[kind], b["status"])
+            b.update(phase=str(phase), status_text=work.OUTCOME_WORDS.get(outcome) or work.WORDS[phase], work_id=f"{kind}:{ref}")
+        except (KeyError, ValueError):
+            pass
     return b
 
 
