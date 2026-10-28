@@ -270,3 +270,15 @@ For local models that print tool calls, Workbench also accepts a whole-response 
 **Tool mode** (Assistant → Settings) is `auto` by default: Ollama gets compact tools when its configured context is below 32,768 tokens; other providers and larger windows get all available tools. `compact` always offers `load_skill`, `web_search`, `read_page`, `search_notes`, `get_agenda`, `create_task` and `remember`, plus tools selected by English keywords (notes, tasks, calendar/meeting, email, browser, memory, history, skills, schedules and team) or explicit tool names in your message. Channel and add-on restrictions still apply. Select `all` for broader workflows, non-English requests or skills whose required tools are not named in the request.
 
 **Database upgrades.** Workbench now records `schema_version` in SQLite settings and runs ordered migrations automatically on startup. Version 1 marks the existing schema without altering your data. Pending migrations and their version updates run in one transaction; a failure rolls them back. A database from a newer unsupported version is refused. Existing `.env` files and Docker data volumes keep their paths and formats. Back up the data volume before upgrading, as before; future schema changes belong in the migration list rather than edits to the baseline schema.
+
+### Development checks
+
+GitHub Actions runs three independent checks on pushes and pull requests, using Python 3.12 and Node 22 to match the Workbench image. No provider keys or downloaded model are needed: backend tests use scripted local model servers and browser-agent tests stub browser execution.
+
+```sh
+(cd workbench/backend && python -m pip install -r requirements.txt pytest && python -m pytest -q)
+(cd workbench/frontend && npm ci && npx tsc -b && npm run build)
+(cd browser-agent && python -m pip install -e '.[server,dev]' && python -m pytest -q tests/test_llm.py tests/test_server.py)
+```
+
+Use separate Python environments for Workbench and browser-agent because their dependency constraints differ.
