@@ -250,3 +250,15 @@ Backend: FastAPI + SQLite. Frontend: React + Vite + TypeScript. The tool server 
 - Web search works with no setup through DuckDuckGo's keyless results page, but that page is meant for people: it rate limits and can change without notice, and automated use may conflict with DuckDuckGo's terms. Turn it off in Assistant settings if that matters to you. For dependable search use the `search` add-on (SearXNG) or a Brave or Tavily key. Research quality depends on the model and the search results. Verify claims against the sources.
 - The Paperclip add-on runs in its own login. Workbench links to it but does not share a sign in.
 - Browser agent results are the agent's own report. Small local models are unreliable at browsing.
+
+### Local tool-use evaluation
+
+Log in with `cli/ws login http://localhost:3100`, then run:
+
+```sh
+python3 scripts/eval_local.py --model 1/qwen3:4b --model 1/qwen3:8b --output eval.json
+```
+
+Use the provider id from Settings → Providers. The script uses the saved terminal token; alternatively set `WORKBENCH_CLI_TOKEN` and pass `--url`. It runs 20 fixed tasks per model in separate conversations: search/read/summarize, tasks, agenda, note search, calendar events and memory. **Use a test workspace:** it creates entries marked `[local eval]` and leaves conversations for inspection. Automatic learning can also save memories; disable it for more comparable runs. No model is downloaded or provider configuration changed.
+
+The report separates successful tool executions / attempted calls from tasks with all required tools succeeding in order and a final answer. An answer claiming success without the required tool results fails. This checks tool use, not the factual quality of the final summary. The JSON includes per-task errors and conversation ids. Exit status is nonzero if any task fails.
