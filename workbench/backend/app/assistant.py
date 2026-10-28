@@ -7,6 +7,8 @@ and the workspace tools. After a turn, learn.py mines the conversation for new m
 import asyncio
 import inspect
 import json
+import re
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, AsyncIterator, Callable
@@ -15,7 +17,7 @@ from zoneinfo import ZoneInfo
 import httpx
 from fastapi import HTTPException
 
-from . import config, db, llm, research, services, tools, usage
+from . import config, db, llm, receipts, research, services, tools, usage
 
 MAX_STEPS = 12
 HISTORY_MESSAGES = 40
@@ -31,6 +33,9 @@ class Ctx:
     tool_calls: int = 0
     skills_used: list[str] = field(default_factory=list)
     tainted: bool = False              # untrusted web or email content is in the model's context
+    model: str = ""                    # model ref answering this turn (for the reliability record)
+    receipts: list[dict] = field(default_factory=list)  # checks of what this turn's tools changed
+    from_text: bool = False            # the current call was recovered from text
 
 
 @dataclass
@@ -267,18 +272,31 @@ def available_tools(ctx: Ctx) -> list[Tool]:
     return [t for t in TOOLS if t.when(ctx)]
 
 
+_ENVIRONMENT = re.compile(r"not set up|not enabled|no mail account|not configured|unreachable", re.I)
+
+
 async def run_tool(name: str, raw_args: str, ctx: Ctx, approved: bool = False) -> tuple[bool, str]:
+    """Run one tool call, check what it changed, and record the outcome against the model."""
+    started = time.monotonic()
     t = TOOL_MAP.get(name)
+
+    def done(ok: bool, out: str, outcome: str, verified: bool | None = None, evidence: str = "") -> tuple[bool, str]:
+        receipts.record_tool(ctx, name, outcome, verified, evidence, ctx.from_text, int((time.monotonic() - started) * 1000))
+        ctx.receipts.append({"tool": name, "effect": t.effect if t else "read", "outcome": outcome, "verified": verified,
+                             "evidence": evidence})
+        return ok, out
+
     if not t or not t.when(ctx):
-        return False, f"Unknown tool {name}"
+        return done(False, f"Unknown tool {name}", "unknown_tool")
     try:
         args = json.loads(raw_args or "{}")
         if not isinstance(args, dict):
             raise ValueError("arguments must be an object")
     except ValueError as e:
-        return False, f"Invalid arguments: {e}"
+        return done(False, f"Invalid arguments: {e}", "bad_args")
     if needs_approval(t, ctx) and not approved:
-        return False, _hold_for_approval(t, raw_args, ctx)[1]
+        aid, msg = _hold_for_approval(t, raw_args, ctx)
+        return done(False, msg, "denied" if ctx.channel in UNATTENDED else "held", evidence=f"request #{aid}")
     sig = inspect.signature(t.fn)
     if "ctx" in sig.parameters:
         args["ctx"] = ctx
@@ -291,15 +309,20 @@ async def run_tool(name: str, raw_args: str, ctx: Ctx, approved: bool = False) -
         if t.untrusted:
             ctx.tainted = True
             out = UNTRUSTED_NOTE.format(name=name) + out
-        return True, out
     except HTTPException as e:
-        return False, f"Error: {e.detail}"
+        detail = str(e.detail)
+        fault = "tool_error" if e.status_code >= 500 or _ENVIRONMENT.search(detail) else "rejected"
+        return done(False, f"Error: {detail}", fault)
     except asyncio.TimeoutError:
-        return False, "Error: the tool timed out"
+        return done(False, "Error: the tool timed out", "tool_error")
     except TypeError as e:
-        return False, f"Error: bad arguments ({e})"
+        return done(False, f"Error: bad arguments ({e})", "bad_args")
     except Exception as e:  # noqa: BLE001 - report tool failures to the model instead of crashing the turn
-        return False, f"Error: {str(e)[:300] or e.__class__.__name__}"
+        return done(False, f"Error: {str(e)[:300] or e.__class__.__name__}", "tool_error")
+    verified, evidence = receipts.verify(name, args, result)
+    if verified is False:  # the tool returned, but what it was asked to do is not there
+        return done(False, f"Error: the change could not be confirmed: {evidence}", "check_failed", False, evidence)
+    return done(True, out, "verified" if verified else "ok", verified, evidence)
 
 
 def system_prompt(ctx: Ctx, user_text: str) -> str:
@@ -336,6 +359,9 @@ def system_prompt(ctx: Ctx, user_text: str) -> str:
 
 
 INTERRUPTED = "Error: not run. The turn was interrupted before this tool ran."
+CLAIM_NUDGE = ("[Automatic check, not from the user: your answer said \"{claim}\", but no tool call in this turn made and "
+               "confirmed that change. If the user asked for it, call the right tool now. Otherwise answer again without "
+               "saying it was done. Workbench cannot send email, only save drafts.]")
 
 
 def _history(conversation_id: int, budget_chars: int = 300_000) -> list[dict]:
@@ -402,12 +428,17 @@ async def run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> AsyncI
     if conv["title"] == "New chat":
         db.run("UPDATE conversations SET title = ? WHERE id = ?", user_text.strip().splitlines()[0][:80] or "Chat", ctx.conversation_id)
     model = model or (ctx.agent or {}).get("model") or conv["model"] or None
+    try:
+        ctx.model = model or llm.default_model_ref()
+    except HTTPException:
+        ctx.model = ""
     _save(ctx.conversation_id, "user", user_text)
     specs = [t.spec() for t in available_tools(ctx)]
     ctx.tainted = ctx.tainted or bool(db.one(
         f"SELECT 1 FROM (SELECT name FROM messages WHERE conversation_id = ? ORDER BY id DESC LIMIT ?) "
         f"WHERE name IN ({','.join('?' * len(UNTRUSTED_TOOLS))}) LIMIT 1", ctx.conversation_id, HISTORY_MESSAGES, *UNTRUSTED_TOOLS))
     budget = llm.context_chars(model)
+    nudged = False
     cost = 0.0
     final = ""
     for _ in range(MAX_STEPS):
@@ -426,24 +457,43 @@ async def run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> AsyncI
         try:
             res = await llm.chat(model, msgs, specs)
         except HTTPException as e:
+            receipts.record_turn(ctx, "model_error", str(e.detail))
             yield {"type": "error", "error": str(e.detail)}
             return
         cost += usage.record(res, channel=ctx.channel, agent_id=(ctx.agent or {}).get("id"), conversation_id=ctx.conversation_id)
         msg = res["message"]
         calls = msg.get("tool_calls") or []
-        _save(ctx.conversation_id, "assistant", msg.get("content") or "", calls)
+        mid = _save(ctx.conversation_id, "assistant", msg.get("content") or "", calls)
         if not calls:
             final = msg.get("content") or ""
+            claim = receipts.unbacked_claim(final, ctx.receipts)
+            if claim and not nudged:
+                # Never let an unconfirmed "done" reach the user: withdraw it and give the model one chance to act or correct it
+                nudged = True
+                db.run("DELETE FROM messages WHERE id = ?", mid)
+                _save(ctx.conversation_id, "user", CLAIM_NUDGE.format(claim=claim), name="claim_check")
+                yield {"type": "claim_check", "backed": False, "retrying": True, "claim": claim}
+                continue
+            if claim:
+                final += f"\n\n**Not verified:** I said \"{claim}\", but no change from this turn confirms it. Treat it as not done."
+                db.run("UPDATE messages SET content = ? WHERE id = ?", final, mid)
+                receipts.record_turn(ctx, "unbacked", claim)
+                yield {"type": "claim_check", "backed": False, "retrying": False, "claim": claim}
+            else:
+                receipts.record_turn(ctx, "fixed" if nudged else ("backed" if receipts.claims(final) else "no_claim"))
             break
         if msg.get("content"):
             yield {"type": "thought", "content": msg["content"]}
         for call in calls:
             fn = call["function"]
             ctx.tool_calls += 1
+            ctx.from_text = bool(msg.get("parsed_from_text"))
             yield {"type": "tool_call", "name": fn["name"], "args": fn["arguments"][:500], "from_text": bool(msg.get("parsed_from_text"))}
             ok, out = await run_tool(fn["name"], fn["arguments"], ctx)
             _save(ctx.conversation_id, "tool", out, tool_call_id=call["id"], name=fn["name"])
-            yield {"type": "tool_result", "name": fn["name"], "ok": ok, "preview": out[:300]}
+            r = ctx.receipts[-1] if ctx.receipts else {}
+            yield {"type": "tool_result", "name": fn["name"], "ok": ok, "preview": out[:300],
+                   "receipt": {"verified": r.get("verified"), "evidence": r.get("evidence", "")}}
             held = db.one("SELECT * FROM pending_actions WHERE conversation_id = ? AND tool = ? ORDER BY id DESC LIMIT 1",
                           ctx.conversation_id, fn["name"]) if not ok and out.startswith("Not run") else None
             if held:
@@ -452,6 +502,7 @@ async def run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> AsyncI
     else:
         final = f"I stopped after {MAX_STEPS} steps without finishing. Tell me how to continue."
         _save(ctx.conversation_id, "assistant", final)
+        receipts.record_turn(ctx, "step_limit")
     yield {"type": "message", "content": final}
     yield {"type": "done", "conversation_id": ctx.conversation_id, "cost_cents": round(cost, 3), "tool_calls": ctx.tool_calls}
     from .learn import after_turn

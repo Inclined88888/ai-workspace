@@ -66,6 +66,8 @@ TIMEOUT = httpx.Timeout(connect=10, read=300, write=30, pool=10)
 # the start of the prompt (system prompt, memories, tool rules) once a page or a few messages are added.
 # Ollama is therefore called on its native /api/chat with an explicit window.
 OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "16384"))
+# Local models on a CPU need minutes per answer; measured here: qwen3:4b on 4 cores ran past the 300 s cloud timeout
+OLLAMA_TIMEOUT = httpx.Timeout(connect=10, read=float(os.getenv("OLLAMA_TIMEOUT_S", "900")), write=30, pool=10)
 CHARS_PER_TOKEN = 3  # conservative: real text averages 3.5 to 4, code and JSON less
 CLOUD_CONTEXT_CHARS = 300_000  # about 100K tokens; every current cloud chat model has at least this
 
@@ -119,9 +121,19 @@ def _ollama_usage(data: dict) -> dict:
     return {"prompt_tokens": data.get("prompt_eval_count") or 0, "completion_tokens": data.get("eval_count") or 0}
 
 
+async def _post(p: dict, url: str, body: dict, headers: dict | None = None, timeout: httpx.Timeout = TIMEOUT) -> httpx.Response:
+    """A network failure or timeout becomes a clear error the caller can record, not a bare exception."""
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            return await client.post(url, headers=headers, json=body)
+    except httpx.TimeoutException as e:
+        raise HTTPException(504, f"{p['name']} did not answer within {int(timeout.read or 0)} s") from e
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"{p['name']} unreachable: {e.__class__.__name__}") from e
+
+
 async def _ollama_post(p: dict, body: dict) -> dict:
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-        r = await client.post(f"{_ollama_root(p)}/api/chat", json=body)
+    r = await _post(p, f"{_ollama_root(p)}/api/chat", body, timeout=OLLAMA_TIMEOUT)
     if r.status_code >= 400:
         raise HTTPException(502, f"{p['name']} error {r.status_code}: {r.text[:400]}")
     data = r.json()
@@ -278,8 +290,7 @@ async def complete(ref: str | None, messages: list[dict]) -> str:
     if p["kind"] == "ollama":
         data = await _ollama_post(p, _ollama_body(model, messages, False))
         return THINK_RE.sub("", (data.get("message") or {}).get("content") or "").strip()
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-        r = await client.post(f"{p['base_url'].rstrip('/')}/chat/completions", headers=_headers(p), json=_body(p, model, messages, False))
+    r = await _post(p, f"{p['base_url'].rstrip('/')}/chat/completions", _body(p, model, messages, False), _headers(p))
     if r.status_code >= 400:
         raise HTTPException(502, f"{p['name']} error {r.status_code}: {r.text[:400]}")
     content = r.json()["choices"][0]["message"].get("content") or ""
@@ -353,8 +364,7 @@ async def chat(ref: str | None, messages: list[dict], tools: list[dict] | None =
         body["tools"] = tools  # tool_choice left to the default ("auto"): some Claude models reject forced choice
     if "openrouter.ai" in p["base_url"]:
         body["usage"] = {"include": True}
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-        r = await client.post(f"{p['base_url'].rstrip('/')}/chat/completions", headers=_headers(p), json=body)
+    r = await _post(p, f"{p['base_url'].rstrip('/')}/chat/completions", body, _headers(p))
     if r.status_code >= 400:
         raise HTTPException(502, f"{p['name']} error {r.status_code}: {r.text[:400]}")
     data = r.json()
@@ -385,7 +395,7 @@ def _attach_calls(out: dict, calls: list[dict], names: set[str]) -> None:
 async def _ollama_stream(p: dict, model: str, messages: list[dict], started: float) -> AsyncIterator[dict]:
     first_token_ms = None
     usage: dict = {}
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+    async with httpx.AsyncClient(timeout=OLLAMA_TIMEOUT) as client:
         async with client.stream("POST", f"{_ollama_root(p)}/api/chat", json=_ollama_body(model, messages, True)) as r:
             if r.status_code >= 400:
                 text = (await r.aread()).decode(errors="replace")

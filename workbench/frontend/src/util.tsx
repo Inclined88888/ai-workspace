@@ -48,13 +48,20 @@ export function ModelSelect({
         <optgroup key={provider} label={provider}>
           {list.map((m) => (
             <option key={m.ref} value={m.ref}>
-              {m.model}{m.free ? "  (free)" : ""}
+              {m.model}{m.free ? "  (free)" : ""}{reliabilityLabel(m)}
             </option>
           ))}
         </optgroup>
       ))}
     </select>
   );
+}
+
+// Measured on this workspace (receipts.py): share of tool calls that worked and passed their check
+export function reliabilityLabel(m: Model): string {
+  const r = m.reliability;
+  if (!r || !r.calls || r.success_rate === null) return "";
+  return `  · ${Math.round(r.success_rate * 100)}% of ${r.calls} tool calls ok`;
 }
 
 export function relTime(iso: string): string {

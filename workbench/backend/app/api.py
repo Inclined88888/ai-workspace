@@ -195,7 +195,10 @@ def models(fresh: bool = False):
         default = llm.default_model_ref()
     except HTTPException:
         default = ""
-    return {"models": llm.list_models(fresh), "default": default}
+    from .receipts import reliability
+
+    stats = reliability()
+    return {"models": [m | {"reliability": stats.get(m["ref"])} for m in llm.list_models(fresh)], "default": default}
 
 
 @api.get("/ollama/status")

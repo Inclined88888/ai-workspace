@@ -6,7 +6,7 @@ import { Empty, Markdown, ModelSelect, relTime, useModels, useToast } from "../u
 
 type Conv = { id: number; title: string; channel: string; updated_at: string; model: string };
 type Msg = { id: number; role: string; content: string; tool_calls: string[]; name: string };
-type Step = { kind: "call" | "result"; name: string; text: string; ok?: boolean };
+type Step = { kind: "call" | "result" | "check"; name: string; text: string; ok?: boolean };
 type Approval = { id: number; tool: string; args: string; effect: string; reason: string };
 type Memory = { id: number; content: string; kind: string; source: string; updated_at: string };
 type Skill = { id: number; name: string; description: string; steps: string; uses: number; source: string; enabled: number };
@@ -65,7 +65,14 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
       const t = ev.type as string | undefined;
       if (t === "start") newId = Number(ev.conversation_id);
       if (t === "tool_call") setSteps((s) => [...s, { kind: "call", name: String(ev.name), text: String(ev.args) }]);
-      if (t === "tool_result") setSteps((s) => [...s, { kind: "result", name: String(ev.name), text: String(ev.preview), ok: Boolean(ev.ok) }]);
+      if (t === "tool_result") {
+        const r = (ev.receipt ?? {}) as { verified?: boolean | null; evidence?: string };
+        // Show what was confirmed in the database when there is a check; otherwise the raw result
+        const text = r.verified === true ? `verified: ${r.evidence}` : r.verified === false ? `check failed: ${r.evidence}` : String(ev.preview);
+        setSteps((s) => [...s, { kind: "result", name: String(ev.name), text, ok: Boolean(ev.ok) }]);
+      }
+      if (t === "claim_check") setSteps((s) => [...s, { kind: "check", name: "", ok: false,
+        text: ev.retrying ? `Answer said "${ev.claim}" but nothing confirms it. Asking the model to act or correct it.` : `Still unconfirmed: "${ev.claim}"` }]);
       if (t === "approval_required") setApprovals((a) => [...a, { id: Number(ev.id), tool: String(ev.tool), args: String(ev.args), effect: String(ev.effect), reason: String(ev.reason) }]);
       if (t === "message") setMessages((m) => [...m, { id: Date.now() + 1, role: "assistant", content: String(ev.content), tool_calls: [], name: "" }]);
       if (t === "error" || (!t && ev.error)) toast.err(String(ev.error));
@@ -82,7 +89,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
     loadConvs();
   };
 
-  const visible = messages.filter((m) => m.role === "user" || (m.role === "assistant" && (m.content || m.tool_calls.length)));
+  const visible = messages.filter((m) => (m.role === "user" && m.name !== "claim_check") || (m.role === "assistant" && (m.content || m.tool_calls.length)));
   return (
     <div className={`split ${cid !== null ? "has-selection" : ""}`} style={{ height: "calc(100vh - 0px)" }}>
       <div className="split-list">
@@ -128,7 +135,8 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
               <div className="col" style={{ gap: 4 }}>
                 {steps.map((s, i) => (
                   <div key={i} className="small mono faint row" style={{ alignItems: "flex-start" }}>
-                    {s.kind === "call" ? <Wrench size={12} style={{ marginTop: 3 }} /> : s.ok ? <Check size={12} style={{ marginTop: 3 }} /> : <span style={{ color: "var(--danger)" }}>✕</span>}
+                    {s.kind === "call" ? <Wrench size={12} style={{ marginTop: 3 }} /> : s.kind === "check" ? <ShieldAlert size={12} style={{ marginTop: 3 }} />
+                      : s.ok ? <Check size={12} style={{ marginTop: 3 }} /> : <span style={{ color: "var(--danger)" }}>✕</span>}
                     <span className="truncate">{s.kind === "call" ? `${s.name} ${s.text}` : s.text}</span>
                   </div>
                 ))}

@@ -11,7 +11,7 @@ import secrets
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from . import assistant, company, db, learn, scheduler, search, telegram, usage
+from . import assistant, company, db, learn, receipts, scheduler, search, telegram, usage
 from .api import sse
 from .security import COOKIE, check_session, encrypt
 
@@ -116,6 +116,13 @@ class DecisionIn(BaseModel):
 @router.post("/approvals/{aid}")
 async def decide(aid: int, data: DecisionIn):
     return await assistant.decide(aid, data.approve)
+
+
+# Reliability record: per model tool outcomes and claim checks
+@router.get("/reliability")
+def reliability():
+    return {"models": list(receipts.reliability().values()),
+            "recent": db.all("SELECT * FROM tool_runs ORDER BY id DESC LIMIT 50")}
 
 
 # Memory

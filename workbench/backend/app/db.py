@@ -274,6 +274,29 @@ CREATE TABLE IF NOT EXISTS pending_actions (
   decided_at TEXT
 );
 CREATE INDEX IF NOT EXISTS pending_actions_status ON pending_actions(status, conversation_id);
+
+-- Reliability record (receipts.py): every tool call and every final answer, per model
+CREATE TABLE IF NOT EXISTS tool_runs (
+  id INTEGER PRIMARY KEY,
+  conversation_id INTEGER,
+  model TEXT NOT NULL DEFAULT '',               -- model ref; empty when the user ran an approved action
+  tool TEXT NOT NULL,
+  outcome TEXT NOT NULL,                        -- verified | ok | check_failed | bad_args | unknown_tool | rejected | tool_error | held | denied
+  verified INTEGER,                             -- 1 checked and true, 0 checked and false, NULL nothing to check
+  evidence TEXT NOT NULL DEFAULT '',
+  from_text INTEGER NOT NULL DEFAULT 0,         -- the call was recovered from text, not a structured tool call
+  ms INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS tool_runs_model ON tool_runs(model);
+CREATE TABLE IF NOT EXISTS turn_checks (
+  id INTEGER PRIMARY KEY,
+  conversation_id INTEGER,
+  model TEXT NOT NULL DEFAULT '',
+  outcome TEXT NOT NULL,                        -- no_claim | backed | fixed | unbacked | model_error | step_limit
+  detail TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
 """
 
 

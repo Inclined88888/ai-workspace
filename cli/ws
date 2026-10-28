@@ -12,6 +12,7 @@ Use:
     ws skills                skills it has learned
     ws inbox                 scheduled reports and agent results
     ws schedules             scheduled tasks
+    ws reliability           how reliable each model has been with your tools, measured
     ws approvals             actions waiting for your approval; ws approve <id> / ws deny <id>
 Only the Python standard library is used: copy this file anywhere on your PATH.
 """
@@ -82,8 +83,15 @@ def ask(cfg: dict, text: str) -> None:
             save(cfg)
         elif t == "tool_call":
             print(c("dim", f"  ↳ {e['name']} {e['args'][:120]}"), flush=True)
-        elif t == "tool_result" and not e["ok"]:
-            print(c("dim", f"    {e['preview'][:160]}"), flush=True)
+        elif t == "tool_result":
+            r = e.get("receipt") or {}
+            if r.get("verified") is True:
+                print(c("green", f"    ✓ {r['evidence'][:160]}"), flush=True)
+            elif not e["ok"]:
+                print(c("dim", f"    {e['preview'][:160]}"), flush=True)
+        elif t == "claim_check":
+            note = "asking the model to act or correct it" if e.get("retrying") else "still unconfirmed"
+            print(c("red", f"  ! answer claimed \"{e['claim'][:100]}\" with nothing to confirm it; {note}"), flush=True)
         elif t == "approval_required":
             print(c("bold", f"  ⚠ #{e['id']} {e['tool']} needs your approval: ") + e["args"][:200] +
                   c("dim", f"\n    {e['reason']} Run: ws approve {e['id']}  or  ws deny {e['id']}"), flush=True)
@@ -152,6 +160,11 @@ def main(argv: list[str]) -> None:
         for s in data["schedules"]:
             state = "on " if s["enabled"] else "off"
             print(f"{state}  {s['cron']:<15} {c('bold', s['name'])}  next {s['next_run'] or '-'}  {s['last_status']}")
+    elif cmd == "reliability":
+        for m in request(cfg, "GET", "/reliability")["models"]:
+            rate = f"{m['success_rate'] * 100:.0f}%" if m.get("success_rate") is not None else "  -"
+            print(f"{c('bold', m['model'])}  {rate} of {m.get('calls', 0)} tool calls ok, "
+                  f"{m.get('false_claims_caught', 0)} false claims caught, {m.get('false_claims_left', 0)} left flagged")
     elif cmd == "approvals":
         for a in request(cfg, "GET", "/approvals"):
             print(f"{c('bold', '#' + str(a['id']))} {a['tool']} {a['args'][:200]}\n  {c('dim', a['reason'])}")
