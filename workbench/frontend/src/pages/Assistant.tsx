@@ -1,4 +1,4 @@
-import { Brain, Check, Copy, KeyRound, Loader2, MessageSquare, Plus, Search, Send, Sparkles, Trash2, Wrench } from "lucide-react";
+import { Brain, Check, Copy, KeyRound, ListChecks, Loader2, MessageSquare, Plus, Search, Send, ShieldQuestion, Sparkles, Trash2, Wrench, X } from "lucide-react";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, stream } from "../api";
@@ -8,6 +8,8 @@ type Conv = { id: number; title: string; channel: string; updated_at: string; mo
 type Msg = { id: number; role: string; content: string; tool_calls: string[]; name: string };
 type Step = { kind: "call" | "result"; name: string; text: string; ok?: boolean };
 type Memory = { id: number; content: string; kind: string; source: string; updated_at: string };
+type Approval = { id: number; name: string; args: string; reason: string; description?: string };
+type Action = { id: number; ts: string; name: string; arguments: string; decision: string; ok: number; result: string; channel: string; conversation_id: number };
 type Skill = { id: number; name: string; description: string; steps: string; uses: number; source: string; enabled: number };
 
 const CHANNEL: Record<string, string> = { web: "Web", cli: "Terminal", telegram: "Telegram", schedule: "Schedule" };
@@ -22,6 +24,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [partial, setPartial] = useState("");
+  const [approval, setApproval] = useState<Approval | null>(null);
   const [model, setModel] = useState("");
   const { models } = useModels();
   const endRef = useRef<HTMLDivElement>(null);
@@ -32,22 +35,23 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   useEffect(() => { const t = setTimeout(loadConvs, 200); return () => clearTimeout(t); }, [q]);
   useEffect(() => {
     setSteps([]);
+    setApproval(null);
     if (!cid) return setMessages([]);
-    api<{ messages: Msg[]; model: string }>(`/conversations/${cid}`).then((c) => { setMessages(c.messages); setModel(c.model || ""); }).catch(toast.err);
+    api<{ messages: Msg[]; model: string; pending_approvals: { id: number; name: string; arguments: string; reason: string }[] }>(`/conversations/${cid}`).then((c) => {
+      setMessages(c.messages); setModel(c.model || "");
+      const p = c.pending_approvals?.[0];
+      if (p) setApproval({ id: p.id, name: p.name, args: p.arguments, reason: p.reason });
+    }).catch(toast.err);
   }, [cid]);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, steps, partial]);
 
-  const send = async (e?: FormEvent) => {
-    e?.preventDefault();
-    const msg = text.trim();
-    if (!msg || busy) return;
-    setText("");
+  // One handler for every event stream: a new message, or the conversation continuing after an approval
+  const run = async (path: string, body: unknown) => {
     setBusy(true);
     setPartial("");
-    setSteps([]);
-    setMessages((m) => [...m, { id: Date.now(), role: "user", content: msg, tool_calls: [], name: "" }]);
+    setApproval(null);
     let newId = cid;
-    try { await stream("/assistant/chat", { message: msg, conversation_id: cid, model: model || null }, (ev) => {
+    try { await stream(path, body, (ev) => {
       const t = ev.type as string | undefined;
       if (t === "start") newId = Number(ev.conversation_id);
       if (t === "delta") setPartial((s) => s + String(ev.content));
@@ -56,6 +60,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
         setSteps((s) => [...s, { kind: "call", name: String(ev.name), text: String(ev.args) }]);
       }
       if (t === "tool_result") setSteps((s) => [...s, { kind: "result", name: String(ev.name), text: String(ev.preview), ok: Boolean(ev.ok) }]);
+      if (t === "approval") setApproval({ id: Number(ev.id), name: String(ev.name), args: String(ev.args), reason: String(ev.reason || ""), description: String(ev.description || "") });
       if (t === "message") {
         setPartial("");
         setMessages((m) => [...m, { id: Date.now() + 1, role: "assistant", content: String(ev.content), tool_calls: [], name: "" }]);
@@ -67,6 +72,18 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
     loadConvs();
     if (newId && newId !== cid) navigate(`/assistant/${newId}`, { replace: true });
   };
+
+  const send = async (e?: FormEvent) => {
+    e?.preventDefault();
+    const msg = text.trim();
+    if (!msg || busy) return;
+    setText("");
+    setSteps([]);
+    setMessages((m) => [...m, { id: Date.now(), role: "user", content: msg, tool_calls: [], name: "" }]);
+    await run("/assistant/chat", { message: msg, conversation_id: cid, model: model || null });
+  };
+
+  const decide = (approve: boolean) => approval && run(`/approvals/${approval.id}`, { approve, model: model || null });
 
   const remove = async (c: Conv) => {
     if (!confirm(`Delete "${c.title}"? Memories learned from it are kept.`)) return;
@@ -128,6 +145,19 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
               </div>
             )}
             {partial && <Markdown text={partial} />}
+            {approval && !busy && (
+              <div className="card col" style={{ borderColor: "var(--warn, #d97706)", gap: 8 }}>
+                <div className="row"><ShieldQuestion size={16} /><strong className="grow">Allow {approval.name}?</strong></div>
+                {approval.reason && <div className="muted small">{approval.reason}</div>}
+                {approval.description && <div className="faint small">{approval.description}</div>}
+                <pre className="mono small" style={{ whiteSpace: "pre-wrap", margin: 0, maxHeight: 200, overflow: "auto" }}>{approval.args}</pre>
+                <div className="row">
+                  <button className="btn primary" onClick={() => decide(true)}><Check size={14} /> Approve</button>
+                  <button className="btn" onClick={() => decide(false)}><X size={14} /> Decline</button>
+                  <span className="faint small">Sending a new message instead declines it.</span>
+                </div>
+              </div>
+            )}
             {busy && <div className="row muted"><Loader2 size={15} className="spin" /> Working…</div>}
             <div ref={endRef} />
           </div>
@@ -240,6 +270,67 @@ function SkillsTab() {
   );
 }
 
+const DECISION: Record<string, string> = { allowed: "ran", approved: "approved", declined: "declined", denied: "blocked", expired: "not approved" };
+
+function ActivityTab() {
+  const [items, setItems] = useState<Action[]>([]);
+  const [open, setOpen] = useState<number | null>(null);
+  const toast = useToast();
+  useEffect(() => { api<Action[]>("/actions?limit=300").then(setItems).catch(toast.err); }, []);
+  return (
+    <div className="col gap-lg">
+      <p className="muted" style={{ margin: 0 }}>Every tool the assistant used on any channel, with its arguments and result. Approvals and blocked calls are listed too.</p>
+      {items.length === 0 && <Empty icon={<ListChecks size={24} />} title="No activity yet" />}
+      <div className="card flush">
+        {items.map((a) => (
+          <div key={a.id} className="col" style={{ padding: "8px 14px", borderBottom: "1px solid var(--border)", cursor: "pointer" }} onClick={() => setOpen(open === a.id ? null : a.id)}>
+            <div className="row">
+              <strong className="mono grow truncate">{a.name}</strong>
+              <span className={`badge ${a.decision === "denied" || a.decision === "declined" ? "danger" : a.ok ? "ok" : ""}`}>{DECISION[a.decision] ?? a.decision}{a.decision !== "denied" && a.decision !== "declined" && a.decision !== "expired" && !a.ok ? ", failed" : ""}</span>
+              <span className="faint small">{CHANNEL[a.channel] ?? a.channel} · {relTime(a.ts)}</span>
+            </div>
+            <div className="faint small mono truncate">{a.arguments}</div>
+            {open === a.id && <pre className="mono small" style={{ whiteSpace: "pre-wrap", margin: 0 }}>{a.result || "(no result)"}</pre>}
+          </div>
+        ))}
+      </div>
+      {toast.node}
+    </div>
+  );
+}
+
+type Policy = { name: string; description: string; policy: "allow" | "ask" | "deny"; default: string; external: boolean; persists: boolean };
+
+function ToolPermissions() {
+  const [items, setItems] = useState<Policy[]>([]);
+  const toast = useToast();
+  const load = () => api<Policy[]>("/tool-policies").then(setItems).catch(toast.err);
+  useEffect(() => { load(); }, []);
+  const set = async (name: string, policy: string) => {
+    try { await api("/tool-policies", { method: "PUT", body: { name, policy } }); load(); } catch (e) { toast.err(e); }
+  };
+  return (
+    <div className="card col">
+      <h3>Tool permissions</h3>
+      <div className="muted small">Allow runs a tool straight away, Ask waits for your approval in chat, the terminal or Telegram, Deny never runs it. Scheduled runs and company agents cannot ask, so for them Ask means Deny. After the assistant reads web pages or email in a turn, memories, skills and schedules always ask.</div>
+      <div className="card flush">
+        {items.map((t) => (
+          <div key={t.name} className="row" style={{ padding: "6px 12px", borderBottom: "1px solid var(--border)" }}>
+            <div className="grow" style={{ minWidth: 0 }}>
+              <div className="mono small">{t.name}{t.external && <span className="badge" style={{ marginLeft: 6 }}>MCP</span>}</div>
+              <div className="faint small truncate">{t.description}</div>
+            </div>
+            <select className="input" style={{ width: 110 }} value={t.policy} onChange={(e) => set(t.name, e.target.value)}>
+              <option value="allow">Allow</option><option value="ask">Ask</option><option value="deny">Deny</option>
+            </select>
+          </div>
+        ))}
+      </div>
+      {toast.node}
+    </div>
+  );
+}
+
 type SearchResult = { provider: string; ok: boolean; results: number; ms: number; error: string; sample: { title: string; url: string }[] };
 
 function SearchTest() {
@@ -295,6 +386,7 @@ function SettingsTab() {
         <div className="muted small">Auto uses a smaller tool list for Ollama context windows below 32,768 tokens. Compact keeps core tools and adds others from keywords in your message. Choose All for tasks that need the full tool list.</div>
         <label className="check"><input type="checkbox" checked={s.learning_enabled} onChange={(e) => put({ learning_enabled: e.target.checked })} /> Learn memories and skills automatically (uses extra model calls)</label>
       </div>
+      <ToolPermissions />
       <div className="card col">
         <h3>Web search</h3>
         <div className="muted small">Currently: {s.search_provider || "not set up"}. Without a key or the SearXNG add-on, the assistant uses DuckDuckGo's keyless results page, which can rate limit. For dependable keyless search enable the SearXNG add-on, or add a Brave Search or Tavily API key.</div>
@@ -331,11 +423,11 @@ function SettingsTab() {
   );
 }
 
-export default function Assistant({ tab }: { tab: "chat" | "memory" | "skills" | "settings" }) {
+export default function Assistant({ tab }: { tab: "chat" | "memory" | "skills" | "activity" | "settings" }) {
   const navigate = useNavigate();
   const tabs = (
     <div className="tabs">
-      {(["chat", "memory", "skills", "settings"] as const).map((t) => (
+      {(["chat", "memory", "skills", "activity", "settings"] as const).map((t) => (
         <button key={t} className={`tab ${tab === t ? "active" : ""}`} onClick={() => navigate(t === "chat" ? "/assistant" : `/assistant-${t}`)}>{t[0].toUpperCase() + t.slice(1)}</button>
       ))}
     </div>
@@ -346,6 +438,7 @@ export default function Assistant({ tab }: { tab: "chat" | "memory" | "skills" |
       <div className="page-head"><h1 className="grow">Assistant</h1>{tabs}</div>
       {tab === "memory" && <MemoryTab />}
       {tab === "skills" && <SkillsTab />}
+      {tab === "activity" && <ActivityTab />}
       {tab === "settings" && <SettingsTab />}
     </div>
   );

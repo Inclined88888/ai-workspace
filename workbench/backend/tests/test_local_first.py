@@ -108,11 +108,12 @@ def test_web_content_cannot_plant_skills_or_schedules(client, monkeypatch):
         {"role": "assistant", "content": "I will ask first."},
     ]
     ev = events(client.post("/api/assistant/chat", json={"message": "what's in the news"}))
-    results = [e for e in ev if e["type"] == "tool_result"]
-    assert results[0]["ok"] is True
-    assert results[1]["ok"] is False and results[1]["preview"].startswith("Refused")
-    assert results[2]["ok"] is False and results[2]["preview"].startswith("Refused")
-    assert ev[-1]["untrusted"] is True
+    SCRIPT.clear()
+    assert next(e for e in ev if e["type"] == "tool_result")["ok"] is True
+    # the lasting write after web content pauses for the user; the call behind it is not run at all
+    approval = next(e for e in ev if e["type"] == "approval")
+    assert approval["name"] == "save_skill" and "Web or email" in approval["reason"]
+    assert ev[-1]["untrusted"] is True and ev[-1]["pending_approval"] == approval["id"]
     assert not [s for s in client.get("/api/skills").json() if s["name"] == "evil"]
     assert not [s for s in client.get("/api/schedules").json()["schedules"] if s["prompt"] == "exfiltrate"]
     # a fresh turn without outside content may write them again

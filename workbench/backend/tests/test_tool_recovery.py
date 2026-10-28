@@ -66,5 +66,7 @@ def test_recovered_calls_keep_untrusted_content_guard(client, monkeypatch):
     SCRIPT[:] = [{'content': '{"name":"web_search","arguments":{"query":"docs"}}'},
                 {'content': '{"name":"remember","arguments":{"content":"injected"}}'}, {'content': 'Refused.'}]
     ev = events(client.post('/api/assistant/chat', json={'message': 'Search docs'}))
+    SCRIPT.clear()
     results = [e for e in ev if e['type'] == 'tool_result']
-    assert results[0]['ok'] and not results[1]['ok'] and results[1]['preview'].startswith('Refused')
+    assert results[0]['ok'] and len(results) == 1
+    assert next(e for e in ev if e['type'] == 'approval')['name'] == 'remember'

@@ -12,7 +12,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from . import assistant, company, db, learn, scheduler, search, telegram, usage
+from . import approvals, assistant, company, db, learn, scheduler, search, telegram, usage
 from .api import sse
 from .security import COOKIE, check_session, encrypt
 
@@ -79,7 +79,7 @@ def conversation(cid: int):
         r["tool_calls"] = [tc["function"]["name"] for tc in json.loads(r["tool_calls"])] if r["tool_calls"] else []
         if r["role"] == "tool":
             r["content"] = r["content"][:400]
-    return {**c, "messages": rows}
+    return {**c, "messages": rows, "pending_approvals": approvals.pending(cid)}
 
 
 class ConvPatch(BaseModel):
@@ -100,6 +100,51 @@ def rename(cid: int, data: ConvPatch):
 def delete_conversation(cid: int):
     db.run("DELETE FROM conversations WHERE id = ?", cid)
     return {"ok": True}
+
+
+# Approvals, action log and tool permissions
+@router.get("/approvals")
+def list_approvals(conversation_id: int | None = None):
+    return approvals.pending(conversation_id)
+
+
+class DecisionIn(BaseModel):
+    approve: bool
+    model: str | None = None
+
+
+@router.post("/approvals/{aid}")
+def decide_approval(aid: int, data: DecisionIn):
+    a = approvals.claim(aid, data.approve)  # before streaming, so a second click gets a real 409
+    return sse(assistant.resume(a, data.approve, data.model))
+
+
+@router.get("/actions")
+def actions(conversation_id: int | None = None, limit: int = 200):
+    if conversation_id:
+        return db.all("SELECT * FROM actions WHERE conversation_id = ? ORDER BY id DESC LIMIT ?", conversation_id, min(limit, 1000))
+    return db.all("SELECT * FROM actions ORDER BY id DESC LIMIT ?", min(limit, 1000))
+
+
+@router.get("/tool-policies")
+def tool_policies():
+    tools = [*assistant.TOOLS, *assistant.external_tools()]
+    return [{"name": t.name, "description": t.description, "policy": approvals.policy(t.name),
+             "default": approvals.default_policy(t.name), "external": t.name.startswith("mcp__"), "persists": t.persists}
+            for t in tools]
+
+
+class PolicyIn(BaseModel):
+    name: str = Field(..., min_length=1, max_length=128)
+    policy: str = Field(..., pattern="^(allow|ask|deny)$")
+
+
+@router.put("/tool-policies")
+def put_tool_policy(data: PolicyIn):
+    if not assistant.get_tool(data.name):
+        raise HTTPException(404, f"No tool named {data.name}")
+    approvals.set_policy(data.name, data.policy)
+    return {"name": data.name, "policy": approvals.policy(data.name)}
 
 
 # Memory

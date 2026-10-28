@@ -156,6 +156,7 @@ export default function App() {
           <Route path="/assistant-memory" element={<Assistant tab="memory" />} />
           <Route path="/assistant-skills" element={<Assistant tab="skills" />} />
           <Route path="/assistant-settings" element={<Assistant tab="settings" />} />
+          <Route path="/assistant-activity" element={<Assistant tab="activity" />} />
           <Route path="/automations" element={<Automations />} />
           <Route path="/company" element={<Company />} />
           <Route path="/research" element={<Research />} />

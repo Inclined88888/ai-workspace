@@ -9,7 +9,9 @@ import logging
 
 import httpx
 
-from . import assistant, db
+from fastapi import HTTPException
+
+from . import approvals, assistant, db
 from .security import decrypt, encrypt
 
 log = logging.getLogger("telegram")
@@ -49,10 +51,50 @@ async def _api(client: httpx.AsyncClient, method: str, **params):
     return data["result"]
 
 
-async def send(client: httpx.AsyncClient, chat_id: int, text: str) -> None:
+async def send(client: httpx.AsyncClient, chat_id: int, text: str, markup: dict | None = None) -> None:
     text = text or "(empty reply)"
-    for i in range(0, len(text), 4000):  # Telegram caps messages at 4096 characters
-        await _api(client, "sendMessage", chat_id=chat_id, text=text[i : i + 4000])
+    parts = [text[i : i + 4000] for i in range(0, len(text), 4000)]  # Telegram caps messages at 4096 characters
+    for n, part in enumerate(parts):
+        extra = {"reply_markup": markup} if markup and n == len(parts) - 1 else {}
+        await _api(client, "sendMessage", chat_id=chat_id, text=part, **extra)
+
+
+async def _reply(client: httpx.AsyncClient, chat_id: int, text: str, events: list[dict]) -> None:
+    """Send the answer; a paused tool call gets Approve and Decline buttons."""
+    ask = next((e for e in events if e.get("type") == "approval"), None)
+    if not ask:
+        await send(client, chat_id, text)
+        return
+    body = f"{text}\n\nTool: {ask['name']}\n{ask['args'][:800]}"
+    buttons = {"inline_keyboard": [[{"text": "Approve", "callback_data": f"ap:{ask['id']}:1"},
+                                    {"text": "Decline", "callback_data": f"ap:{ask['id']}:0"}]]}
+    await send(client, chat_id, body, buttons)
+
+
+async def _decide(client: httpx.AsyncClient, cb: dict) -> None:
+    user_id = (cb.get("from") or {}).get("id")
+    msg = cb.get("message") or {}
+    chat_id = (msg.get("chat") or {}).get("id")
+    if user_id not in allowed():
+        await _api(client, "answerCallbackQuery", callback_query_id=cb["id"], text="This assistant is private.")
+        return
+    try:
+        _, aid, yes = (cb.get("data") or "").split(":")
+        a = approvals.claim(int(aid), yes == "1")
+    except (ValueError, HTTPException) as e:
+        await _api(client, "answerCallbackQuery", callback_query_id=cb["id"], text=getattr(e, "detail", "Not valid any more"))
+        return
+    await _api(client, "answerCallbackQuery", callback_query_id=cb["id"], text="Approved" if yes == "1" else "Declined")
+    if chat_id and msg.get("message_id"):  # remove the buttons so the same choice cannot be sent twice
+        await _api(client, "editMessageReplyMarkup", chat_id=chat_id, message_id=msg["message_id"], reply_markup={"inline_keyboard": []})
+    events, final, error = [], "", ""
+    async for e in assistant.resume(a, yes == "1"):
+        events.append(e)
+        if e["type"] == "message":
+            final = e["content"]
+        elif e["type"] == "error":
+            error = e["error"]
+    await _reply(client, chat_id, final or (f"Error: {error}" if error else ""), events)
 
 
 def notify(text: str) -> None:
@@ -97,8 +139,8 @@ async def _handle(client: httpx.AsyncClient, msg: dict) -> None:
         return
     await _api(client, "sendChatAction", chat_id=chat_id, action="typing")
     ctx = assistant.Ctx(channel="telegram", conversation_id=_conversation(chat_id))
-    reply, _ = await assistant.ask(ctx, text)
-    await send(client, chat_id, reply)
+    reply, events = await assistant.ask(ctx, text)
+    await _reply(client, chat_id, reply, events)
 
 
 async def loop() -> None:
@@ -113,14 +155,16 @@ async def loop() -> None:
                 me = await _api(client, "getMe")
                 _status.update(running=True, bot=me.get("username", ""), error="")
                 while token():
-                    updates = await _api(client, "getUpdates", offset=_offset, timeout=30, allowed_updates=["message"])
+                    updates = await _api(client, "getUpdates", offset=_offset, timeout=30, allowed_updates=["message", "callback_query"])
                     for u in updates:
                         _offset = u["update_id"] + 1
-                        if u.get("message"):
-                            try:
+                        try:
+                            if u.get("message"):
                                 await _handle(client, u["message"])
-                            except Exception as e:  # noqa: BLE001 - one bad message must not stop the bot
-                                log.warning("telegram message failed: %s", e)
+                            elif u.get("callback_query"):
+                                await _decide(client, u["callback_query"])
+                        except Exception as e:  # noqa: BLE001 - one bad message must not stop the bot
+                            log.warning("telegram update failed: %s", e)
         except Exception as e:  # noqa: BLE001
             _status.update(running=False, error=str(e)[:300])
             await asyncio.sleep(15)

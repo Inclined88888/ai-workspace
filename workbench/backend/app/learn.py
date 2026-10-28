@@ -111,11 +111,11 @@ async def mine_skill(conv_id: int) -> str:
         return ""
     rows = db.all("SELECT role, content, tool_calls, name FROM messages WHERE conversation_id = ? AND id >= ? ORDER BY id",
                   conv_id, last_user["id"])
-    from .assistant import UNTRUSTED_TOOLS
+    from .assistant import is_untrusted
 
     lines = []
     for r in rows:
-        if r["role"] == "tool" and r["name"] in UNTRUSTED_TOOLS:
+        if r["role"] == "tool" and is_untrusted(r["name"]):
             # Third party text (web pages, email) never reaches the skill writer: it could plant instructions
             lines.append(f"TOOL RESULT {r['name']}: ({len(r['content'])} characters of external content, not shown)")
         elif r["role"] == "tool":

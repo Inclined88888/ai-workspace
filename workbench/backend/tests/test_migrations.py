@@ -43,7 +43,9 @@ def test_upgrades_a_copy_of_old_database(client, tmp_path):
         module.conn = lambda: c
         module.init()
         module.init()  # restart is idempotent
-        assert module.get_setting('schema_version') == '1'
+        assert module.get_setting('schema_version') == str(len(module.MIGRATIONS))
+        for table in ('tool_policies', 'approvals', 'actions'):
+            assert module.one("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?", table)
         assert module.get_setting('timezone') == 'Australia/Brisbane'
         stored = module.one('SELECT * FROM providers')['api_key_enc']
         assert stored == secret and decrypt(stored) == 'old-provider-key'
@@ -66,16 +68,18 @@ def test_migrations_are_ordered_and_run_once(migration_db):
     def third(c):
         seen.append(3)
         c.execute("INSERT INTO migration_test VALUES ('kept')")
+    base = len(db.MIGRATIONS)
     db.MIGRATIONS = [*db.MIGRATIONS, second, third]
     db.init()
     db.init()
-    assert seen == [2, 3] and db.get_setting('schema_version') == '3'
+    assert seen == [2, 3] and db.get_setting('schema_version') == str(base + 2)
     assert db.one('SELECT * FROM migration_test')['value'] == 'kept'
 
 
 def test_failed_migration_rolls_back_schema_data_and_version(migration_db):
     db, c = migration_db
     db.init()
+    base = str(len(db.MIGRATIONS))
     def broken(c):
         c.execute('CREATE TABLE failed_migration (id INTEGER)')
         c.execute("INSERT INTO settings VALUES ('should_rollback', 'yes')")
@@ -83,7 +87,7 @@ def test_failed_migration_rolls_back_schema_data_and_version(migration_db):
     db.MIGRATIONS.append(broken)
     with pytest.raises(RuntimeError, match='broken migration'):
         db.init()
-    assert db.get_setting('schema_version') == '1'
+    assert db.get_setting('schema_version') == base
     assert db.get_setting('should_rollback') is None
     assert not db.one("SELECT name FROM sqlite_master WHERE name = 'failed_migration'")
     assert not c.in_transaction

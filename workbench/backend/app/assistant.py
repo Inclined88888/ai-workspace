@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo
 import httpx
 from fastapi import HTTPException
 
-from . import config, db, llm, research, services, tools, usage
+from . import approvals, config, db, llm, research, services, tools, usage
 
 MAX_STEPS = 12
 HISTORY_MESSAGES = 40
@@ -45,12 +45,11 @@ class Tool:
     when: Callable[[Ctx], bool] = lambda ctx: True
     reads_untrusted: bool = False      # returns text written by third parties (web, email)
     persists: bool = False             # writes instructions or state that later turns trust
+    schema: dict | None = None         # full JSON schema (MCP tools), instead of params and required
 
     def spec(self) -> dict:
-        return {"type": "function", "function": {
-            "name": self.name, "description": self.description,
-            "parameters": {"type": "object", "properties": self.params, "required": list(self.required)},
-        }}
+        params = self.schema or {"type": "object", "properties": self.params, "required": list(self.required)}
+        return {"type": "function", "function": {"name": self.name, "description": self.description, "parameters": params}}
 
 
 S = lambda d="": {"type": "string", "description": d}  # noqa: E731
@@ -234,6 +233,21 @@ TOOLS: list[Tool] = [
 ]
 TOOL_MAP = {t.name: t for t in TOOLS}
 UNTRUSTED_TOOLS = {t.name for t in TOOLS if t.reads_untrusted}
+# Sources of tools defined outside this file (MCP servers); each returns the tools it has right now
+EXTERNAL: list[Callable[[], list[Tool]]] = []
+
+
+def external_tools() -> list[Tool]:
+    return [t for source in EXTERNAL for t in source()]
+
+
+def get_tool(name: str) -> Tool | None:
+    return TOOL_MAP.get(name) or next((t for t in external_tools() if t.name == name), None)
+
+
+def is_untrusted(name: str) -> bool:
+    t = get_tool(name)
+    return name in UNTRUSTED_TOOLS or name.startswith("mcp__") or bool(t and t.reads_untrusted)
 
 
 COMPACT_TOOLS = {"load_skill", "web_search", "read_page", "search_notes", "get_agenda", "create_task", "remember"}
@@ -260,26 +274,23 @@ def available_tools(ctx: Ctx, user_text: str = "", model: str | None = None) -> 
     names = set(COMPACT_TOOLS)
     if ctx.agent:  # a manager must always be able to hand work down, whatever the task text says
         names.update({"delegate_task", "list_team"})
+    extra = external_tools()
     if compact:
         words = set(re.findall(r"\w+", user_text.lower()))
         names.update(words & TOOL_MAP.keys())  # explicit tool names work too
-        for keywords, extra in TOOL_KEYWORDS:
+        for keywords, more in TOOL_KEYWORDS:
             if words.intersection(keywords.split()):
-                names.update(extra)
-    return [t for t in TOOLS if t.when(ctx) and (not compact or t.name in names)]
+                names.update(more)
+        # an MCP server's tools when the message names the server
+        names.update(t.name for t in extra if words.intersection(re.findall(r"[a-z0-9]+", t.name.split("__")[1])))
+    return [t for t in [*TOOLS, *extra] if t.when(ctx) and (not compact or t.name in names)]
 
 
 async def run_tool(name: str, raw_args: str, ctx: Ctx) -> tuple[bool, str]:
-    t = TOOL_MAP.get(name)
+    """Run a tool the policy already allowed (approvals.decide is applied by the turn loop)."""
+    t = get_tool(name)
     if not t or not t.when(ctx):
         return False, f"Unknown tool {name}"
-    if t.persists and ctx.untrusted:
-        # Web pages and email can carry instructions aimed at the assistant. Once they are in context, nothing that
-        # outlives this turn (memories, skills, schedules) may be written until the user confirms in a new message.
-        # Per turn on purpose: that next message is the confirmation. Outside text from earlier turns stays in history,
-        # so this narrows injection, it does not end it; a real approval prompt in the UI is the full fix.
-        return False, (f"Refused: {name} is blocked for the rest of this turn because web or email content is in context "
-                       "and could be steering you. Tell the user what you would do and ask them to confirm in a new message.")
     try:
         args = json.loads(raw_args or "{}")
         if not isinstance(args, dict):
@@ -375,17 +386,43 @@ def _save(conversation_id: int, role: str, content: str = "", tool_calls: list |
 
 
 async def run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> AsyncIterator[dict]:
-    """Run one user turn. Yields events: delta, thought, tool_call, tool_result, message, error, done."""
+    """Run one user turn. Yields events: delta, thought, tool_call, tool_result, approval, message, error, done."""
     conv = db.one("SELECT * FROM conversations WHERE id = ?", ctx.conversation_id)
     if not conv:
         raise HTTPException(404, "Conversation not found")
     if conv["title"] == "New chat":
         db.run("UPDATE conversations SET title = ? WHERE id = ?", user_text.strip().splitlines()[0][:80] or "Chat", ctx.conversation_id)
     model = model or (ctx.agent or {}).get("model") or conv["model"] or None
+    approvals.expire(ctx.conversation_id)  # a new message instead of a decision declines what was waiting
     _save(ctx.conversation_id, "user", user_text)
+    async for e in _loop(ctx, user_text, model):
+        yield e
+
+
+async def resume(a: dict, approve: bool, model: str | None = None) -> AsyncIterator[dict]:
+    """Run or decline a paused tool call (already claimed with approvals.claim), put its result where the
+    placeholder was, and continue the conversation."""
+    agent = db.one("SELECT * FROM agents WHERE id = ?", a["agent_id"]) if a["agent_id"] else None
+    ctx = Ctx(channel=a["channel"], conversation_id=a["conversation_id"], agent=agent, untrusted=bool(a["untrusted"]))
+    yield {"type": "start", "conversation_id": ctx.conversation_id}
+    yield {"type": "tool_call", "name": a["name"], "args": a["arguments"][:500]}
+    if approve:
+        ctx.tool_calls += 1
+        ok, out = await run_tool(a["name"], a["arguments"], ctx)
+    else:
+        ok, out = False, "The user declined this action. Do not try it again unless they ask."
+    approvals.log(ctx, a["name"], a["arguments"], "approved" if approve else "declined", ok, out)
+    db.run("UPDATE messages SET content = ? WHERE id = ?", out, a["message_id"])
+    yield {"type": "tool_result", "name": a["name"], "ok": ok, "preview": out[:300]}
+    async for e in _loop(ctx, a["prompt"], model or a["model"] or None):
+        yield e
+
+
+async def _loop(ctx: Ctx, user_text: str, model: str | None) -> AsyncIterator[dict]:
     specs = None
     cost = 0.0
     final = ""
+    paused = None
     for _ in range(MAX_STEPS):
         if ctx.agent:
             from .usage import over_budget
@@ -423,11 +460,29 @@ async def run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> AsyncI
             break
         if msg.get("content"):
             yield {"type": "thought", "content": msg["content"]}
-        for call in calls:
+        for i, call in enumerate(calls):
             fn = call["function"]
+            if paused:
+                # Every tool call needs a result before the model is called again; this one waits behind the approval
+                _save(ctx.conversation_id, "tool", "Not run: an earlier step is waiting for approval. Call it again if it is still needed.",
+                      tool_call_id=call["id"], name=fn["name"])
+                continue
             ctx.tool_calls += 1
             yield {"type": "tool_call", "name": fn["name"], "args": fn["arguments"][:500]}
-            ok, out = await run_tool(fn["name"], fn["arguments"], ctx)
+            t = get_tool(fn["name"])
+            decision, reason = approvals.decide(t, ctx) if t and t.when(ctx) else ("allow", "")
+            if decision == "ask":
+                mid = _save(ctx.conversation_id, "tool", approvals.WAITING, tool_call_id=call["id"], name=fn["name"])
+                aid = approvals.request(ctx, call, mid, reason, model, user_text)
+                paused = {"type": "approval", "id": aid, "name": fn["name"], "args": approvals.args_preview(fn["arguments"]),
+                          "reason": reason, "description": t.description}
+                yield paused
+                continue
+            if decision == "deny":
+                ok, out = False, reason
+            else:
+                ok, out = await run_tool(fn["name"], fn["arguments"], ctx)
+            approvals.log(ctx, fn["name"], fn["arguments"], "allowed" if decision == "allow" else "denied", ok, out)
             _save(ctx.conversation_id, "tool", out, tool_call_id=call["id"], name=fn["name"])
             yield {"type": "tool_result", "name": fn["name"], "ok": ok, "preview": out[:300]}
             if ok and fn["name"] == "load_skill":
@@ -435,12 +490,16 @@ async def run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> AsyncI
                 offered = {s["function"]["name"] for s in specs}
                 specs += [t.spec() for t in TOOLS if t.name not in offered and t.when(ctx)
                           and re.search(rf"\b{re.escape(t.name)}\b", out)]
+        if paused:
+            # Not saved as a message: on approval the model continues straight from the tool result
+            final = f"I need your approval to run {paused['name']}. {paused['reason']}".strip()
+            break
     else:
         final = f"I stopped after {MAX_STEPS} steps without finishing. Tell me how to continue."
         _save(ctx.conversation_id, "assistant", final)
     yield {"type": "message", "content": final}
     yield {"type": "done", "conversation_id": ctx.conversation_id, "cost_cents": round(cost, 3), "tool_calls": ctx.tool_calls,
-           "untrusted": ctx.untrusted}
+           "untrusted": ctx.untrusted, "pending_approval": paused["id"] if paused else None}
     from .learn import after_turn
 
     after_turn(ctx)

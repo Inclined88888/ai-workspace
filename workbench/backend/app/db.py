@@ -284,7 +284,55 @@ def _migration_1(c: sqlite3.Connection) -> None:
     pass  # existing installs already have the baseline schema
 
 
-MIGRATIONS = [_migration_1]  # position + 1 is the version; append, never reorder
+def _script(c: sqlite3.Connection, sql: str) -> None:
+    # Not executescript: it commits the open transaction first, and migrations must apply all or nothing
+    for stmt in sql.split(";"):
+        if stmt.strip():
+            c.execute(stmt)
+
+
+def _migration_2(c: sqlite3.Connection) -> None:
+    # Approvals: per tool allow | ask | deny, paused tool calls waiting for the user, and a log of every tool call
+    _script(c, """
+CREATE TABLE IF NOT EXISTS tool_policies (
+  name TEXT PRIMARY KEY,
+  policy TEXT NOT NULL                          -- allow | ask | deny
+);
+CREATE TABLE IF NOT EXISTS approvals (
+  id INTEGER PRIMARY KEY,
+  conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  message_id INTEGER NOT NULL,                  -- the placeholder tool message the result replaces
+  tool_call_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  arguments TEXT NOT NULL,
+  reason TEXT NOT NULL DEFAULT '',
+  channel TEXT NOT NULL,
+  agent_id INTEGER,
+  model TEXT NOT NULL DEFAULT '',
+  prompt TEXT NOT NULL DEFAULT '',              -- the user message of the paused turn
+  untrusted INTEGER NOT NULL DEFAULT 0,         -- the paused turn had read web or email content
+  status TEXT NOT NULL DEFAULT 'pending',       -- pending | approved | declined | expired
+  created_at TEXT NOT NULL,
+  decided_at TEXT
+);
+CREATE INDEX IF NOT EXISTS approvals_conv ON approvals(conversation_id, status);
+CREATE TABLE IF NOT EXISTS actions (
+  id INTEGER PRIMARY KEY,
+  ts TEXT NOT NULL,
+  conversation_id INTEGER,
+  channel TEXT NOT NULL DEFAULT '',
+  agent_id INTEGER,
+  name TEXT NOT NULL,
+  arguments TEXT NOT NULL DEFAULT '',
+  decision TEXT NOT NULL,                       -- allowed | approved | declined | denied | expired
+  ok INTEGER NOT NULL DEFAULT 0,
+  result TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS actions_ts ON actions(ts);
+""")
+
+
+MIGRATIONS = [_migration_1, _migration_2]  # position + 1 is the version; append, never reorder
 
 
 def init() -> None:
@@ -323,6 +371,11 @@ def one(sql: str, *args: Any) -> dict | None:
 def run(sql: str, *args: Any) -> int:
     cur = conn().execute(sql, args)
     return cur.lastrowid or cur.rowcount
+
+
+def changes(sql: str, *args: Any) -> int:
+    """Rows affected by an UPDATE or DELETE (run() returns the last insert id, which a no-op UPDATE keeps)."""
+    return conn().execute(sql, args).rowcount
 
 
 def get_setting(key: str, default: str | None = None) -> str | None:

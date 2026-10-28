@@ -69,7 +69,21 @@ def ask(cfg: dict, text: str) -> None:
     body = {"message": text, "channel": "cli"}
     if cfg.get("conversation_id"):
         body["conversation_id"] = cfg["conversation_id"]
-    resp = request(cfg, "POST", "/assistant/chat", body, stream=True)
+    pending = show(cfg, request(cfg, "POST", "/assistant/chat", body, stream=True))
+    while pending:  # a tool that asks first: decide here, then the conversation continues
+        print(c("bold", f"  Allow {pending['name']}?") + c("dim", f"  {pending.get('reason', '')}"))
+        print(c("dim", f"    {pending['args'][:300]}"))
+        try:
+            yes = input(c("cyan", "  [y/N] ")).strip().lower() in ("y", "yes")
+        except (EOFError, KeyboardInterrupt):
+            print()
+            yes = False
+        pending = show(cfg, request(cfg, "POST", f"/approvals/{pending['id']}", {"approve": yes}, stream=True))
+
+
+def show(cfg: dict, resp) -> dict | None:
+    """Print one event stream; returns the approval it paused on, if any."""
+    pending = None
     for raw in resp:
         line = raw.decode("utf-8", "replace").strip()
         if not line.startswith("data:"):
@@ -83,12 +97,15 @@ def ask(cfg: dict, text: str) -> None:
             print(c("dim", f"  ↳ {e['name']} {e['args'][:120]}"), flush=True)
         elif t == "tool_result" and not e["ok"]:
             print(c("dim", f"    {e['preview'][:160]}"), flush=True)
-        elif t == "message":
+        elif t == "approval":
+            pending = e
+        elif t == "message" and not pending:
             print("\n" + e["content"].strip() + "\n")
         elif t == "error" or (t is None and "error" in e):
             print(c("red", e["error"]))
         elif t == "done" and e.get("cost_cents"):
             print(c("dim", f"  ({e['cost_cents']:.2f}¢)"))
+    return pending
 
 
 def repl(cfg: dict) -> None:
