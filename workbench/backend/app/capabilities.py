@@ -89,7 +89,7 @@ def catalog() -> dict:
         cap("calendar", "Productivity", "Calendar", "Read your agenda and add events.", ["Plan my week from my calendar and tasks"],
             ["get_agenda", "create_event"], cals > 0, "Subscribe to a calendar link or connect CalDAV on the Calendar page.", "/calendar"),
         cap("email", "Communication", "Email (drafts only)", "Search your mail and prepare drafts. ROOKS never sends mail.",
-            ["Draft a polite follow-up to Sam about the quote"], ["search_email", "save_email_draft"], mail > 0, "Add a mail account under Settings, Connections.", "/settings#mail"),
+            ["Draft a polite follow-up to Sam about the quote"], ["search_email", "read_email", "save_email_draft"], mail > 0, "Add a mail account under Settings, Connections.", "/settings#mail"),
         cap("telegram", "Communication", "Telegram", "Chat with ROOKS from Telegram and get briefings there.", ["Send my morning briefing to Telegram"],
             [], tg, "Paste a bot token under Assistant settings.", "/assistant-settings"),
         cap("voice", "Communication", "Voice conversations", "Talk with ROOKS and hear answers; interrupt by speaking.",

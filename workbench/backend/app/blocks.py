@@ -194,6 +194,9 @@ def _build(name: str, args: dict, d) -> list:
     if name == "search_email" and isinstance(d, list):
         return [records("email", [{"from": _s(m.get("from"), 120), "subject": _s(m.get("subject"), 200), "date": _s(m.get("date"), 40)} for m in d],
                         "Email")]
+    if name == "read_email" and isinstance(d, dict):
+        return [records("email", [{"from": _s(d.get("from"), 120), "subject": _s(d.get("subject"), 200), "date": _s(d.get("date"), 40),
+                                   "excerpt": _s(d.get("body"), 400)}], "Email")]
     if name == "save_email_draft" and isinstance(d, dict):
         return [records("email", [{"subject": _s(args.get("subject"), 200), "to": _s(args.get("to"), 200), "draft": True}], "Draft saved, not sent")]
     if name in ("search_memory",) and isinstance(d, list):

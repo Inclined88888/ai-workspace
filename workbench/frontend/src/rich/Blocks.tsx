@@ -159,7 +159,8 @@ function RecordCard({ kind, r: raw }: { kind: Kind; r: Rec }) {
       break;
     case "email":
       title = str(r.subject) || "(no subject)"; meta = [str(r.from), r.to ? `to ${str(r.to)}` : "", str(r.date), r.draft ? "draft, not sent" : ""];
-      actions = <Link className="btn ghost sm" to="/mail">Open mail</Link>;
+      body = r.excerpt ? str(r.excerpt) : "";
+      actions = r.draft ? <Link className="btn sm" to="/mail?view=drafts">Review and send</Link> : <Link className="btn ghost sm" to="/mail">Open mail</Link>;
       break;
     case "memory":
       title = str(r.content); meta = [str(r.kind)];

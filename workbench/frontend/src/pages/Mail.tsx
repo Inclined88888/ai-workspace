@@ -1,6 +1,6 @@
 import { ArrowLeft, Inbox, Loader2, Mail, PenSquare, RefreshCw, Reply, Search, Send, Sparkles, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { api, stream } from "../api";
 import { Empty, ModelSelect, relTime, useModels, useToast } from "../util";
 
@@ -70,7 +70,8 @@ function Composer({ account, initial, onClose, onSent }: { account: Account; ini
 export default function MailPage() {
   const [accounts, setAccounts] = useState<Account[] | null>(null);
   const [account, setAccount] = useState<Account | null>(null);
-  const [view, setView] = useState<"inbox" | "drafts">("inbox");
+  const [params] = useSearchParams();
+  const [view, setView] = useState<"inbox" | "drafts">(params.get("view") === "drafts" ? "drafts" : "inbox");
   const [list, setList] = useState<Summary[]>([]);
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [q, setQ] = useState("");
