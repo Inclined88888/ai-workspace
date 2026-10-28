@@ -15,7 +15,8 @@ type ProjectRef = { id: number; name: string };
 type Msg = { id: number; role: string; content: string; tool_calls: string[]; name: string; files?: string[]; created_at?: string; blocks?: unknown;
   update?: boolean; live?: { blocks: Block[]; tools: { name: string; ok: boolean }[] } };
 type View = Msg & { blocks: Block[]; tools: { name: string; ok: boolean }[] };
-const FAILED = /^(Error|Not |Unknown tool|Invalid arguments)/;
+// "Not done yet: this needs the user's approval" is waiting, not failed
+const FAILED = /^(Error|Not (?!done yet: this needs)|Unknown tool|Invalid arguments)/;
 
 /** Messages as shown: each answer carries the structured results of the tools used for it (rebuilt by the server from
  *  what was stored, or collected live while it streamed), and a summary of those tools. */
@@ -33,7 +34,9 @@ function toView(messages: Msg[]): View[] {
       else if (m.content) out.push({ ...m, blocks: [], tools: [] });  // a thought between tool calls
     }
   }
-  return out;
+  // Work that reported back is shown once: the card in the latest update replaces the one shown when it started
+  const reported = new Set(out.filter((m) => m.update).flatMap((m) => m.blocks).filter((b) => b.type === "job").map((b) => b.type === "job" ? `${b.kind}:${b.id}` : ""));
+  return out.map((m) => m.update ? m : { ...m, blocks: m.blocks.filter((b) => b.type !== "job" || !reported.has(`${b.kind}:${b.id}`)) });
 }
 
 const STARTS: { icon: typeof Search; title: string; about: string; send?: string; fill?: string; attach?: boolean }[] = [
@@ -468,7 +471,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   const slashOpen = slashMatches.length > 0 && !(slashMatches.length === 1 && slashMatches[0][0] === text.trim());
   const view = toView(messages);
   const lastUser = view.map((m) => m.role).lastIndexOf("user");
-  const lastAnswer = view.map((m) => m.role).lastIndexOf("assistant");
+  const lastAnswer = view.map((m) => (m.role === "assistant" && !m.update ? "a" : "")).lastIndexOf("a");  // updates are not replies
   const doneSteps = steps.filter((s) => s.status === "ok").length;
   const current = [...steps].reverse().find((s) => s.status === "running" || s.status === "approval");
   const failed = steps.filter((s) => s.status === "error").length;

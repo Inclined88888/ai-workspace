@@ -83,7 +83,7 @@ def setup(tmp_path, monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     home = tmp_path / "home"
     home.mkdir()
-    cfg = {"folders": [str(work)], "stop_file": str(tmp_path / "STOP")}
+    cfg = {"folders": [str(work)], "stop_file": str(tmp_path / "STOP"), "coding_codex": True}
     eng = Engine(None, cfg, journal_path=str(home / "journal.json"))
     eng.n = 0
 
@@ -146,6 +146,16 @@ def test_a_task_needs_approval_and_an_allowed_folder(setup, tmp_path):
     other.mkdir()
     r = eng.act("agent_start", approved=True, agent="codex", task="Add a README", folder=str(other))
     assert r["refused"] and "outside the folders" in r["error"]
+
+
+def test_codex_needs_to_be_turned_on_on_this_computer(setup):
+    eng, work, calls, cfg = setup
+    cfg["coding_codex"] = False
+    d = eng.act("agents_detect")["result"]["codex"]
+    assert not d["ready"] and "allow-codex on" in d["reason"]
+    r = eng.act("agent_start", approved=True, agent="codex", task="Add a README", folder=str(work))
+    assert r["refused"] and "allow-codex on" in r["error"]
+    assert not any(c["argv"][0] == "exec" for c in calls())
 
 
 def test_read_only_computer_refuses_a_task(setup):

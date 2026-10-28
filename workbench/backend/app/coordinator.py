@@ -118,7 +118,8 @@ def _due(job: dict) -> tuple[str, str] | None:
         if not c or c["status"] not in ("done", "failed", "cancelled"):
             return None
         if c["status"] == "done":
-            return "final", f"**{c['agent']} finished:** {c['task'][:200]}\n\n{c['result'][:MAX_REPORT] or '(No final message.)'}"
+            cost = f"\n\n{c['cost']} (billed by the agent's provider, not counted in ROOKS's spending)." if c.get("cost") else ""
+            return "final", f"**{c['agent']} finished:** {c['task'][:200]}\n\n{c['result'][:MAX_REPORT] or '(No final message.)'}{cost}"
         if c["status"] == "cancelled":
             return "final", f"The coding task was stopped: {c['task'][:200]}"
         return "final", f"The coding task did not finish: {c['task'][:200]}\n\n{c['error'][:800]}"

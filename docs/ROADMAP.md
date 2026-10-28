@@ -258,6 +258,31 @@ Browser evidence uses the stand-in AI in `workbench/tests/browser/fake_ai.py`; n
 | 149 | Committed, reproducible browser tests | verified | `workbench/tests/browser/` with `run.sh` | all pass | P1 | M | No real keys used | ✔ |
 | 150 | Manual screen reader test | not started | — | — | P2 | S | — | Test with VoiceOver and NVDA |
 
+## v13: one conversation, honest model integrations (151 to 166)
+
+Evidence types: **stand-in AI** (`workbench/tests/browser/fake_ai.py`, not a model), **official CLI** (the real Codex CLI 0.165.0
+or Claude Code 2.1.312 against a local stand-in API with a fake key), **AirLLM** (the real package and bridge with a random-weight
+test model). No live AI provider, no ChatGPT or Claude account, no desktop hardware. Details in `docs/V13.md` and `docs/INTEGRATIONS.md`.
+
+| ID | Requirement | Status | What exists (modules) | Evidence | Pri | Cx | Security | Acceptance / next |
+|---|---|---|---|---|---|---|---|---|
+| 151 | Results of started work come back to the conversation | verified | `coordinator.py` jobs, delivery loop, never during a turn | test_v13_workflow; scenarios B, E, F, G | P1 | M | Posted results count as outside content | ✔ |
+| 152 | Approve a mission plan and Stop work from the chat | verified | `job` block, JobCard; same endpoints as the pages | scenarios B, E | P1 | M | No new approval path | ✔ |
+| 153 | Spreadsheet analysis with computed figures | verified | `tables.py`, `analyze_table` (CSV, TSV, xlsx) | test_v13_workflow; scenario C | P1 | M | Regex XML, size limits, no formulas run | Older .xls not read |
+| 154 | Document preview and download in chat | verified | doc card Preview (Markdown), Download | scenario D | P2 | S | — | ✔ |
+| 155 | Coding agents through the companion | verified | `agents.py` (companion), `coding.py`, `run_coding_agent` | test_agents (10), test_v13_workflow, scenarios F and G (official CLI) | P1 | L | Always approved; local opt-in per agent; allowed folder; Codex sandbox self-test; Claude only `--bare`, no shell; no token files read | ChatGPT sign-in, real API keys, macOS and Windows not tested |
+| 156 | ROOKS chat never uses a Claude subscription; says so | verified | directory and approval copy; `--bare` only | scenario G | P1 | S | — | ✔ |
+| 157 | One connection directory, categories A to E | verified | `connections.py`, ConnectionDirectory | test_v13_connections; scenarios F to J | P1 | M | No keys shown | ✔ |
+| 158 | Capabilities tested and recorded separately | verified | `verify.py` (chat, tools, round trip, streaming, JSON, vision, embeddings) | test_v13_connections; scenario H | P1 | M | Same mode and spending guards; asks before a test that may be charged | Vision and embeddings not run in the browser suite |
+| 159 | One model selection: Automatic, ready, untested, unavailable | verified | `ModelSelect`, `/api/models` status | scenarios A and J | P1 | S | Free mode never picks paid | ✔ |
+| 160 | any-llm evaluated; adopted narrowly | implemented | `anyllm_engine.py`, opt-in per Anthropic connection | test_v13_connections (stand-in Messages API) | P2 | M | Same guards, output cap reaches native requests | Not tested against the real Anthropic API |
+| 161 | AirLLM evaluated for real; experimental, off | verified | `addons/airllm/` bridge and README | scenario H (capability tests fail, as they should) | P3 | M | Bridge binds 127.0.0.1 | Real model, GPU not tested |
+| 162 | Ollama and llama.cpp optional, nothing automatic | verified | directory entries with setup steps | scenario H | P2 | S | — | Not installed on the test machine |
+| 163 | Minimal navigation, area tabs, old routes kept | verified | `App.tsx` NAV, AREAS, AreaTabs | test_journey (updated), scenarios | P1 | M | — | ✔ |
+| 164 | Check-ins asked for in conversation, with approval and quiet hours | verified | `create_checkin` (always approved) | test_v13_workflow; scenario I | P2 | S | — | ✔ |
+| 165 | Research Stop takes effect at once | verified | `research.stop_now`, `_end` | test_v13_workflow | P2 | S | A late failure cannot overwrite | ✔ |
+| 166 | Committed scenario tests A to J | verified | `workbench/tests/browser/test_v13_scenarios.py` | 38 checks | P1 | M | Fake keys only | ✔ |
+
 ## Next highest-value work
 
 1. Try voice with real services, local first: a Whisper or Kokoro compatible server (105), then browser speech, and barge-in on real speakers.

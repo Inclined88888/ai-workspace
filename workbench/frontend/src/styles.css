@@ -109,7 +109,7 @@ h3 { font-size: 14px; font-weight: 600; }
 }
 .brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px 14px; font-weight: 650; }
 .wordmark { font-weight: 750; letter-spacing: 0.14em; font-size: 15px; line-height: 1.1; }
-.brand-sub { display: block; font-size: 11.5px; font-weight: 500; color: var(--muted, inherit); opacity: 0.8; letter-spacing: 0; }
+.brand-sub { display: block; font-size: 11.5px; font-weight: 500; color: var(--muted, inherit); letter-spacing: 0; }
 .brand-mark {
   width: 28px; height: 28px; border-radius: 8px; background: var(--accent); color: var(--on-accent, #fff);
   display: grid; place-items: center; flex: none;

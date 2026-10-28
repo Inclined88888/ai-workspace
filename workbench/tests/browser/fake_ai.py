@@ -33,9 +33,9 @@ def say(text):
     return {"role": "assistant", "content": text}
 
 
-def call(name, **args):
+def call(tool, **args):
     return {"role": "assistant", "content": "", "tool_calls": [
-        {"id": f"call_{time.monotonic_ns()}", "type": "function", "function": {"name": name, "arguments": json.dumps(args)}}]}
+        {"id": f"call_{time.monotonic_ns()}", "type": "function", "function": {"name": tool, "arguments": json.dumps(args)}}]}
 
 
 def reply(body):

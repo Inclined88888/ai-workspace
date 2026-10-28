@@ -21,7 +21,8 @@ from playwright.sync_api import sync_playwright
 
 from harness import PASSWORD, Stack, browser
 
-ROUTES = [("Tasks", "/tasks"), ("Notes", "/notes"), ("Projects", "/projects"), ("Missions", "/missions"), ("Research", "/research"),
+# v13: Research is a tab in the Library area, so it is opened from Notes
+ROUTES = [("Tasks", "/tasks"), ("Notes", "/notes"), ("Research", "/research"), ("Projects", "/projects"), ("Missions", "/missions"),
           ("Assistant", "/assistant"), ("Settings", "/settings"), ("Home", "/")]
 out: dict = {}
 
@@ -79,7 +80,7 @@ with sync_playwright() as pw:
     routes = {}
     for _ in range(5):
         for label, path in ROUTES:
-            link = p.locator(f'aside a.nav-link[href="{path}"]').first
+            link = p.locator(f'aside a.nav-link[href="{path}"], nav.area-tabs a[href="{path}"]').first
             t0 = time.monotonic()
             link.click()
             p.wait_for_url(f"**{path}" if path != "/" else st.url + "/")

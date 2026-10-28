@@ -12,7 +12,7 @@ type Entry = {
 type Dir = { mode: string; groups: Record<string, string>; entries: Entry[]; note: string };
 
 const STATUS: Record<string, [string, string]> = {
-  connected: ["Working", "ok"], ready: ["Ready", "ok"], installed: ["Installed", "ok"], failed: ["Check failed", "danger"],
+  connected: ["Connected", "ok"], ready: ["Ready", "ok"], installed: ["Installed", "ok"], failed: ["Check failed", "danger"],
   not_checked: ["Not checked", ""], off: ["Off", ""], not_connected: ["Not connected", ""], not_found: ["Not found", ""],
   needs_setup: ["Needs setup", "warn"], not_installed: ["Not installed", ""],
 };

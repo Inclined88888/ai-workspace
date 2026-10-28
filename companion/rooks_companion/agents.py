@@ -6,7 +6,7 @@ Code runs only in --bare mode, where it accepts nothing but an API key); turn of
 checks; run anything that was not approved for this one task.
 
   Codex:  codex exec --json --sandbox workspace-write -C <folder> --skip-git-repo-check <task>
-          Signed in with ChatGPT, it uses your ChatGPT plan's Codex limits; signed in with an API key, OpenAI bills
+          Only after you turned it on here (allow-codex on). Signed in with ChatGPT, it uses your ChatGPT plan's Codex limits; signed in with an API key, OpenAI bills
           that key. ROOKS only reads which of the two `codex login status` reports. Before the first task, ROOKS
           checks on this computer that Codex's sandbox really keeps writes inside the folder, and refuses if not.
   Claude: claude --bare -p <task> --output-format stream-json --permission-mode acceptEdits --tools=... --disallowedTools=Bash
@@ -120,7 +120,10 @@ class CodingAgents:
             sign_in = codex_sign_in(_clean(status), scode)
             sandbox = self.sandbox_probe(codex) if code == 0 else "unknown"
             ready, why = True, ""
-            if code != 0:
+            if not self.cfg.get("coding_codex"):
+                ready, why = False, ("Codex is installed. To let ROOKS run approved coding tasks with it in your allowed folders, "
+                                     "run on this computer: python3 -m rooks_companion allow-codex on")
+            elif code != 0:
                 ready, why = False, "codex --version failed: " + _clean(ver)[:200]
             elif sign_in == "none":
                 ready, why = False, "Codex is not signed in. On this computer run: codex login"

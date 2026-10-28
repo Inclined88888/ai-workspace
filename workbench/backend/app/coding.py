@@ -35,7 +35,8 @@ def view(rid: int) -> dict | None:
     r = _row(rid)
     if not r:
         return None
-    return {"id": r["id"], "agent": r["agent_name"], "task": r["task"], "folder": r["folder"], "status": r["status"],
+    cost = next((p.get("text", "") for p in reversed(r["progress"]) if p.get("kind") == "cost"), "")
+    return {"id": r["id"], "agent": r["agent_name"], "task": r["task"], "folder": r["folder"], "status": r["status"], "cost": cost,
             "progress": [p.get("text", "")[:200] for p in r["progress"] if p.get("kind") in ("command", "files", "cost", "note")],
             "result": r["result"], "error": r["error"], "billing": r["billing"], "created_at": r["created_at"]}
 
@@ -130,8 +131,13 @@ async def poll_once(rid: int) -> bool:
                    "The companion no longer knows this task (it restarted). Check the folder before running it again.", db.now(), rid)
             return False
         return True  # the computer may be briefly away; try again
+    from .sensitive import redact
+
     res = out["result"] or {}
-    progress = (r["progress"] + list(res.get("events") or []))[-200:]
+    # what the agent ran and said is kept with keys, tokens and card numbers removed
+    events = [{**e, "text": redact(str(e.get("text", "")))[:400]} for e in (res.get("events") or []) if isinstance(e, dict)]
+    progress = (r["progress"] + events)[-200:]
+    res["result"], res["error"] = redact(str(res.get("result") or "")), redact(str(res.get("error") or ""))
     status = res.get("status") if res.get("status") in ("running", "done", "failed", "cancelled") else "running"
     db.run("UPDATE coding_runs SET progress = ?, next = ?, status = ?, result = ?, error = ?, updated_at = ? WHERE id = ? AND status = 'running'",
            json.dumps(progress), int(res.get("next") or r["next"]), status, str(res.get("result") or "")[:24000],

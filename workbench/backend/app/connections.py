@@ -36,6 +36,8 @@ def _host(url: str) -> str:
 
 
 def _category(p: dict) -> str:
+    if llm._is_openrouter(p):
+        return "A"
     if llm._local_endpoint(p["base_url"]) or p["kind"] == "ollama":
         return "C"
     host = _host(p["base_url"])
@@ -58,7 +60,7 @@ def _billing(p: dict, cat: str) -> tuple[str, str]:
         if llm.confirmed_free(p):
             return "local", "Runs on your hardware; you confirmed no paid API is behind it."
         return "unknown", "On your network. ROOKS cannot tell whether a paid API is behind it until you confirm it is not."
-    if "openrouter.ai" in host:
+    if llm._is_openrouter(p):
         return "free", "Models ending in :free cost nothing (OpenRouter's limits apply); every other model is billed per token."
     if "generativelanguage.googleapis.com" in host:
         return ("free", "You confirmed this key's Google project has no billing account: free tier.") if llm.confirmed_free(p) else \
@@ -86,6 +88,9 @@ def _provider_entry(p: dict) -> dict:
     chk = _check(p["id"])
     cls, words = _billing(p, cat)
     ref = f"{p['id']}/{chk['recommended']}" if chk.get("recommended") else ""
+    if not ref:  # no model passed the connection check: show the one you tested, if any, so its failures are visible
+        tested = db.one("SELECT key FROM settings WHERE key LIKE ? ORDER BY key LIMIT 1", f"cap_check:{p['id']}/%")
+        ref = tested["key"][len("cap_check:"):] if tested else ""
     if not p["enabled"]:
         status, why = "off", "Turned off in Settings."
     elif not chk:
