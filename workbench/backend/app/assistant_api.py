@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import json
 import secrets
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -230,6 +231,7 @@ def inbox_delete(iid: int):
 
 # Assistant settings: name, timezone, learning, search keys, Telegram, CLI token, prices
 class AssistantSettings(BaseModel):
+    tool_mode: Literal["all", "compact", "auto"] | None = None
     assistant_name: str | None = Field(None, max_length=40)
     timezone: str | None = Field(None, max_length=64)
     learning_enabled: bool | None = None
@@ -243,6 +245,7 @@ class AssistantSettings(BaseModel):
 @router.get("/assistant/settings")
 def get_assistant_settings():
     return {
+        "tool_mode": db.get_setting("tool_mode", "auto"),
         "assistant_name": db.get_setting("assistant_name", "Atlas"),
         "timezone": assistant.timezone_name(),
         "learning_enabled": learn.enabled(),
@@ -257,6 +260,8 @@ def get_assistant_settings():
 def put_assistant_settings(data: AssistantSettings):
     from zoneinfo import ZoneInfo
 
+    if data.tool_mode is not None:
+        db.set_setting("tool_mode", data.tool_mode)
     if data.assistant_name is not None:
         db.set_setting("assistant_name", data.assistant_name.strip() or "Atlas")
     if data.timezone is not None:

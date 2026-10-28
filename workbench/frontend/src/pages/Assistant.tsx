@@ -240,7 +240,7 @@ function SkillsTab() {
   );
 }
 
-type ASettings = { assistant_name: string; timezone: string; learning_enabled: boolean; search_provider: string; search_fallback: boolean; cli_token_set: boolean;
+type ASettings = { tool_mode: "all" | "compact" | "auto"; assistant_name: string; timezone: string; learning_enabled: boolean; search_provider: string; search_fallback: boolean; cli_token_set: boolean;
   telegram: { configured: boolean; running: boolean; bot: string; error: string; allowed_users: string } };
 
 function SettingsTab() {
@@ -268,6 +268,12 @@ function SettingsTab() {
           <div className="spacer" />
           <button className="btn primary" onClick={() => put({ assistant_name: f.assistant_name, timezone: f.timezone })}>Save</button>
         </div>
+        <label className="field">Tools offered to the model
+          <select className="input" value={s.tool_mode} onChange={(e) => put({ tool_mode: e.target.value })}>
+            <option value="auto">Auto</option><option value="compact">Compact</option><option value="all">All</option>
+          </select>
+        </label>
+        <div className="muted small">Auto uses a smaller tool list for Ollama context windows below 32,768 tokens. Compact keeps core tools and adds others from keywords in your message. Choose All for tasks that need the full tool list.</div>
         <label className="check"><input type="checkbox" checked={s.learning_enabled} onChange={(e) => put({ learning_enabled: e.target.checked })} /> Learn memories and skills automatically (uses extra model calls)</label>
       </div>
       <div className="card col">

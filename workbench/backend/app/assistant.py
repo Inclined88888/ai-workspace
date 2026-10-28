@@ -7,6 +7,7 @@ and the workspace tools. After a turn, learn.py mines the conversation for new m
 import asyncio
 import inspect
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, AsyncIterator, Callable
@@ -235,8 +236,35 @@ TOOL_MAP = {t.name: t for t in TOOLS}
 UNTRUSTED_TOOLS = {t.name for t in TOOLS if t.reads_untrusted}
 
 
-def available_tools(ctx: Ctx) -> list[Tool]:
-    return [t for t in TOOLS if t.when(ctx)]
+COMPACT_TOOLS = {"load_skill", "web_search", "read_page", "search_notes", "get_agenda", "create_task", "remember"}
+TOOL_KEYWORDS = [
+    ("note notes document documents", {"read_note", "create_note", "append_to_note"}),
+    ("task tasks todo checklist complete finish done", {"list_tasks", "update_task"}),
+    ("calendar event events appointment appointments meeting meetings book booking", {"list_events", "create_event"}),
+    ("email emails mail inbox draft drafts reply", {"search_email", "read_email", "save_email_draft"}),
+    ("browse browser browsing website websites", {"browse_web"}),
+    ("memory memories remember recall forget", {"search_memory", "forget"}),
+    ("history conversation conversations previous earlier", {"search_history"}),
+    ("skill skills procedure procedures", {"save_skill"}),
+    ("schedule schedules scheduled recurring daily weekly remind reminder", {"schedule_task", "list_schedules"}),
+    ("team delegate agent agents assign", {"delegate_task", "list_team"}),
+]
+
+
+def available_tools(ctx: Ctx, user_text: str = "", model: str | None = None) -> list[Tool]:
+    mode = db.get_setting("tool_mode", "auto")
+    compact = mode == "compact"
+    if mode == "auto":
+        p, _ = llm.split_ref(model or llm.default_model_ref())
+        compact = p["kind"] == "ollama" and llm.ollama_num_ctx() < 32768
+    names = set(COMPACT_TOOLS)
+    if compact:
+        words = set(re.findall(r"\w+", user_text.lower()))
+        names.update(words & TOOL_MAP.keys())  # explicit tool names work too
+        for keywords, extra in TOOL_KEYWORDS:
+            if words.intersection(keywords.split()):
+                names.update(extra)
+    return [t for t in TOOLS if t.when(ctx) and (not compact or t.name in names)]
 
 
 async def run_tool(name: str, raw_args: str, ctx: Ctx) -> tuple[bool, str]:
@@ -353,7 +381,7 @@ async def run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> AsyncI
         db.run("UPDATE conversations SET title = ? WHERE id = ?", user_text.strip().splitlines()[0][:80] or "Chat", ctx.conversation_id)
     model = model or (ctx.agent or {}).get("model") or conv["model"] or None
     _save(ctx.conversation_id, "user", user_text)
-    specs = [t.spec() for t in available_tools(ctx)]
+    specs = None
     cost = 0.0
     final = ""
     for _ in range(MAX_STEPS):
@@ -368,6 +396,9 @@ async def run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> AsyncI
                 return
         msgs = [{"role": "system", "content": system_prompt(ctx, user_text)}, *_history(ctx.conversation_id)]
         try:
+            if specs is None:
+                model = model or llm.default_model_ref()
+                specs = [t.spec() for t in available_tools(ctx, user_text, model)]
             async for part in llm.chat_stream(model, msgs, specs):
                 if "delta" in part:
                     yield {"type": "delta", "content": part["delta"]}
