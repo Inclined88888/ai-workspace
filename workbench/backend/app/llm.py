@@ -348,6 +348,26 @@ async def stream(ref: str | None, messages: list[dict]) -> AsyncIterator[dict]:
     yield {"done": True, "usage": usage, "ms": int((time.monotonic() - started) * 1000), "first_token_ms": first_token_ms}
 
 
+def recover_tool_call(message: dict, tools: list[dict] | None) -> dict:
+    """Accept only an entire tool-shaped response, never JSON embedded in prose."""
+    if not tools or message.get("tool_calls"):
+        return message
+    text = (message.get("content") or "").strip()
+    block = re.fullmatch(r"<tool_call>\s*(.*?)\s*</tool_call>", text, re.S)
+    fence = re.fullmatch(r"```(?:json)?\s*\n(.*?)\n```", text, re.S)
+    payload = block[1] if block else fence[1] if fence else text
+    try:
+        call = json.loads(payload)
+    except ValueError:
+        return message
+    names = {t["function"]["name"] for t in tools}
+    if (not isinstance(call, dict) or set(call) != {"name", "arguments"}
+            or not isinstance(call["name"], str) or call["name"] not in names or not isinstance(call["arguments"], dict)):
+        return message
+    return {**message, "content": "", "tool_calls": [{"id": "call_recovered_0", "type": "function",
+            "function": {"name": call["name"], "arguments": json.dumps(call["arguments"])}}]}
+
+
 async def chat(ref: str | None, messages: list[dict], tools: list[dict] | None = None) -> dict:
     """One non-streaming turn with optional tool calling.
 
@@ -359,7 +379,7 @@ async def chat(ref: str | None, messages: list[dict], tools: list[dict] | None =
     if p["kind"] == "ollama":
         try:
             out, usage = await _ollama_chat(p, model, messages, tools)
-            return {"message": out, "usage": usage, "ref": ref, "model": model, "cost_usd": None}
+            return {"message": recover_tool_call(out, tools), "usage": usage, "ref": ref, "model": model, "cost_usd": None}
         except NoNativeApi:
             pass
     body = _body(p, model, messages, False)
@@ -383,7 +403,7 @@ async def chat(ref: str | None, messages: list[dict], tools: list[dict] | None =
         ]
     usage = data.get("usage") or {}
     cost = usage.get("cost") if isinstance(usage.get("cost"), (int, float)) else None
-    return {"message": out, "usage": usage, "ref": ref, "model": model, "cost_usd": cost}
+    return {"message": recover_tool_call(out, tools), "usage": usage, "ref": ref, "model": model, "cost_usd": cost}
 
 
 class _TextStream:
@@ -520,7 +540,7 @@ async def chat_stream(ref: str | None, messages: list[dict], tools: list[dict] |
             call["function"]["arguments"] = call["function"]["arguments"] or "{}"
             out["tool_calls"].append(call)
     cost = usage.get("cost") if isinstance(usage.get("cost"), (int, float)) else None
-    yield {"message": out, "usage": usage, "ref": ref, "model": model, "cost_usd": cost}
+    yield {"message": recover_tool_call(out, tools), "usage": usage, "ref": ref, "model": model, "cost_usd": cost}
 
 
 def parse_json(text: str):
