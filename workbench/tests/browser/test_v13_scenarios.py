@@ -224,7 +224,7 @@ with sync_playwright() as pw:
         p.goto(st.url + "/settings#connection-directory")
         row = p.locator(".conn-row", has_text="OpenAI Codex CLI")
         row.get_by_role("button", name="Check the paired computer").click()
-        expect(row.locator(".badge", has_text="Ready")).to_be_visible(timeout=60000)
+        expect(row.locator(".badge", has_text="Connected, not tested")).to_be_visible(timeout=60000)  # v14: found and signed in, no task seen yet
         check("F [official CLI] Codex is detected, signed in with an API key, sandbox confirmed on this computer",
               "OpenAI bills" in row.inner_text(), row.inner_text())
         check("F the directory says Codex does not power ROOKS chat", "does not power ROOKS chat" in row.inner_text())
@@ -247,8 +247,8 @@ with sync_playwright() as pw:
     row = p.locator(".conn-row", has_text="Claude Code")
     check("G the directory says plainly that ROOKS chat cannot use a Claude subscription",
           "ROOKS chat cannot use a Claude subscription" in row.inner_text(), row.inner_text())
-    if comp:
-        expect(row.locator(".badge", has_text="Ready")).to_be_visible(timeout=30000)
+    if comp and os.path.exists(os.path.join(CLI_BIN, "claude")):
+        expect(row.locator(".badge", has_text="Connected, not tested")).to_be_visible(timeout=30000)
         check("G [official CLI] Claude Code is detected and billed to the API key only", "Anthropic bills the API key" in row.inner_text(), row.inner_text())
         p.goto(st.url + "/assistant")
         send(p, f"Use Claude Code to add a changelog in {PROJECT}")
@@ -261,7 +261,7 @@ with sync_playwright() as pw:
               log[:2])
         check("G Claude Code had no shell tool", all("Bash" not in r["tools"] for r in log), [r["tools"] for r in log][:1])
     else:
-        skip("G official Claude Code run", "ROOKS_CLI_BIN not set")
+        skip("G official Claude Code run", "no claude executable in ROOKS_CLI_BIN")
 
     # H. Optional local engines: nothing installed or started; AirLLM tested for real when a bridge is running
     p.goto(st.url + "/settings#connection-directory")
@@ -284,6 +284,9 @@ with sync_playwright() as pw:
         p.reload()
         row = p.locator(".conn-row", has_text="tiny-random-LlamaForCausalLM").first
         expect(row.locator(".cap.failed").first).to_be_visible()
+        models = {m["ref"]: m for m in api(p, "/models")["body"]["models"]}
+        check("H [AirLLM, v14] the real bridge is marked Experimental and its model is kept out of Automatic",
+              "Experimental" in row.inner_text() and models.get(ref, {}).get("status") == "experimental", (row.inner_text()[:200], models.get(ref)))
         shot(p, "v13-H-airllm")
         api(p, "/ai-mode", "PUT", {"mode": "free"})
     else:

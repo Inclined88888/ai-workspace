@@ -11,6 +11,21 @@ AI models, All model connections; `GET /api/connection-directory`, `app/connecti
 | D | Provider libraries inside ROOKS | any-llm (Mozilla AI) | Not a connection | The connection's | Optional `pip install` |
 | E | Other OpenAI-compatible servers | a gateway, vLLM, a hosted endpoint | Yes | Unknown to ROOKS: treated as possibly paid | You |
 
+## Connection states (v14)
+
+Each connection in the directory has one state, taken from what ROOKS recorded, with the reason under its name:
+
+| State | Means |
+|---|---|
+| Verified | a real request with a tool attached succeeded (the connection check or the tools capability test) |
+| Connected, not tested | a key is saved or a tool is installed, but ROOKS has not seen it do the work |
+| Available, not set up | ROOKS can use it once you set it up here (a local runtime, a coding agent with no paired computer) |
+| Experimental | works only in a limited way; not for everyday use (the AirLLM bridge) |
+| Check failed / Off | the last check failed, with the provider's reason / you turned it off |
+
+A coding agent is never shown as Verified: ROOKS records that the companion found it and how it is signed in, not
+that a task ran well.
+
 ## Capability tests
 
 A key that is accepted proves that the key is accepted. ROOKS records each of these separately, per model, with the
@@ -124,6 +139,11 @@ never starts an inference server. Connecting one sends one connection-check requ
   bridge); the bridge answers `/v1/models`, chat completions and a streaming request (as one chunk). ROOKS's capability
   tests then **fail** chat, tools and streaming for it, which is the point: the package installs and the bridge
   answers, but nothing shows it works as a model. A real model, a GPU and Apple Silicon were **not tested**.
+  v14: the bridge ignores tools and still answers, so it could pass the connection check and become the automatic
+  model or a backup. ROOKS now recognises it from its model list (`owned_by: airllm`) or from "airllm" in the
+  connection's name or address, marks it Experimental everywhere, lists its model in its own picker group, and uses
+  it only when you choose it. A bridge renamed and reached through a proxy that rewrites the model list would not be
+  recognised (`test_v14_connections.py`, against a stand-in bridge).
 
 ## D. any-llm (Mozilla AI)
 

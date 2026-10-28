@@ -283,10 +283,32 @@ test model). No live AI provider, no ChatGPT or Claude account, no desktop hardw
 | 165 | Research Stop takes effect at once | verified | `research.stop_now`, `_end` | test_v13_workflow | P2 | S | A late failure cannot overwrite | ✔ |
 | 166 | Committed scenario tests A to J | verified | `workbench/tests/browser/test_v13_scenarios.py` | 38 checks | P1 | M | Fake keys only | ✔ |
 
+## v14: one place to work, honest states (167 to 178)
+
+Evidence types as in v13, plus a **stand-in mailbox** (mail functions replaced in the test; no IMAP server). Details in
+`docs/V14.md`.
+
+| ID | Requirement | Status | What exists (modules) | Evidence | Pri | Cx | Security | Acceptance / next |
+|---|---|---|---|---|---|---|---|---|
+| 167 | An approval runs only what was reviewed, in its context | verified | `request_approval` records scope; `decide_approval` rebuilds it; `_run_tool` never skips the tool check | test_v14_boundaries | P1 | M | Closes a widening path for workers and missions | ✔ |
+| 168 | Budgets checked when an approval runs | verified | `_budget_refusal` (project, monthly, mission) | test_v14_boundaries | P1 | S | — | ✔ |
+| 169 | The assistant respects project boundaries | verified | `scope.py` on notes, files, tasks, missions, research, history, project status | test_v14_boundaries (both ways) | P1 | M | Isolated projects closed to other conversations | Pages still show everything to you, by design |
+| 170 | The assistant is the first screen; one sidebar with conversations | verified | `Sidebar.tsx`, `App.tsx`, `Assistant.tsx` | test_v14_shell, test_journey, test_keyboard | P1 | L | — | ✔ |
+| 171 | Every page still reachable; old addresses kept | verified | Workspace fold, page tabs, routes | test_v14_shell (11 pages), screens.py | P1 | S | — | ✔ |
+| 172 | Results open beside the conversation | verified | `Preview.tsx`, cards | scenarios B and D | P2 | M | Same endpoints as the pages | Files: text only, no images |
+| 173 | Progress in plain sentences, details on request | implemented | `stepLabel`, `pastLabel` | screenshots | P2 | S | — | Not every tool has a label; unknown ones read generically |
+| 174 | One honest state per connection | verified | `connections.py` STATES | test_v14_connections, test_v14_shell | P1 | S | — | ✔ |
+| 175 | AirLLM never picked automatically | verified | `llm.experimental`, `recommended_ref` | test_v14_connections (stand-in bridge), scenario H (real bridge) | P2 | S | — | A renamed bridge behind a rewriting proxy is not recognised |
+| 176 | Email triage: read and reply as drafts only | verified | `read_email`, `save_email_draft` with `in_reply_to` | test_v14_email (stand-in mailbox) | P1 | S | Email text is outside content; no send tool | Not tested against a real mail server |
+| 177 | Motion system, reduced motion, dark mode contrast | verified | `styles.css` v14 layer | test_v14_shell, screens.py (axe) | P2 | S | — | ✔ |
+| 178 | Performance holds | partial | Assistant in the main bundle | perf.py | P2 | M | — | Long conversation and Settings slower than v13; +73 kB first load |
+
 ## Next highest-value work
 
-1. Try voice with real services, local first: a Whisper or Kokoro compatible server (105), then browser speech, and barge-in on real speakers.
-2. Run `companion/tests/macos_check.py` on a real Mac (items 21, 22, 27, 46, 69). macOS behaviour is still only tested against a mocked osascript.
-3. If you want phone calls, connect a Twilio account and place the one verification call yourself (107); ROOKS has never placed a real call.
-4. Let company agents use workers (110), and write worker findings into the evidence ledger (113).
-5. Test visual targeting with a real vision model, local first (22, 23).
+1. Bring the 120 message conversation and Settings back to v13 speed (178): render long conversations in windows,
+   and load Settings sections when opened.
+2. Try voice with real services, local first: a Whisper or Kokoro compatible server (105), then browser speech, and barge-in on real speakers.
+3. Run `companion/tests/macos_check.py` on a real Mac (items 21, 22, 27, 46, 69). macOS behaviour is still only tested against a mocked osascript.
+4. If you want phone calls, connect a Twilio account and place the one verification call yourself (107); ROOKS has never placed a real call.
+5. Let company agents use workers (110), and write worker findings into the evidence ledger (113).
+6. Test visual targeting with a real vision model, local first (22, 23).

@@ -83,14 +83,19 @@ height in a 760px reading column (`--content`).
 | `.skeleton` | loading placeholder | no shimmer with reduced motion |
 | `.job-card` (v13) | work started from a conversation: research, mission, coding task | accent edge; keeps itself current; one primary action (Approve plan and start) at most |
 | `.conn-row`, `.cap-row` / `.cap` (v13) | a connection in the directory; one chip per capability test | chip states `passed`, `failed`, `not_tested`, each with an icon and words, never colour alone |
-| `.area-tabs` / `.area-tab` (v13) | the pages of one area (Library, Planner, Work) | real links; the active one has `aria-current` |
+| `.area-tabs` / `.area-tab` (v13, v14) | pages that are views of one thing: Notes and Documents; Tasks, Calendar and Automations; Missions and Agent team | real links; the active one has `aria-current` |
+| `.preview-panel` (v14) | a document, file or research report open beside the conversation | an `aside` named for what it shows; Escape or Close returns focus; overlays the chat below 1100px |
+| `.state-key`, connection state badge (v14) | one honest state per connection: Verified, Connected not tested, Available not set up, Experimental, Check failed, Off | words, never colour alone; the recorded reason sits under the name |
 
 ## Layout
 
-- **Navigation (v13):** seven areas in the sidebar (Assistant, Home, Needs you, Projects, Library, Planner, Work), then
-  More (Mail, Memory & skills, What ROOKS can do, Compare models, Browser agent) and Settings. An area's pages are tabs
-  at the top of the page. Every older address still opens the same page.
-- **Shell:** sidebar (232px, collapsible to 64px) and one scrolling main column. The page itself never scrolls; the
+- **Navigation (v14):** the sidebar holds New chat, Search (Ctrl K), Projects, Needs your review, your recent
+  conversations (the latest 40; older ones through Search), then a Workspace fold with the detailed pages (Notes and
+  documents, Files, Research, Tasks and calendar, Missions, Computer, Mail, Memory and skills, Overview, What ROOKS can
+  do, Compare models, and the Browser agent and add-ons when on), Settings and Sign out. The fold opens by itself on
+  those pages. Every older address still opens the same page; `/` is now the assistant and the former Home is
+  `/overview`.
+- **Shell:** sidebar (264px, collapsible to 60px, remembered on this device) and one scrolling main column. The page itself never scrolls; the
   browser test `screens.py` checks this on every route.
 - **Phones (900px and below):** a top bar with menu, search and chat; the sidebar becomes a drawer; two-pane pages
   show the list or the item, not both.
@@ -98,5 +103,7 @@ height in a 760px reading column (`--content`).
 
 ## Motion
 
-Transitions are 120 to 200ms on colour, opacity and transform only. When the device asks for reduced motion,
-transitions and the loading shimmer stop; spinners keep turning so loading stays visible.
+One set of timings (v14): `--t-fast` 120ms for presses and hovers, `--t-mid` 180ms for content appearing, `--t-slow`
+240ms for panels (sidebar width, drawer, preview), all on `--ease`. Only colour, opacity and transform animate, plus
+the sidebar width. When the device asks for reduced motion every transition and animation is cut to under a
+millisecond, including the working mark; `test_v14_shell.py` measures this.

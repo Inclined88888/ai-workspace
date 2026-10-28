@@ -1,13 +1,13 @@
 """Measured performance of the built app, served by a real ROOKS server with the stand-in AI. Prints JSON.
 
 What it measures (median of several runs where it says so):
-  cold_load        first visit to Home: first contentful paint, DOM ready, Home content visible, JS bytes, requests
+  cold_load        first visit to the first screen: first contentful paint, DOM ready, content visible, JS bytes, requests
   cold_load_slow   the same with the CPU slowed 4x (a modest laptop or phone)
   routes           sidebar click to the new page's content, per page (5 runs each)
   conversation     opening a conversation of 120 messages with long answers, until the last one is on screen
   tasks_1000       opening Tasks with 1,000 open tasks, until the list is on screen
   chart            opening a conversation with usage charts, until the chart is drawn
-  idle_requests    API requests the Home page makes in 60 seconds with nobody touching it
+  idle_requests    API requests the first screen makes in 60 seconds with nobody touching it
 
 Usage: python3 perf.py [out.json]
 """
@@ -21,9 +21,10 @@ from playwright.sync_api import sync_playwright
 
 from harness import PASSWORD, Stack, browser
 
-# v13: Research is a tab in the Library area, so it is opened from Notes
+# v14: the first screen ("/") is the assistant; the former Home is Overview, in the sidebar's Workspace fold with the
+# detailed pages. "Home" in earlier results measured the dashboard, which is "Overview" here.
 ROUTES = [("Tasks", "/tasks"), ("Notes", "/notes"), ("Research", "/research"), ("Projects", "/projects"), ("Missions", "/missions"),
-          ("Assistant", "/assistant"), ("Settings", "/settings"), ("Home", "/")]
+          ("Overview", "/overview"), ("Settings", "/settings"), ("Assistant", "/")]
 out: dict = {}
 
 
@@ -60,8 +61,10 @@ with sync_playwright() as pw:
             p.goto(st.url + "/")
             ready(p)
             visible = (time.monotonic() - t0) * 1000
+            # the paint entry is reported a moment after the paint itself: wait for it before reading
+            p.wait_for_function("() => performance.getEntriesByType('paint').some(e => e.name === 'first-contentful-paint')", timeout=5000)
             nav = p.evaluate("""() => { const n = performance.getEntriesByType('navigation')[0];
-                const f = performance.getEntriesByName('first-contentful-paint')[0];
+                const f = performance.getEntriesByType('paint').find(e => e.name === 'first-contentful-paint');
                 return { dom: n.domContentLoadedEventEnd, fcp: f ? f.startTime : null } }""")
             js = sum((r.sizes().get("responseBodySize") or 0) for r in reqs if r.url.endswith(".js"))
             runs.append({"fcp_ms": round(nav["fcp"] or 0), "dom_ready_ms": round(nav["dom"]), "content_visible_ms": round(visible),
@@ -78,9 +81,10 @@ with sync_playwright() as pw:
     p.goto(st.url + "/")
     ready(p)
     routes = {}
+    p.locator("aside").get_by_role("button", name="Workspace").click()  # stays open while moving between pages
     for _ in range(5):
         for label, path in ROUTES:
-            link = p.locator(f'aside a.nav-link[href="{path}"], nav.area-tabs a[href="{path}"]').first
+            link = p.locator(f'aside a.nav-link[href="{path}"], aside a.brand-home[href="{path}"]').first
             t0 = time.monotonic()
             link.click()
             p.wait_for_url(f"**{path}" if path != "/" else st.url + "/")

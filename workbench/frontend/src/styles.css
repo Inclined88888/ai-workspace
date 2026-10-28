@@ -130,7 +130,7 @@ h3 { font-size: 14px; font-weight: 600; }
 .mobile-bar { display: none; }
 .desktop-only { display: inline-flex; }
 .sidebar-foot { display: flex; align-items: center; gap: 4px; padding: 8px 2px 0; border-top: 1px solid var(--border); margin-top: 6px; }
-.skip-link { position: absolute; left: 8px; top: -40px; z-index: 200; background: var(--panel); padding: 8px 12px; border-radius: var(--radius-sm); box-shadow: var(--shadow); }
+.skip-link { position: absolute; left: 8px; top: -80px; z-index: 200; background: var(--panel); padding: 8px 12px; border-radius: var(--radius-sm); box-shadow: var(--shadow); }
 .skip-link:focus { top: 8px; }
 .main:focus { outline: none; }
 /* Collapsed sidebar (desktop): icons only, labels as tooltips */
@@ -667,7 +667,7 @@ button.cap-example:hover { background: var(--accent-soft); color: var(--accent-t
 .wflow-node.warn { border-left-color: var(--warn); }
 .wflow-node.danger { border-left-color: var(--danger); }
 /* Links inside running text are underlined, not told apart by colour alone (WCAG 1.4.1) */
-:where(p, li, dd, .small, .muted, .alert, .chat-note, .hint, .rich) a:not(.btn):not(.badge):not(.cite):not(.nav-link):not(.list-item) { text-decoration: underline; text-underline-offset: 2px; }
+:where(p, li, dd, .small, .muted, .alert, .chat-note, .hint, .rich) a:not(.btn):not(.badge):not(.cite):not(.nav-link):not(.list-item):not(.recent-link) { text-decoration: underline; text-underline-offset: 2px; }
 
 /* ===== v12 design system (docs/DESIGN_SYSTEM.md). Refines the layers above; nothing here adds a dependency. ===== */
 :root {
@@ -919,3 +919,4 @@ body { background: var(--bg); }
 .state-key { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0; }
 .state-key > div { display: flex; align-items: center; gap: 6px; }
 .state-key dd { margin: 0; }
+@media (max-width: 900px) { .pick-hint { display: none; } }

@@ -252,7 +252,7 @@ export default function Projects() {
             </div>
           )}
         </div>
-        <div>{id ? <Detail key={id} id={+id} onChanged={load} /> : <div className="card"><Empty icon={<FolderKanban size={24} />} title="Pick a project" hint="Or create one. Chats and missions started in a project use its brief, its memories and its rules." /></div>}</div>
+        <div>{id ? <Detail key={id} id={+id} onChanged={load} /> : items?.length ? <div className="card pick-hint"><Empty icon={<FolderKanban size={24} />} title="Pick a project" hint="Chats and missions started in a project use its brief, its memories and its rules." /></div> : null}</div>
       </div>
       {creating && <NewProject onClose={() => setCreating(false)} onCreated={(pid) => { setCreating(false); load(); navigate(`/projects/${pid}`); }} />}
     </div>

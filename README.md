@@ -72,11 +72,11 @@ Native Ollama uses the Mac GPU; the `local-models` add-on would run on CPU insid
 
 ## The assistant
 
-**Assistant** is the main page: one chat that can use every part of the workspace.
+**Assistant** is the first screen: one chat that can use every part of the workspace. Your conversations are in the sidebar, under New chat, Search, Projects and Needs your review; the detailed pages are one fold below (Workspace). Documents, files and research reports it produces open in a preview beside the conversation (v14).
 
 * **Work reports back (v13).** Research, missions and coding tasks started in a conversation post their results into it: the research report, the mission plan waiting for your approval (approve it right there), the mission's result, a coding agent's answer. Each shows as a card that keeps itself current, with Stop. Nothing is posted while ROOKS is still answering you. Spreadsheets you attach (CSV, TSV, Excel) get figures computed by code, not estimated; documents it writes can be previewed and downloaded from the chat.
 
-* **Tools.** Notes (search, read, create, append), tasks, calendar (agenda, create event), mail (search, save draft only, never send), web search and page reading, the browser agent when that add-on is on, memory, skills and schedules. Each tool step shows live in the chat.
+* **Tools.** Notes (search, read, create, append), tasks, calendar (agenda, create event), mail (search, read a message, save a reply draft; never send), web search and page reading, the browser agent when that add-on is on, memory, skills and schedules. Each tool step shows live in the chat.
 * **Permissions.** Settings → Security → *What the assistant may do*. Each area (notes, tasks, calendar, email, files, web, browser, memory, skills, schedules, team) is **Allowed**, **Ask me first** or **Off**. Ask me first lets it look things up but makes every change wait for your approval. Off removes those tools. The server enforces this for chat, Telegram, schedules, company agents, the Open WebUI tool server and MCP clients. Outside clients cannot ask for approval, so Ask me first means read only for them.
 * **Limits.** The same tool with the same arguments three times in one request is refused, and a request that keeps repeating itself is stopped. Each request has a time budget (`WORKBENCH_TURN_SECONDS`, default 300). When it runs out you get what was found so far.
 * **Activity log.** Settings → Security lists sign-ins (including failed ones), password, key, provider and permission changes, approvals, and every action that changed something. Key values and passwords are never written to it.
@@ -101,7 +101,7 @@ Native Ollama uses the Mac GPU; the `local-models` add-on would run on CPU insid
 * **Terminal.** `cli/ws` is a zero dependency Python CLI: `cli/ws login`, then `cli/ws` for a REPL or `cli/ws "what's on today?"` for one shot. Also `cli/ws memory`, `skills`, `inbox`, `schedules`.
 * **Telegram.** Assistant settings → Telegram: paste a bot token from @BotFather and your numeric user id. Only allowlisted ids get answers; others are told their id so you can add them. `/new` starts a fresh conversation. The token is stored encrypted.
 
-**Missions.** For a bigger job ("compare three CRM tools and save a summary note"), use **Missions** in the sidebar or type `/mission …` in chat.
+**Missions.** For a bigger job ("compare three CRM tools and save a summary note"), use **Missions** (sidebar, under Workspace) or type `/mission …` in chat.
 - **Plan first.** ROOKS writes a plan in which every step has a "done when" check. You can edit the plan, and nothing runs until you approve it.
 - **Every step is checked.** Each step is an ordinary assistant turn, so permissions and approvals apply. Afterwards a separate check compares what happened with the step's criterion. A step that needed a tool but had none succeed is never marked done: it shows as *Not verified*. A step that fails its check is retried once, and repeating without progress counts as stalled.
 - **Approvals on top of your permissions.** Missions always ask before acting outside ROOKS (browsing sites, recurring schedules), whatever your permission settings.
