@@ -5,7 +5,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import api, assistant_api, coding, coordinator, browser_proxy, checkins, company, computer, computer_api, config, db, llm, missions, projects_api, proactive_api, scheduler, telegram, workers, workers_api
+from . import api, assistant_api, coding, coordinator, browser_proxy, checkins, company, computer, computer_api, config, db, llm, missions, projects_api, proactive_api, scheduler, telegram, v1, workers, workers_api
 from .mcp_server import mcp, mcp_app
 from .security import check_bearer
 from .tools import tools
@@ -57,6 +57,7 @@ def healthz():
 app.include_router(api.public)
 app.include_router(api.api)
 app.include_router(assistant_api.router)
+app.include_router(v1.router)
 app.include_router(projects_api.router)
 app.include_router(proactive_api.router)
 app.include_router(workers_api.router)

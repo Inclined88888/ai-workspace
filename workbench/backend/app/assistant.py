@@ -756,6 +756,8 @@ def request_approval(name: str, raw_args: str, ctx: Ctx, reason: str) -> int:
                         "project_id": ctx.project_id, "mission_id": ctx.mission_id, "task_id": ctx.task_id, "channel": ctx.channel})
     aid = db.run("INSERT INTO approvals(tool, args, reason, channel, conversation_id, agent_id, scope, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                  name, stored_args, reason, ctx.channel, ctx.conversation_id, (ctx.agent or {}).get("id"), scope, db.now())
+    # The audit pair: this "approval asked" and the "approve" or "deny" recorded by decide_approval share the request number
+    audit.record(ctx.channel, "approval asked", name, f"request #{aid}: {reason[:200]}")
     if ctx.channel in UNATTENDED:
         deliver(f"Approval needed: {name}", f"{reason}\n\nRequested: {name} {display_args}\n\nApprove or deny under Assistant.",
                 "inbox", f"approval:{aid}")

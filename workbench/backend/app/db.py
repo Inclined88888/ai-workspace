@@ -680,6 +680,29 @@ def init() -> None:
                      ("rounds", "TEXT NOT NULL DEFAULT '[]'"), ("max_rounds", "INTEGER NOT NULL DEFAULT 0"),
                      ("monitor_topic_id", "INTEGER")):
         _add_column("research", col, ddl)
+    # v15: one record of every status change of every engine (work.py), written by triggers in the same transaction;
+    # and the requests clients may safely retry (idempotency keys)
+    conn().executescript("""
+CREATE TABLE IF NOT EXISTS work_events (
+  id INTEGER PRIMARY KEY,
+  kind TEXT NOT NULL,
+  ref_id INTEGER NOT NULL,
+  old_status TEXT,
+  new_status TEXT NOT NULL,
+  at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS work_events_ref ON work_events(kind, ref_id);
+CREATE TABLE IF NOT EXISTS client_requests (
+  key TEXT PRIMARY KEY,
+  route TEXT NOT NULL,
+  conversation_id INTEGER,
+  after_message_id INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+""")
+    from . import work
+
+    conn().executescript(work.triggers_sql())
 
 
 @contextmanager
