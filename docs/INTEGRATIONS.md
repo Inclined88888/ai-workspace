@@ -45,7 +45,13 @@ role is refused for a model whose required capability was not tested.
 
 ## A. API providers
 
-Unchanged from v11.1 (see `docs/AI_MODES.md`). Anthropic connections still use Anthropic's OpenAI compatibility
+Unchanged from v11.1 (see `docs/AI_MODES.md`), with one fix found in real use. A provider can refuse one model to an
+app while the key is fine: in October 2026 OpenRouter answered 403 "`thinkingmachines/inkling-small:free` is only
+available on agentic harnesses" for the free model with the largest context (1,048,576 tokens), which ROOKS tried first.
+ROOKS used to read every 403 as a bad key, say "rejected the API key" and stop. Now such a refusal is told apart from a
+key failure (401, or a 403 about the key), the model is remembered as refused for 7 days, the check goes on to the next
+free model (up to 6), and the refused model is listed as not available, with the provider's reason, and never picked
+by Automatic. Anthropic connections still use Anthropic's OpenAI compatibility
 endpoint unless you switch them to the any-llm engine (D).
 
 ## B. Coding agents, through the ROOKS Companion

@@ -39,7 +39,8 @@ export function shortRef(ref: string, models: Model[]): string {
 
 // What to try for the errors people actually hit, matched on the provider's explained message
 const FIXES: [RegExp, string][] = [
-  [/rejected the API key|401|403/i, "Copy the key again from the provider's site, with no spaces before or after, and paste it here. A key that was deleted or rotated stops working at once."],
+  [/does not let ROOKS use this model|closed to apps like ROOKS/i, "Your key works. The provider keeps some free models for particular apps; ROOKS skips those and uses another. Press Check again to try the next free models, or pick a model under the AI models list."],
+  [/rejected the API key|\(401\)/i, "Copy the key again from the provider's site, with no spaces before or after, and paste it here. A key that was deleted or rotated stops working at once."],
   [/limiting requests|429/i, "The provider is rate limiting. Free OpenRouter models allow 20 requests a minute and 50 a day (1,000 a day once you have bought $10 of credits). Wait, or try again tomorrow."],
   [/no credits|402/i, "This model needs credits. In Free Cloud AI mode ROOKS only uses models verified as free; pick one of those."],
   [/can't use tools|tool use/i, "The assistant needs a model that accepts tools. ROOKS tries several; if none work, choose another provider."],

@@ -69,7 +69,9 @@ with sync_playwright() as pw:
     expect(ok).to_contain_text("Connected and tested")
     check("the connected model is the one whose listed price is $0", "acme/helper:free" in ok.inner_text(), ok.inner_text())
     reqs = [r for r in st.ai_requests() if r["path"].endswith("/chat/completions")]
-    check("only free models were sent a request while connecting", all(r["model"] == "acme/helper:free" for r in reqs), [r["model"] for r in reqs])
+    check("only models listed at $0 were sent a request while connecting", all(r["model"].endswith(":free") for r in reqs), [r["model"] for r in reqs])
+    check("a free model OpenRouter closes to apps like ROOKS is skipped, and the key is not blamed",
+          reqs[0]["model"] == "acme/harness-only:free" and "rejected" not in ok.inner_text(), [r["model"] for r in reqs])
     shot(p, "journey-1-connected")
     p.get_by_role("button", name="Continue").click()
     expect(p.get_by_role("heading", name="You're ready")).to_be_visible()

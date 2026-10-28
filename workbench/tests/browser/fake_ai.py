@@ -23,6 +23,8 @@ LOG = sys.argv[2] if len(sys.argv) > 2 else "/dev/null"
 GOOD_KEY = "sk-or-test-good"
 ZERO = {"prompt": "0", "completion": "0"}
 ROUTER_MODELS = [
+    # Real OpenRouter behaviour (seen October 2026): a free model with the largest context, refused to apps like ROOKS
+    {"id": "acme/harness-only:free", "context_length": 1048576, "supported_parameters": ["tools"], "pricing": ZERO},
     {"id": "acme/helper:free", "context_length": 131072, "supported_parameters": ["tools", "temperature"], "pricing": ZERO},
     {"id": "acme/notools:free", "context_length": 262144, "supported_parameters": ["temperature"], "pricing": ZERO},
     {"id": "acme/pro", "context_length": 200000, "supported_parameters": ["tools"], "pricing": {"prompt": "0.000003", "completion": "0.000015"}},
@@ -185,6 +187,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(401, {"error": {"message": "No auth credentials found", "code": 401}})
         if body.get("model") == "acme/pro":
             return self._send(402, {"error": {"message": "Insufficient credits", "code": 402}})
+        if body.get("model") == "acme/harness-only:free":
+            return self._send(403, {"error": {"message": "acme/harness-only:free is only available on agentic harnesses. Try plugging it "
+                                              "into a coding agent or productivity app listed on https://openrouter.ai/apps", "code": 403,
+                                              "metadata": {}}})
         if body.get("model") == "acme/notools:free" and body.get("tools"):
             return self._send(404, {"error": {"message": "No endpoints found that support tool use", "code": 404}})
         msg = reply(body)

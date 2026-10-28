@@ -190,3 +190,71 @@ def test_anthropic_through_any_llm_uses_the_native_messages_api(client, messages
         assert "Anthropic" in str(e.value.detail)
     finally:
         db.run("DELETE FROM providers WHERE id = ?", pid)
+
+
+# OpenRouter refusing one free model to ROOKS while the key works (seen in real use, October 2026)
+class _Router(BaseHTTPRequestHandler):
+    def log_message(self, *a):
+        pass
+
+    def _send(self, code, obj):
+        data = json.dumps(obj).encode()
+        self.send_response(code); self.send_header("content-type", "application/json"); self.send_header("content-length", str(len(data)))
+        self.end_headers(); self.wfile.write(data)
+
+    def do_GET(self):
+        zero = {"prompt": "0", "completion": "0"}
+        if self.path.endswith("/models"):
+            return self._send(200, {"data": [
+                {"id": "lab/inkling-small:free", "context_length": 1048576, "supported_parameters": ["tools"], "pricing": zero},
+                {"id": "lab/helper:free", "context_length": 131072, "supported_parameters": ["tools"], "pricing": zero}]})
+        if self.path.endswith("/key"):
+            return self._send(200, {"data": {"is_free_tier": True}})
+        self._send(404, {})
+
+    def do_POST(self):
+        body = json.loads(self.rfile.read(int(self.headers["content-length"])))
+        SEEN.append({"model": body["model"]})
+        if body["model"] == "lab/inkling-small:free":
+            return self._send(403, {"error": {"message": "lab/inkling-small:free is only available on agentic harnesses. Try plugging it into a "
+                                              "coding agent or productivity app listed on https://openrouter.ai/apps", "code": 403, "metadata": {}}})
+        self._send(200, {"choices": [{"message": {"role": "assistant", "content": "OK"}}], "usage": {"prompt_tokens": 1, "completion_tokens": 1, "cost": 0}})
+
+
+def test_a_free_model_closed_to_rooks_is_skipped_and_the_key_is_not_blamed(client, monkeypatch):
+    from app import config, db, llm
+
+    s = socket.socket(); s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]; s.close()
+    srv = ThreadingHTTPServer(("127.0.0.1", port), _Router)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{port}/api"
+    monkeypatch.setattr(config, "OPENROUTER_URL", url)
+    SEEN.clear()
+    db.set_setting("ai_mode", "free")
+    pid = db.run("INSERT INTO providers(name, kind, base_url, api_key_enc, models, enabled, created_at) VALUES "
+                 "('OpenRouter', 'openai', ?, '', '', 1, ?)", url + "/v1", db.now())
+    try:
+        r = asyncio.run(llm.check_provider(pid))
+        assert r["ok"] and r["recommended"] == "lab/helper:free", r
+        assert [x["model"] for x in SEEN] == ["lab/inkling-small:free", "lab/helper:free"]  # tried the next model, did not stop
+        first = r["tried"][0]
+        assert first["refused"] and "rejected the API key" not in first["error"] and "nothing is wrong with your key" in first["error"]
+        # remembered: never tried again, never picked automatically, shown as not available with the reason
+        SEEN.clear()
+        assert asyncio.run(llm.check_provider(pid))["ok"] and [x["model"] for x in SEEN] == ["lab/helper:free"]
+        m = next(x for x in client.get("/api/models").json()["models"] if x["ref"] == f"{pid}/lab/inkling-small:free")
+        assert m["allowed"] is False and "agentic harnesses" in m["blocked"]
+        assert llm.effective_default()[0] != f"{pid}/lab/inkling-small:free"
+    finally:
+        db.run("DELETE FROM providers WHERE id = ?", pid)
+        db.set_setting("ai_mode", "custom")
+        srv.shutdown()
+
+
+def test_a_real_bad_key_is_still_called_a_bad_key(client):
+    from app import llm
+
+    p = {"name": "OpenRouter", "kind": "openai", "base_url": "https://openrouter.ai/api/v1", "id": 0}
+    assert "rejected the API key" in llm.explain(p, 401, '{"error":{"message":"No auth credentials found","code":401}}')
+    assert "rejected the API key" in llm.explain(p, 403, '{"error":{"message":"Invalid API key"}}')
+    assert "can't use tools" in llm.explain(p, 404, '{"error":{"message":"No endpoints found that support tool use"}}')

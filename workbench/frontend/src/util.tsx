@@ -78,7 +78,7 @@ export function ModelSelect({
         </optgroup>
       )}
       {blocked.length > 0 && (
-        <optgroup label="Not available in this AI mode">
+        <optgroup label="Not available (reason on hover)">
           {blocked.slice(0, 60).map((m) => (
             <option key={m.ref} value={m.ref} disabled title={m.blocked}>
               {m.model} · {m.provider}{m.free ? "" : "  (paid)"}

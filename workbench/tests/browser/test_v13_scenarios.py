@@ -94,8 +94,10 @@ with sync_playwright() as pw:
     send(p, "How should I plan my week?")
     expect(p.get_by_text("Pick three outcomes")).to_be_visible()
     reqs = [r for r in st.ai_requests() if r["path"].endswith("/chat/completions")]
-    check("A [stand-in AI] the question is answered in the conversation, by the free model only",
-          reqs and all(r["model"] == "acme/helper:free" for r in reqs), sorted({r["model"] for r in reqs}))
+    check("A [stand-in AI] the question is answered in the conversation, by free models only",
+          reqs and all(r["model"].endswith(":free") for r in reqs), sorted({r["model"] for r in reqs}))
+    check("A a free model the provider closes to ROOKS was tried once while connecting, then never again",
+          [r["model"] for r in reqs].count("acme/harness-only:free") == 1, [r["model"] for r in reqs])
     expect(p.locator("select[aria-label='AI model'] option").first).to_have_text(re.compile("^Automatic"))
     check("A the model picker defaults to Automatic", True)
     shot(p, "v13-A-answer")

@@ -300,7 +300,7 @@ def _ordered_providers() -> list[dict]:
 
 def recommended_ref(p: dict) -> str | None:
     info = check_info(p["id"])
-    if info.get("ok") and info.get("recommended"):
+    if info.get("ok") and info.get("recommended") and not refused(f"{p['id']}/{info['recommended']}"):
         return f"{p['id']}/{info['recommended']}"
     # Never checked, or checked and failing: not picked automatically. A model is only used without being chosen by
     # the user after a real request to it succeeded (see check_provider).
@@ -441,8 +441,12 @@ def explain(p: dict, status: int, text: str) -> str:
     """Turn a provider error into something a person can act on; the raw detail is kept at the end."""
     name, low = p["name"], (text or "").lower()
     # Google answers a bad key with 400 "Please pass a valid API key" rather than 401
-    bad_key = status in (401, 403) or (status == 400 and re.search(r"api[ _-]?key", low) and re.search(r"valid|incorrect|missing|pass", low))
-    if bad_key:
+    bad_key = status == 401 or (status == 403 and not model_refusal(status, text)) or \
+        (status == 400 and re.search(r"api[ _-]?key", low) and re.search(r"valid|incorrect|missing|pass", low))
+    if model_refusal(status, text):
+        msg = (f"{name} accepted the key but does not let ROOKS use this model (the provider limits it to certain apps or "
+               "accounts). ROOKS skips it and uses another model; nothing is wrong with your key.")
+    elif bad_key:
         msg = f"{name} rejected the API key. Paste the key again in Settings, under AI models."
     elif status == 402:
         msg = f"{name} says there are no credits for this model. Pick a model marked (free), or add credits with {name}."
@@ -463,6 +467,48 @@ def explain(p: dict, status: int, text: str) -> str:
     return f"{msg} Details: {detail}" if detail else msg
 
 
+# A provider can refuse one model to an app while the key is fine (OpenRouter, 403: "...:free is only available on
+# agentic harnesses"). That is not a bad key: the model is remembered as refused for a week and skipped.
+_REFUSAL_RE = re.compile(r"only available (on|to|in|for)|not available (on|to|in|for)|harness|not (allowed|permitted) to use (this|the) model|"
+                         r"model is (restricted|unavailable)|no endpoints found|this model is not", re.I)
+_AUTH_RE = re.compile(r"api[ _-]?key|auth|credential|unauthori[sz]ed|invalid (key|token)|key (is|was) (invalid|disabled|revoked)", re.I)
+REFUSAL_DAYS = 7
+
+
+def model_refusal(status: int, text: str) -> bool:
+    """A refusal of this model only (the key works), as opposed to a refusal of the key."""
+    t = text or ""
+    if "tool" in t.lower():
+        return False  # "no endpoints that support tool use" has its own explanation: the model cannot use tools
+    return status in (403, 404) and bool(_REFUSAL_RE.search(t)) and not (status == 403 and _AUTH_RE.search(t) and "harness" not in t.lower())
+
+
+def _refusals(pid: int) -> dict:
+    try:
+        d = json.loads(db.get_setting(f"model_refused:{pid}", "") or "{}")
+    except ValueError:
+        return {}
+    cutoff = time.time() - REFUSAL_DAYS * 86400
+    return {m: r for m, r in d.items() if isinstance(r, dict) and r.get("at", 0) > cutoff}
+
+
+def refused(ref: str) -> str:
+    """Why the provider refused this model to ROOKS recently, or ''."""
+    try:
+        pid, model = ref.split("/", 1)
+        return _refusals(int(pid)).get(model, {}).get("why", "")
+    except (ValueError, AttributeError):
+        return ""
+
+
+def _remember_refusal(pid: int, model: str, text: str) -> None:
+    d = _refusals(pid)
+    detail = re.sub(r"\s+", " ", text or "").strip()
+    m = re.search(r'"message"\s*:\s*"([^"]{1,300})', detail)
+    d[model] = {"at": time.time(), "why": (m.group(1) if m else detail)[:300]}
+    db.set_setting(f"model_refused:{pid}", json.dumps(d))
+
+
 async def _call(p: dict, body: dict) -> dict:
     if engine(p):
         from . import anyllm_engine
@@ -480,6 +526,8 @@ async def _call(p: dict, body: dict) -> dict:
     if r.status_code >= 400:
         # A malformed request (400) is ours, not the provider's; only tool support problems are worth a fallback
         retryable = r.status_code != 400 or "tool" in r.text.lower()
+        if model_refusal(r.status_code, r.text) and body.get("model"):
+            _remember_refusal(p["id"], body["model"], r.text)
         raise ModelError(explain(p, r.status_code, r.text), r.status_code, retryable)
     try:
         return r.json()
@@ -718,7 +766,7 @@ async def key_status(p: dict) -> dict:
     return {"free_tier": d.get("is_free_tier"), "limit_remaining": d.get("limit_remaining")}
 
 
-async def check_provider(pid: int, max_tries: int = 4, allow_paid: bool = False) -> dict:
+async def check_provider(pid: int, max_tries: int = 6, allow_paid: bool = False) -> dict:
     """List the provider's models, check the key, then send a tiny real request (with a tool attached, as the
     assistant does) to the most suitable models until one answers. Only a model that answered is recommended."""
     import asyncio
@@ -744,8 +792,10 @@ async def check_provider(pid: int, max_tries: int = 4, allow_paid: bool = False)
         # A user must deliberately opt in to a bounded paid connection check.
         if ai_mode() in ("free", "local"):
             allow_paid = False  # these modes never send a request that could be charged, not even to check a key
+        skipped = _refusals(pid)
         choices = [n for n in candidates(p, models, key.get("free_tier"))
-                   if (allow_paid or is_free(p, n) or is_local(f"{pid}/{n}")) and not mode_allows(f"{pid}/{n}")]
+                   if (allow_paid or is_free(p, n) or is_local(f"{pid}/{n}")) and not mode_allows(f"{pid}/{n}") and n not in skipped]
+        report["skipped"] = [{"model": m, "why": r["why"]} for m, r in skipped.items()]
         for name in choices[:max_tries]:
             if time.monotonic() > deadline:
                 report["tried"].append({"model": name, "error": f"Not tried: the check's {CHECK_BUDGET} second limit was reached."})
@@ -756,14 +806,21 @@ async def check_provider(pid: int, max_tries: int = 4, allow_paid: bool = False)
                 from . import usage
                 usage.record(ping_result, channel="provider_check")
             except ModelError as e:
-                report["tried"].append({"model": name, "error": str(e.detail)[:300]})
-                if e.status in (401, 403) or "rejected the API key" in str(e.detail):
+                report["tried"].append({"model": name, "error": str(e.detail)[:300], "refused": bool(refused(f"{pid}/{name}"))})
+                if refused(f"{pid}/{name}"):
+                    continue  # this model is closed to ROOKS; the key is fine, try the next one
+                if e.status == 401 or "rejected the API key" in str(e.detail):
                     break  # the key itself is wrong: no other model will work
                 continue
             report.update(ok=True, recommended=name)
             break
         if not report["ok"]:
-            report["error"] = (report["tried"][0]["error"] if report["tried"] else _no_candidate(p))
+            # the most useful error: one that is not just "this model is closed to ROOKS"
+            real = [t for t in report["tried"] if not t.get("refused") and not t["error"].startswith("Not tried")]
+            report["error"] = (real[0]["error"] if real else
+                               f"{p['name']} accepted the key, but the models tried are closed to apps like ROOKS: "
+                               + ", ".join(t["model"] for t in report["tried"][:6]) + ". Check again to try the next ones, or pick a model."
+                               if report["tried"] else _no_candidate(p))
     db.set_setting(f"provider_check:{pid}", json.dumps(report))
     return report
 
