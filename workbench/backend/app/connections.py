@@ -161,6 +161,8 @@ def _with_state(e: dict, p: dict | None = None) -> dict:
         e["state"] = "off" if e["status"] == "off" else "experimental"
         e.setdefault("limits", "Plain answers only, minutes per answer, no tool calling or streaming. Not for everyday use; "
                                "Automatic never picks it because it cannot use tools.")
+    elif e["category"] == "B" and e["status"] == "not_checked":
+        e["state"] = "available"  # no computer paired: nothing is connected yet (for a provider, a saved key is)
     else:
         e["state"] = _STATE_OF.get(e["status"], "untested")
     e["state_label"] = STATES[e["state"]]

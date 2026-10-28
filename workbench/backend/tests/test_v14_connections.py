@@ -69,7 +69,7 @@ def test_each_connection_has_one_honest_state(client):
         assert _entry(d, f"provider:{new}")["state"] == "untested" and _entry(d, f"provider:{new}")["state_label"] == "Connected, not tested"
         assert _entry(d, "local:ollama")["state"] == "available"
         assert _entry(d, "local:airllm")["state"] == "experimental" and not _entry(d, "local:airllm")["powers_chat"]
-        assert _entry(d, "coding:codex")["state"] in ("available", "untested")  # never "verified": no task was seen running
+        assert _entry(d, "coding:codex")["state"] == "available"  # no paired computer: not connected, and never "verified"
         assert all(e["state"] in d["states"] and e["state_label"] for e in d["entries"])
         db.set_setting(f"provider_check:{new}", json.dumps({"ok": False, "error": "The server refused the key."}))
         assert _entry(client.get("/api/connection-directory").json(), f"provider:{new}")["state"] == "problem"
