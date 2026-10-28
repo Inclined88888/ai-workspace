@@ -36,6 +36,10 @@ class Engine:
         self.journal_path = journal_path
         self.journal = self._load_journal()
         self.lock = threading.Lock()
+        from .agents import CodingAgents
+
+        home = os.path.dirname(journal_path) if journal_path else os.path.expanduser("~/.rooks-companion")
+        self.agents = CodingAgents(config, home)
 
     # Journal
     def _load_journal(self) -> dict:
@@ -74,6 +78,10 @@ class Engine:
             caps.append("browser")
         if self.config.get("folders"):
             caps.append("files")
+        import shutil
+
+        if self.config.get("folders") and any((self.config.get("coding_agents") or {}).get(n) or shutil.which(n) for n in ("codex", "claude")):
+            caps.append("coding")
         return caps
 
     # Running actions
@@ -353,6 +361,17 @@ class Engine:
                 return b.select(str(a.get("ref", "")), str(a.get("value", "")), str(a.get("label", "")))
             if kind == "browser_back":
                 return b.back()
+
+        # Coding agents (agents.py): official CLIs, one allowed folder, only after approval
+        if kind == "agents_detect":
+            return self.agents.detect()
+        if kind == "agent_start":
+            return self.agents.start(str(a.get("agent", "")), str(a.get("task", "")), str(a.get("folder", "")),
+                                     self.config.get("folders", []), approved)
+        if kind == "agent_poll":
+            return self.agents.poll(str(a.get("run", "")), int(a.get("since") or 0))
+        if kind == "agent_stop":
+            return self.agents.stop(str(a.get("run", "")))
 
         # Files, only inside folders allowed on this computer; a version is kept before every change, nothing is deleted
         if kind.startswith(("files_", "sheet_", "doc_")):

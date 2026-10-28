@@ -603,6 +603,19 @@ CREATE TABLE IF NOT EXISTS usage (
   priced INTEGER NOT NULL DEFAULT 0             -- 1 when a price was known for the model
 );
 CREATE INDEX IF NOT EXISTS usage_ts ON usage(ts);
+
+-- Work the assistant started from a conversation (coordinator.py): its result is delivered back into that conversation
+CREATE TABLE IF NOT EXISTS jobs (
+  id INTEGER PRIMARY KEY,
+  conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,                           -- research | mission | coding
+  ref_id INTEGER NOT NULL,                      -- research, mission or computer action id
+  title TEXT NOT NULL DEFAULT '',
+  stage TEXT NOT NULL DEFAULT '',               -- last stage delivered: '' | plan | final
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS jobs_open ON jobs(stage, kind);
 """
 
 
@@ -638,6 +651,7 @@ def init() -> None:
         _add_column(t, "project_id", "INTEGER")
     _add_column("projects", "isolated", "INTEGER NOT NULL DEFAULT 0")
     _add_column("conversations", "summary", "TEXT NOT NULL DEFAULT ''")
+    _add_column("messages", "job_id", "INTEGER")  # a message the coordinator delivered for this job
     _add_column("conversations", "summary_upto", "INTEGER NOT NULL DEFAULT 0")
     for col, ddl in (("depends", "INTEGER NOT NULL DEFAULT 0"), ("max_attempts", "INTEGER NOT NULL DEFAULT 2"),
                      ("review_unverified", "INTEGER NOT NULL DEFAULT 0"), ("estimate_cents", "REAL"), ("template", "TEXT NOT NULL DEFAULT ''")):

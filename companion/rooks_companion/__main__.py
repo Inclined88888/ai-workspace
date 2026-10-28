@@ -7,6 +7,7 @@
   python3 -m rooks_companion allow-folder ~/Documents/Invoices let ROOKS use a folder (nothing is deleted)
   python3 -m rooks_companion block-app "Notes"                 never let ROOKS control an app
   python3 -m rooks_companion read-only on|off                  look only, change nothing
+  python3 -m rooks_companion allow-claude-api on|off           let ROOKS run Claude Code with your ANTHROPIC_API_KEY (billed per use)
   python3 -m rooks_companion stop | resume                     emergency stop on this computer (works without ROOKS)
   python3 -m rooks_companion forget                            remove the pairing token from this computer
 """
@@ -75,6 +76,7 @@ def main(argv=None) -> int:
     p = sub.add_parser("remove-folder"); p.add_argument("path")
     p = sub.add_parser("block-app"); p.add_argument("app")
     p = sub.add_parser("read-only"); p.add_argument("state", choices=["on", "off"])
+    p = sub.add_parser("allow-claude-api"); p.add_argument("state", choices=["on", "off"])
     a = ap.parse_args(argv)
     cfg = load()
 
@@ -125,6 +127,10 @@ def main(argv=None) -> int:
         cfg["blocked_apps"] = sorted(set(cfg["blocked_apps"]) | {a.app}); save(cfg); print(f"ROOKS will never control {a.app}."); return 0
     if a.cmd == "read-only":
         cfg["read_only"] = a.state == "on"; save(cfg); print(f"Read only {a.state}."); return 0
+    if a.cmd == "allow-claude-api":
+        cfg["claude_api_billing"] = a.state == "on"; save(cfg)
+        print("ROOKS may run Claude Code with the ANTHROPIC_API_KEY set for the companion. Anthropic bills that key per use; "
+              "your Claude subscription is never used." if a.state == "on" else "ROOKS will not run Claude Code."); return 0
     if a.cmd == "run":
         if not cfg.get("token"):
             print("Not paired yet. In ROOKS open Computer, press Pair, and run the command it shows."); return 1

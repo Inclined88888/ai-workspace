@@ -17,7 +17,7 @@ CONSEQUENTIAL_RE = re.compile(
     r"sign out|log out|deactivate|close account|confirm|authorize|approve|grant|don't save|do not save|move to trash|replace)\b", re.I)
 WRITE_KINDS = {"open_app", "focus", "click", "type_text", "key", "scroll", "set_value", "menu", "click_visual", "browser_open",
                "browser_click", "browser_fill", "browser_select", "browser_back", "files_move", "files_mkdir", "files_copy", "files_write",
-               "files_undo", "sheet_update", "sheet_dedupe", "doc_write"}
+               "files_undo", "sheet_update", "sheet_dedupe", "doc_write", "agent_start"}
 
 
 class Refused(Exception):

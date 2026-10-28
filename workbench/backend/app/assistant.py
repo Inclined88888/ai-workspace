@@ -330,14 +330,24 @@ TOOLS: list[Tool] = [
 def _start_mission(goal: str, ctx: Ctx | None = None) -> dict:
     from . import missions
 
+    from . import coordinator
+
     m = missions.create(goal, project_id=ctx.project_id if ctx else None)
+    job = coordinator.register(ctx.conversation_id if ctx else None, "mission", m["id"], m["goal"])
     return {"id": m["id"], "goal": m["goal"], "status": m["status"],
-            "note": "ROOKS is writing the plan. Nothing runs until the user approves it on the mission page."}
+            "note": ("ROOKS is writing the plan and will post it in this conversation. Nothing runs until the user approves it "
+                     "(here or on the mission page).") if job else
+                    "ROOKS is writing the plan. Nothing runs until the user approves it on the mission page."}
 
 
 def _start_research(question: str, depth: int = 3, ctx: Ctx | None = None) -> dict:
+    from . import coordinator
+
     r = research.start(question, depth, ctx.project_id if ctx else None)
-    return {"id": r["id"], "question": r["question"], "status": r["status"], "note": "Research runs in the background; it takes a few minutes."}
+    job = coordinator.register(ctx.conversation_id if ctx else None, "research", r["id"], r["question"])
+    return {"id": r["id"], "question": r["question"], "status": r["status"],
+            "note": "Research runs in the background; it takes a few minutes."
+                    + (" The report will be posted in this conversation when it is ready." if job else "")}
 
 
 _top = lambda ctx: ctx.channel not in ("mission", "schedule", "agent")  # noqa: E731 - no missions or research started from unattended work
@@ -844,8 +854,31 @@ def _save(conversation_id: int, role: str, content: str = "", tool_calls: list |
     return mid
 
 
+_active: dict[int, int] = {}  # conversation id -> turns running in it
+
+
+def busy(conversation_id: int) -> bool:
+    """A turn is running in this conversation (the coordinator waits before posting into it)."""
+    return _active.get(conversation_id, 0) > 0
+
+
 async def run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> AsyncIterator[dict]:
     """Run one user turn. Yields events: memories, notice, tool_call, approval, tool_result, thought, message, error, done."""
+    cid = ctx.conversation_id
+    _active[cid] = _active.get(cid, 0) + 1
+    try:
+        async for e in _run_turn(ctx, user_text, model):
+            yield e
+    finally:
+        _active[cid] -= 1
+        if not _active[cid]:
+            _active.pop(cid, None)
+            from . import coordinator
+
+            coordinator.wake()
+
+
+async def _run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> AsyncIterator[dict]:
     conv = db.one("SELECT * FROM conversations WHERE id = ?", ctx.conversation_id)
     if not conv:
         raise HTTPException(404, "Conversation not found")
