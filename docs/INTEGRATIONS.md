@@ -62,6 +62,7 @@ card with Stop → the agent's final message posted in the conversation.
 
 ### OpenAI Codex CLI
 
+- Only after you turn it on for the companion: `rooks-companion allow-codex on`.
 - Command: `codex exec --json --sandbox workspace-write --skip-git-repo-check -C <folder> <task>`, stdin closed,
   a minimal environment (no other API keys pass through).
 - Sign-in: ROOKS runs `codex login status` and keeps only which kind it is. Signed in with ChatGPT, Codex uses your
@@ -86,7 +87,9 @@ Evidence (Codex CLI 0.165.0, npm `@openai/codex`, Apache-2.0, on the Linux test 
 ### Claude Code
 
 - Command: `claude --bare -p <task> --output-format stream-json --verbose --permission-mode acceptEdits
-  --allowedTools=Read,Edit,Write,Glob,Grep`. No shell tool.
+  --tools=Read,Edit,Write,Glob,Grep --disallowedTools=Bash`. No shell. `--tools` sets which tools exist; in `--bare`
+  mode Claude Code 2.1.312 then offers only Read and Edit. (Found in testing: `--allowedTools` alone only
+  pre-approves tools, and Bash was still offered.)
 - Claude Code's own help says of `--bare`: "Anthropic auth is strictly ANTHROPIC_API_KEY or apiKeyHelper via --settings
   (OAuth and keychain are never read)". So a Claude subscription sign-in on that computer is never used.
 - It runs only after you turn it on for the companion (`rooks-companion allow-claude-api on`) and set

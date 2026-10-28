@@ -10,6 +10,8 @@ provider.**
 | `test_journey.py` | A new person: set up, connect free AI, find every area, ask for a reminder and see the task, finish it, write a note, plan a mission, change settings, Free Cloud AI holds |
 | `test_keyboard.py` | Keyboard only: skip link, focus ring, sidebar, adding a task, search palette (focus returns on Escape), opening notes and conversations, Shift+Enter and Enter, the phone menu |
 | `test_regressions.py` | One check per bug fixed in v12, each saying what used to go wrong |
+| `test_v13_scenarios.py` | Scenarios A to J of v13 through the real app: research, spreadsheets, documents, missions, Codex and Claude Code through the real companion (set `ROOKS_CLI_BIN`, else SKIPPED), local engines and AirLLM (`ROOKS_AIRLLM_URL`), voice and check-ins, unavailable models. Each check is labelled with what stood in (stand-in AI, official CLI, engine stand-in) |
+| `resources.py` | Server memory, idle CPU and API latency of a checkout: `python3 resources.py <checkout>` |
 | `screens.py` | Every page at desktop, tablet and phone, light and dark: screenshot, no sideways scrolling, the page never scrolls past the window, no page errors, accessibility (with `AXE_JS`) |
 | `perf.py` | Measures load, page changes, a long conversation, 1,000 tasks, charts and idle requests; prints JSON |
 

@@ -81,9 +81,15 @@ height in a 760px reading column (`--content`).
 | `.setting-row` | a setting: what it is left, control right | wraps on phones |
 | `.empty` | an empty state | says what goes here and how to start |
 | `.skeleton` | loading placeholder | no shimmer with reduced motion |
+| `.job-card` (v13) | work started from a conversation: research, mission, coding task | accent edge; keeps itself current; one primary action (Approve plan and start) at most |
+| `.conn-row`, `.cap-row` / `.cap` (v13) | a connection in the directory; one chip per capability test | chip states `passed`, `failed`, `not_tested`, each with an icon and words, never colour alone |
+| `.area-tabs` / `.area-tab` (v13) | the pages of one area (Library, Planner, Work) | real links; the active one has `aria-current` |
 
 ## Layout
 
+- **Navigation (v13):** seven areas in the sidebar (Assistant, Home, Needs you, Projects, Library, Planner, Work), then
+  More (Mail, Memory & skills, What ROOKS can do, Compare models, Browser agent) and Settings. An area's pages are tabs
+  at the top of the page. Every older address still opens the same page.
 - **Shell:** sidebar (232px, collapsible to 64px) and one scrolling main column. The page itself never scrolls; the
   browser test `screens.py` checks this on every route.
 - **Phones (900px and below):** a top bar with menu, search and chat; the sidebar becomes a drawer; two-pane pages

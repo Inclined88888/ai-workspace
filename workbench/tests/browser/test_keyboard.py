@@ -123,6 +123,8 @@ with sync_playwright() as pw:
     check("focus goes back to the menu button", "menu" in focused(q)["text"].lower(), focused(q))
     q.locator(".mobile-bar button").first.click()
     q.keyboard.press("Control+k")
+    expect(q.get_by_role("dialog", name="Search and jump")).to_be_visible()
+    expect(q.locator(".sidebar.open")).to_have_count(0)  # closes on the next render; under load that is not instant
     check("opening search closes the menu, so the two never stack", q.locator(".sidebar.open").count() == 0
           and q.get_by_role("dialog", name="Search and jump").count() == 1)
     check("no page errors", not errors, errors[:3])
