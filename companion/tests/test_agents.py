@@ -201,7 +201,8 @@ def test_claude_code_runs_only_bare_with_an_api_key_you_allowed(setup, monkeypat
     assert res["status"] == "done" and res["result"] == "I created hello.txt."
     assert any(e["kind"] == "cost" for e in res["events"])
     run = [c for c in calls() if c["argv"][0] == "--bare"][-1]
-    assert run["argv"][:3] == ["--bare", "-p", "Create hello.txt"] and "--allowedTools=Read,Edit,Write,Glob,Grep" in run["argv"]
+    assert run["argv"][:3] == ["--bare", "-p", "Create hello.txt"] and "--tools=Read,Edit,Write,Glob,Grep" in run["argv"]
+    assert "--disallowedTools=Bash" in run["argv"] and not any(x.startswith("--allowedTools") for x in run["argv"])
     assert not any("dangerously" in x or "bypassPermissions" in x for x in run["argv"])
     assert "ANTHROPIC_API_KEY" in run["env"] and "OPENAI_API_KEY" not in run["env"]
 

@@ -658,10 +658,26 @@ async def run(rid: int, question: str, model: str, depth: int) -> None:
         _update(rid, status="done", progress="Done", stats=stats, rounds=rounds,
                 report=f"{report.strip()}{checks}\n\n## Limitations\n\n" + "\n".join(f"- {x}" for x in limits) + f"\n\n## Sources\n\n{refs}")
     except Cancelled:
-        _update(rid, status="cancelled", progress="Cancelled", error="Cancelled by you.")
+        _end(rid, status="cancelled", progress="Cancelled", error="Cancelled by you.")
+    except asyncio.CancelledError:
+        if not _cancel_requested(rid):
+            raise  # ROOKS is shutting down: recover() picks the run up again
+        _end(rid, status="cancelled", progress="Cancelled", error="Cancelled by you.")
     except Exception as e:  # noqa: BLE001 - surface any failure to the UI
         detail = getattr(e, "detail", None) or str(e) or e.__class__.__name__
-        _update(rid, status="error", error=str(detail), progress="Failed")
+        _end(rid, status="error", error=str(detail), progress="Failed")
+
+
+def _cancel_requested(rid: int) -> bool:
+    r = db.one("SELECT cancel FROM research WHERE id = ?", rid)
+    return not r or bool(r["cancel"])
+
+
+def _end(rid: int, **fields) -> None:
+    """A run's final state, written only while it is still running: a failure never overwrites a finished or cancelled run."""
+    fields["updated_at"] = db.now()
+    cols = ", ".join(f"{k} = ?" for k in fields)
+    db.run(f"UPDATE research SET {cols} WHERE id = ? AND status = 'running'", *fields.values(), rid)
 
 
 def _similar_claim(a: str, b: str) -> bool:
@@ -723,6 +739,14 @@ def ledger(rid: int) -> list[dict]:
 
 
 _tasks: set = set()
+_by_id: dict[int, asyncio.Task] = {}
+
+
+def stop_now(rid: int) -> None:
+    """Stop at once rather than at the next checkpoint (a slow search or page read can take a while)."""
+    t = _by_id.get(rid)
+    if t and not t.done():
+        t.get_loop().call_soon_threadsafe(t.cancel)
 
 
 def start(question: str, depth: int = 3, project_id: int | None = None, model: str | None = None) -> dict:
@@ -751,4 +775,6 @@ def start(question: str, depth: int = 3, project_id: int | None = None, model: s
 def spawn(rid: int, question: str, model: str, depth: int) -> None:
     task = asyncio.get_running_loop().create_task(run(rid, question, model, depth))
     _tasks.add(task)
+    _by_id[rid] = task
     task.add_done_callback(_tasks.discard)
+    task.add_done_callback(lambda _t: _by_id.pop(rid, None))

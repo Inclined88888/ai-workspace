@@ -86,6 +86,39 @@ def reply(body):
         if not results:
             return call("create_note", title="Ideas for the team offsite", body="- Walk on the beach\n- Cooking class")
         return say("Saved the note **Ideas for the team offsite**.")
+    # v13 scenarios: the assistant as the place to get work done
+    n = len(results)
+    if goal.startswith("Research "):
+        if not n:
+            return call("start_research", question=goal[len("Research "):].strip(), depth=1)
+        return say("I started the research. The report will appear here when it is ready.")
+    f = re.search(r"\(file #(\d+)\)", goal)
+    if f and "region" in goal.lower():
+        if not n:
+            return call("analyze_table", file_id=int(f.group(1)), group_by="Region", value="Revenue")
+        return say("**North** sells the most: 1,500.50 of the 2,300.50 total revenue. One East row has no revenue.")
+    if goal.lower().startswith("write a document"):
+        if not n:
+            return call("create_note", title="Onboarding plan", kind="document",
+                        body="# Onboarding plan\n\n## Week 1\n\n- Meet the team\n- **Set up** the laptop\n\n## Week 2\n\n- First project")
+        return say("The document **Onboarding plan** is saved. Preview or download it below.")
+    if "as a mission" in goal.lower():
+        if not n:
+            return call("start_mission", goal=goal.split(" as a mission")[0].strip())
+        return say("I set it up as a mission. The plan will appear here for you to approve; nothing runs before that.")
+    a = re.search(r"use (codex|claude code) to (.+?) in (/\S+)", goal, re.I)
+    if a:
+        agent = "codex" if a.group(1).lower() == "codex" else "claude"
+        if n == 0:
+            return call("coding_agents")
+        if n == 1:
+            return call("run_coding_agent", task=a.group(2).strip(), folder=a.group(3), agent=agent)
+        return say("It is waiting for your approval. It runs on your computer, in that folder only.")
+    if goal.lower().startswith("check in with me"):
+        if not n:
+            return call("create_checkin", name="Deadlines", sources="tasks,calendar", cron="0 8 * * 1-5", notify="call",
+                        quiet_start="21:00", quiet_end="07:30", description="Tell me about deadlines in the next two days")
+        return say("The check-in waits for your approval. Quiet hours: 21:00 to 07:30.")
     if "take your time" in goal.lower():  # a slow reply, for testing what happens when you switch away mid-answer
         time.sleep(4)
         return say("Here is the slow answer you asked for.")
@@ -126,6 +159,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         self._log()
         path = self.path.split("?")[0]
+        if path == "/search":  # a stand-in SearxNG that stalls, so research stays visibly running during a test
+            time.sleep(float(__import__("os").environ.get("SEARCH_DELAY", "90")))
+            return self._send(200, {"results": []})
         if path == "/v1/models":
             return self._send(200, {"data": [{"id": "stand-in-model"}]})
         if path == "/openrouter/api/v1/models":

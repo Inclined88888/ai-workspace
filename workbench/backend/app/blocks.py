@@ -213,16 +213,17 @@ def _build(name: str, args: dict, d) -> list:
                                      "steps_done": m["steps_done"], "workers": m["workers"], "workers_active": m["workers_active"],
                                      "used_cents": m["used_cents"], "budget_cents": m["budget_cents"] or None} for m in d["missions"]], "Missions")
                 or {"type": "notice", "tone": "info", "text": "No missions yet."}]
+    # Work started from the conversation shows as a job card that keeps itself current and offers Approve or Stop
     if name == "start_mission" and isinstance(d, dict):
-        return [records("mission", [{"id": _num(d.get("id")), "goal": _s(d.get("goal")), "status": _s(d.get("status"), 20), "live": True}], "Mission started")]
+        return [{"type": "job", "kind": "mission", "id": _num(d.get("id")), "title": _s(d.get("goal")), "status": _s(d.get("status"), 20), "live": True}]
     if name == "analyze_table" and isinstance(d, dict):
         return _table_analysis(d)
     if name == "run_coding_agent" and isinstance(d, dict):
         return [{"type": "job", "kind": "coding", "id": _num(d.get("id")), "title": _s(args.get("task")), "status": _s(d.get("status"), 20),
                  "agent": _s(d.get("agent"), 40), "folder": _s(d.get("folder"), 300), "live": True}]
     if name == "start_research" and isinstance(d, dict):
-        return [records("research", [{"id": _num(d.get("id")), "question": _s(d.get("question")), "status": _s(d.get("status"), 20), "live": True}],
-                        "Research started")]
+        return [{"type": "job", "kind": "research", "id": _num(d.get("id")), "title": _s(d.get("question")), "status": _s(d.get("status"), 20),
+                 "live": True}]
     return []
 
 

@@ -242,6 +242,17 @@ def _save_skill(name: str, description: str, steps: str) -> dict:
     return upsert_skill(name, description, steps, source="agent")
 
 
+def _create_checkin(name: str, sources: str, cron: str, notify: str = "inbox", quiet_start: str = "", quiet_end: str = "",
+                    description: str = "", ctx: Ctx | None = None) -> dict:
+    from . import checkins
+
+    if not ctx or not ctx.approved:
+        raise HTTPException(403, "A check-in is created only after the user approves it.")
+    t = checkins.create(name, cron, [x.strip() for x in sources.split(",") if x.strip()], description, ctx.project_id, "normal",
+                        notify if notify in ("inbox", "telegram", "call") else "inbox", quiet_start, quiet_end)
+    return {k: t.get(k) for k in ("id", "name", "cron", "notify", "quiet_start", "quiet_end", "next_check_at", "sources")}
+
+
 def _schedule(name: str, cron: str, prompt: str, deliver: str = "inbox") -> dict:
     from .scheduler import create_schedule
 
@@ -331,6 +342,12 @@ TOOLS: list[Tool] = [
     Tool("schedule_task", "Schedule a recurring task. cron is 5 fields in the user's timezone, e.g. '0 8 * * *' for 8am daily. "
          "deliver: inbox or telegram.", {"name": S(), "cron": S(), "prompt": S("self contained instruction"), "deliver": S()},
          _schedule, ("name", "cron", "prompt"), when=lambda ctx: ctx.channel not in ("schedule", "agent")),
+    Tool("create_checkin", "Create a proactive check-in: ROOKS looks at the sources on a schedule and tells the user only when "
+         "something needs them. sources: comma separated from tasks, calendar, missions, approvals, project, search:<words>. cron is 5 "
+         "fields in the user's timezone. notify: inbox, telegram or call (a call is only an invitation they accept). quiet_start "
+         "and quiet_end are HH:MM; nothing interrupts in between unless urgent. It always waits for the user's approval.",
+         {"name": S(), "sources": S(), "cron": S(), "notify": S(), "quiet_start": S("HH:MM, optional"), "quiet_end": S("HH:MM, optional"),
+          "description": S()}, _create_checkin, ("name", "sources", "cron"), when=lambda ctx: ctx.channel not in ("schedule", "agent", "mission")),
     Tool("list_schedules", "List scheduled tasks.", {}, lambda: db.all("SELECT id, name, cron, deliver, enabled, next_run, last_status FROM schedules"),
          when=lambda ctx: ctx.channel not in ("schedule", "agent")),
     # Company
@@ -643,6 +660,9 @@ def approval_reason(name: str, ctx: Ctx, raw_args: str = "") -> str:
     if name == "run_coding_agent":
         return _coding().approval_reason(raw_args) if permissions.allowed(name, pid) else ""
     if permissions.must_ask(name, pid):
+        if name == "create_checkin":
+            return ("A check-in runs on a schedule and may interrupt you (within its quiet hours and daily limits), so it always "
+                    "waits for your approval.")
         return ("This posts to GitHub in your name, so it always waits for your approval." if name in permissions.ALWAYS_ASK
                 else f"You asked to approve this kind of action first ({where}).")
     if ctx.mission_id and permissions.TOOL_RISK.get(name) == permissions.CONSEQUENTIAL:

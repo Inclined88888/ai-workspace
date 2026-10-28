@@ -26,7 +26,8 @@ GROUPS: dict[str, tuple[str, str, dict[str, str]]] = {
     "memory": ("Memory", "Remember and forget facts about you", {
         "search_memory": READ, "search_history": READ, "remember": WRITE, "forget": WRITE}),
     "skills": ("Skills", "Load and save reusable procedures", {"load_skill": READ, "save_skill": WRITE}),
-    "schedules": ("Schedules", "Create recurring tasks that run without you", {"list_schedules": READ, "schedule_task": CONSEQUENTIAL}),
+    "schedules": ("Schedules", "Create recurring tasks that run without you", {"list_schedules": READ, "schedule_task": CONSEQUENTIAL,
+                                                                                        "create_checkin": CONSEQUENTIAL}),
     "team": ("Company team", "Delegate work to agents", {"list_team": READ, "delegate_task": WRITE}),
     "github": ("GitHub", "Search and read issues and pull requests; open issues and comment (always asks first)", {
         "github_search": READ, "github_read_issue": READ, "github_create_issue": CONSEQUENTIAL, "github_comment": CONSEQUENTIAL}),
@@ -52,7 +53,7 @@ TOOL_GROUP = {tool: g for g, (_, _, tools) in GROUPS.items() for tool in tools}
 TOOL_RISK = {tool: risk for _, (_, _, tools) in GROUPS.items() for tool, risk in tools.items()}
 # Actions that speak for the user to other people, or run a coding agent on their computer: approval every time,
 # whatever the group's setting
-ALWAYS_ASK = {"github_create_issue", "github_comment", "run_coding_agent"}
+ALWAYS_ASK = {"github_create_issue", "github_comment", "run_coding_agent", "create_checkin"}
 TOOL_GROUP = {tool: g for g, (_, _, tools) in GROUPS.items() for tool in tools}
 TOOL_RISK = {tool: risk for _, (_, _, tools) in GROUPS.items() for tool, risk in tools.items()}
 

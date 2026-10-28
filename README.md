@@ -28,26 +28,26 @@ Requirements: Git and Docker with Compose v2 (Docker Desktop or OrbStack on a Ma
 One command (Linux, macOS, or a Windows WSL2 Linux terminal; Docker must already be running):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/development/rooks-v12/install.sh | AI_WORKSPACE_REF=development/rooks-v12 bash
+curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/development/rooks-v13/install.sh | AI_WORKSPACE_REF=development/rooks-v13 bash
 ```
 
 With add-ons, or with no questions:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/development/rooks-v12/install.sh | AI_WORKSPACE_REF=development/rooks-v12 bash -s -- --with search,browser
-curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/development/rooks-v12/install.sh | AI_WORKSPACE_REF=development/rooks-v12 bash -s -- --yes
+curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/development/rooks-v13/install.sh | AI_WORKSPACE_REF=development/rooks-v13 bash -s -- --with search,browser
+curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/development/rooks-v13/install.sh | AI_WORKSPACE_REF=development/rooks-v13 bash -s -- --yes
 ```
 
 The installer checks Git, Docker and Compose v2, downloads the code to `~/ai-workspace` (`AI_WORKSPACE_DIR` changes that), and runs `setup.sh`. It never installs system packages or runs sudo. Existing installs must have the expected origin and no local edits or untracked files; updates must fast-forward. Archive installs require a fresh destination. Existing `.env` values and data are kept.
 
-These commands select the `development/rooks-v12` branch (v12: Free Cloud AI first run, the v12 interface); `main` has not been updated. A branch URL can change. For a reviewed version, replace **both** occurrences of `development/rooks-v12` with the same full commit SHA. Prefer to inspect it first? Download `install.sh` from that commit, read it, then run `AI_WORKSPACE_REF=<that-SHA> bash install.sh`. Commit pinning selects exact repository code; it is not signed release authentication or a fully pinned dependency build.
+These commands select the `development/rooks-v13` branch (v13: the assistant as the one place to get work done, one connection directory; see `docs/V13.md`); `main` has not been updated. A branch URL can change. For a reviewed version, replace **both** occurrences of `development/rooks-v13` with the same full commit SHA. Prefer to inspect it first? Download `install.sh` from that commit, read it, then run `AI_WORKSPACE_REF=<that-SHA> bash install.sh`. Commit pinning selects exact repository code; it is not signed release authentication or a fully pinned dependency build.
 
 Supported installer targets are 64-bit Intel/AMD and ARM on macOS/Linux and Windows through WSL2 with Docker integration. Native Windows shells are refused. Full installations on every OS/architecture are not verified.
 
 From a clone instead:
 
 ```bash
-git clone --branch development/rooks-v12 https://github.com/Inclined88888/ai-workspace && cd ai-workspace
+git clone --branch development/rooks-v13 https://github.com/Inclined88888/ai-workspace && cd ai-workspace
 ./setup.sh                        # core only
 ./setup.sh --with search,browser  # core plus add-ons (comma separated)
 ./setup.sh --with none            # turn all add-ons off again
@@ -65,7 +65,7 @@ Re-running is safe and is how you upgrade or change add-ons: it adds new setting
 brew install ollama && brew services start ollama
 ollama pull qwen3:4b
 # 3. Install:
-curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/development/rooks-v12/install.sh | AI_WORKSPACE_REF=development/rooks-v12 bash
+curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/development/rooks-v13/install.sh | AI_WORKSPACE_REF=development/rooks-v13 bash
 ```
 
 Native Ollama uses the Mac GPU; the `local-models` add-on would run on CPU inside Docker's VM, so skip it on a Mac.
@@ -73,6 +73,8 @@ Native Ollama uses the Mac GPU; the `local-models` add-on would run on CPU insid
 ## The assistant
 
 **Assistant** is the main page: one chat that can use every part of the workspace.
+
+* **Work reports back (v13).** Research, missions and coding tasks started in a conversation post their results into it: the research report, the mission plan waiting for your approval (approve it right there), the mission's result, a coding agent's answer. Each shows as a card that keeps itself current, with Stop. Nothing is posted while ROOKS is still answering you. Spreadsheets you attach (CSV, TSV, Excel) get figures computed by code, not estimated; documents it writes can be previewed and downloaded from the chat.
 
 * **Tools.** Notes (search, read, create, append), tasks, calendar (agenda, create event), mail (search, save draft only, never send), web search and page reading, the browser agent when that add-on is on, memory, skills and schedules. Each tool step shows live in the chat.
 * **Permissions.** Settings → Security → *What the assistant may do*. Each area (notes, tasks, calendar, email, files, web, browser, memory, skills, schedules, team) is **Allowed**, **Ask me first** or **Off**. Ask me first lets it look things up but makes every change wait for your approval. Off removes those tools. The server enforces this for chat, Telegram, schedules, company agents, the Open WebUI tool server and MCP clients. Outside clients cannot ask for approval, so Ask me first means read only for them.
@@ -258,7 +260,11 @@ Model choice: `BROWSER_LLM_PROVIDER=auto` uses Anthropic if `ANTHROPIC_API_KEY` 
 
 For Chat, keys entered during `setup.sh` are passed as `OPENAI_API_BASE_URLS`/`OPENAI_API_KEYS`. You can also add connections later in Chat → Admin Settings → Connections. Open WebUI stores settings in its database after first start, so later changes to these env vars are ignored unless you set `ENABLE_PERSISTENT_CONFIG=false`; changing them in the Admin UI is the simplest route.
 
-Anthropic is reached through its [OpenAI SDK compatibility layer](https://platform.claude.com/docs/en/cli-sdks-libraries/libraries/openai-sdk). Anthropic describes that layer as intended for testing and comparison, not long term production use, and some features (prompt caching, strict tool schemas) are not available through it.
+**One directory (v13).** Settings → AI models → *All model connections* lists every way ROOKS reaches a model, grouped by what it is: API providers, coding agents with their own sign-in, local runtimes, provider libraries and other compatible servers, with billing for each and what has really been tested. Chat, tool calls, a tool round trip, streaming, JSON, images and embeddings are each tested separately, on request. See `docs/INTEGRATIONS.md`.
+
+**Coding agents (v13).** With the ROOKS Companion on your computer, the assistant can hand a coding task to the official **Codex CLI** or **Claude Code**, in one folder you allowed, after you approve that task. Codex uses its own sign-in (your ChatGPT plan's limits, or the API key it is signed in with); Claude Code runs only with an Anthropic API key, billed per use. Neither powers ROOKS chat, and **ROOKS chat cannot use a Claude subscription**. ROOKS never reads their sign-in files.
+
+Anthropic is reached through its [OpenAI SDK compatibility layer](https://platform.claude.com/docs/en/cli-sdks-libraries/libraries/openai-sdk). Anthropic describes that layer as intended for testing and comparison, not long term production use, and some features (prompt caching, strict tool schemas) are not available through it. Since v13 an Anthropic connection can instead use Anthropic's native Messages API through the optional any-llm library (`pip install any-llm-sdk==1.40.2`, then switch it in the directory).
 
 ## Remote access and security
 

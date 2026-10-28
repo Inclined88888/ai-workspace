@@ -65,7 +65,7 @@ atexit.register(_stop)
 class Stack:
     """The stand-in AI plus one ROOKS server with its own data folder."""
 
-    def __init__(self, name: str = "rooks", ollama: bool = False):
+    def __init__(self, name: str = "rooks", ollama: bool = False, env: dict | None = None):
         self.dir = tempfile.mkdtemp(prefix=f"rooks-browser-{name}-")
         self.ai_port, self.port = free_port(), free_port()
         self.ai = f"http://127.0.0.1:{self.ai_port}"
@@ -74,9 +74,12 @@ class Stack:
         _wait(self.ai + "/v1/models")
         data = os.path.join(self.dir, "data")
         os.makedirs(data)
+        env_extra = env
         env = {k: v for k, v in os.environ.items() if k not in ("GITHUB_TOKEN", "BRAVE_API_KEY", "TAVILY_API_KEY", "OLLAMA_URL")}
         env.update(APP_SECRET="s" * 40, TOOLS_API_KEY="t" * 30, DATA_DIR=data, NO_PROXY="127.0.0.1,localhost",
                    STATIC_DIR=os.path.join(REPO, "workbench", "frontend", "dist"), OPENROUTER_URL=f"{self.ai}/openrouter/api")
+        env.update({k: v.replace("{ai}", self.ai) for k, v in (env_extra or {}).items()})
+        self.data = data
         _procs.append(subprocess.Popen([PY, "-m", "uvicorn", "app.main:app", "--port", str(self.port)], env=env,
                                        cwd=os.path.join(REPO, "workbench", "backend"),
                                        stdout=open(os.path.join(self.dir, "server.log"), "w"), stderr=subprocess.STDOUT))

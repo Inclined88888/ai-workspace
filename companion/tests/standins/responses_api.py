@@ -32,7 +32,7 @@ class H(BaseHTTPRequestHandler):
             self.wfile.write(sse("response.output_item.added", {"type": "response.output_item.added", "output_index": 0, "item": item}))
             self.wfile.write(sse("response.output_item.done", {"type": "response.output_item.done", "output_index": 0, "item": item}))
         else:
-            text = "I created hello.txt containing 'hello from codex'."
+            text = __import__("os").environ.get("FINAL", "I created hello.txt containing 'hello from codex'.")
             item = {"type": "message", "id": "msg_1", "role": "assistant", "status": "completed",
                     "content": [{"type": "output_text", "text": text, "annotations": []}]}
             self.wfile.write(sse("response.output_item.added", {"type": "response.output_item.added", "output_index": 0,

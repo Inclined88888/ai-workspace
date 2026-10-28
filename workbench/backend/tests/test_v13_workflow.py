@@ -31,7 +31,7 @@ def test_a_mission_started_in_chat_posts_its_plan_then_its_result(client):
     SCRIPT[:] = [tool_call("start_mission", {"goal": "Write a short note about our office move"}), {"role": "assistant", "content": "Planning it."}]
     ev = events(client.post("/api/assistant/chat", json={"message": "Plan the office move note as a mission"}))
     cid = ev[0]["conversation_id"]
-    mid = next(e for e in ev if e["type"] == "tool_result")["blocks"][0]["items"][0]["id"]
+    mid = next(e for e in ev if e["type"] == "tool_result")["blocks"][0]["id"]
     # the coordinator loop posts the plan, waiting for approval, into this conversation
     plan = _wait(lambda: _updates(client, cid))
     assert "The plan is ready" in plan[0]["content"] and "Nothing has run yet" in plan[0]["content"]
@@ -54,7 +54,7 @@ def test_research_started_in_chat_posts_the_report(client, monkeypatch):
     SCRIPT[:] = [tool_call("start_research", {"question": "What changed in the 2026 tax rules?"}), {"role": "assistant", "content": "Started."}]
     ev = events(client.post("/api/assistant/chat", json={"message": "Research the 2026 tax rules"}))
     cid = ev[0]["conversation_id"]
-    rid = next(e for e in ev if e["type"] == "tool_result")["blocks"][0]["items"][0]["id"]
+    rid = next(e for e in ev if e["type"] == "tool_result")["blocks"][0]["id"]
     assert db.one("SELECT 1 FROM jobs WHERE conversation_id = ? AND kind = 'research' AND ref_id = ?", cid, rid)
     time.sleep(0.5)
     assert not _updates(client, cid)  # still running: nothing posted
@@ -257,3 +257,37 @@ def test_turned_off_computer_use_refuses_a_coding_task(client, companion):
     assert "turned off" in str(e.value.detail)
     assert json.dumps(companion)  # nothing reached agent_start
     assert not any(k == "agent_start" for k, _, _ in companion)
+
+
+def test_a_check_in_asked_for_in_chat_waits_for_approval_and_keeps_quiet_hours(client):
+    from app import db
+
+    SCRIPT[:] = [tool_call("create_checkin", {"name": "Deadlines", "sources": "tasks,calendar", "cron": "0 8 * * 1-5", "notify": "call",
+                                              "quiet_start": "21:00", "quiet_end": "07:30"}), {"role": "assistant", "content": "Waiting for you."}]
+    before = db.one("SELECT COUNT(*) AS n FROM topics")["n"]
+    ev = events(client.post("/api/assistant/chat", json={"message": "Check in with me on weekday mornings about deadlines"}))
+    appr = next(e for e in ev if e["type"] == "approval")
+    assert appr["name"] == "create_checkin" and db.one("SELECT COUNT(*) AS n FROM topics")["n"] == before
+    a = next(x for x in client.get("/api/approvals").json() if x["id"] == appr["id"])
+    assert "may interrupt you" in a["reason"]
+    assert client.post(f"/api/approvals/{appr['id']}", json={"approve": True}).json()["status"] == "approved"
+    t = db.one("SELECT * FROM topics ORDER BY id DESC LIMIT 1")
+    assert t["name"] == "Deadlines" and t["quiet_start"] == "21:00" and t["quiet_end"] == "07:30" and t["notify"] == "call"
+
+
+def test_stop_ends_research_at_once_even_during_a_slow_search(client, monkeypatch):
+    from app import db, research, search
+
+    async def stuck(q, n=8):
+        await asyncio.sleep(120)
+        return []
+    monkeypatch.setattr(search, "web_search_all", stuck)
+    r = client.post("/api/research", json={"question": "Slow search question here", "depth": 1}).json()
+    _wait(lambda: "Searching" in (db.one("SELECT progress FROM research WHERE id = ?", r["id"])["progress"] or ""))
+    started = time.time()
+    assert client.post(f"/api/research/{r['id']}/cancel").status_code == 200
+    _wait(lambda: db.one("SELECT status FROM research WHERE id = ?", r["id"])["status"] == "cancelled", 10)
+    assert time.time() - started < 5
+    # a later failure of the stopped run cannot overwrite it
+    research._end(r["id"], status="error", error="late")
+    assert db.one("SELECT status FROM research WHERE id = ?", r["id"])["status"] == "cancelled"

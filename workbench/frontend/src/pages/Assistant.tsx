@@ -135,12 +135,13 @@ function Approvals({ items, onDone, toast }: { items: Approval[]; onDone: () => 
   return (
     <div className="card col" style={{ gap: 8, borderColor: "var(--warn, var(--accent))" }}>
       <div className="row"><ShieldAlert size={15} /><strong className="grow">{items.length} waiting for your approval</strong></div>
-      <div className="muted small">These were requested in a conversation that read outside content (web, search or email), which can carry planted instructions. Check them before allowing.</div>
+      <div className="muted small">Nothing below has run. Each says why it waits for you.</div>
       {items.map((a) => (
         <div key={a.id} className="row wrap" style={{ alignItems: "flex-start", borderTop: "1px solid var(--border)", paddingTop: 8 }}>
           <div className="grow" style={{ minWidth: 200 }}>
-            <span className="mono">{a.tool}</span> <span className="faint small">#{a.id} · {a.channel} · {relTime(a.created_at)}</span>
-            <div className="small" style={{ wordBreak: "break-word" }}>{argSummary(a.args)}</div>
+            <strong>{APPROVAL_LABEL[a.tool] ?? a.tool}</strong> <span className="faint small">#{a.id} · {relTime(a.created_at)}</span>
+            {a.reason && <div className="small">{a.reason}</div>}
+            <div className="small muted" style={{ wordBreak: "break-word" }}>{argSummary(a.args)}</div>
           </div>
           <button className="btn sm primary" disabled={busy === a.id} onClick={() => decide(a, true)}><Check size={13} /> Allow</button>
           <button className="btn sm ghost" disabled={busy === a.id} onClick={() => decide(a, false)}><X size={13} /> Deny</button>
@@ -149,6 +150,11 @@ function Approvals({ items, onDone, toast }: { items: Approval[]; onDone: () => 
     </div>
   );
 }
+const APPROVAL_LABEL: Record<string, string> = {
+  run_coding_agent: "Run a coding task", create_checkin: "Create a check-in", start_mission: "Start a mission", start_research: "Start research",
+  remember: "Remember this", forget: "Forget a memory", save_skill: "Save a skill", schedule_task: "Schedule a task", project_note: "Note in the project",
+  github_create_issue: "Open a GitHub issue", github_comment: "Comment on GitHub", run_command: "Run a command",
+};
 type Skill = { id: number; name: string; description: string; steps: string; uses: number; source: string; enabled: number; warnings?: string[] };
 
 const CHANNEL: Record<string, string> = { web: "Web", cli: "Terminal", telegram: "Telegram", schedule: "Schedule" };
@@ -209,7 +215,8 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   const endRef = useRef<HTMLDivElement>(null);
   const keepTurn = useRef(false); // set when a new chat's first turn moves us to its URL: keep its steps on screen
   const toast = useToast();
-  const cid = id ? Number(id) : null;
+  const cid = id && /^\d+$/.test(id) ? Number(id) : null;
+  useEffect(() => { if (id && cid === null) navigate("/assistant", { replace: true }); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
   // The conversation on screen. A reply still arriving for another one must not write into this view.
   const viewCid = useRef<number | null>(cid);
   viewCid.current = cid;
@@ -637,7 +644,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
               </div>
             )}
             {busy && steps.length === 0 && <div className="row muted thinking" role="status"><Loader2 size={15} className="spin" /> Thinking…</div>}
-            <Approvals items={pending} onDone={loadPending} toast={toast} />
+            <Approvals items={pending} onDone={() => { loadPending(); if (cid) loadConversation(cid); }} toast={toast} />
             <div ref={endRef} />
           </div>
         </div>

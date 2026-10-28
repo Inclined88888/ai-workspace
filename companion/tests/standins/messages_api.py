@@ -18,17 +18,27 @@ class H(BaseHTTPRequestHandler):
         if not self.path.startswith("/v1/messages") or "count_tokens" in self.path:
             out = json.dumps({"input_tokens": 10}).encode()
             self.send_response(200); self.send_header("content-type", "application/json"); self.send_header("content-length", str(len(out))); self.end_headers(); self.wfile.write(out); return
-        use_tool = "Bash" in tools and not tool_result
+        write_path = os.environ.get("WRITE_PATH", "")
+        writer = "Write" if "Write" in tools else "Edit" if "Edit" in tools else ""
+        use_write = bool(write_path) and bool(writer) and not tool_result
+        use_tool = "Bash" in tools and not tool_result and not use_write
         ev = [("message_start", {"type": "message_start", "message": {"id": "msg_1", "type": "message", "role": "assistant", "model": body.get("model"),
                "content": [], "stop_reason": None, "usage": {"input_tokens": 9, "output_tokens": 0}}})]
-        if use_tool:
+        if use_write:
+            ev += [("content_block_start", {"type": "content_block_start", "index": 0, "content_block": {"type": "tool_use", "id": "toolu_1", "name": writer, "input": {}}}),
+                   ("content_block_delta", {"type": "content_block_delta", "index": 0, "delta": {"type": "input_json_delta",
+                    "partial_json": json.dumps({"file_path": write_path, "content": "# Changelog\n\n- First release.\n"} if writer == "Write" else
+                                               {"file_path": write_path, "old_string": "", "new_string": "# Changelog\n\n- First release.\n"})}}),
+                   ("content_block_stop", {"type": "content_block_stop", "index": 0}),
+                   ("message_delta", {"type": "message_delta", "delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 5}})]
+        elif use_tool:
             ev += [("content_block_start", {"type": "content_block_start", "index": 0, "content_block": {"type": "tool_use", "id": "toolu_1", "name": "Bash", "input": {}}}),
                    ("content_block_delta", {"type": "content_block_delta", "index": 0, "delta": {"type": "input_json_delta",
                     "partial_json": json.dumps({"command": CMD, "description": "Write hello.txt"})}}),
                    ("content_block_stop", {"type": "content_block_stop", "index": 0}),
                    ("message_delta", {"type": "message_delta", "delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 5}})]
         else:
-            text = "I created hello.txt." if tool_result else "OK"
+            text = os.environ.get("FINAL", "I created hello.txt.") if tool_result else "OK"
             ev += [("content_block_start", {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}),
                    ("content_block_delta", {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": text}}),
                    ("content_block_stop", {"type": "content_block_stop", "index": 0}),

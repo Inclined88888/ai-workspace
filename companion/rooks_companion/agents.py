@@ -9,9 +9,11 @@ checks; run anything that was not approved for this one task.
           Signed in with ChatGPT, it uses your ChatGPT plan's Codex limits; signed in with an API key, OpenAI bills
           that key. ROOKS only reads which of the two `codex login status` reports. Before the first task, ROOKS
           checks on this computer that Codex's sandbox really keeps writes inside the folder, and refuses if not.
-  Claude: claude --bare -p <task> --output-format stream-json --permission-mode acceptEdits --allowedTools=...
+  Claude: claude --bare -p <task> --output-format stream-json --permission-mode acceptEdits --tools=... --disallowedTools=Bash
           Only when you turned it on here (allow-claude-api on) and ANTHROPIC_API_KEY is set for the companion.
-          Anthropic bills that key per use. No shell tool is given to it.
+          Anthropic bills that key per use. It gets no shell: --tools sets the tools that exist (in --bare mode Claude
+          Code 2.1.312 then offers only Read and Edit), and Bash is denied as well. --allowedTools would only pre-approve
+          tools, not remove any.
 """
 
 from __future__ import annotations
@@ -34,7 +36,7 @@ RUN_SECONDS = 60 * 60
 ENV_KEEP = ("PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "LC_CTYPE", "TERM", "TMPDIR", "SHELL", "SYSTEMROOT", "USERPROFILE",
             "APPDATA", "LOCALAPPDATA", "CODEX_HOME", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "SSL_CERT_FILE")
 CLAUDE_KEEP = ("ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL")
-CLAUDE_TOOLS = "Read,Edit,Write,Glob,Grep"
+CLAUDE_TOOLS = "Read,Edit,Write,Glob,Grep"  # the tools that exist for the run; no Bash
 
 
 def _env(extra: tuple[str, ...] = ()) -> dict:
@@ -173,7 +175,7 @@ class CodingAgents:
             env = _env()
         else:
             cmd = [self._path("claude"), "--bare", "-p", task, "--output-format", "stream-json", "--verbose",
-                   "--permission-mode", "acceptEdits", f"--allowedTools={CLAUDE_TOOLS}"]
+                   "--permission-mode", "acceptEdits", f"--tools={CLAUDE_TOOLS}", "--disallowedTools=Bash"]
             env = _env(CLAUDE_KEEP)
         proc = subprocess.Popen(cmd, cwd=path, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                 text=True, bufsize=1)

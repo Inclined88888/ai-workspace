@@ -970,6 +970,7 @@ def cancel_research(rid: int):
     """Stop a running research job at its next checkpoint (between searches, page reads and writing)."""
     if not db.changed("UPDATE research SET cancel = 1, progress = 'Cancelling…' WHERE id = ? AND status = 'running'", rid):
         raise HTTPException(409, "Only running research can be cancelled")
+    research.stop_now(rid)
     return get_research(rid)
 
 
