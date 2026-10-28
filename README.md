@@ -44,6 +44,13 @@ One command (Linux, macOS, or a Windows WSL2 Linux terminal; Docker must already
 curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/development/rooks-v15/install.sh | AI_WORKSPACE_REF=development/rooks-v15 bash
 ```
 
+Already have ROOKS? One command upgrades the server, installs and links the `rooks` terminal command, connects it
+(asks for your ROOKS password once, stores nothing), and on Linux with Node.js 18+ builds the desktop app:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/development/rooks-v15/scripts/rooks-all.sh | bash
+```
+
 With add-ons, or with no questions:
 
 ```bash
