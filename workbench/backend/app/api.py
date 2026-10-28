@@ -431,14 +431,17 @@ def models(fresh: bool = False):
         for m in out:
             why = llm.mode_allows(m["ref"])
             m["allowed"], m["blocked"] = not why, why[:200]
-    recommended = {f"{p['id']}/{llm.check_info(p['id']).get('recommended')}" for p in db.all("SELECT id FROM providers WHERE enabled = 1")
-                   if llm.check_info(p["id"]).get("ok")}
+    enabled = db.all("SELECT * FROM providers WHERE enabled = 1")
+    recommended = {f"{p['id']}/{llm.check_info(p['id']).get('recommended')}" for p in enabled if llm.check_info(p["id"]).get("ok")}
+    experimental = {p["id"] for p in enabled if llm.experimental(p)}
     for m in out:
         # verified: a real request with a tool attached succeeded (the connection check, or the capability test)
         m["verified"] = m["ref"] in recommended or bool(verify.results(m["ref"]).get("tools", {}).get("ok"))
         if why := llm.refused(m["ref"]):
             m["allowed"], m["blocked"], m["verified"] = False, f"{m['provider']} does not let ROOKS use this model: {why}"[:200], False
         m["status"] = "blocked" if m.get("allowed") is False else "ready" if m["verified"] else "untested"
+        if m["status"] != "blocked" and m["provider_id"] in experimental:
+            m["status"], m["verified"] = "experimental", False
     return {"models": out, "default": default, "mode": mode}
 
 

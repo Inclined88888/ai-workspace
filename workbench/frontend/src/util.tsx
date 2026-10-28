@@ -52,8 +52,9 @@ export function ModelSelect({
   // but never tried, so it may not work (it can still be picked, in its own group). Not available: the AI mode does
   // not allow it; listed, disabled, with the reason as a tooltip, so nothing paid is chosen by accident.
   const blocked = models.filter((m) => m.allowed === false);
-  const ready = models.filter((m) => m.allowed !== false && m.status !== "untested");
+  const ready = models.filter((m) => m.allowed !== false && m.status !== "untested" && m.status !== "experimental");
   const untested = models.filter((m) => m.allowed !== false && m.status === "untested");
+  const experimental = models.filter((m) => m.allowed !== false && m.status === "experimental");
   const groups = new Map<string, Model[]>();
   ready.forEach((m) => groups.set(m.provider, [...(groups.get(m.provider) ?? []), m]));
   const sorted = (list: Model[]) => [...list].sort((a, b) => Number(!!b.free) - Number(!!a.free));
@@ -75,6 +76,11 @@ export function ModelSelect({
               {m.model} · {m.provider}{m.free ? "  (free)" : ""}
             </option>
           ))}
+        </optgroup>
+      )}
+      {experimental.length > 0 && (
+        <optgroup label="Experimental (plain answers, slow, no tools)">
+          {experimental.map((m) => <option key={m.ref} value={m.ref}>{m.model} · {m.provider}</option>)}
         </optgroup>
       )}
       {blocked.length > 0 && (

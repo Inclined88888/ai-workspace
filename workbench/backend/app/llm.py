@@ -298,7 +298,16 @@ def _ordered_providers() -> list[dict]:
     return sorted(rows, key=lambda p: (p["kind"] == "ollama", not check_info(p["id"]).get("ok"), p["id"]))
 
 
+def experimental(p: dict) -> bool:
+    """The AirLLM bridge: plain answers only (it ignores tools), minutes per answer. You can choose it yourself, but it
+    is never picked automatically or as a backup, even after it answers a connection check."""
+    return ("airllm" in f"{p.get('name', '')} {p.get('base_url', '')}".lower()
+            or db.get_setting(f"provider_experimental:{p['id']}", "") == "airllm")
+
+
 def recommended_ref(p: dict) -> str | None:
+    if experimental(p):
+        return None
     info = check_info(p["id"])
     if info.get("ok") and info.get("recommended") and not refused(f"{p['id']}/{info['recommended']}"):
         return f"{p['id']}/{info['recommended']}"
@@ -374,7 +383,10 @@ def list_models_for(pid: int, fresh: bool = False) -> list[dict]:
         if r.status_code >= 400:
             _list_errors[pid] = (r.status_code, r.text[:300])
         else:
-            for m in r.json().get("data", []):
+            data = r.json().get("data", [])
+            if any(isinstance(m, dict) and m.get("owned_by") == "airllm" for m in data):
+                db.set_setting(f"provider_experimental:{pid}", "airllm")  # the AirLLM bridge says so in its model list
+            for m in data:
                 mid = (m.get("id") or "").removeprefix("models/")
                 if mid and _keep_model(p["base_url"], mid):
                     params = m.get("supported_parameters")

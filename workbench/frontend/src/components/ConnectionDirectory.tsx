@@ -8,14 +8,19 @@ type Entry = {
   id: string; category: "A" | "B" | "C" | "D" | "E"; name: string; status: string; status_detail: string; billing: string; billing_detail: string;
   model?: string; capabilities?: Record<string, Cap>; mode_block?: string; provider_id?: number; kind?: string; engine?: string; engine_detail?: string;
   powers_chat?: boolean; setup_text?: string; experimental?: boolean; limits?: string; licence?: string; host?: string;
+  state: State; state_label: string;
 };
-type Dir = { mode: string; groups: Record<string, string>; entries: Entry[]; note: string };
+type State = "verified" | "untested" | "available" | "experimental" | "problem" | "off";
+type Dir = { mode: string; groups: Record<string, string>; entries: Entry[]; note: string; states: Record<State, string> };
 
-const STATUS: Record<string, [string, string]> = {
-  connected: ["Connected", "ok"], ready: ["Ready", "ok"], installed: ["Installed", "ok"], failed: ["Check failed", "danger"],
-  not_checked: ["Not checked", ""], off: ["Off", ""], not_connected: ["Not connected", ""], not_found: ["Not found", ""],
-  needs_setup: ["Needs setup", "warn"], not_installed: ["Not installed", ""],
-};
+// One honest state per connection (connections.py, STATES). The detailed reason is the line under the name.
+const TONE: Record<State, string> = { verified: "ok", untested: "", available: "", experimental: "warn", problem: "danger", off: "" };
+const MEANS: [State, string][] = [
+  ["verified", "a real request with a tool attached succeeded"],
+  ["untested", "connected or installed, not yet seen doing the work"],
+  ["available", "ROOKS can use it once you set it up"],
+  ["experimental", "limited, not for everyday use"],
+];
 const BILLING: Record<string, string> = { free: "Free", paid: "Paid", local: "Local", subscription: "Subscription", unknown: "Billing unknown", none: "" };
 const DEFAULT_CAPS = ["chat", "tools", "tool_roundtrip", "streaming", "json"];
 
@@ -34,7 +39,6 @@ function CapRow({ caps }: { caps: Record<string, Cap> }) {
 
 function Row({ e, reload }: { e: Entry; reload: () => void }) {
   const [busy, setBusy] = useState(""), [err, setErr] = useState("");
-  const st = STATUS[e.status] ?? [e.status, ""];
   const run = async (what: string, fn: () => Promise<unknown>) => {
     setBusy(what); setErr("");
     try { await fn(); reload(); } catch (x) { setErr((x as Error).message); } finally { setBusy(""); }
@@ -50,9 +54,9 @@ function Row({ e, reload }: { e: Entry; reload: () => void }) {
   return (
     <li className="conn-row">
       <div className="row wrap" style={{ alignItems: "baseline" }}>
-        <strong className="grow">{e.name}{e.experimental && <span className="badge warn" style={{ marginLeft: 6 }}>Experimental</span>}</strong>
+        <strong className="grow">{e.name}</strong>
         {BILLING[e.billing] && <span className="badge">{BILLING[e.billing]}</span>}
-        <span className={`badge ${st[1]}`}>{st[0]}</span>
+        <span className={`badge ${TONE[e.state] ?? ""}`}>{e.state_label}</span>
       </div>
       <div className="small muted">{e.status_detail}</div>
       {e.billing_detail && <div className="small faint">{e.billing_detail}</div>}
@@ -90,6 +94,9 @@ export default function ConnectionDirectory() {
     <div className="card col" id="connection-directory">
       <h3>All model connections</h3>
       <p className="muted small" style={{ margin: 0 }}>{d.note}</p>
+      <dl className="state-key small">
+        {MEANS.map(([k, v]) => <div key={k}><dt><span className={`badge ${TONE[k]}`}>{d.states[k]}</span></dt><dd className="muted">{v}</dd></div>)}
+      </dl>
       {(["A", "B", "C", "E", "D"] as const).map((cat) => {
         const list = d.entries.filter((e) => e.category === cat);
         if (!list.length) return null;

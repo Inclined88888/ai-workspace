@@ -137,9 +137,39 @@ def _coding_entries() -> list[dict]:
     return out
 
 
+# One honest state per connection, from what was recorded (the detailed status stays beside it):
+#   verified     a real request with a tool attached succeeded (providers), recorded with its time
+#   untested     connected or installed, but ROOKS has not seen it do the work yet
+#   available    known to ROOKS, not set up here
+#   experimental works only in a limited way and is not meant for everyday use (the AirLLM bridge)
+#   problem      the last check failed;  off: turned off by you
+STATES = {"verified": "Verified", "untested": "Connected, not tested", "available": "Available, not set up",
+          "experimental": "Experimental", "problem": "Check failed", "off": "Off"}
+_STATE_OF = {"connected": "verified", "not_checked": "untested", "failed": "problem", "off": "off", "ready": "untested",
+             "needs_setup": "available", "not_found": "available", "not_connected": "available", "installed": "untested",
+             "not_installed": "available"}
+
+
+def _is_airllm(e: dict, p: dict | None = None) -> bool:
+    return bool(e.get("experimental") or (p and llm.experimental(p)))
+
+
+def _with_state(e: dict, p: dict | None = None) -> dict:
+    if _is_airllm(e, p):
+        e["experimental"] = True
+        e["powers_chat"] = False  # plain answers only: no tools, no streaming (docs/INTEGRATIONS.md, C)
+        e["state"] = "off" if e["status"] == "off" else "experimental"
+        e.setdefault("limits", "Plain answers only, minutes per answer, no tool calling or streaming. Not for everyday use; "
+                               "Automatic never picks it because it cannot use tools.")
+    else:
+        e["state"] = _STATE_OF.get(e["status"], "untested")
+    e["state_label"] = STATES[e["state"]]
+    return e
+
+
 def directory() -> dict:
     providers = db.all("SELECT * FROM providers ORDER BY id")
-    entries = [_provider_entry(p) for p in providers]
+    entries = [_with_state(_provider_entry(p), p) for p in providers]
     connected_local = {p["kind"] for p in providers if _category(p) == "C"} | {
         "llamacpp" for p in providers if _category(p) == "C" and ":8080" in p["base_url"]}
     for s in LOCAL_SETUP:
@@ -155,8 +185,9 @@ def directory() -> dict:
                                       "Optional. Install with pip install any-llm-sdk==1.40.2 to use Anthropic's native API."),
                     "billing": "none", "billing_detail": "A library, not a service: billing is the connection's.", "powers_chat": False,
                     "licence": "Apache-2.0"})
+    entries = [e if "state" in e else _with_state(e) for e in entries]
     groups = {"A": "API providers", "B": "Coding agents with their own sign-in", "C": "Local runtimes",
               "D": "Provider libraries", "E": "Other OpenAI-compatible servers"}
-    return {"mode": llm.ai_mode(), "groups": groups, "entries": entries,
+    return {"mode": llm.ai_mode(), "groups": groups, "entries": entries, "states": STATES,
             "note": "A key that is accepted proves only that. Chat, tools, streaming, JSON, images and embeddings are each tested "
                     "separately, and only when you ask."}

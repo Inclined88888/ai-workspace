@@ -916,3 +916,6 @@ body { background: var(--bg); }
 @media (max-width: 1100px) {
   .preview-panel { position: fixed; inset: 0 0 0 auto; width: min(560px, 100vw); z-index: 45; box-shadow: var(--shadow); }
 }
+.state-key { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0; }
+.state-key > div { display: flex; align-items: center; gap: 6px; }
+.state-key dd { margin: 0; }
