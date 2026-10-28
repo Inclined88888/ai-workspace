@@ -194,3 +194,28 @@ def test_only_pdfs_and_images_are_shown_inline(client):
     pid = client.post("/api/files?name=p.png", content=b"\x89PNG\r\n\x1a\nnot really", headers={"Content-Type": "image/png"}).json()["id"]
     r = client.get(f"/api/v1/files/{pid}/view")
     assert r.status_code == 200 and r.headers["x-content-type-options"] == "nosniff" and "sandbox" in r.headers["content-security-policy"]
+
+
+def test_a_provider_that_goes_down_is_explained_and_works_again_when_back(client):
+    """The model server stops answering, then comes back: the failure is reported in plain words (or a backup answers and
+    says so), and the next request after it is back works, in the same conversation, with nothing to reset."""
+    from app import db, llm
+
+    p = db.one("SELECT base_url FROM providers WHERE id = ?", client.pid)
+    SCRIPT[:] = [{"role": "assistant", "content": "Before the outage."}]
+    cid = events(client.post("/api/v1/chat", json={"message": "hello"}))[0]["conversation_id"]
+    db.run("UPDATE providers SET base_url = 'http://127.0.0.1:9/v1' WHERE id = ?", client.pid)  # nothing listens on port 9
+    llm._model_cache.clear()
+    try:
+        ev = events(client.post("/api/v1/chat", json={"message": "are you there?", "conversation_id": cid}))
+        err = next((e for e in ev if e.get("type") == "error" or "error" in e), None)
+        notice = next((e for e in ev if e.get("type") == "notice"), None)
+        assert err or notice, ev
+        text = (err or {}).get("error", "") + (notice or {}).get("text", "")
+        assert "Traceback" not in text and len(text) < 2000 and text.strip(), text
+    finally:
+        db.run("UPDATE providers SET base_url = ? WHERE id = ?", p["base_url"], client.pid)
+        llm._model_cache.clear()
+    SCRIPT[:] = [{"role": "assistant", "content": "Back again."}]
+    ev = events(client.post("/api/v1/chat", json={"message": "and now?", "conversation_id": cid}))
+    assert any(e["type"] == "message" and e["content"] == "Back again." for e in ev), ev

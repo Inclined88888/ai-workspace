@@ -16,7 +16,7 @@ pip install "git+https://github.com/Inclined88888/ai-workspace@development/rooks
 
 ## Connect
 
-In ROOKS, open Settings, Terminal access, and make a token. Then:
+In ROOKS, open Memory and skills (in the sidebar, under Workspace), then Assistant settings, Terminal access, and make a token. Then:
 
 ```sh
 rooks connect http://localhost:3100       # asks for the token; it is not shown and not kept in shell history

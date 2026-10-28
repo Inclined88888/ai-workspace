@@ -235,7 +235,7 @@ has hermes && { ./scripts/hermes-config.sh || info "Hermes config not written; r
 
 echo; bold "Ready"
 info "ROOKS:       http://${HOST}:$(get_env WORKBENCH_PORT)    setup code: $(get_env SETUP_CODE)"
-info "Terminal:   cli/ws login http://${HOST}:$(get_env WORKBENCH_PORT)   (token: Assistant > Settings > Terminal access)"
+info "Terminal:   pip install ./cli && rooks connect http://${HOST}:$(get_env WORKBENCH_PORT)   (token: Memory and skills > Assistant settings > Terminal access)"
 info "Telegram, web search keys, timezone: Assistant > Settings"
 has openwebui && info "Open WebUI: $(get_env CHAT_URL)    (first account becomes admin; create it now)"
 if has paperclip; then

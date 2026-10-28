@@ -21,6 +21,19 @@ Everything heavier is an **optional add-on, off by default**:
 
 You don't need any of them for the assistant, memory, skills, schedules, Telegram or the company of agents. Those are built into the core.
 
+## Three ways to use it, one ROOKS
+
+The browser, the terminal and the desktop app all talk to the same ROOKS server: the same conversations, work,
+approvals and permissions. A conversation started in one shows up in the others.
+
+| | What | Install |
+|---|---|---|
+| Browser | The main app: open your ROOKS address | nothing |
+| Terminal | `rooks ask`, `rooks run`, `rooks jobs`, `rooks approve`… (`cli/README.md`) | `pip install ./cli`, then `rooks connect http://localhost:3100` |
+| Desktop | The same app in a window that starts and looks after a local ROOKS, with notifications (`docs/DESKTOP.md`) | Linux: build with `cd desktop && npm ci && npm run dist:linux` (AppImage and .deb). Windows and macOS builds are not made or tested yet |
+
+How it fits together: `docs/ARCHITECTURE.md`.
+
 ## Quick start
 
 Requirements: Git and Docker with Compose v2 (Docker Desktop or OrbStack on a Mac), 1 GB RAM free, about 2 GB of disk for the build. No AI key is needed to install: the first screen in the browser connects free cloud AI (OpenRouter or Gemini), a paid provider, local models or your own server.
@@ -28,26 +41,26 @@ Requirements: Git and Docker with Compose v2 (Docker Desktop or OrbStack on a Ma
 One command (Linux, macOS, or a Windows WSL2 Linux terminal; Docker must already be running):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/development/rooks-v13/install.sh | AI_WORKSPACE_REF=development/rooks-v13 bash
+curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/development/rooks-v15/install.sh | AI_WORKSPACE_REF=development/rooks-v15 bash
 ```
 
 With add-ons, or with no questions:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/development/rooks-v13/install.sh | AI_WORKSPACE_REF=development/rooks-v13 bash -s -- --with search,browser
-curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/development/rooks-v13/install.sh | AI_WORKSPACE_REF=development/rooks-v13 bash -s -- --yes
+curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/development/rooks-v15/install.sh | AI_WORKSPACE_REF=development/rooks-v15 bash -s -- --with search,browser
+curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/development/rooks-v15/install.sh | AI_WORKSPACE_REF=development/rooks-v15 bash -s -- --yes
 ```
 
 The installer checks Git, Docker and Compose v2, downloads the code to `~/ai-workspace` (`AI_WORKSPACE_DIR` changes that), and runs `setup.sh`. It never installs system packages or runs sudo. Existing installs must have the expected origin and no local edits or untracked files; updates must fast-forward. Archive installs require a fresh destination. Existing `.env` values and data are kept.
 
-These commands select the `development/rooks-v13` branch (v13: the assistant as the one place to get work done, one connection directory; see `docs/V13.md`); `main` has not been updated. A branch URL can change. For a reviewed version, replace **both** occurrences of `development/rooks-v13` with the same full commit SHA. Prefer to inspect it first? Download `install.sh` from that commit, read it, then run `AI_WORKSPACE_REF=<that-SHA> bash install.sh`. Commit pinning selects exact repository code; it is not signed release authentication or a fully pinned dependency build.
+These commands select the `development/rooks-v15` branch (v15: one engine for the browser, the `rooks` terminal command and the desktop app; see `docs/V15.md`); `main` has not been updated. A branch URL can change. For a reviewed version, replace **both** occurrences of `development/rooks-v15` with the same full commit SHA. Prefer to inspect it first? Download `install.sh` from that commit, read it, then run `AI_WORKSPACE_REF=<that-SHA> bash install.sh`. Commit pinning selects exact repository code; it is not signed release authentication or a fully pinned dependency build.
 
 Supported installer targets are 64-bit Intel/AMD and ARM on macOS/Linux and Windows through WSL2 with Docker integration. Native Windows shells are refused. Full installations on every OS/architecture are not verified.
 
 From a clone instead:
 
 ```bash
-git clone --branch development/rooks-v13 https://github.com/Inclined88888/ai-workspace && cd ai-workspace
+git clone --branch development/rooks-v15 https://github.com/Inclined88888/ai-workspace && cd ai-workspace
 ./setup.sh                        # core only
 ./setup.sh --with search,browser  # core plus add-ons (comma separated)
 ./setup.sh --with none            # turn all add-ons off again
@@ -65,7 +78,7 @@ Re-running is safe and is how you upgrade or change add-ons: it adds new setting
 brew install ollama && brew services start ollama
 ollama pull qwen3:4b
 # 3. Install:
-curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/development/rooks-v13/install.sh | AI_WORKSPACE_REF=development/rooks-v13 bash
+curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/development/rooks-v15/install.sh | AI_WORKSPACE_REF=development/rooks-v15 bash
 ```
 
 Native Ollama uses the Mac GPU; the `local-models` add-on would run on CPU inside Docker's VM, so skip it on a Mac.
@@ -98,7 +111,7 @@ Native Ollama uses the Mac GPU; the `local-models` add-on would run on CPU insid
 * **Chat controls.** Copy, Regenerate, Edit and resend your last message, Stop while it answers. Each answer has a one-line activity summary that opens by itself when something failed, changed or needs approval.
 * **What ROOKS can do.** A page listing every capability with its real state: ready, needs setup, turned off, optional add-on, or not available yet.
 * **Search.** Ctrl K (Cmd K on a Mac) finds pages, settings, projects, missions, conversations, notes and files, or turns what you typed into a question, research, a task or a mission plan. It never runs tools or skips an approval.
-* **Terminal.** `cli/ws` is a zero dependency Python CLI: `cli/ws login`, then `cli/ws` for a REPL or `cli/ws "what's on today?"` for one shot. Also `cli/ws memory`, `skills`, `inbox`, `schedules`.
+* **Terminal.** `rooks` (`pip install ./cli`; see `cli/README.md`): `rooks connect`, then `rooks` for a conversation, `rooks ask "what's on today?"`, `rooks run` to follow work to the end, `rooks jobs`, `rooks approvals`, `--json` for scripts. The older single-file `cli/ws` still works (`ws memory`, `skills`, `inbox`, `schedules`).
 * **Telegram.** Assistant settings → Telegram: paste a bot token from @BotFather and your numeric user id. Only allowlisted ids get answers; others are told their id so you can add them. `/new` starts a fresh conversation. The token is stored encrypted.
 
 **Missions.** For a bigger job ("compare three CRM tools and save a summary note"), use **Missions** (sidebar, under Workspace) or type `/mission …` in chat.

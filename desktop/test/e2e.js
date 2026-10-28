@@ -70,6 +70,8 @@ function req(url, method, pathName, body, cookie) {
     await win.getByRole("button", { name: "Sign in" }).click();
     await win.getByRole("heading", { name: "What can I help you get done?" }).waitFor({ timeout: 30000 });
     check("the same assistant as the browser, signed in", true);
+    check("no microphone in the app: Electron has no speech service for the browser option",
+      (await win.getByRole("button", { name: "Start a voice conversation" }).count()) === 0);
     await win.screenshot({ path: path.join(process.env.ROOKS_SHOTS || tmp, "desktop-home.png") });
 
     // The page gets no Node, no bridge, and cannot open other sites inside the app

@@ -303,12 +303,39 @@ Evidence types as in v13, plus a **stand-in mailbox** (mail functions replaced i
 | 177 | Motion system, reduced motion, dark mode contrast | verified | `styles.css` v14 layer | test_v14_shell, screens.py (axe) | P2 | S | — | ✔ |
 | 178 | Performance holds | partial | Assistant in the main bundle | perf.py | P2 | M | — | Long conversation and Settings slower than v13; +73 kB first load |
 
+## v15: one engine, three interfaces (179 to 194)
+
+Evidence types as before: **stand-in AI** (`fake_ai.py`, not a model), **real CLI install** (a new virtual environment),
+**real Electron app** (Linux x64 under Xvfb), **installed package** (the .deb and the AppImage contents). Details in
+`docs/V15.md`, `docs/DESKTOP.md`, `cli/README.md`.
+
+| ID | Requirement | Status | What exists (modules) | Evidence | Pri | Cx | Security | Acceptance / next |
+|---|---|---|---|---|---|---|---|---|
+| 179 | One typed lifecycle for all work | verified | `work.py` (Phase, TRANSITIONS, one mapping per engine) | test_v15_core; test_zz_work_transitions checks every status change of the whole suite | P1 | M | — | Engines keep their own state machines; the lifecycle is the shared view |
+| 180 | Every status change recorded | verified | `work_events` written by triggers in the same transaction | test_v15_core, upgrade check | P1 | S | Audit trail cannot be skipped by an engine | ✔ |
+| 181 | One versioned API for every client | verified | `v1.py`: meta, status, conversations, chat, work, approvals, projects, capabilities, files, events | test_v15_core, test_cli, test_v15_web | P1 | M | Terminal token reaches v1, not Settings | ✔ |
+| 182 | Incompatible client and server say what to update | verified | `X-Rooks-API`, 426 | test_v15_core; test_cli (exit 7) | P2 | S | — | ✔ |
+| 183 | A retried request never runs twice | verified | `Idempotency-Key` on chat; deciding an approval twice returns the decision | test_v15_core | P1 | S | — | Only chat and approvals take keys |
+| 184 | Live state for all clients | verified | `/api/v1/events`: baseline, then changes | test_v15_web (terminal chat shows in the open browser), desktop e2e | P1 | M | Same session or token auth | Server polls its database every 2 s per client |
+| 185 | Capability discovery | verified | `/api/v1/capabilities` (group, risk, timeout, asks first, outside content, set up) | test_v15_core | P2 | S | — | Not a plugin system: no code is installed at run time (`docs/DSH_EVALUATION.md`) |
+| 186 | Approval requests audited as a pair | verified | `approval asked` with the request number | test_v15_core | P2 | S | — | ✔ |
+| 187 | Images, PDFs and spreadsheets beside the chat | verified | `Preview.tsx`, `/v1/files/{id}/view`, `/table` | test_v15_web | P2 | M | Inline only for PDFs and images, nosniff, sandbox for images | Word files show as text |
+| 188 | A saved file is checked on disk | verified | `/v1/files/{id}/verify` (SHA-256 against the record) | test_v15_core (tampered and missing files), test_v15_web | P1 | S | — | Files edited on your computer are checked by the companion, not here |
+| 189 | Terminal CLI on the same engine | verified | `cli/` (rooks-cli 1.0.0) | tests/cli/run.sh: clean install, 32 checks incl. interactive chat in a pseudo-terminal | P1 | L | Token never on the command line; 0600 file or keychain | Keychain path not tested (no keychain in the container) |
+| 190 | Desktop app | verified (Linux) | `desktop/` (Electron) | unit 10, e2e 21, installed .deb 8, AppImage 8 | P1 | L | Page isolation, navigation lock, permission allowlist | Windows and macOS not built; unsigned; no auto-update |
+| 191 | Desktop restarts a crashed server | verified | `supervisor.js` | unit tests, e2e (server killed) | P1 | M | — | Docker way tested only for its error messages |
+| 192 | Desktop notifications lead to the work | implemented | `live.js` | e2e (notification logic) | P2 | S | — | A real notification daemon was not tested |
+| 193 | Companion paired only from the app, by choice | verified (Linux) | setup page, `rooks_companion pair` | e2e: paired, online, stopped on quit | P1 | S | Folders only through the system folder dialog | macOS and Windows companion not run |
+| 194 | Upgrade from older data | verified | `db.init` adds tables and triggers | tests/upgrade/check_upgrade_from.sh from v14 and v13 | P1 | S | — | ✔ |
+
 ## Next highest-value work
 
-1. Bring the 120 message conversation and Settings back to v13 speed (178): render long conversations in windows,
+1. Build and smoke-test the desktop app on Windows and macOS, then sign it (190; `docs/DESKTOP.md` lists the steps).
+2. Run one real provider and one real mail account through `rooks run` and the web app, local first (189, 176).
+3. Bring the 120 message conversation and Settings back to v13 speed (178): render long conversations in windows,
    and load Settings sections when opened.
-2. Try voice with real services, local first: a Whisper or Kokoro compatible server (105), then browser speech, and barge-in on real speakers.
-3. Run `companion/tests/macos_check.py` on a real Mac (items 21, 22, 27, 46, 69). macOS behaviour is still only tested against a mocked osascript.
-4. If you want phone calls, connect a Twilio account and place the one verification call yourself (107); ROOKS has never placed a real call.
-5. Let company agents use workers (110), and write worker findings into the evidence ledger (113).
-6. Test visual targeting with a real vision model, local first (22, 23).
+4. Try voice with real services, local first: a Whisper or Kokoro compatible server (105), then browser speech, and barge-in on real speakers.
+5. Run `companion/tests/macos_check.py` on a real Mac (items 21, 22, 27, 46, 69). macOS behaviour is still only tested against a mocked osascript.
+6. If you want phone calls, connect a Twilio account and place the one verification call yourself (107); ROOKS has never placed a real call.
+7. Let company agents use workers (110), and write worker findings into the evidence ledger (113).
+8. Test visual targeting with a real vision model, local first (22, 23).

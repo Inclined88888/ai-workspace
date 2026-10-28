@@ -39,6 +39,8 @@ export async function voiceAvailable(): Promise<boolean> {
   try {
     const s = await api<{ stt: string }>("/voice");
     if (s.stt === "provider") return !!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== "undefined";
+    // Electron (the ROOKS desktop app) defines the browser speech API but has no speech service behind it
+    if (/\bElectron\//.test(navigator.userAgent)) return false;
     return !!recognitionCtor();
   } catch {
     return false;

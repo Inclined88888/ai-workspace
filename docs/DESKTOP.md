@@ -56,7 +56,7 @@ tested engine.
 | Test | What | Result |
 |---|---|---|
 | `npm test` (`test/supervisor.test.js`, `test/settings.test.js`) | start, crash and restart, crash loop given up, never healthy, already running left alone, stop on quit off, `.env` address, no Docker, https rule, private settings | 10/10 |
-| `npm run test:e2e` (`test/e2e.js`), source checkout | the app starts a real ROOKS server and the stand-in AI, sign in, same assistant, page isolation, external link, camera refused, a reply, a notification for a new approval, server killed and restarted with the window back and nothing lost, companion pairing from the app and the companion online, quit stops server and companion | 20/20 |
+| `npm run test:e2e` (`test/e2e.js`), source checkout | the app starts a real ROOKS server and the stand-in AI, sign in, same assistant, page isolation, external link, camera refused, a reply, a notification for a new approval, server killed and restarted with the window back and nothing lost, companion pairing from the app and the companion online, no microphone in the app (Electron has no speech service), quit stops server and companion | 21/21 |
 | `test/smoke_installed.js` against the installed .deb (`/usr/bin/rooks-desktop`) | first-run setup, https rule, starts and opens a local server, packaged version, quit stops it | 8/8 |
 | the same against the AppImage's contents (`--appimage-extract`) | same | 8/8 |
 

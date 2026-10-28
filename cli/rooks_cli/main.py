@@ -146,7 +146,7 @@ def cmd_connect(args, out: Out) -> int:
     elif args.no_input:
         raise Failure(USAGE, "With --no-input, pass the token on standard input (--token-stdin) or in ROOKS_TOKEN.")
     else:
-        token = getpass.getpass("Terminal token (ROOKS, Settings, Terminal access; it is not shown): ").strip()
+        token = getpass.getpass("Terminal token (ROOKS: Memory and skills, Assistant settings, Terminal access; it is not shown): ").strip()
     c = Client(url, token, timeout=args.timeout)
     meta = c.get("/api/v1/meta")
     status = c.get("/api/v1/status")

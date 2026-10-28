@@ -919,7 +919,7 @@ function SettingsTab() {
       </div>
       <div className="card col">
         <div className="row"><KeyRound size={15} /><h3 className="grow">Terminal access</h3>{s.cli_token_set && <span className="badge ok">token active</span>}</div>
-        <div className="muted small">Install the <span className="mono">ws</span> command (cli/ws in the repository, Python 3 only), then run <span className="mono">ws login {window.location.origin}</span> and paste the token.</div>
+        <div className="muted small">For the <span className="mono">rooks</span> terminal command and the ROOKS desktop app. Install the command with <span className="mono">pip install ./cli</span> (in the ROOKS folder), then run <span className="mono">rooks connect {window.location.origin}</span> and paste the token when asked. It reaches your conversations, work and approvals, not these settings. The older <span className="mono">cli/ws</span> uses the same token.</div>
         <div className="row">
           <button className="btn" onClick={async () => { const r = await api<{ token: string }>("/cli-token", { method: "POST" }); setToken(r.token); load(); }}>{s.cli_token_set ? "Replace token" : "Create token"}</button>
           {token && <><span className="mono small truncate grow">{token}</span><button className="btn sm" onClick={() => { navigator.clipboard.writeText(token); toast.ok("Copied"); }}><Copy size={13} /></button></>}

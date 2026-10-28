@@ -28,7 +28,7 @@ class Client:
         if not url:
             raise Failure(AUTH, "Not connected to a ROOKS server. Run: rooks connect http://your-server:3100")
         if not token:
-            raise Failure(AUTH, "No terminal token. Run: rooks connect (the token is in ROOKS, Settings, Terminal access)")
+            raise Failure(AUTH, "No terminal token. Run: rooks connect (the token is in ROOKS: Memory and skills, Assistant settings, Terminal access)")
         self.url, self.token, self.timeout = url.rstrip("/"), token, timeout
 
     def _req(self, method: str, path: str, body=None, headers: dict | None = None, raw: bytes | None = None,
@@ -49,7 +49,7 @@ class Client:
             if isinstance(detail, list):  # validation errors
                 detail = "; ".join(str(d.get("msg", d)) for d in detail)
             if e.code == 401:
-                raise Failure(AUTH, "The server did not accept the terminal token. Make a new one in ROOKS (Settings, "
+                raise Failure(AUTH, "The server did not accept the terminal token. Make a new one in ROOKS (Memory and skills, Assistant settings, "
                                     "Terminal access) and run: rooks connect", 401) from None
             if e.code == 426:
                 raise Failure(INCOMPATIBLE, str(detail), 426) from None
