@@ -78,7 +78,7 @@ while IFS= read -r line; do
   if [[ "$line" =~ ^[A-Z_]+= ]] && ! grep -qE "^$key=" .env; then printf '%s\n' "$line" >> .env; fi
 done < .env.example
 # Secrets: generate any that are empty; never rotate existing ones (that would lock you out of stored data)
-for key in APP_SECRET TOOLS_API_KEY WEBUI_SECRET_KEY SEARXNG_SECRET BROWSER_API_KEY CLAUDE_CODE_API_KEY PAPERCLIP_AUTH_SECRET \
+for key in APP_SECRET TOOLS_API_KEY WEBUI_SECRET_KEY SEARXNG_SECRET BROWSER_API_KEY CLAUDE_CODE_API_KEY CODEX_API_KEY PAPERCLIP_AUTH_SECRET \
            PAPERCLIP_TOOL_ACTION_SECRET PAPERCLIP_AGENT_JWT_SECRET HERMES_API_KEY HERMES_DASHBOARD_SECRET; do
   if [[ -z "$(get_env "$key")" ]]; then set_env "$key" "$(rand 32)"; fi
 done
@@ -90,7 +90,7 @@ if $WITH_GIVEN; then
   ADDONS=$(echo "$WITH" | tr -d ' ' | tr 'A-Z' 'a-z')
   [[ "$ADDONS" == "none" ]] && ADDONS=""
   for a in $(echo "$ADDONS" | tr ',' ' '); do
-    case "$a" in search|browser|local-models|openwebui|paperclip|hermes|claude-code) ;; *) fail "Unknown add-on '$a'" ;; esac
+    case "$a" in search|browser|local-models|openwebui|paperclip|hermes|claude-code|codex) ;; *) fail "Unknown add-on '$a'" ;; esac
   done
   set_env ADDONS "$ADDONS"
 else
@@ -133,6 +133,7 @@ if [[ "$(get_env BIND_ADDRESS)" == "0.0.0.0" ]]; then
   HOST=$( (hostname -I 2>/dev/null || ipconfig getifaddr en0 2>/dev/null || echo localhost) | awk '{print $1}')
 fi
 if has search; then set_env SEARXNG_URL "http://searxng:8080"; set_env WEBUI_ENABLE_WEB_SEARCH true; else set_env SEARXNG_URL ""; set_env WEBUI_ENABLE_WEB_SEARCH false; fi
+if has codex; then set_env CODEX_URL "http://codex:8110"; else set_env CODEX_URL ""; fi
 if has claude-code; then set_env CLAUDE_CODE_URL "http://claude-code:8110"; else set_env CLAUDE_CODE_URL ""; fi
 if has browser; then set_env BROWSER_URL "http://browser:8100"; else set_env BROWSER_URL ""; fi
 if has openwebui; then set_env CHAT_URL "http://${HOST}:$(get_env WEBUI_PORT)"; set_env WEBUI_PUBLIC_URL "$(get_env CHAT_URL)"; else set_env CHAT_URL ""; fi
@@ -159,7 +160,7 @@ fi
 echo; bold "Starting${ADDONS:+ (add-ons: $ADDONS)}"
 docker compose up -d --build
 # Stop add-ons that are no longer enabled (their data volumes are kept)
-for svc in searxng browser ollama open-webui paperclip hermes claude-code; do
+for svc in searxng browser ollama open-webui paperclip hermes claude-code codex; do
   case "$svc" in searxng) a=search ;; ollama) a=local-models ;; open-webui) a=openwebui ;; *) a=$svc ;; esac
   if ! has "$a" && [[ -n "$(docker compose --profile "$a" ps -q "$svc" 2>/dev/null)" ]]; then
     docker compose --profile "$a" stop "$svc" >/dev/null 2>&1 && info "Stopped $svc (add-on off)"
