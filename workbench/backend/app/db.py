@@ -2,6 +2,7 @@ import sqlite3
 import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Iterator
 
 from . import config
@@ -246,57 +247,42 @@ CREATE TABLE IF NOT EXISTS agent_tasks (
   updated_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS usage (
+-- The run log (actions.py): every agent action is one row. Replaced usage, tool_runs, turn_checks and
+-- pending_actions in schema version 1 (see migrate_v1).
+CREATE TABLE IF NOT EXISTS actions (
   id INTEGER PRIMARY KEY,
-  ts TEXT NOT NULL,
-  model TEXT NOT NULL,
-  agent_id INTEGER,
+  ts TEXT NOT NULL,                             -- UTC ISO
+  kind TEXT NOT NULL,                           -- turn | model_call | tool_call | decision
+  agent_id INTEGER,                             -- company agent; NULL for the assistant itself
+  channel TEXT NOT NULL DEFAULT '',             -- web | cli | telegram | schedule | agent | learn:* | research | ...
   conversation_id INTEGER,
-  channel TEXT NOT NULL DEFAULT '',
-  prompt_tokens INTEGER NOT NULL DEFAULT 0,
-  completion_tokens INTEGER NOT NULL DEFAULT 0,
-  cost_cents REAL NOT NULL DEFAULT 0,
-  priced INTEGER NOT NULL DEFAULT 0             -- 1 when a price was known for the model
-);
-CREATE INDEX IF NOT EXISTS usage_ts ON usage(ts);
-
--- Actions the assistant wanted to take that need the user's approval (see assistant.needs_approval)
-CREATE TABLE IF NOT EXISTS pending_actions (
-  id INTEGER PRIMARY KEY,
-  conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
-  tool TEXT NOT NULL,
-  args TEXT NOT NULL DEFAULT '{}',              -- JSON as the model sent it
-  effect TEXT NOT NULL,                         -- external | persistent
-  reason TEXT NOT NULL DEFAULT '',
-  status TEXT NOT NULL DEFAULT 'pending',       -- pending | approved | denied | done | failed
-  result TEXT NOT NULL DEFAULT '',
-  created_at TEXT NOT NULL,
-  decided_at TEXT
-);
-CREATE INDEX IF NOT EXISTS pending_actions_status ON pending_actions(status, conversation_id);
-
--- Reliability record (receipts.py): every tool call and every final answer, per model
-CREATE TABLE IF NOT EXISTS tool_runs (
-  id INTEGER PRIMARY KEY,
-  conversation_id INTEGER,
-  model TEXT NOT NULL DEFAULT '',               -- model ref; empty when the user ran an approved action
-  tool TEXT NOT NULL,
-  outcome TEXT NOT NULL,                        -- verified | ok | check_failed | bad_args | unknown_tool | rejected | tool_error | held | denied
-  verified INTEGER,                             -- 1 checked and true, 0 checked and false, NULL nothing to check
+  provider TEXT NOT NULL DEFAULT '',
+  model TEXT NOT NULL DEFAULT '',               -- model ref (provider id / model)
+  auth_kind TEXT NOT NULL DEFAULT '',
+  protocol TEXT NOT NULL DEFAULT '',
+  tool TEXT NOT NULL DEFAULT '',
+  effect TEXT NOT NULL DEFAULT '',              -- read | write | external | persistent (tool calls)
+  args TEXT NOT NULL DEFAULT '',                -- redacted, for display and trace
+  payload_enc TEXT NOT NULL DEFAULT '',         -- encrypted raw arguments, only for held calls that may run later
+  latency_ms INTEGER NOT NULL DEFAULT 0,
+  tokens_in INTEGER NOT NULL DEFAULT 0,
+  tokens_out INTEGER NOT NULL DEFAULT 0,
+  usd_cost REAL,                                -- NULL = price unknown
+  outcome TEXT NOT NULL,
+  failure_reason TEXT NOT NULL DEFAULT '',
+  verified INTEGER,                             -- receipts: 1 confirmed, 0 contradicted, NULL nothing to check
   evidence TEXT NOT NULL DEFAULT '',
-  from_text INTEGER NOT NULL DEFAULT 0,         -- the call was recovered from text, not a structured tool call
-  ms INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS tool_runs_model ON tool_runs(model);
-CREATE TABLE IF NOT EXISTS turn_checks (
-  id INTEGER PRIMARY KEY,
-  conversation_id INTEGER,
-  model TEXT NOT NULL DEFAULT '',
-  outcome TEXT NOT NULL,                        -- no_claim | backed | fixed | unbacked | model_error | step_limit
   detail TEXT NOT NULL DEFAULT '',
-  created_at TEXT NOT NULL
+  from_text INTEGER NOT NULL DEFAULT 0,         -- tool call recovered from text
+  request_id TEXT NOT NULL UNIQUE,              -- idempotency key
+  parent_action_id INTEGER REFERENCES actions(id) ON DELETE SET NULL
 );
+CREATE INDEX IF NOT EXISTS actions_kind_ts ON actions(kind, ts);
+CREATE INDEX IF NOT EXISTS actions_agent_ts ON actions(agent_id, ts);
+CREATE INDEX IF NOT EXISTS actions_conversation ON actions(conversation_id);
+CREATE INDEX IF NOT EXISTS actions_parent ON actions(parent_action_id);
+-- a held tool call is answered at most once
+CREATE UNIQUE INDEX IF NOT EXISTS actions_one_decision ON actions(parent_action_id) WHERE kind = 'decision';
 """
 
 
@@ -317,8 +303,72 @@ def conn() -> sqlite3.Connection:
     return c
 
 
+SCHEMA_VERSION = 1
+LEGACY_LEDGERS = ("usage", "tool_runs", "turn_checks", "pending_actions")
+
+
 def init() -> None:
-    conn().executescript(SCHEMA)
+    migrate(conn(), config.DB_PATH)
+
+
+def migrate(c: sqlite3.Connection, path) -> None:
+    """Bring a database of any earlier version to SCHEMA_VERSION. Backs the file up before changing data.
+
+    Rollback: stop Workbench, replace workbench.db with the newest workbench.db.pre-v<N>-*.bak, run the previous image.
+    """
+    version = c.execute("PRAGMA user_version").fetchone()[0]
+    legacy = [r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type = 'table'") if r[0] in LEGACY_LEDGERS]
+    if version < 1 and legacy:
+        backup = Path(f"{path}.pre-v1-{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}.bak")
+        with sqlite3.connect(backup) as dest:
+            c.backup(dest)
+    c.executescript(SCHEMA)
+    if version < 1:
+        c.execute("BEGIN IMMEDIATE")
+        try:
+            migrate_v1(c, legacy)
+            c.execute("PRAGMA user_version = 1")
+            c.execute("COMMIT")
+        except BaseException:
+            c.execute("ROLLBACK")
+            raise
+
+
+def migrate_v1(c: sqlite3.Connection, legacy: list[str]) -> None:
+    """Four ledgers into one actions table (R2). Every legacy row becomes one action; nothing is dropped silently."""
+    from .security import encrypt
+
+    rid = "lower(hex(randomblob(16)))"
+    if "usage" in legacy:
+        c.execute(f"INSERT INTO actions(ts, kind, agent_id, conversation_id, channel, model, tokens_in, tokens_out, usd_cost, "
+                  f"outcome, request_id) SELECT ts, 'model_call', agent_id, conversation_id, channel, model, prompt_tokens, "
+                  f"completion_tokens, CASE WHEN priced = 1 THEN cost_cents / 100.0 END, 'ok', {rid} FROM usage ORDER BY id")
+    if "tool_runs" in legacy:
+        c.execute(f"INSERT INTO actions(ts, kind, conversation_id, model, tool, outcome, verified, evidence, from_text, latency_ms, "
+                  f"request_id) SELECT created_at, 'tool_call', conversation_id, model, tool, outcome, verified, evidence, from_text, "
+                  f"ms, {rid} FROM tool_runs ORDER BY id")
+    if "turn_checks" in legacy:
+        c.execute(f"INSERT INTO actions(ts, kind, conversation_id, model, outcome, failure_reason, request_id) "
+                  f"SELECT created_at, 'turn', conversation_id, model, outcome, detail, {rid} FROM turn_checks ORDER BY id")
+    if "pending_actions" in legacy:
+        c.row_factory = sqlite3.Row
+        for p in c.execute("SELECT * FROM pending_actions ORDER BY id").fetchall():
+            auto_denied = p["status"] == "denied" and not p["decided_at"]  # unattended runs refuse without a decision
+            cur = c.execute(f"INSERT INTO actions(ts, kind, conversation_id, tool, effect, args, payload_enc, detail, outcome, request_id) "
+                            f"VALUES (?, 'tool_call', ?, ?, ?, ?, ?, ?, ?, {rid})", (p["created_at"], p["conversation_id"], p["tool"],
+                            p["effect"], p["args"][:2000], encrypt(p["args"]), p["reason"], "denied" if auto_denied else "held"))
+            if p["status"] == "pending" or auto_denied:
+                continue
+            answer = "denied" if p["status"] == "denied" else "approved"
+            dec = c.execute(f"INSERT INTO actions(ts, kind, conversation_id, tool, outcome, parent_action_id, channel, request_id) "
+                            f"VALUES (?, 'decision', ?, ?, ?, ?, 'web', {rid})", (p["decided_at"] or p["created_at"],
+                            p["conversation_id"], p["tool"], answer, cur.lastrowid))
+            if p["status"] in ("done", "failed"):
+                c.execute(f"INSERT INTO actions(ts, kind, conversation_id, tool, outcome, detail, parent_action_id, channel, request_id) "
+                          f"VALUES (?, 'tool_call', ?, ?, ?, ?, ?, 'web', {rid})", (p["decided_at"] or p["created_at"],
+                          p["conversation_id"], p["tool"], "ok" if p["status"] == "done" else "tool_error", p["result"], dec.lastrowid))
+    for table in legacy:
+        c.execute(f"DROP TABLE {table}")
 
 
 @contextmanager

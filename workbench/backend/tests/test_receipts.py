@@ -19,7 +19,7 @@ def test_a_tool_that_returns_but_changed_nothing_fails_its_check(client, monkeyp
     ev = events(client.post("/api/assistant/chat", json={"message": "add ghost task"}))
     res = next(e for e in ev if e["type"] == "tool_result")
     assert res["ok"] is False and res["receipt"]["verified"] is False and "could not be confirmed" in res["preview"]
-    assert db.one("SELECT outcome FROM tool_runs ORDER BY id DESC LIMIT 1")["outcome"] == "check_failed"
+    assert db.one("SELECT outcome FROM actions WHERE kind = 'tool_call' ORDER BY id DESC LIMIT 1")["outcome"] == "check_failed"
 
 
 def test_false_done_is_withdrawn_and_corrected(client):
@@ -36,7 +36,7 @@ def test_false_done_is_withdrawn_and_corrected(client):
     # the false answer never stays in the record; only the hidden check message quotes it
     assert not any("I've added the task" in m["content"] for m in msgs if m["role"] == "assistant")
     assert [m["name"] for m in msgs if "I've added the task" in m["content"]] == ["claim_check"]
-    assert db.one("SELECT outcome FROM turn_checks ORDER BY id DESC LIMIT 1")["outcome"] == "fixed"
+    assert db.one("SELECT outcome FROM actions WHERE kind = 'turn' ORDER BY id DESC LIMIT 1")["outcome"] == "fixed"
 
 
 def test_a_model_that_acts_after_the_nudge_gets_a_backed_answer(client):
@@ -55,7 +55,7 @@ def test_a_repeated_false_claim_reaches_the_user_flagged(client):
     ev = events(client.post("/api/assistant/chat", json={"message": "email sam"}))
     final = next(e for e in ev if e["type"] == "message")["content"]
     assert "**Not verified:**" in final
-    assert db.one("SELECT outcome FROM turn_checks ORDER BY id DESC LIMIT 1")["outcome"] == "unbacked"
+    assert db.one("SELECT outcome FROM actions WHERE kind = 'turn' ORDER BY id DESC LIMIT 1")["outcome"] == "unbacked"
 
 
 def test_claim_detection_is_narrow():
@@ -84,7 +84,7 @@ def test_an_unreachable_model_is_a_recorded_failure_not_a_crash(client):
     pid = client.post("/api/providers", json={"name": "Down", "kind": "openai", "base_url": "http://127.0.0.1:9/v1", "models": "m"}).json()["id"]
     ev = events(client.post("/api/assistant/chat", json={"message": "hi", "model": f"{pid}/m"}))
     assert any(e.get("type") == "error" and "unreachable" in e["error"] for e in ev)
-    assert db.one("SELECT outcome FROM turn_checks WHERE model = ? ORDER BY id DESC", f"{pid}/m")["outcome"] == "model_error"
+    assert db.one("SELECT outcome FROM actions WHERE kind = 'turn' AND model = ? ORDER BY id DESC", f"{pid}/m")["outcome"] == "model_error"
     client.delete(f"/api/providers/{pid}")
 
 
@@ -108,7 +108,7 @@ def test_an_answer_that_misstates_what_was_saved_is_caught(client):
     ev = events(client.post("/api/assistant/chat", json={"message": "add sweep the deck"}))
     final = next(e for e in ev if e["type"] == "message")["content"]
     assert "**Not verified:**" in final and "saved" in final
-    assert db.one("SELECT outcome FROM turn_checks ORDER BY id DESC LIMIT 1")["outcome"] == "unbacked"
+    assert db.one("SELECT outcome FROM actions WHERE kind = 'turn' ORDER BY id DESC LIMIT 1")["outcome"] == "unbacked"
 
 
 def test_a_correct_restatement_passes(client):
@@ -140,11 +140,11 @@ def test_a_model_failure_after_changes_still_reports_what_was_saved(client, monk
     real = llm.chat
     calls = {"n": 0}
 
-    async def flaky(ref, messages, tools=None):
+    async def flaky(ref, messages, tools=None, trace=None):
         calls["n"] += 1
         if calls["n"] == 2:
             raise HTTPException(504, "Ollama (local) did not answer within 900 s")
-        return await real(ref, messages, tools)
+        return await real(ref, messages, tools, trace)
 
     monkeypatch.setattr(llm, "chat", flaky)
     SCRIPT[:] = [tool_call("create_task", {"title": "clean the gutters", "due": "2026-11-08", "priority": 3})]

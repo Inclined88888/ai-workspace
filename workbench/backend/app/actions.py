@@ -1,0 +1,117 @@
+"""The run log: every agent action is one row in `actions` (R2). There is no other ledger.
+
+Kinds and their outcomes:
+  turn        running | no_claim | backed | fixed | unbacked | model_error | step_limit | empty_answer | budget_paused | interrupted
+  model_call  ok | error
+  tool_call   verified | ok | check_failed | bad_args | unknown_tool | rejected | tool_error | held | denied
+  decision    approved | denied        (the user's answer to a held tool_call, which is its parent)
+
+Rows link through parent_action_id: a turn's model and tool calls point at the turn; an approved tool run points at
+its decision, which points at the held call. Cost, budgets, reliability, approvals and the run log all read this table.
+Text columns are redacted on the way in (they are a trace, R7); raw arguments a held action needs to run later are
+kept encrypted in payload_enc and never logged.
+"""
+
+import json
+import sqlite3
+import uuid
+
+from fastapi import HTTPException
+
+from . import db
+from .redact import redact
+
+_TEXT = ("args", "failure_reason", "evidence", "detail")
+
+
+def add(kind: str, outcome: str, *, trace: dict | None = None, payload: str | None = None, **fields) -> int:
+    """Insert one action. trace carries who and where (channel, conversation_id, agent_id, parent); fields the rest."""
+    from .security import encrypt
+
+    row = {"channel": "", "conversation_id": None, "agent_id": None, "parent_action_id": None}
+    t = trace or {}
+    row.update(channel=t.get("channel", ""), conversation_id=t.get("conversation_id"), agent_id=t.get("agent_id"),
+               parent_action_id=t.get("parent"))
+    row.update(fields)
+    for k in _TEXT:
+        if row.get(k):
+            row[k] = redact(str(row[k]))[:4000]
+    if payload is not None:
+        row["payload_enc"] = encrypt(payload)
+    row.update(ts=db.now(), kind=kind, outcome=outcome, request_id=row.get("request_id") or uuid.uuid4().hex)
+    cols = ", ".join(row)
+    return db.run(f"INSERT INTO actions({cols}) VALUES ({', '.join('?' * len(row))})", *row.values())
+
+
+def finish(action_id: int, outcome: str, **fields) -> None:
+    """Close an action that was opened before its result was known (a turn)."""
+    for k in _TEXT:
+        if fields.get(k):
+            fields[k] = redact(str(fields[k]))[:4000]
+    sets = ", ".join(f"{k} = ?" for k in ("outcome", *fields))
+    db.run(f"UPDATE actions SET {sets} WHERE id = ?", outcome, *fields.values(), action_id)
+
+
+def recover() -> int:
+    """Turns still 'running' at startup were cut off by a restart."""
+    return db.run("UPDATE actions SET outcome = 'interrupted', failure_reason = 'Workbench restarted during the turn' "
+                  "WHERE kind = 'turn' AND outcome = 'running'")
+
+
+# Approvals are held tool_call rows; a decision row answers each one exactly once (unique index on its parent).
+_PENDING = ("SELECT a.* FROM actions a WHERE a.kind = 'tool_call' AND a.outcome = 'held' AND NOT EXISTS "
+            "(SELECT 1 FROM actions d WHERE d.kind = 'decision' AND d.parent_action_id = a.id)")
+
+
+def approval(action_id: int) -> dict:
+    """A held or refused tool call as the approval card shows it, with the raw arguments for its owner only."""
+    from .security import decrypt
+
+    a = db.one("SELECT * FROM actions WHERE id = ? AND kind = 'tool_call' AND outcome IN ('held', 'denied')", action_id)
+    if not a:
+        raise HTTPException(404, "Approval request not found")
+    status, result, decided_at = ("denied", "", a["ts"]) if a["outcome"] == "denied" else ("pending", "", None)
+    d = db.one("SELECT * FROM actions WHERE kind = 'decision' AND parent_action_id = ?", action_id)
+    if d:
+        decided_at = d["ts"]
+        run = db.one("SELECT * FROM actions WHERE kind = 'tool_call' AND parent_action_id = ?", d["id"])
+        status = "denied" if d["outcome"] == "denied" else ("approved" if not run else ("done" if run["outcome"] in ("ok", "verified") else "failed"))
+        result = (run["detail"] or run["failure_reason"]) if run else ""
+    return {"id": a["id"], "conversation_id": a["conversation_id"], "tool": a["tool"],
+            "args": decrypt(a["payload_enc"]) or a["args"], "effect": a["effect"], "reason": a["detail"],
+            "status": status, "result": result, "created_at": a["ts"], "decided_at": decided_at}
+
+
+def pending(conversation_id: int | None = None) -> list[dict]:
+    if conversation_id:
+        rows = db.all(_PENDING + " AND a.conversation_id = ? ORDER BY a.id", conversation_id)
+    else:
+        rows = db.all(_PENDING + " ORDER BY a.id DESC LIMIT 200")
+    return [approval(r["id"]) for r in rows]
+
+
+def decide(action_id: int, approve: bool) -> int:
+    """Record the user's answer. Raises 409 if it was already answered (by another click or client)."""
+    a = approval(action_id)
+    if a["status"] != "pending":
+        raise HTTPException(409, f"Already {a['status']}")
+    try:
+        return add("decision", "approved" if approve else "denied", tool=a["tool"],
+                   trace={"channel": "web", "conversation_id": a["conversation_id"], "parent": action_id})
+    except sqlite3.IntegrityError as e:
+        raise HTTPException(409, "Already decided") from e
+
+
+def raw_args(action_id: int) -> str:
+    from .security import decrypt
+
+    a = db.one("SELECT payload_enc, args FROM actions WHERE id = ?", action_id)
+    return (decrypt(a["payload_enc"]) or a["args"]) if a else "{}"
+
+
+def args_preview(raw: str) -> str:
+    """Arguments as stored in the trace: compact JSON, redacted by add()."""
+    try:
+        return json.dumps(json.loads(raw or "{}"), ensure_ascii=False)[:2000]
+    except ValueError:
+        return (raw or "")[:2000]

@@ -80,7 +80,7 @@ def test_unattended_runs_refuse_gated_actions(client, monkeypatch):
     denied = [e for e in ev if e["type"] == "approval_denied"]
     assert denied and denied[0]["tool"] == "remember"
     assert not db.all("SELECT * FROM memories WHERE content = 'attacker fact'")
-    assert db.one("SELECT status FROM pending_actions WHERE id = ?", denied[0]["id"])["status"] == "denied"
+    assert db.one("SELECT outcome FROM actions WHERE id = ?", denied[0]["id"])["outcome"] == "denied"
 
 
 def test_no_skill_is_learned_from_untrusted_content(client, monkeypatch):
@@ -163,8 +163,10 @@ def test_a_decision_is_taken_once(client):
     from app import assistant, db
 
     cid = assistant.new_conversation("web")
-    aid = db.run("INSERT INTO pending_actions(conversation_id, tool, args, effect, reason, status, created_at) "
-                 "VALUES (?, 'remember', ?, 'persistent', 'test', 'pending', ?)", cid, '{"content": "once only"}', db.now())
+    from app import actions
+
+    aid = actions.add("tool_call", "held", trace={"conversation_id": cid}, tool="remember", effect="persistent",
+                      payload='{"content": "once only"}', detail="test")
 
     async def both():
         return await aio.gather(assistant.decide(aid, True), assistant.decide(aid, True), return_exceptions=True)

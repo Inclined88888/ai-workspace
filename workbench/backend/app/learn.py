@@ -13,7 +13,7 @@ import re
 
 from fastapi import HTTPException
 
-from . import db, llm, usage
+from . import db, llm
 
 log = logging.getLogger("learn")
 _lock = asyncio.Lock()
@@ -47,8 +47,8 @@ def upsert_skill(name: str, description: str, steps: str, source: str = "auto") 
 
 
 async def _model_json(conv: dict, prompt: str, payload: str, channel: str):
-    res = await llm.chat(conv["model"] or None, [{"role": "system", "content": prompt}, {"role": "user", "content": payload}])
-    usage.record(res, channel=f"learn:{channel}", agent_id=conv.get("agent_id"), conversation_id=conv["id"])
+    res = await llm.chat(conv["model"] or None, [{"role": "system", "content": prompt}, {"role": "user", "content": payload}],
+                         trace={"channel": f"learn:{channel}", "agent_id": conv.get("agent_id"), "conversation_id": conv["id"]})
     return llm.parse_json(res["message"].get("content") or "")
 
 
