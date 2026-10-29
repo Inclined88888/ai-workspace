@@ -10,8 +10,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 DATA_DIR=/data STATIC_DIR=/app/
 WORKDIR /app
 COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
-COPY backend/app ./app
-COPY --from=web /web/dist ./static
+COPY --chown=1000:1000 backend/app ./app
+COPY --from=web --chown=1000:1000 /web/dist ./static
 RUN useradd --create-home --uid 1000 workbench && mkdir -p /data && chown workbench /data
 USER workbench
 VOLUME /data

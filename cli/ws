@@ -8,6 +8,8 @@ Use:
     ws                       interactive chat (continues your last terminal conversation)
     ws "what's on today?"    one question
     ws new                   start a fresh conversation
+    ws retry                 retry an interrupted request with its original request id
+    ws logout                remove local terminal credentials
     ws memory [search]       what it remembers about you
     ws skills                skills it has learned
     ws inbox                 scheduled reports and agent results
@@ -18,6 +20,8 @@ Only the Python standard library is used: copy this file anywhere on your PATH.
 """
 
 import getpass
+import tempfile
+import uuid
 import json
 import os
 import sys
@@ -43,17 +47,24 @@ def load() -> dict:
 
 def save(cfg: dict) -> None:
     os.makedirs(os.path.dirname(CONFIG), exist_ok=True)
-    with open(CONFIG, "w") as f:
-        json.dump(cfg, f)
-    os.chmod(CONFIG, 0o600)
+    fd, temporary = tempfile.mkstemp(dir=os.path.dirname(CONFIG), prefix=".cli-")
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(cfg, f)
+        os.replace(temporary, CONFIG)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
 
 
-def request(cfg: dict, method: str, path: str, body: dict | None = None, stream: bool = False):
+def request(cfg: dict, method: str, path: str, body: dict | None = None, stream: bool = False, idempotency_key: str | None = None):
     req = urllib.request.Request(
         cfg["url"].rstrip("/") + "/api" + path, method=method,
         data=json.dumps(body).encode() if body is not None else None,
         headers={"Authorization": f"Bearer {cfg['token']}", "Content-Type": "application/json", "X-Workbench": "1"},
     )
+    if idempotency_key:
+        req.add_header("Idempotency-Key", idempotency_key)
     try:
         resp = urllib.request.urlopen(req, timeout=600)
     except urllib.error.HTTPError as e:
@@ -71,7 +82,16 @@ def ask(cfg: dict, text: str) -> None:
     body = {"message": text, "channel": "cli"}
     if cfg.get("conversation_id"):
         body["conversation_id"] = cfg["conversation_id"]
-    resp = request(cfg, "POST", "/assistant/chat", body, stream=True)
+    # Persist before sending so an interrupted request can be retried deliberately.
+    key = uuid.uuid4().hex
+    cfg["pending_request"] = {"key": key, "body": body}
+    save(cfg)
+    consume(cfg, request(cfg, "POST", "/assistant/chat", body, stream=True, idempotency_key=key))
+
+
+def consume(cfg: dict, resp) -> None:
+    failed = False
+    completed = False
     for raw in resp:
         line = raw.decode("utf-8", "replace").strip()
         if not line.startswith("data:"):
@@ -98,9 +118,20 @@ def ask(cfg: dict, text: str) -> None:
         elif t == "message":
             print("\n" + e["content"].strip() + "\n")
         elif t == "error" or (t is None and "error" in e):
-            print(c("red", e["error"]))
-        elif t == "done" and e.get("cost_cents"):
-            print(c("dim", f"  ({e['cost_cents']:.2f}¢)"))
+            failed = True
+            print(c("red", e["error"]), file=sys.stderr)
+        elif t == "done":
+            completed = True
+            if e.get("cost_cents"):
+                print(c("dim", f"  ({e['cost_cents']:.2f}¢)"))
+    resp.close()
+    if completed:
+        cfg.pop("pending_request", None)
+        save(cfg)
+    if not completed:
+        sys.exit("Stream interrupted. Use ws retry to retry with the same request id.")
+    if failed:
+        sys.exit("Turn failed. Inspect the conversation before starting a new task.")
 
 
 def repl(cfg: dict) -> None:
@@ -128,6 +159,9 @@ def repl(cfg: dict) -> None:
 
 
 def main(argv: list[str]) -> None:
+    if argv[:1] in (["-h"], ["--help"], ["help"]):
+        print(__doc__)
+        return
     cfg = load()
     if argv[:1] == ["login"]:
         url = argv[1] if len(argv) > 1 else input("Workspace URL [http://localhost:3100]: ").strip() or "http://localhost:3100"
@@ -139,7 +173,17 @@ def main(argv: list[str]) -> None:
     if not cfg.get("token"):
         sys.exit("Run: ws login http://your-workspace:3100")
     cmd = argv[0] if argv else ""
-    if cmd == "new":
+    if cmd == "logout":
+        if os.path.exists(CONFIG):
+            os.unlink(CONFIG)
+        print("Local terminal credentials removed. Revoke the token in Settings if needed.")
+    elif cmd == "retry":
+        pending = cfg.get("pending_request")
+        if not pending:
+            sys.exit("No interrupted request to retry.")
+        consume(cfg, request(cfg, "POST", "/assistant/chat", pending["body"], stream=True,
+                             idempotency_key=pending["key"]))
+    elif cmd == "new":
         cfg.pop("conversation_id", None)
         save(cfg)
         print("New conversation.")

@@ -74,6 +74,8 @@ def healthz():
     return JSONResponse({"ok": d["status"] != "down", "database": d["status"]}, status_code=503 if d["status"] == "down" else 200)
 
 
+from . import openapi  # registers authenticated schema before including the router
+
 app.include_router(api.public)
 app.include_router(api.api)
 app.include_router(assistant_api.router)
