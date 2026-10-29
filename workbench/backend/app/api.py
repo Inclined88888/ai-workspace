@@ -9,6 +9,8 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from . import calendar_sync, config, db, llm, mail, research, services
+from .adapters import ALLOWED, validate
+from .db import OFFICIAL_HOSTS
 from .redact import redact, redact_obj
 from .security import (
     COOKIE, check_session, decrypt, encrypt, hash_password, make_session, require_user, throttle, verify_password,
@@ -142,52 +144,75 @@ def put_settings(data: SettingsIn):
     return get_settings()
 
 
-def _provider_out(p: dict) -> dict:
-    key = decrypt(p["api_key_enc"])
-    return {**{k: p[k] for k in ("id", "name", "kind", "base_url", "models", "enabled")},
+def _provider_out(c: dict) -> dict:
+    key = decrypt(c["secret_enc"]) if c["auth_kind"] in ("api_key", "openai_compatible") else ""
+    return {**{k: c[k] for k in ("id", "name", "auth_kind", "protocol", "base_url", "models", "enabled", "state", "residency", "last_error")},
             "has_key": bool(key), "key_hint": f"…{key[-4:]}" if len(key) > 8 else ""}
 
 
 @api.get("/providers")
 def providers():
-    return {"providers": [_provider_out(p) for p in db.all("SELECT * FROM providers ORDER BY id")], "presets": llm.PRESETS}
+    """Model connections (one per provider account or local server). See adapters.py for auth kinds and protocols."""
+    return {"providers": [_provider_out(c) for c in db.all("SELECT * FROM connections ORDER BY id")], "presets": llm.PRESETS,
+            "auth_kinds": {k: list(v) for k, v in ALLOWED.items() if k != "session_scraping_forbidden"}}
+
+
+# Older clients send `kind`; it maps onto the auth_kind/protocol pair it always meant
+_LEGACY_KIND = {"ollama": ("local_ollama", "ollama_native"), "anthropic": ("api_key", "chat_completions"), "openai": ("api_key", "chat_completions")}
 
 
 class ProviderIn(BaseModel):
     name: str = Field(..., min_length=1, max_length=80)
-    kind: Literal["openai", "anthropic", "ollama"] = "openai"
+    auth_kind: str | None = Field(None, max_length=40)
+    protocol: str | None = Field(None, max_length=40)
+    kind: Literal["openai", "anthropic", "ollama"] | None = None
     base_url: str = Field(..., pattern=r"^https?://", max_length=300)
     api_key: str | None = Field(None, max_length=500)
     models: str = Field("", max_length=2000)
     enabled: bool = True
 
+    def pair(self) -> tuple[str, str]:
+        auth, proto = self.auth_kind, self.protocol
+        if not auth and not proto:
+            auth, proto = _LEGACY_KIND[self.kind or "openai"]
+            if auth == "api_key" and self.kind != "anthropic" and not any(h in self.base_url for h in OFFICIAL_HOSTS):
+                auth = "openai_compatible"
+        validate(auth or "", proto or "")
+        if auth == "oauth_subscription":
+            raise HTTPException(400, "Subscription connections are created by signing in with the provider (item 101), not by pasting a token.")
+        return auth, proto
+
 
 @api.post("/providers")
 def add_provider(data: ProviderIn):
-    pid = db.run(
-        "INSERT INTO providers(name, kind, base_url, api_key_enc, models, enabled, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        data.name, data.kind, data.base_url.rstrip("/"), encrypt(data.api_key or ""), data.models, int(data.enabled), db.now(),
+    auth, proto = data.pair()
+    cid = db.run(
+        "INSERT INTO connections(name, auth_kind, protocol, base_url, secret_enc, models, enabled, residency, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        data.name, auth, proto, data.base_url.rstrip("/"), encrypt(data.api_key or ""), data.models, int(data.enabled),
+        "local" if auth == "local_ollama" else "cloud", db.now(),
     )
-    return _provider_out(db.one("SELECT * FROM providers WHERE id = ?", pid))
+    return _provider_out(db.one("SELECT * FROM connections WHERE id = ?", cid))
 
 
 @api.put("/providers/{pid}")
 def edit_provider(pid: int, data: ProviderIn):
-    if not db.one("SELECT id FROM providers WHERE id = ?", pid):
+    old = db.one("SELECT * FROM connections WHERE id = ?", pid)
+    if not old:
         raise HTTPException(404, "Provider not found")
-    db.run(
-        "UPDATE providers SET name = ?, kind = ?, base_url = ?, models = ?, enabled = ? WHERE id = ?",
-        data.name, data.kind, data.base_url.rstrip("/"), data.models, int(data.enabled), pid,
-    )
-    if data.api_key is not None:
-        db.run("UPDATE providers SET api_key_enc = ? WHERE id = ?", encrypt(data.api_key), pid)
+    auth, proto = (old["auth_kind"], old["protocol"]) if old["auth_kind"] == "oauth_subscription" else data.pair()
+    db.run("UPDATE connections SET name = ?, auth_kind = ?, protocol = ?, base_url = ?, models = ?, enabled = ?, residency = ? WHERE id = ?",
+           data.name, auth, proto, data.base_url.rstrip("/"), data.models, int(data.enabled),
+           "local" if auth == "local_ollama" else "cloud", pid)
+    if data.api_key is not None and auth != "oauth_subscription":
+        db.run("UPDATE connections SET secret_enc = ? WHERE id = ?", encrypt(data.api_key), pid)
     llm._model_cache.pop(pid, None)
-    return _provider_out(db.one("SELECT * FROM providers WHERE id = ?", pid))
+    return _provider_out(db.one("SELECT * FROM connections WHERE id = ?", pid))
 
 
 @api.delete("/providers/{pid}")
 def delete_provider(pid: int):
-    db.run("DELETE FROM providers WHERE id = ?", pid)
+    db.run("DELETE FROM connections WHERE id = ?", pid)
     llm._model_cache.pop(pid, None)
     return {"ok": True}
 
@@ -238,7 +263,7 @@ async def ollama_pull(data: PullIn):
                             yield json.loads(line)
                         except ValueError:
                             continue
-        for p in db.all("SELECT id FROM providers WHERE kind = 'ollama'"):
+        for p in db.all("SELECT id FROM connections WHERE auth_kind = 'local_ollama'"):
             llm._model_cache.pop(p["id"], None)
         yield {"done": True}
 

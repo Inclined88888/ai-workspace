@@ -4,8 +4,21 @@ import { Link } from "react-router-dom";
 import { api, stream } from "../api";
 import { ModelSelect, useModels, useToast } from "../util";
 
-type Provider = { id: number; name: string; kind: string; base_url: string; models: string; enabled: number; has_key: boolean; key_hint: string };
-type Presets = Record<string, { name: string; base_url: string; note?: string }>;
+type Provider = { id: number; name: string; auth_kind: string; protocol: string; base_url: string; models: string; enabled: number;
+  has_key: boolean; key_hint: string; state: string; last_error: string };
+type Presets = Record<string, { name: string; auth_kind: string; protocol: string; base_url: string; note?: string }>;
+
+// The connection types a user can create here; subscription sign-in has its own flow (item 101)
+const CONNECTION_TYPES: Record<string, string> = {
+  "api_key/chat_completions": "API key · Chat Completions",
+  "api_key/responses": "API key · OpenAI Responses",
+  "api_key/anthropic_messages": "API key · Anthropic Messages",
+  "openai_compatible/chat_completions": "OpenAI compatible server (key optional)",
+  "local_ollama/ollama_native": "Ollama (local)",
+};
+const typeLabel = (p: { auth_kind: string; protocol: string }) =>
+  CONNECTION_TYPES[`${p.auth_kind}/${p.protocol}`] ?? `${p.auth_kind} · ${p.protocol}`;
+const EMPTY_FORM = { name: "", type: "openai_compatible/chat_completions", base_url: "", api_key: "", models: "" };
 type MailAccount = { id: number; name: string; email: string; imap_host: string; smtp_host: string };
 
 const MAIL_PRESETS: Record<string, { imap_host: string; smtp_host: string; smtp_port: number; smtp_security: "ssl" | "starttls"; note: string }> = {
@@ -18,7 +31,7 @@ const MAIL_PRESETS: Record<string, { imap_host: string; smtp_host: string; smtp_
 function Providers() {
   const [list, setList] = useState<Provider[]>([]);
   const [presets, setPresets] = useState<Presets>({});
-  const [form, setForm] = useState({ name: "", kind: "openai", base_url: "", api_key: "", models: "" });
+  const [form, setForm] = useState(EMPTY_FORM);
   const [note, setNote] = useState("");
   const toast = useToast();
   const load = () => api<{ providers: Provider[]; presets: Presets }>("/providers").then((r) => { setList(r.providers); setPresets(r.presets); }).catch(toast.err);
@@ -27,14 +40,15 @@ function Providers() {
   const add = async (e: FormEvent) => {
     e.preventDefault();
     try {
-      await api("/providers", { body: form });
-      setForm({ name: "", kind: "openai", base_url: "", api_key: "", models: "" });
+      const [auth_kind, protocol] = form.type.split("/");
+      await api("/providers", { body: { name: form.name, auth_kind, protocol, base_url: form.base_url, api_key: form.api_key, models: form.models } });
+      setForm(EMPTY_FORM);
       load();
       toast.ok("Provider added");
     } catch (err) { toast.err(err); }
   };
   const toggle = async (p: Provider) => {
-    await api(`/providers/${p.id}`, { method: "PUT", body: { name: p.name, kind: p.kind, base_url: p.base_url, models: p.models, enabled: !p.enabled } });
+    await api(`/providers/${p.id}`, { method: "PUT", body: { name: p.name, auth_kind: p.auth_kind, protocol: p.protocol, base_url: p.base_url, models: p.models, enabled: !p.enabled } });
     load();
   };
   const remove = async (p: Provider) => {
@@ -44,7 +58,7 @@ function Providers() {
   };
   const usePreset = (k: string) => {
     const p = presets[k];
-    if (p) setForm({ ...form, name: p.name, base_url: p.base_url, kind: k === "anthropic" ? "anthropic" : k === "ollama" ? "ollama" : "openai" });
+    if (p) setForm({ ...form, name: p.name, base_url: p.base_url, type: `${p.auth_kind}/${p.protocol}` });
     setNote(p?.note ?? "");
   };
 
@@ -57,8 +71,9 @@ function Providers() {
           <div key={p.id} className="list-item" style={{ cursor: "default" }}>
             <input type="checkbox" checked={!!p.enabled} onChange={() => toggle(p)} />
             <div className="grow">
-              <div>{p.name} <span className="badge">{p.kind}</span></div>
+              <div>{p.name} <span className="badge">{typeLabel(p)}</span>{p.state !== "connected" && <span className="badge">{p.state === "needs_auth" ? "needs sign-in" : p.state}</span>}</div>
               <div className="faint small mono truncate">{p.base_url}{p.has_key ? ` · key ${p.key_hint || "set"}` : ""}{p.models ? ` · ${p.models}` : ""}</div>
+              {p.last_error && <div className="small" style={{ color: "var(--danger)" }}>{p.last_error}</div>}
             </div>
             <button className="btn ghost sm icon" onClick={() => remove(p)}><Trash2 size={13} /></button>
           </div>
@@ -72,8 +87,8 @@ function Providers() {
         {note && <div className="muted small">{note}</div>}
         <div className="row wrap">
           <input className="input" style={{ width: 180 }} required placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-          <select className="input" style={{ width: 160 }} value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })}>
-            <option value="openai">OpenAI compatible</option><option value="anthropic">Anthropic</option><option value="ollama">Ollama</option>
+          <select className="input" style={{ width: 250 }} value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })} aria-label="Connection type">
+            {Object.entries(CONNECTION_TYPES).map(([v, label]) => <option key={v} value={v}>{label}</option>)}
           </select>
           <input className="input grow" style={{ minWidth: 220 }} required placeholder="Base URL, e.g. https://api.groq.com/openai/v1" value={form.base_url} onChange={(e) => setForm({ ...form, base_url: e.target.value })} />
         </div>

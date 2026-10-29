@@ -21,7 +21,7 @@ from .tools import tools
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     db.init()
-    llm.seed_providers()
+    llm.seed_connections()
     api.recover_interrupted()
     actions.recover()
     company.recover()
