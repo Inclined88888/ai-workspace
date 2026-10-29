@@ -5,10 +5,12 @@ and the workspace tools. After a turn, learn.py mines the conversation for new m
 """
 
 import asyncio
+import hashlib
 import inspect
 import json
 import re
 import time
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, AsyncIterator, Callable
@@ -37,6 +39,7 @@ class Ctx:
     receipts: list[dict] = field(default_factory=list)  # checks of what this turn's tools changed
     from_text: bool = False            # the current call was recovered from text
     turn_action_id: int | None = None  # this turn's row in `actions`; its model and tool calls point at it
+    request_key: str = ""              # caller's idempotency key: a retried request with the same key is refused (item 28)
     started: float = 0.0
 
     def trace(self) -> dict:
@@ -307,6 +310,17 @@ async def run_tool(name: str, raw_args: str, ctx: Ctx, approved: bool = False) -
     if needs_approval(t, ctx) and not approved:
         done(False, "", "denied" if ctx.channel in UNATTENDED else "held", payload=raw_args or "{}", detail=HOLD_REASON)
         return False, _hold_message(t, ctx.receipts[-1]["action_id"], ctx)
+    # Idempotency (item 28): when the model repeats a change it already made in this turn, it is not made again.
+    # A repeat is the same tool with the same arguments and no other change in between, so a deliberate toggle
+    # (doing, todo, doing) still runs. Reads are never deduplicated; a call that failed may be retried.
+    key = None
+    if t.effect != "read" and ctx.turn_action_id and not approved:
+        key = f"tool:{ctx.turn_action_id}:" + hashlib.sha256(f"{name}|{json.dumps(args, sort_keys=True)}".encode()).hexdigest()[:32]
+        prior = actions.last_change(ctx.turn_action_id, key)
+        if prior and not actions.changed_since(ctx.turn_action_id, prior["id"]):
+            done(True, "", "duplicate", None, prior["evidence"], detail=f"same call as action #{prior['id']}; not run again")
+            return True, (f"Already done earlier in this turn (action #{prior['id']}): {prior['evidence'] or name + ' succeeded'}. "
+                          "It was not run again. Do not repeat it.")
     sig = inspect.signature(t.fn)
     if "ctx" in sig.parameters:
         args["ctx"] = ctx
@@ -332,7 +346,8 @@ async def run_tool(name: str, raw_args: str, ctx: Ctx, approved: bool = False) -
     verified, evidence = receipts.verify(name, args, result)
     if verified is False:  # the tool returned, but what it was asked to do is not there
         return done(False, f"Error: the change could not be confirmed: {evidence}", "check_failed", False, evidence)
-    return done(True, out, "verified" if verified else "ok", verified, evidence, receipts.ref_of(name, result))
+    return done(True, out, "verified" if verified else "ok", verified, evidence, receipts.ref_of(name, result),
+                request_id=f"{key}:{uuid.uuid4().hex[:8]}" if key else None)
 
 
 def system_prompt(ctx: Ctx, user_text: str) -> str:
@@ -453,6 +468,8 @@ async def _run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> Async
     conv = db.one("SELECT * FROM conversations WHERE id = ?", ctx.conversation_id)
     if not conv:
         raise HTTPException(404, "Conversation not found")
+    if ctx.request_key and actions.by_key("turn:" + ctx.request_key):
+        raise HTTPException(409, "This request was already received (same idempotency key); it was not run again")
     if conv["title"] == "New chat":
         db.run("UPDATE conversations SET title = ? WHERE id = ?", user_text.strip().splitlines()[0][:80] or "Chat", ctx.conversation_id)
     model = model or (ctx.agent or {}).get("model") or conv["model"] or None
@@ -461,7 +478,8 @@ async def _run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> Async
     except HTTPException:
         ctx.model = ""
     ctx.started = time.monotonic()
-    ctx.turn_action_id = actions.add("turn", "running", trace=ctx.trace(), model=ctx.model)
+    ctx.turn_action_id = actions.add("turn", "running", trace=ctx.trace(), model=ctx.model,
+                                     request_id=("turn:" + ctx.request_key) if ctx.request_key else None)
     _save(ctx.conversation_id, "user", user_text)
     specs = [t.spec() for t in available_tools(ctx)]
     ctx.tainted = ctx.tainted or bool(db.one(

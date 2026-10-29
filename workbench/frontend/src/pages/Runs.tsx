@@ -16,7 +16,7 @@ type Run = Action & Totals & { conversation_title: string | null };
 type Node = Action & { children: Node[] };
 
 const GOOD = new Set(["ok", "verified", "backed", "fixed", "no_claim", "approved"]);
-const PENDING = new Set(["running", "held"]);
+const PENDING = new Set(["running", "held", "duplicate"]);
 const tone = (o: string) => (GOOD.has(o) ? "ok" : PENDING.has(o) ? "warn" : o === "budget_paused" ? "warn" : "danger");
 const usd = (v: number | null, unpriced = 0) => (v === null ? (unpriced ? "price unknown" : "$0") : `$${v < 0.01 && v > 0 ? v.toFixed(4) : v.toFixed(2)}${unpriced ? " + unpriced" : ""}`);
 const secs = (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`);

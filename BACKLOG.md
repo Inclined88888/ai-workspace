@@ -19,7 +19,8 @@ Out of scope for the current branch, dropped, or blocked. Nothing is dropped sil
 ## Scheduled later
 
 * **Claude Code launcher add-on (Phase 3, decision D2).** It runs the user's own unmodified Claude Code binary, and the user signs in through Anthropic's flow. Needs Node, so it is an add-on (R6).
-* **Idempotency semantics (item 28).** `actions.request_id` is unique per row today; callers cannot yet supply a key to deduplicate retries.
+* **Idempotency across interleaved writes (item 28 follow up).** A model loop of the form A, B, A runs A twice, because a repeat is only recognised when no other change ran in between (so toggles keep working). Closing it needs per tool semantics (which writes are naturally idempotent). Design record 0001, "Idempotency keys".
+* **The web chat does not send an Idempotency-Key yet.** It never retries a request, so there is nothing to deduplicate; the CLI (item 84) should send one.
 
 ## Found during work, not yet scheduled
 
