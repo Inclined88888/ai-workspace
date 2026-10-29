@@ -4,6 +4,19 @@ Every user-visible change that needs action, or changes data on upgrade, gets an
 migration steps, rollback steps. Workbench has no release numbers yet (BACKLOG). Entries are identified by schema
 version and the merge commit on `main`.
 
+## 2026-10-29 · Fix upgrades from the original ROOKS database
+
+Older ROOKS installations used `tool_runs(at, ok, actor, mission_id, ...)` before
+receipt-style `created_at`/`outcome` fields existed. Upgrades now detect and migrate
+both layouts instead of crash-looping with `no such column: created_at`. Original
+timestamps, execution outcomes, latency, conversation links and actor/mission
+metadata are preserved; historical success is not labelled verified. Sensitive
+arguments/errors are redacted in the new trace. A full pre-upgrade database backup
+is retained. Unknown layouts roll back without dropping the source rows.
+
+Rebuild/restart Workbench after pulling this fix. No database reset, volume deletion,
+secret rotation or manual SQL is needed. Existing schema-v2 installations are unchanged.
+
 ## 2026-10-29 · Phase 0 acceptance and release foundations · 73, 79, 83, 84, 80
 
 * Authenticate main API schema discovery at `/api/openapi.json`.

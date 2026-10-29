@@ -1,3 +1,4 @@
+import json
 import sqlite3
 import threading
 from contextlib import contextmanager
@@ -359,9 +360,25 @@ def migrate_v1(c: sqlite3.Connection, legacy: list[str]) -> None:
                   f"outcome, request_id) SELECT ts, 'model_call', agent_id, conversation_id, channel, model, prompt_tokens, "
                   f"completion_tokens, CASE WHEN priced = 1 THEN cost_cents / 100.0 END, 'ok', {rid} FROM usage ORDER BY id")
     if "tool_runs" in legacy:
-        c.execute(f"INSERT INTO actions(ts, kind, conversation_id, model, tool, outcome, verified, evidence, from_text, latency_ms, "
-                  f"request_id) SELECT created_at, 'tool_call', conversation_id, model, tool, outcome, verified, evidence, from_text, "
-                  f"ms, {rid} FROM tool_runs ORDER BY id")
+        columns = {row[1] for row in c.execute("PRAGMA table_info(tool_runs)")}
+        if {"created_at", "model", "outcome", "verified", "evidence", "from_text"} <= columns:
+            c.execute(f"INSERT INTO actions(ts, kind, conversation_id, model, tool, outcome, verified, evidence, from_text, latency_ms, "
+                      f"request_id) SELECT created_at, 'tool_call', conversation_id, model, tool, outcome, verified, evidence, from_text, "
+                      f"ms, {rid} FROM tool_runs ORDER BY id")
+        elif {"id", "at", "tool", "actor", "conversation_id", "mission_id", "ok", "ms", "args", "error"} <= columns:
+            # The original ROOKS ledger predates receipts. Execution success is not
+            # evidence that the requested change was verified.
+            from .redact import redact
+            c.row_factory = sqlite3.Row
+            for row in c.execute("SELECT * FROM tool_runs ORDER BY id").fetchall():
+                metadata = json.dumps({"legacy_tool_run_id": row["id"], "actor": row["actor"],
+                                       "mission_id": row["mission_id"]})
+                c.execute(f"INSERT INTO actions(ts, kind, conversation_id, channel, tool, outcome, latency_ms, "
+                          f"args, failure_reason, detail, request_id) VALUES (?, 'tool_call', ?, 'legacy', ?, ?, ?, ?, ?, ?, {rid})",
+                          (row["at"], row["conversation_id"], row["tool"], "ok" if row["ok"] else "tool_error", row["ms"],
+                           redact(row["args"]), redact(row["error"]), redact(metadata)))
+        else:
+            raise RuntimeError("Unsupported legacy tool_runs schema; original rows retained. Restore the previous image or report the table column names.")
     if "turn_checks" in legacy:
         c.execute(f"INSERT INTO actions(ts, kind, conversation_id, model, outcome, failure_reason, request_id) "
                   f"SELECT created_at, 'turn', conversation_id, model, outcome, detail, {rid} FROM turn_checks ORDER BY id")
