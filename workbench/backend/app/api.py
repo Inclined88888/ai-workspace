@@ -305,7 +305,7 @@ def assist(data: AssistIn):
         " Output only the resulting Markdown text with no preamble, no explanation and no code fences."
     )
     user = data.text if data.action != "custom" else f"Instruction: {data.instruction}\n\nText:\n{data.text}"
-    return sse(llm.stream(data.model, [{"role": "system", "content": system}, {"role": "user", "content": user}]))
+    return sse(llm.stream(data.model, [{"role": "system", "content": system}, {"role": "user", "content": user}], {"channel": "assist"}))
 
 
 # Tasks
@@ -341,7 +341,7 @@ async def breakdown(data: BreakdownIn):
     out = await llm.complete(data.model, [
         {"role": "system", "content": "Break goals into concrete next actions. Reply with only a JSON array of short task titles (max 10)."},
         {"role": "user", "content": data.goal},
-    ])
+    ], {"channel": "tasks"})
     titles = [t for t in (llm.parse_json(out) or []) if isinstance(t, str) and t.strip()][:10]
     if not titles:
         raise HTTPException(502, "The model did not return a task list. Try again or pick another model.")
@@ -520,7 +520,7 @@ def draft_reply(data: ReplyIn):
             "Output only the reply body, no subject line."
         )},
         {"role": "user", "content": f"Original email:\n{data.message}\n\nWhat my reply should say: {data.intent or 'a suitable reply'}"},
-    ]))
+    ], {"channel": "mail"}))
 
 
 @api.get("/mail/drafts")
@@ -593,7 +593,7 @@ def compare(data: CompareIn):
             if m.get("role") in ("user", "assistant")]
     if data.system.strip():
         msgs.insert(0, {"role": "system", "content": data.system})
-    return sse(llm.stream(data.model, msgs))
+    return sse(llm.stream(data.model, msgs, {"channel": "compare"}))
 
 
 async def calendar_loop():

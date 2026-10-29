@@ -67,10 +67,11 @@ def _update(rid: int, **fields) -> None:
 async def run(rid: int, question: str, model: str, depth: int) -> None:
     try:
         _update(rid, progress="Planning search queries")
+        trace = {"channel": "research"}
         plan = await llm.complete(model, [
             {"role": "system", "content": "You plan web research. Reply with only a JSON array of strings."},
             {"role": "user", "content": f"Write {depth + 1} distinct, specific web search queries that together answer:\n{question}"},
-        ])
+        ], trace)
         queries = [q for q in (llm.parse_json(plan) or []) if isinstance(q, str)][: depth + 1] or [question]
 
         seen: dict[str, dict] = {}
@@ -111,7 +112,7 @@ async def run(rid: int, question: str, model: str, depth: int) -> None:
                 "Do not add a reference list; it is appended automatically."
             )},
             {"role": "user", "content": f"Question: {question}\n\nSources:\n{context}"},
-        ])
+        ], trace)
         refs = "\n".join(f"{i}. [{s['title'] or s['url']}]({s['url']})" for i, s in enumerate(sources, 1))
         _update(rid, status="done", progress="Done", report=f"{report}\n\n## Sources\n\n{refs}")
     except Exception as e:  # noqa: BLE001 - surface any failure to the UI

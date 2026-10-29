@@ -7,6 +7,7 @@ Both are recorded per model, so how reliable each model is with your tools is me
 """
 
 import re
+import time
 from typing import Any, Callable
 
 from . import db
@@ -211,16 +212,25 @@ def unbacked_claim(text: str, receipts: list[dict]) -> tuple[str, str]:
     return contradiction(text, receipts)
 
 
-# The ledger
-def record_tool(ctx, tool: str, outcome: str, verified: bool | None, evidence: str, from_text: bool, ms: int) -> None:
-    db.run("INSERT INTO tool_runs(conversation_id, model, tool, outcome, verified, evidence, from_text, ms, created_at) "
-           "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", ctx.conversation_id, ctx.model, tool, outcome,
-           None if verified is None else int(verified), evidence[:500], int(from_text), ms, db.now())
+# The ledger: tool calls and turns are rows in `actions` (actions.py), next to the model calls llm.py records
+def record_tool(ctx, tool: str, outcome: str, verified: bool | None, evidence: str, from_text: bool, ms: int, *,
+                effect: str = "", args: str = "", payload: str | None = None, detail: str = "", failure: str = "") -> int:
+    from . import actions
+
+    return actions.add("tool_call", outcome, trace=ctx.trace(), payload=payload, model=ctx.model, tool=tool, effect=effect,
+                       args=actions.args_preview(args), verified=None if verified is None else int(verified), evidence=evidence,
+                       from_text=int(from_text), latency_ms=ms, detail=detail, failure_reason=failure)
 
 
 def record_turn(ctx, outcome: str, detail: str = "") -> None:
-    db.run("INSERT INTO turn_checks(conversation_id, model, outcome, detail, created_at) VALUES (?, ?, ?, ?, ?)",
-           ctx.conversation_id, ctx.model, outcome, detail[:500], db.now())
+    """Close the turn's row (opened when the turn started) with how it ended."""
+    from . import actions
+
+    ms = int((time.monotonic() - ctx.started) * 1000) if ctx.started else 0
+    if ctx.turn_action_id:
+        actions.finish(ctx.turn_action_id, outcome, failure_reason=detail, latency_ms=ms)
+    else:
+        actions.add("turn", outcome, trace=ctx.trace(), model=ctx.model, failure_reason=detail)
 
 
 MODEL_FAULTS = ("bad_args", "unknown_tool", "rejected")
@@ -232,13 +242,14 @@ def reliability() -> dict[str, dict]:
     for r in db.all(
         "SELECT model, COUNT(*) AS calls, SUM(outcome IN ('ok', 'verified')) AS ok, "
         f"SUM(outcome IN ({','.join('?' * len(MODEL_FAULTS))})) AS model_errors, SUM(outcome = 'check_failed') AS check_failed, "
-        "SUM(outcome = 'verified') AS verified, SUM(from_text) AS from_text FROM tool_runs WHERE model != '' GROUP BY model",
+        "SUM(outcome = 'verified') AS verified, SUM(from_text) AS from_text FROM actions "
+        "WHERE kind = 'tool_call' AND model != '' AND outcome NOT IN ('held', 'denied') GROUP BY model",
         *MODEL_FAULTS,
     ):
         judged = r["ok"] + r["model_errors"] + r["check_failed"]
         out[r["model"]] = {**r, "success_rate": round(r["ok"] / judged, 3) if judged else None}
     for t in db.all("SELECT model, COUNT(*) AS turns, SUM(outcome = 'unbacked') AS unbacked, SUM(outcome = 'fixed') AS fixed, "
-                    "SUM(outcome = 'model_error') AS model_failures FROM turn_checks WHERE model != '' GROUP BY model"):
+                    "SUM(outcome = 'model_error') AS model_failures FROM actions WHERE kind = 'turn' AND model != '' GROUP BY model"):
         out.setdefault(t["model"], {"model": t["model"], "calls": 0, "success_rate": None}).update(
             turns=t["turns"], false_claims_caught=t["fixed"] + t["unbacked"], false_claims_left=t["unbacked"],
             model_failures=t["model_failures"])

@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 import httpx
 from fastapi import HTTPException
 
-from . import config, db, llm, receipts, research, services, tools, usage
+from . import actions, config, db, llm, receipts, research, services, tools
 
 MAX_STEPS = 12
 HISTORY_MESSAGES = 40
@@ -36,6 +36,12 @@ class Ctx:
     model: str = ""                    # model ref answering this turn (for the reliability record)
     receipts: list[dict] = field(default_factory=list)  # checks of what this turn's tools changed
     from_text: bool = False            # the current call was recovered from text
+    turn_action_id: int | None = None  # this turn's row in `actions`; its model and tool calls point at it
+    started: float = 0.0
+
+    def trace(self) -> dict:
+        return {"channel": self.channel, "conversation_id": self.conversation_id,
+                "agent_id": (self.agent or {}).get("id"), "parent": self.turn_action_id}
 
 
 @dataclass
@@ -256,15 +262,15 @@ def needs_approval(t: Tool, ctx: Ctx) -> bool:
     return ctx.tainted and t.effect in GATED_EFFECTS
 
 
-def _hold_for_approval(t: Tool, raw_args: str, ctx: Ctx) -> tuple[int, str]:
-    status = "denied" if ctx.channel in UNATTENDED else "pending"
-    reason = "This conversation contains untrusted web or email content."
-    aid = db.run("INSERT INTO pending_actions(conversation_id, tool, args, effect, reason, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                 ctx.conversation_id, t.name, raw_args or "{}", t.effect, reason, status, db.now())
-    if status == "denied":
-        return aid, (f"Not run: {t.name} needs the user's approval because {reason[0].lower() + reason[1:]} "
-                     "This is an unattended run, so it was refused. Report what you wanted to do instead.")
-    return aid, (f"Not run yet: {t.name} is waiting for the user's approval (request #{aid}) because {reason[0].lower() + reason[1:]} "
+HOLD_REASON = "This conversation contains untrusted web or email content."
+
+
+def _hold_message(t: Tool, aid: int, ctx: Ctx) -> str:
+    reason = HOLD_REASON
+    if ctx.channel in UNATTENDED:
+        return (f"Not run: {t.name} needs the user's approval because {reason[0].lower() + reason[1:]} "
+                "This is an unattended run, so it was refused. Report what you wanted to do instead.")
+    return (f"Not run yet: {t.name} is waiting for the user's approval (request #{aid}) because {reason[0].lower() + reason[1:]} "
                  "Tell the user exactly what you want to do and why, then stop. Do not call it again.")
 
 
@@ -280,10 +286,12 @@ async def run_tool(name: str, raw_args: str, ctx: Ctx, approved: bool = False) -
     started = time.monotonic()
     t = TOOL_MAP.get(name)
 
-    def done(ok: bool, out: str, outcome: str, verified: bool | None = None, evidence: str = "", ref=None) -> tuple[bool, str]:
-        receipts.record_tool(ctx, name, outcome, verified, evidence, ctx.from_text, int((time.monotonic() - started) * 1000))
+    def done(ok: bool, out: str, outcome: str, verified: bool | None = None, evidence: str = "", ref=None,
+             **row) -> tuple[bool, str]:
+        aid = receipts.record_tool(ctx, name, outcome, verified, evidence, ctx.from_text, int((time.monotonic() - started) * 1000),
+                                   effect=t.effect if t else "", args=raw_args, failure="" if ok else out[:500], **row)
         ctx.receipts.append({"tool": name, "effect": t.effect if t else "read", "outcome": outcome, "verified": verified,
-                             "evidence": evidence, "ref": ref})
+                             "evidence": evidence, "ref": ref, "action_id": aid})
         return ok, out
 
     if not t or not t.when(ctx):
@@ -295,8 +303,8 @@ async def run_tool(name: str, raw_args: str, ctx: Ctx, approved: bool = False) -
     except ValueError as e:
         return done(False, f"Invalid arguments: {e}", "bad_args")
     if needs_approval(t, ctx) and not approved:
-        aid, msg = _hold_for_approval(t, raw_args, ctx)
-        return done(False, msg, "denied" if ctx.channel in UNATTENDED else "held", evidence=f"request #{aid}")
+        done(False, "", "denied" if ctx.channel in UNATTENDED else "held", payload=raw_args or "{}", detail=HOLD_REASON)
+        return False, _hold_message(t, ctx.receipts[-1]["action_id"], ctx)
     sig = inspect.signature(t.fn)
     if "ctx" in sig.parameters:
         args["ctx"] = ctx
@@ -420,7 +428,26 @@ def _save(conversation_id: int, role: str, content: str = "", tool_calls: list |
 
 
 async def run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> AsyncIterator[dict]:
-    """Run one user turn. Yields events: tool_call, tool_result, message, error, done."""
+    """Run one user turn. Yields events: tool_call, tool_result, message, error, done.
+
+    Whatever happens (an exception, the client closing the stream), the turn's row in `actions` ends with an outcome.
+    """
+    try:
+        async for e in _run_turn(ctx, user_text, model):
+            yield e
+    except Exception as e:
+        _close_turn(ctx, "error", f"{e.__class__.__name__}: {e}")
+        raise
+    finally:
+        _close_turn(ctx, "interrupted", "the stream was closed before the turn finished")
+
+
+def _close_turn(ctx: Ctx, outcome: str, reason: str) -> None:
+    if ctx.turn_action_id and (db.one("SELECT outcome FROM actions WHERE id = ?", ctx.turn_action_id) or {}).get("outcome") == "running":
+        receipts.record_turn(ctx, outcome, reason)
+
+
+async def _run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> AsyncIterator[dict]:
     conv = db.one("SELECT * FROM conversations WHERE id = ?", ctx.conversation_id)
     if not conv:
         raise HTTPException(404, "Conversation not found")
@@ -431,6 +458,8 @@ async def run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> AsyncI
         ctx.model = model or llm.default_model_ref()
     except HTTPException:
         ctx.model = ""
+    ctx.started = time.monotonic()
+    ctx.turn_action_id = actions.add("turn", "running", trace=ctx.trace(), model=ctx.model)
     _save(ctx.conversation_id, "user", user_text)
     specs = [t.spec() for t in available_tools(ctx)]
     ctx.tainted = ctx.tainted or bool(db.one(
@@ -448,13 +477,14 @@ async def run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> AsyncI
             reason = over_budget(agent)
             if reason:
                 db.run("UPDATE agents SET status = 'paused', paused_reason = ? WHERE id = ?", reason, agent["id"])
+                receipts.record_turn(ctx, "budget_paused", reason)
                 yield {"type": "error", "error": f"{agent['name']} paused: {reason}", "budget": True}
                 return
         system = system_prompt(ctx, user_text)
         msgs = [{"role": "system", "content": system},
                 *_history(ctx.conversation_id, budget - len(system) - len(json.dumps(specs)))]
         try:
-            res = await llm.chat(model, msgs, specs)
+            res = await llm.chat(model, msgs, specs, trace=ctx.trace())
         except HTTPException as e:
             receipts.record_turn(ctx, "model_error", str(e.detail))
             yield {"type": "error", "error": str(e.detail)}
@@ -463,7 +493,7 @@ async def run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> AsyncI
                 _save(ctx.conversation_id, "assistant", done_so_far)
                 yield {"type": "message", "content": done_so_far}
             return
-        cost += usage.record(res, channel=ctx.channel, agent_id=(ctx.agent or {}).get("id"), conversation_id=ctx.conversation_id)
+        cost += (res["usd"] or 0) * 100
         msg = res["message"]
         calls = msg.get("tool_calls") or []
         mid = _save(ctx.conversation_id, "assistant", msg.get("content") or "", calls)
@@ -502,11 +532,9 @@ async def run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> AsyncI
             r = ctx.receipts[-1] if ctx.receipts else {}
             yield {"type": "tool_result", "name": fn["name"], "ok": ok, "preview": out[:300],
                    "receipt": {"verified": r.get("verified"), "evidence": r.get("evidence", "")}}
-            held = db.one("SELECT * FROM pending_actions WHERE conversation_id = ? AND tool = ? ORDER BY id DESC LIMIT 1",
-                          ctx.conversation_id, fn["name"]) if not ok and out.startswith("Not run") else None
-            if held:
-                yield {"type": "approval_required" if held["status"] == "pending" else "approval_denied", "id": held["id"],
-                       "tool": held["tool"], "args": held["args"][:500], "effect": held["effect"], "reason": held["reason"]}
+            if r.get("outcome") in ("held", "denied"):
+                yield {"type": "approval_required" if r["outcome"] == "held" else "approval_denied", "id": r["action_id"],
+                       "tool": fn["name"], "args": fn["arguments"][:500], "effect": r["effect"], "reason": HOLD_REASON}
     else:
         final = f"I stopped after {MAX_STEPS} steps without finishing. Tell me how to continue."
         _save(ctx.conversation_id, "assistant", final)
@@ -521,25 +549,19 @@ async def run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> AsyncI
 async def decide(action_id: int, approve: bool) -> dict:
     """The user's answer to a held action. Approved actions run now; the outcome is added to the conversation
     so the assistant sees it on the next turn."""
-    a = db.one("SELECT * FROM pending_actions WHERE id = ?", action_id)
-    if not a:
-        raise HTTPException(404, "Approval request not found")
-    if a["status"] != "pending":
-        raise HTTPException(409, f"Already {a['status']}")
-    claimed = db.run("UPDATE pending_actions SET status = ?, decided_at = ? WHERE id = ? AND status = 'pending'",
-                     "approved" if approve else "denied", db.now(), action_id)
-    if not claimed:  # a second click or another client decided first
-        raise HTTPException(409, "Already decided")
+    a = actions.approval(action_id)
+    decision = actions.decide(action_id, approve)  # 409 if already answered
     if not approve:
         _save(a["conversation_id"], "user", f"[I denied request #{action_id}: {a['tool']}. Do not do it.]")
-        return db.one("SELECT * FROM pending_actions WHERE id = ?", action_id)
-    ctx = Ctx(channel="web", conversation_id=a["conversation_id"])
-    ok, out = await run_tool(a["tool"], a["args"], ctx, approved=True)
-    db.run("UPDATE pending_actions SET status = ?, result = ? WHERE id = ?", "done" if ok else "failed", out[:4000], action_id)
+        return actions.approval(action_id)
+    ctx = Ctx(channel="web", conversation_id=a["conversation_id"], turn_action_id=decision)
+    ok, out = await run_tool(a["tool"], actions.raw_args(action_id), ctx, approved=True)
+    run = ctx.receipts[-1]
+    actions.finish(run["action_id"], run["outcome"], detail=out[:2000])
     # The result stays labelled untrusted (run_tool prefixes it) and keeps the tool name, so the conversation stays tainted
     _save(a["conversation_id"], "user", f"[I approved request #{action_id}: {a['tool']}. Result: {out[:2000]}]",
           name=a["tool"] if a["tool"] in UNTRUSTED_TOOLS else "")
-    return db.one("SELECT * FROM pending_actions WHERE id = ?", action_id)
+    return actions.approval(action_id)
 
 
 async def ask(ctx: Ctx, text: str, model: str | None = None) -> tuple[str, list[dict]]:

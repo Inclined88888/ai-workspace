@@ -285,22 +285,79 @@ def _body(p: dict, model: str, messages: list[dict], stream: bool) -> dict:
     return body
 
 
-async def complete(ref: str | None, messages: list[dict]) -> str:
-    p, model = split_ref(ref or default_model_ref())
+def describe(p: dict) -> tuple[str, str]:
+    """(auth_kind, protocol) for the run log. Derived from today's single `kind` field until the R1 split lands."""
+    if p["kind"] == "ollama":
+        return "local_ollama", "ollama_native"
+    official = ("api.openai.com", "api.anthropic.com", "openrouter.ai", "generativelanguage.googleapis.com", "opencode.ai")
+    return ("api_key" if any(h in p["base_url"] for h in official) else "openai_compatible"), "chat_completions"
+
+
+def _reported_cost(usage: dict) -> float | None:
+    return usage.get("cost") if isinstance(usage.get("cost"), (int, float)) else None
+
+
+def _record(p: dict, ref: str, trace: dict | None, started: float, usage: dict, reported: float | None,
+            outcome: str, error: str = "") -> tuple[int, float | None]:
+    """One model_call row per call, success or failure (R2). Returns (action id, USD cost or None if unpriced)."""
+    from . import actions
+    from .usage import price_usd
+
+    pt, ct = int(usage.get("prompt_tokens") or 0), int(usage.get("completion_tokens") or 0)
+    usd = reported if reported is not None else price_usd(ref, pt, ct)
+    auth_kind, protocol = describe(p)
+    aid = actions.add("model_call", outcome, trace=trace, provider=p["name"], model=ref, auth_kind=auth_kind,
+                      protocol=protocol, latency_ms=int((time.monotonic() - started) * 1000), tokens_in=pt, tokens_out=ct,
+                      usd_cost=usd, failure_reason=error)
+    return aid, usd
+
+
+async def complete(ref: str | None, messages: list[dict], trace: dict | None = None) -> str:
+    ref = ref or default_model_ref()
+    p, model = split_ref(ref)
+    started = time.monotonic()
+    try:
+        text, usage = await _complete(p, model, messages)
+    except HTTPException as e:
+        _record(p, ref, trace, started, {}, None, "error", str(e.detail))
+        raise
+    _record(p, ref, trace, started, usage, _reported_cost(usage), "ok")
+    return text
+
+
+async def _complete(p: dict, model: str, messages: list[dict]) -> tuple[str, dict]:
     if p["kind"] == "ollama":
         data = await _ollama_post(p, _ollama_body(model, messages, False))
-        return THINK_RE.sub("", (data.get("message") or {}).get("content") or "").strip()
+        return THINK_RE.sub("", (data.get("message") or {}).get("content") or "").strip(), _ollama_usage(data)
     r = await _post(p, f"{p['base_url'].rstrip('/')}/chat/completions", _body(p, model, messages, False), _headers(p))
     if r.status_code >= 400:
         raise HTTPException(502, f"{p['name']} error {r.status_code}: {r.text[:400]}")
-    content = r.json()["choices"][0]["message"].get("content") or ""
-    return THINK_RE.sub("", content).strip()
+    data = r.json()
+    content = data["choices"][0]["message"].get("content") or ""
+    return THINK_RE.sub("", content).strip(), data.get("usage") or {}
 
 
-async def stream(ref: str | None, messages: list[dict]) -> AsyncIterator[dict]:
+async def stream(ref: str | None, messages: list[dict], trace: dict | None = None) -> AsyncIterator[dict]:
     """Yields {"reasoning": str} and {"delta": str} chunks, then a final {"done": True, "usage": {...}, "ms": int}."""
-    p, model = split_ref(ref or default_model_ref())
+    ref = ref or default_model_ref()
+    p, _ = split_ref(ref)
     started = time.monotonic()
+    recorded = False
+    try:
+        async for e in _stream(p, ref, messages, started):
+            if "done" in e or "error" in e:
+                recorded = True
+                ok = "done" in e
+                _record(p, ref, trace, started, e.get("usage") or {}, _reported_cost(e.get("usage") or {}),
+                        "ok" if ok else "error", "" if ok else e["error"])
+            yield e
+    finally:
+        if not recorded:  # the reader went away (closed tab) or the transport failed mid stream
+            _record(p, ref, trace, started, {}, None, "error", "stream ended before the model finished")
+
+
+async def _stream(p: dict, ref: str, messages: list[dict], started: float) -> AsyncIterator[dict]:
+    _, model = split_ref(ref)
     first_token_ms = None
     usage: dict = {}
     if p["kind"] == "ollama":
@@ -341,14 +398,25 @@ async def stream(ref: str | None, messages: list[dict]) -> AsyncIterator[dict]:
     yield {"done": True, "usage": usage, "ms": int((time.monotonic() - started) * 1000), "first_token_ms": first_token_ms}
 
 
-async def chat(ref: str | None, messages: list[dict], tools: list[dict] | None = None) -> dict:
-    """One non-streaming turn with optional tool calling.
+async def chat(ref: str | None, messages: list[dict], tools: list[dict] | None = None, trace: dict | None = None) -> dict:
+    """One non-streaming turn with optional tool calling, recorded as one model_call action.
 
-    Returns {"message": {...assistant message...}, "usage": {...}, "ref": str, "cost_usd": float | None}.
+    Returns {"message": {...}, "usage": {...}, "ref": str, "model": str, "usd": float | None, "action_id": int}.
     OpenRouter reports the real cost of each call; other providers are priced from Settings (usage.py).
     """
     ref = ref or default_model_ref()
     p, model = split_ref(ref)
+    started = time.monotonic()
+    try:
+        res = await _chat(p, ref, model, messages, tools)
+    except HTTPException as e:
+        _record(p, ref, trace, started, {}, None, "error", str(e.detail))
+        raise
+    res["action_id"], res["usd"] = _record(p, ref, trace, started, res["usage"], _reported_cost(res["usage"]), "ok")
+    return res
+
+
+async def _chat(p: dict, ref: str, model: str, messages: list[dict], tools: list[dict] | None) -> dict:
     names = {t["function"]["name"] for t in tools or []}
     if p["kind"] == "ollama":
         data = await _ollama_post(p, _ollama_body(model, messages, False, tools))
@@ -358,7 +426,7 @@ async def chat(ref: str | None, messages: list[dict], tools: list[dict] | None =
                   "function": {"name": tc["function"]["name"], "arguments": json.dumps(tc["function"].get("arguments") or {})}}
                  for i, tc in enumerate(msg.get("tool_calls") or []) if (tc.get("function") or {}).get("name") in names]
         _attach_calls(out, calls, names)
-        return {"message": out, "usage": _ollama_usage(data), "ref": ref, "model": model, "cost_usd": None}
+        return {"message": out, "usage": _ollama_usage(data), "ref": ref, "model": model}
     body = _body(p, model, messages, False)
     if tools:
         body["tools"] = tools  # tool_choice left to the default ("auto"): some Claude models reject forced choice
@@ -377,9 +445,7 @@ async def chat(ref: str | None, messages: list[dict], tools: list[dict] | None =
         for i, tc in enumerate(msg.get("tool_calls") or []) if tc.get("function", {}).get("name")
     ]
     _attach_calls(out, calls, names)
-    usage = data.get("usage") or {}
-    cost = usage.get("cost") if isinstance(usage.get("cost"), (int, float)) else None
-    return {"message": out, "usage": usage, "ref": ref, "model": model, "cost_usd": cost}
+    return {"message": out, "usage": data.get("usage") or {}, "ref": ref, "model": model}
 
 
 def _attach_calls(out: dict, calls: list[dict], names: set[str]) -> None:

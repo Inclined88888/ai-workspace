@@ -17,27 +17,16 @@ def prices() -> dict[str, dict]:
         return {}
 
 
-def _price_cents(model: str, prompt_tokens: int, completion_tokens: int) -> float | None:
-    p = prices().get(model)
+def price_usd(model_ref: str, prompt_tokens: int, completion_tokens: int) -> float | None:
+    """USD for one call from Settings prices (per million tokens), or None when no price is set.
+
+    Prices may be keyed by the model ref ("3/openai/gpt-x") or by the bare model name ("openai/gpt-x").
+    """
+    table = prices()
+    p = table.get(model_ref) or table.get(model_ref.partition("/")[2])
     if not p:
         return None
-    return (prompt_tokens * float(p.get("in", 0)) + completion_tokens * float(p.get("out", 0))) / 1_000_000 * 100
-
-
-def record(result: dict, *, channel: str, agent_id: int | None = None, conversation_id: int | None = None) -> float:
-    u = result.get("usage") or {}
-    pt, ct = int(u.get("prompt_tokens") or 0), int(u.get("completion_tokens") or 0)
-    if result.get("cost_usd") is not None:
-        cents, priced = float(result["cost_usd"]) * 100, 1
-    else:
-        c = _price_cents(result["model"], pt, ct)
-        cents, priced = (c, 1) if c is not None else (0.0, 0)
-    db.run(
-        "INSERT INTO usage(ts, model, agent_id, conversation_id, channel, prompt_tokens, completion_tokens, cost_cents, priced) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        db.now(), result["model"], agent_id, conversation_id, channel, pt, ct, cents, priced,
-    )
-    return cents
+    return (prompt_tokens * float(p.get("in", 0)) + completion_tokens * float(p.get("out", 0))) / 1_000_000
 
 
 def month_start() -> str:
@@ -45,10 +34,13 @@ def month_start() -> str:
     return n.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat(timespec="seconds")
 
 
+_CALLS = "FROM actions WHERE kind = 'model_call'"
+
+
 def agent_month(agent_id: int) -> dict:
     r = db.one(
-        "SELECT COALESCE(SUM(cost_cents), 0) AS cents, COALESCE(SUM(prompt_tokens + completion_tokens), 0) AS tokens, "
-        "COALESCE(SUM(CASE WHEN priced = 0 THEN 1 ELSE 0 END), 0) AS unpriced FROM usage WHERE agent_id = ? AND ts >= ?",
+        "SELECT COALESCE(SUM(usd_cost), 0) * 100 AS cents, COALESCE(SUM(tokens_in + tokens_out), 0) AS tokens, "
+        f"COALESCE(SUM(usd_cost IS NULL), 0) AS unpriced {_CALLS} AND agent_id = ? AND ts >= ?",
         agent_id, month_start(),
     )
     return {"cents": round(r["cents"], 2), "tokens": r["tokens"], "unpriced_calls": r["unpriced"]}
@@ -69,13 +61,13 @@ def over_budget(agent: dict) -> str:
 
 def summary() -> dict:
     start = month_start()
-    total = db.one("SELECT COALESCE(SUM(cost_cents),0) c, COALESCE(SUM(prompt_tokens+completion_tokens),0) t FROM usage WHERE ts >= ?", start)
+    total = db.one(f"SELECT COALESCE(SUM(usd_cost), 0) * 100 AS c, COALESCE(SUM(tokens_in + tokens_out), 0) AS t {_CALLS} AND ts >= ?", start)
     by_model = db.all(
-        "SELECT model, SUM(prompt_tokens + completion_tokens) AS tokens, ROUND(SUM(cost_cents), 2) AS cents, "
-        "SUM(CASE WHEN priced = 0 THEN 1 ELSE 0 END) AS unpriced_calls FROM usage WHERE ts >= ? GROUP BY model ORDER BY tokens DESC",
+        "SELECT model, SUM(tokens_in + tokens_out) AS tokens, ROUND(COALESCE(SUM(usd_cost), 0) * 100, 2) AS cents, "
+        f"SUM(usd_cost IS NULL) AS unpriced_calls {_CALLS} AND ts >= ? GROUP BY model ORDER BY tokens DESC",
         start,
     )
-    by_channel = db.all("SELECT channel, ROUND(SUM(cost_cents), 2) AS cents, SUM(prompt_tokens + completion_tokens) AS tokens "
-                        "FROM usage WHERE ts >= ? GROUP BY channel", start)
+    by_channel = db.all("SELECT channel, ROUND(COALESCE(SUM(usd_cost), 0) * 100, 2) AS cents, SUM(tokens_in + tokens_out) AS tokens "
+                        f"{_CALLS} AND ts >= ? GROUP BY channel", start)
     return {"month_cents": round(total["c"], 2), "month_tokens": total["t"], "by_model": by_model, "by_channel": by_channel,
             "prices": prices()}

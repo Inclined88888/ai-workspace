@@ -9,7 +9,7 @@ from . import redact
 
 redact.install()  # before anything logs: no secret reaches a log sink (R7)
 
-from . import api, assistant_api, browser_proxy, company, config, db, llm, scheduler, telegram  # noqa: E402
+from . import actions, api, assistant_api, browser_proxy, company, config, db, llm, scheduler, telegram  # noqa: E402
 from .mcp_server import mcp, mcp_app
 from .security import check_bearer
 from .tools import tools
@@ -20,6 +20,7 @@ async def lifespan(_: FastAPI):
     db.init()
     llm.seed_providers()
     api.recover_interrupted()
+    actions.recover()
     company.recover()
     loops = [asyncio.create_task(fn()) for fn in (api.calendar_loop, scheduler.loop, telegram.loop, company.loop)]
     async with mcp.session_manager.run():
