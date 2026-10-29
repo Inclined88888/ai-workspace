@@ -45,6 +45,6 @@ packet-level absence of telemetry needs owner validation.
 No subscription login or paid inference was performed during implementation.
 Before acceptance, build the image, sign in through Codex, run one `/run` task,
 check only the task result is returned, and verify telemetry is absent on egress.
-The isolated environment could not build Docker images in this session; CI builds
-both pinned images. Rollback: disable the profile; volumes remain until explicitly
+The pinned image built successfully locally with the managed proxy CA mounted only
+for dependency installation; CI builds both pinned images. Rollback: disable the profile; volumes remain until explicitly
 removed. No core database migration is needed.
