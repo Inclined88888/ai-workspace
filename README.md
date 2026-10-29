@@ -19,6 +19,17 @@ Everything heavier is an **optional add-on, off by default**:
 
 You don't need any of them for the assistant, memory, skills, schedules, Telegram or the company of agents. Those are built into Workbench.
 
+## Why AI Workspace
+
+1. **Light.** Core image is ~350 MB, not multi-GB, and idles at ~100 MB of RAM (measured outside Docker).
+2. **Cheap to run.** Comfortable on a €4 VPS; no GPU required for the core.
+3. **Pay for nothing you don't use.** Every add-on is off by default; Compose profiles add weight only when you ask for it.
+4. **Real GPU on a Mac.** Native Ollama on macOS is supported, so the GPU is actually used.
+5. **One image, anywhere.** The same image runs on a Mac and a small Linux server.
+6. **Safe upgrades.** Upgrades keep your `.env` and data, and re-running the installer is idempotent.
+
+The full list of [100 reasons people pick AI Workspace](docs/README.md) — including what is roadmap, clearly marked — lives in the docs.
+
 ## Quick start
 
 Requirements: Docker with Compose v2 (Docker Desktop or OrbStack on a Mac), 1 GB RAM free, about 2 GB of disk for the build. At least one model provider key, or Ollama.
