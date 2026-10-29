@@ -12,7 +12,7 @@ from . import redact
 
 redact.install()  # before anything logs: no secret reaches a log sink (R7)
 
-from . import actions, api, assistant_api, bridge, browser_proxy, company, config, db, llm, scheduler, telegram  # noqa: E402
+from . import actions, api, assistant_api, bridge, browser_proxy, company, config, db, health, llm, scheduler, telegram  # noqa: E402
 from .mcp_server import mcp, mcp_app
 from .security import check_bearer
 from .tools import tools
@@ -26,6 +26,7 @@ async def lifespan(_: FastAPI):
     actions.recover()
     company.recover()
     loops = [asyncio.create_task(fn()) for fn in (api.calendar_loop, scheduler.loop, telegram.loop, company.loop)]
+    health.LOOPS.update(zip(("Calendar sync", "Scheduler", "Telegram", "Company"), loops))
     async with mcp.session_manager.run():
         yield
     for t in loops:
@@ -64,7 +65,9 @@ async def validation_error(_: Request, exc: RequestValidationError):
 
 @app.get("/healthz", include_in_schema=False)
 def healthz():
-    return {"ok": True}
+    """Container liveness: the process answers and the database is readable. Integrations are /api/health (item 25)."""
+    d = health.database()
+    return JSONResponse({"ok": d["status"] != "down", "database": d["status"]}, status_code=503 if d["status"] == "down" else 200)
 
 
 app.include_router(api.public)

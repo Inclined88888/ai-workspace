@@ -4,6 +4,27 @@ Every user-visible change that needs action, or changes data on upgrade, gets an
 migration steps, rollback steps. Workbench has no release numbers yet (BACKLOG). Entries are identified by schema
 version and the merge commit on `main`.
 
+## 2026-10-29 · System status page · Phase 0 item 25
+
+**New**
+* A **System status** page (sidebar, `/status`) shows each part as Working, Degraded, Down or Not set up, with the reason
+  and the probe time. Parts covered:
+  * the database (schema version, free disk) and the four background loops;
+  * every model connection, probed for real: a rejected key or an unreachable server is Down, even when model names
+    were typed in by hand;
+  * the browser and SearXNG add-ons;
+  * web search, Telegram, calendars and mail accounts.
+* Checks run only when the page is opened or Check again is pressed, never in the background (R8). Results are kept for
+  one minute. Paid search APIs (Brave, Tavily) are shown as configured but not probed, because a probe costs a query.
+* API: `GET /api/health` (`fresh=true` to re-check). It needs sign-in or the CLI token. A probe also records `last_ok_at`
+  and `last_error` on the connection.
+
+**Changed**
+* `/healthz` now also reads the database. It answers 503 when SQLite is unreadable, the schema version is wrong or the
+  data volume has under 50 MB free, so Docker marks the container unhealthy instead of reporting it healthy.
+
+**Breaking changes:** none. **Migration steps:** none (schema v2 unchanged). **Rollback steps:** run the previous image.
+
 ## 2026-10-29 · A change is made once · Phase 0 item 28
 
 **New**
