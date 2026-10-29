@@ -4,6 +4,17 @@ Every user-visible change that needs action, or changes data on upgrade, gets an
 migration steps, rollback steps. Workbench has no release numbers yet (BACKLOG). Entries are identified by schema
 version and the merge commit on `main`.
 
+## 2026-10-29 · Official Codex CLI launcher · Phase 1 item 117
+
+Optional `codex` profile reuses Item 116's unchanged Node transport. The official
+CLI is pinned to 0.163.0; a CLI-specific adapter sanitizes login status and forwards
+only the task result. Analytics, feedback and all OTel exporters are disabled.
+
+Enable and authenticate through [the official CLI](cli-launcher/CODEX.md).
+No database migration or core dependency change. Roll back by disabling the profile;
+auth and workspace volumes remain. Live login/inference and egress checks require
+owner acceptance.
+
 ## 2026-10-29 · Official Claude Code launcher · Phase 1 item 116
 
 **New:** optional `claude-code` Compose profile, with the official CLI pinned to 2.1.308.

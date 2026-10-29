@@ -112,6 +112,8 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      CODEX_URL: ${CODEX_URL:-}
+      CODEX_API_KEY: ${CODEX_API_KEY:-}
       CLAUDE_CODE_URL: ${CLAUDE_CODE_URL:-}
       CLAUDE_CODE_API_KEY: ${CLAUDE_CODE_API_KEY:-}
       BROWSER_URL: ${BROWSER_URL:-}
@@ -146,6 +148,36 @@ services:
       LAUNCHER_CHILD_ENV: '{"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC":"1","DISABLE_AUTOUPDATER":"1"}'
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
       DISABLE_AUTOUPDATER: "1"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8110/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # Official CLI hand-off only; no subscription credentials enter Workbench.
+  codex:
+    profiles: ["codex"]
+    build:
+      context: ./cli-launcher
+      dockerfile: Dockerfile.codex
+    image: ai-workspace/codex-launcher:local
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 10s
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    # Internal only; no host port, provider keys, Docker socket or host home mounts.
+    volumes:
+      - codex-auth:/home/node/.codex
+      - codex-workspace:/workspace
+    environment:
+      LAUNCHER_API_KEY: ${CODEX_API_KEY:-}
+      LAUNCHER_COMMAND: node
+      LAUNCHER_ARGS: '["/app/codex.mjs", "run"]'
+      LAUNCHER_AUTH_ARGS: '["/app/codex.mjs", "auth"]'
+      LAUNCHER_AUTH_MATCH: '{"authenticated":true}'
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8110/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
@@ -245,6 +277,8 @@ services:
       BROWSER_API_KEY: ${BROWSER_API_KEY}
 
 volumes:
+  codex-auth:
+  codex-workspace:
   claude-code-auth:
   claude-code-workspace:
   ollama:

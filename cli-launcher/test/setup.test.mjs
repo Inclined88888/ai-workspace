@@ -6,7 +6,8 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('../../', import.meta.url));
-test('setup enables, preserves secrets, then disables the optional launcher', t => {
+for (const addon of ['claude-code', 'codex']) test(`setup enables and disables ${addon}`, t => {
+  const prefix = addon === 'codex' ? 'CODEX' : 'CLAUDE_CODE';
   const dir = mkdtempSync(join(tmpdir(), 'launcher-setup-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   for (const path of ['setup.sh', '.env.example']) copyFileSync(join(root, path), join(dir, path));
@@ -21,18 +22,18 @@ test('setup enables, preserves secrets, then disables the optional launcher', t 
     assert.equal(result.status, 0, result.stderr);
     return result.stdout;
   };
-  const output = run('claude-code');
+  const output = run(addon);
   let env = readFileSync(join(dir, '.env'), 'utf8');
-  assert.match(env, /^COMPOSE_PROFILES=claude-code$/m);
-  assert.match(env, /^CLAUDE_CODE_URL=http:\/\/claude-code:8110$/m);
-  const key = env.match(/^CLAUDE_CODE_API_KEY=(.+)$/m)?.[1];
+  assert.ok(env.includes(`COMPOSE_PROFILES=${addon}\n`));
+  assert.ok(env.includes(`${prefix}_URL=http://${addon}:8110\n`));
+  const key = env.match(new RegExp(`^${prefix}_API_KEY=(.+)$`, 'm'))?.[1];
   assert.ok(key?.length >= 24);
   assert.ok(!output.includes(key));
-  run('claude-code');
-  assert.ok(readFileSync(join(dir, '.env'), 'utf8').includes(`CLAUDE_CODE_API_KEY=${key}`));
+  run(addon);
+  assert.ok(readFileSync(join(dir, '.env'), 'utf8').includes(`${prefix}_API_KEY=${key}`));
   run('none');
   env = readFileSync(join(dir, '.env'), 'utf8');
   assert.match(env, /^COMPOSE_PROFILES=$/m);
-  assert.match(env, /^CLAUDE_CODE_URL=$/m);
-  assert.ok(env.includes(`CLAUDE_CODE_API_KEY=${key}`));
+  assert.ok(env.includes(`${prefix}_URL=\n`));
+  assert.ok(env.includes(`${prefix}_API_KEY=${key}`));
 });
