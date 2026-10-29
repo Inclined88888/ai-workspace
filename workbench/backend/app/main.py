@@ -12,6 +12,10 @@ from . import redact
 
 redact.install()  # before anything logs: no secret reaches a log sink (R7)
 
+from . import egress  # noqa: E402
+
+egress.install()  # before anything connects: every outbound request is in the audit log (R8, item 75)
+
 from . import actions, api, assistant_api, bridge, browser_proxy, company, config, db, health, llm, scheduler, telegram  # noqa: E402
 from .mcp_server import mcp, mcp_app
 from .security import check_bearer

@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from . import actions, assistant, company, db, health, learn, receipts, scheduler, search, telegram, usage
+from . import actions, assistant, company, db, egress, health, learn, receipts, scheduler, search, telegram, usage
 from .api import sse
 from .security import COOKIE, check_session, encrypt
 
@@ -148,11 +148,17 @@ async def health_report(fresh: bool = False):
     return await health.report(fresh)
 
 
+# Outbound audit log (item 75): where Workbench connected, and whether anything left the local network (R8)
+@router.get("/egress")
+def egress_log(hours: int = 24):
+    return egress.summary(max(1, min(hours, 24 * 90)))
+
+
 # Run log and trace (item 21): every turn and model call, with the model calls, tool calls and decisions under it
 @router.get("/runs")
 def runs(limit: int = 50, before: int | None = None, channel: str = "", failed: bool = False, conversation_id: int | None = None):
     return {"runs": actions.runs(limit, before, channel, failed, conversation_id),
-            "channels": [r["channel"] for r in db.all("SELECT DISTINCT channel FROM actions WHERE parent_action_id IS NULL "
+            "channels": [r["channel"] for r in db.all("SELECT DISTINCT channel FROM actions WHERE parent_action_id IS NULL AND kind IN ('turn', 'model_call', 'tool_call') "
                                                        "AND channel != '' ORDER BY channel")]}
 
 

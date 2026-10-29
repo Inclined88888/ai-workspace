@@ -10,6 +10,7 @@ from email.utils import make_msgid, parseaddr, parsedate_to_datetime
 
 from fastapi import HTTPException
 
+from . import egress
 from .security import decrypt
 
 CTX = ssl.create_default_context()
@@ -26,8 +27,9 @@ def _h(value: str | None) -> str:
 
 def _imap(acct: dict) -> imaplib.IMAP4_SSL:
     try:
-        m = imaplib.IMAP4_SSL(acct["imap_host"], acct["imap_port"], ssl_context=CTX, timeout=30)
-        m.login(acct["username"], decrypt(acct["password_enc"]))
+        with egress.track("LOGIN", f"imaps://{acct['imap_host']}:{acct['imap_port']}"):
+            m = imaplib.IMAP4_SSL(acct["imap_host"], acct["imap_port"], ssl_context=CTX, timeout=30)
+            m.login(acct["username"], decrypt(acct["password_enc"]))
         return m
     except (imaplib.IMAP4.error, OSError) as e:
         raise HTTPException(502, f"IMAP connection failed: {e}") from e
@@ -145,15 +147,16 @@ def send(acct: dict, to: str, subject: str, body: str, in_reply_to: str = "") ->
     msg.set_content(body)
     password = decrypt(acct["password_enc"])
     try:
-        if acct["smtp_security"] == "starttls":
-            with smtplib.SMTP(acct["smtp_host"], acct["smtp_port"], timeout=30) as s:
-                s.starttls(context=CTX)
-                s.login(acct["username"], password)
-                s.send_message(msg)
-        else:
-            with smtplib.SMTP_SSL(acct["smtp_host"], acct["smtp_port"], context=CTX, timeout=30) as s:
-                s.login(acct["username"], password)
-                s.send_message(msg)
+        with egress.track("SEND", f"smtp://{acct['smtp_host']}:{acct['smtp_port']}"):
+            if acct["smtp_security"] == "starttls":
+                with smtplib.SMTP(acct["smtp_host"], acct["smtp_port"], timeout=30) as s:
+                    s.starttls(context=CTX)
+                    s.login(acct["username"], password)
+                    s.send_message(msg)
+            else:
+                with smtplib.SMTP_SSL(acct["smtp_host"], acct["smtp_port"], context=CTX, timeout=30) as s:
+                    s.login(acct["username"], password)
+                    s.send_message(msg)
     except (smtplib.SMTPException, OSError) as e:
         raise HTTPException(502, f"SMTP send failed: {e}") from e
     return msg["Message-ID"]

@@ -22,6 +22,10 @@ Out of scope for the current branch, dropped, or blocked. Nothing is dropped sil
 * **Idempotency across interleaved writes (item 28 follow up).** A model loop of the form A, B, A runs A twice, because a repeat is only recognised when no other change ran in between (so toggles keep working). Closing it needs per tool semantics (which writes are naturally idempotent). Design record 0001, "Idempotency keys".
 * **The web chat does not send an Idempotency-Key yet.** It never retries a request, so there is nothing to deduplicate; the CLI (item 84) should send one.
 
+* **Add-on egress is not in the outbound audit log (item 75 follow-up, R8).** The browser agent's own page loads, model downloads by the ollama container, Paperclip and Open WebUI connect from their own containers. The browser agent already lists visited URLs in its job steps; ingesting them as `egress` rows (and asking Paperclip/Open WebUI for an equivalent or documenting their egress) would make local-only mode verifiable for the whole stack, not only Workbench.
+* **Audit log retention.** `egress` rows are kept forever. With Telegram on, long polling adds about 2,880 rows a day (estimate, not measured). Needs a retention setting with a documented default, and an export before pruning.
+* **Link egress rows to the run that caused them.** Egress rows have no `parent_action_id`; a context variable carrying the current turn would put a turn's outbound calls in its trace.
+
 ## Found during work, not yet scheduled
 
 * **Bridge tokens for other local tools (item 103, Phase 1).** `/v1` accepts only `BROWSER_API_KEY` today. Other OpenAI-only tools (editors, scripts) need user-created, revocable bridge tokens and streaming (`stream: true` is refused with 400 for now).
