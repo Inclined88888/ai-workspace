@@ -15,14 +15,24 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS providers (
+-- Model connections (adapters.py, R1). Replaced `providers` in schema version 2: its single `kind` field mixed how a
+-- connection authenticates with which wire protocol it speaks. Ids are kept, so model refs "<id>/<model>" survive.
+CREATE TABLE IF NOT EXISTS connections (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,
-  kind TEXT NOT NULL DEFAULT 'openai',          -- openai | anthropic | ollama
+  auth_kind TEXT NOT NULL,                      -- api_key | oauth_subscription | session_scraping_forbidden | local_ollama | openai_compatible
+  protocol TEXT NOT NULL,                       -- responses | chat_completions | anthropic_messages | ollama_native
   base_url TEXT NOT NULL,
-  api_key_enc TEXT NOT NULL DEFAULT '',
-  models TEXT NOT NULL DEFAULT '',              -- optional comma separated fallback list
+  secret_enc TEXT NOT NULL DEFAULT '',          -- API key, or OAuth tokens as JSON (encrypted)
+  token_expires_at TEXT,                        -- OAuth access token expiry (item 101)
+  state TEXT NOT NULL DEFAULT 'connected',      -- connected | needs_auth | refreshing | disabled (item 108)
+  scopes TEXT NOT NULL DEFAULT '',              -- granted OAuth scopes (item 101)
+  provider_cap TEXT NOT NULL DEFAULT '',        -- the provider's own usage cap as reported (item 104); never invented here
+  residency TEXT NOT NULL DEFAULT 'cloud',      -- local | cloud (item 109)
+  models TEXT NOT NULL DEFAULT '',              -- comma separated, added to what the endpoint lists
   enabled INTEGER NOT NULL DEFAULT 1,
+  last_ok_at TEXT,
+  last_error TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL
 );
 
@@ -303,8 +313,9 @@ def conn() -> sqlite3.Connection:
     return c
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 LEGACY_LEDGERS = ("usage", "tool_runs", "turn_checks", "pending_actions")
+LEGACY_TABLES = (*LEGACY_LEDGERS, "providers")
 
 
 def init() -> None:
@@ -317,21 +328,25 @@ def migrate(c: sqlite3.Connection, path) -> None:
     Rollback: stop Workbench, replace workbench.db with the newest workbench.db.pre-v<N>-*.bak, run the previous image.
     """
     version = c.execute("PRAGMA user_version").fetchone()[0]
-    legacy = [r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type = 'table'") if r[0] in LEGACY_LEDGERS]
-    if version < 1 and legacy:
-        backup = Path(f"{path}.pre-v1-{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}.bak")
+    legacy = [r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type = 'table'") if r[0] in LEGACY_TABLES]
+    if version < SCHEMA_VERSION and legacy:  # one backup per upgrade, taken before any data changes
+        backup = Path(f"{path}.pre-v{SCHEMA_VERSION}-{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}.bak")
         with sqlite3.connect(backup) as dest:
             c.backup(dest)
     c.executescript(SCHEMA)
-    if version < 1:
+    steps = [(1, lambda: migrate_v1(c, [t for t in legacy if t in LEGACY_LEDGERS])), (2, lambda: migrate_v2(c, "providers" in legacy))]
+    for target, step in steps:
+        if version >= target:
+            continue
         c.execute("BEGIN IMMEDIATE")
         try:
-            migrate_v1(c, legacy)
-            c.execute("PRAGMA user_version = 1")
+            step()
+            c.execute(f"PRAGMA user_version = {target}")
             c.execute("COMMIT")
         except BaseException:
             c.execute("ROLLBACK")
             raise
+        version = target
 
 
 def migrate_v1(c: sqlite3.Connection, legacy: list[str]) -> None:
@@ -369,6 +384,28 @@ def migrate_v1(c: sqlite3.Connection, legacy: list[str]) -> None:
                           p["conversation_id"], p["tool"], "ok" if p["status"] == "done" else "tool_error", p["result"], dec.lastrowid))
     for table in legacy:
         c.execute(f"DROP TABLE {table}")
+
+
+OFFICIAL_HOSTS = ("api.openai.com", "api.anthropic.com", "openrouter.ai", "generativelanguage.googleapis.com", "opencode.ai")
+
+
+def migrate_v2(c: sqlite3.Connection, has_providers: bool) -> None:
+    """providers(kind) into connections(auth_kind, protocol), same ids. Behaviour is unchanged: Anthropic connections
+    keep the OpenAI compatibility protocol they used; switching to native Messages is a choice in Settings."""
+    if not has_providers:
+        return
+    c.row_factory = sqlite3.Row
+    for row in c.execute("SELECT * FROM providers ORDER BY id").fetchall():
+        p = dict(zip(row.keys(), row))
+        if p["kind"] == "ollama":
+            auth, proto, residency = "local_ollama", "ollama_native", "local"
+        else:
+            auth = "api_key" if any(h in p["base_url"] for h in OFFICIAL_HOSTS) else "openai_compatible"
+            proto, residency = "chat_completions", "cloud"
+        c.execute("INSERT INTO connections(id, name, auth_kind, protocol, base_url, secret_enc, residency, models, enabled, created_at) "
+                  "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                  (p["id"], p["name"], auth, proto, p["base_url"], p["api_key_enc"], residency, p["models"], p["enabled"], p["created_at"]))
+    c.execute("DROP TABLE providers")
 
 
 @contextmanager

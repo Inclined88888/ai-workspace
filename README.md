@@ -194,11 +194,15 @@ Model choice: `BROWSER_LLM_PROVIDER=auto` uses Anthropic if `ANTHROPIC_API_KEY` 
 
 **OpenCode.** OpenCode's free models (Big Pickle, the `-free` models) only work inside the OpenCode app; called from anything else they answer "Free models work in OpenCode". So Workbench offers **OpenCode Go** (flat $10 a month) and **OpenCode Zen** (pay as you go) as providers, and hides the models those endpoints can't serve. For OpenCode's free models, use the `paperclip` add-on: its agents run inside OpenCode itself.
 
-**Cloud.** Workbench talks to any OpenAI compatible endpoint (Settings → Model providers, with presets for OpenAI, Anthropic, OpenRouter). Groq, Together, Mistral, LM Studio, vLLM and LiteLLM also work: enter the base URL and key. If a provider does not expose `/models`, type model ids in the Models field.
+**Cloud.** Settings → Model providers. Each connection is a credential type plus the wire protocol the provider speaks: OpenAI uses the Responses API, Anthropic its native Messages API, and everything else (OpenRouter, Gemini, Groq, Together, Mistral, LM Studio, vLLM, LiteLLM, llama.cpp server) Chat Completions. Enter the base URL and key; for local OpenAI compatible servers the key is optional. If a provider does not expose a model list, type model ids in the Models field.
+
+**Claude.** Use a Claude API key (console.anthropic.com) with the Anthropic preset. A Claude Pro or Max subscription cannot be connected: Anthropic's terms say "Anthropic does not permit third-party developers to offer Claude.ai login into their own applications, or to route requests through Free, Pro, or Max plan credentials on behalf of their users … developers may not collect, store, or intermediate Claude.ai credentials or session tokens" ([source](https://code.claude.com/docs/en/legal-and-compliance)). The same page allows a user to sign in to the unmodified Claude Code program with their own subscription; a planned add-on will start your own installed Claude Code for agent tasks, with you signing in through Anthropic, and Workbench never touching the token. It is not built yet.
+
+**ChatGPT plans.** OpenAI's official "Sign in with ChatGPT" lets a ChatGPT Plus or Pro plan cover an app's Responses API requests, up to a weekly limit you set per app. Support is being built and needs an approved client id; until then use an OpenAI API key.
 
 For Chat, keys entered during `setup.sh` are passed as `OPENAI_API_BASE_URLS`/`OPENAI_API_KEYS`. You can also add connections later in Chat → Admin Settings → Connections. Open WebUI stores settings in its database after first start, so later changes to these env vars are ignored unless you set `ENABLE_PERSISTENT_CONFIG=false`; changing them in the Admin UI is the simplest route.
 
-Anthropic is reached through its [OpenAI SDK compatibility layer](https://platform.claude.com/docs/en/cli-sdks-libraries/libraries/openai-sdk). Anthropic describes that layer as intended for testing and comparison, not long term production use, and some features (prompt caching, strict tool schemas) are not available through it.
+New Anthropic connections use Anthropic's native Messages API. Connections created before schema version 2 keep using Anthropic's [OpenAI SDK compatibility layer](https://platform.claude.com/docs/en/cli-sdks-libraries/libraries/openai-sdk), which Anthropic describes as intended for testing and comparison; switch them to Anthropic Messages in Settings.
 
 ## Remote access and security
 

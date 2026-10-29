@@ -1,245 +1,100 @@
-"""OpenAI compatible client for every provider (Ollama, OpenAI, Anthropic, OpenRouter, any /v1 endpoint).
+"""Model calls for the rest of Workbench: connections, model lists, and chat/complete/stream recorded in the run log.
 
-Model references are "<provider_id>/<model>", e.g. "1/qwen3:4b" or "3/openai/gpt-4o".
+Every call goes through the adapter layer (adapters.py, R1), which knows the backends; this module never branches on
+which one is active. Model references are "<connection_id>/<model>", e.g. "1/qwen3:4b" or "3/openai/gpt-4o".
 """
 
 import json
-import os
-import re
 import time
 from typing import AsyncIterator
 
-import httpx
 from fastapi import HTTPException
 
 from . import config, db
-from .security import decrypt, encrypt
+from .adapters import (  # noqa: F401 - re-exported for callers and tests
+    OLLAMA_NUM_CTX, THINK_RE, Adapter, keep_model, parse_text_tool_calls, validate,
+)
+from .security import encrypt
 
+# Presets offered in Settings. Each names the auth kind and protocol it uses; the base URL is editable.
 PRESETS = {
     # Native Ollama app on the host (fast on Mac: uses the GPU) unless the ollama add-on container is configured
-    "ollama": {"name": "Ollama (local)", "base_url": f"{config.OLLAMA_URL or 'http://host.docker.internal:11434'}/v1"},
-    "openai": {"name": "OpenAI", "base_url": "https://api.openai.com/v1"},
-    "anthropic": {"name": "Anthropic", "base_url": "https://api.anthropic.com/v1"},
-    "openrouter": {"name": "OpenRouter", "base_url": "https://openrouter.ai/api/v1",
+    "ollama": {"name": "Ollama (local)", "auth_kind": "local_ollama", "protocol": "ollama_native",
+               "base_url": config.OLLAMA_URL or "http://host.docker.internal:11434"},
+    "openai": {"name": "OpenAI", "auth_kind": "api_key", "protocol": "responses", "base_url": "https://api.openai.com/v1"},
+    "anthropic": {"name": "Anthropic", "auth_kind": "api_key", "protocol": "anthropic_messages", "base_url": "https://api.anthropic.com/v1",
+                  "note": "Claude API key from console.anthropic.com. Claude Pro and Max subscriptions cannot be used by "
+                          "third-party apps (Anthropic's terms), so a key is the supported way."},
+    "openrouter": {"name": "OpenRouter", "auth_kind": "api_key", "protocol": "chat_completions", "base_url": "https://openrouter.ai/api/v1",
                    "note": "Free account key. Models ending in :free cost nothing (20 requests/min, 50/day; 1000/day once you have bought $10 of credits)."},
-    "gemini": {"name": "Google Gemini", "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+    "gemini": {"name": "Google Gemini", "auth_kind": "api_key", "protocol": "chat_completions",
+               "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
                "note": "Free tier with a key from aistudio.google.com (Flash and Flash-Lite models). Google may use free tier prompts to improve its products."},
     # OpenCode's own free models are refused outside the OpenCode app ("Free models work in OpenCode"),
     # so only the paid Zen and the Go subscription are offered here. Free OpenCode models: the paperclip add-on.
-    "opencode-go": {"name": "OpenCode Go", "base_url": "https://opencode.ai/inference/go/openai/v1",
-                    "note": "OpenCode Go subscription ($10/month flat). Key from opencode.ai/console."},
-    "opencode-zen": {"name": "OpenCode Zen", "base_url": "https://opencode.ai/inference/openai/v1",
-                     "note": "Pay as you go. Key from opencode.ai/console."},
+    "opencode-go": {"name": "OpenCode Go", "auth_kind": "api_key", "protocol": "chat_completions",
+                    "base_url": "https://opencode.ai/inference/go/openai/v1", "note": "OpenCode Go subscription ($10/month flat). Key from opencode.ai/console."},
+    "opencode-zen": {"name": "OpenCode Zen", "auth_kind": "api_key", "protocol": "chat_completions",
+                     "base_url": "https://opencode.ai/inference/openai/v1", "note": "Pay as you go. Key from opencode.ai/console."},
+    "compatible": {"name": "OpenAI compatible server", "auth_kind": "openai_compatible", "protocol": "chat_completions",
+                   "base_url": "http://host.docker.internal:1234/v1", "note": "LM Studio, vLLM, llama.cpp server, LiteLLM, Groq, Together. Key optional."},
 }
-
-# Model families that OpenCode serves on other endpoints than chat completions, plus models only the OpenCode app may use
-# (per opencode.ai/docs/zen and /docs/go endpoint tables)
-_OPENCODE_SKIP = re.compile(r"^(claude-|gpt-|grok-|gemini-|muse-|jev-|test$|big-pickle$)|-free$")
-_ZEN_SKIP = re.compile(r"^(qwen3\.8-flash|qwen3\.6-plus|qwen3\.5-plus)$")
-_GO_SKIP = re.compile(r"^(qwen|minimax-m3$)")
-# Gemini lists audio, image, embedding and robotics models too; only text chat models work here
-_GEMINI_SKIP = re.compile(r"(tts|embedding|live|transcribe|translate|robotics|imagen|veo|aqa|image|audio|lyria)")
+SEED = {"openai": "openai", "anthropic": "anthropic", "openrouter": "openrouter", "gemini": "gemini"}  # .env key -> preset
 
 
-def _models_url(base_url: str) -> str:
-    base = base_url.rstrip("/")
-    if "opencode.ai/inference" in base:  # chat is served under /openai/v1, the model list under /v1
-        return base.replace("/openai/v1", "/v1") + "/models"
-    return base + "/models"
-
-
-def _keep_model(base_url: str, model: str) -> bool:
-    if "opencode.ai/inference" in base_url:
-        extra = _GO_SKIP if "/inference/go/" in base_url else _ZEN_SKIP
-        return not (_OPENCODE_SKIP.search(model) or extra.search(model))
-    if "generativelanguage.googleapis.com" in base_url:
-        return model.startswith(("gemini", "gemma")) and not _GEMINI_SKIP.search(model)
-    return True
-
-
-def is_free(p: dict, model: str) -> bool:
-    return p["kind"] == "ollama" or ("openrouter.ai" in p["base_url"] and model.endswith(":free"))
-
-THINK_RE = re.compile(r"<think>.*?</think>", re.S)
-TIMEOUT = httpx.Timeout(connect=10, read=300, write=30, pool=10)
-# Ollama's OpenAI endpoint (/v1) ignores num_ctx and runs at the server default (4096 tokens), silently cutting
-# the start of the prompt (system prompt, memories, tool rules) once a page or a few messages are added.
-# Ollama is therefore called on its native /api/chat with an explicit window.
-OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "16384"))
-# Local models on a CPU need minutes per answer; measured here: qwen3:4b on 4 cores ran past the 300 s cloud timeout
-OLLAMA_TIMEOUT = httpx.Timeout(connect=10, read=float(os.getenv("OLLAMA_TIMEOUT_S", "900")), write=30, pool=10)
-CHARS_PER_TOKEN = 3  # conservative: real text averages 3.5 to 4, code and JSON less
-CLOUD_CONTEXT_CHARS = 300_000  # about 100K tokens; every current cloud chat model has at least this
-
-
-def context_chars(ref: str | None) -> int:
-    """Characters of prompt this model can take, keeping a quarter of the window for the reply."""
-    try:
-        p, _ = split_ref(ref or default_model_ref())
-    except HTTPException:
-        return CLOUD_CONTEXT_CHARS
-    if p["kind"] == "ollama":
-        return int(OLLAMA_NUM_CTX * CHARS_PER_TOKEN * 0.75)
-    return CLOUD_CONTEXT_CHARS
-
-
-def _ollama_root(p: dict) -> str:
-    return p["base_url"].rstrip("/").removesuffix("/v1")
-
-
-def _ollama_messages(messages: list[dict]) -> list[dict]:
-    """OpenAI shaped messages to Ollama's native shape: tool arguments are objects, tool results carry tool_name."""
-    names: dict[str, str] = {}
-    out = []
-    for m in messages:
-        m = dict(m)
-        if m.get("tool_calls"):
-            calls = []
-            for tc in m["tool_calls"]:
-                names[tc["id"]] = tc["function"]["name"]
-                try:
-                    args = json.loads(tc["function"].get("arguments") or "{}")
-                except ValueError:
-                    args = {}
-                calls.append({"function": {"name": tc["function"]["name"], "arguments": args if isinstance(args, dict) else {}}})
-            m["tool_calls"] = calls
-        if m["role"] == "tool":
-            m = {"role": "tool", "content": m["content"], "tool_name": names.get(m.get("tool_call_id", ""), "")}
-        out.append(m)
-    return out
-
-
-def _ollama_body(model: str, messages: list[dict], stream: bool, tools: list[dict] | None = None) -> dict:
-    body: dict = {"model": model, "messages": _ollama_messages(messages), "stream": stream,
-                  "options": {"num_ctx": OLLAMA_NUM_CTX}}
-    if tools:
-        body["tools"] = tools
-    return body
-
-
-def _ollama_usage(data: dict) -> dict:
-    return {"prompt_tokens": data.get("prompt_eval_count") or 0, "completion_tokens": data.get("eval_count") or 0}
-
-
-async def _post(p: dict, url: str, body: dict, headers: dict | None = None, timeout: httpx.Timeout = TIMEOUT) -> httpx.Response:
-    """A network failure or timeout becomes a clear error the caller can record, not a bare exception."""
-    try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            return await client.post(url, headers=headers, json=body)
-    except httpx.TimeoutException as e:
-        raise HTTPException(504, f"{p['name']} did not answer within {int(timeout.read or 0)} s") from e
-    except httpx.HTTPError as e:
-        raise HTTPException(502, f"{p['name']} unreachable: {e.__class__.__name__}") from e
-
-
-async def _ollama_post(p: dict, body: dict) -> dict:
-    r = await _post(p, f"{_ollama_root(p)}/api/chat", body, timeout=OLLAMA_TIMEOUT)
-    if r.status_code >= 400:
-        raise HTTPException(502, f"{p['name']} error {r.status_code}: {r.text[:400]}")
-    data = r.json()
-    if (data.get("prompt_eval_count") or 0) >= OLLAMA_NUM_CTX:
-        raise HTTPException(502, f"The prompt filled the whole {OLLAMA_NUM_CTX} token window of {body['model']}, so Ollama cut "
-                                 "part of it. Start a new conversation, or raise OLLAMA_NUM_CTX if you have the memory.")
-    return data
-
-
-# Some local models (and some servers' parsers) print a tool call as text instead of returning a structured call.
-# Accept only well formed calls to tools that were actually offered; anything else stays plain text.
-_TOOL_TAG_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.S)
-_FENCE_RE = re.compile(r"^```(?:json)?\s*(.*?)\s*```$", re.S)
-
-
-def parse_text_tool_calls(content: str, tool_names: set[str]) -> tuple[list[dict], str]:
-    """Returns (tool_calls, remaining_text). Empty list when the text holds no valid call to an offered tool."""
-    candidates = [(m.group(0), m.group(1)) for m in _TOOL_TAG_RE.finditer(content)]
-    if not candidates:
-        stripped = content.strip()
-        fenced = _FENCE_RE.match(stripped)
-        body = fenced.group(1) if fenced else stripped
-        if body.startswith("{") and body.endswith("}"):
-            candidates = [(content, body)]
-    calls, rest = [], content
-    for raw, payload in candidates:
-        try:
-            obj = json.loads(payload)
-        except ValueError:
-            continue
-        if not isinstance(obj, dict) or obj.get("name") not in tool_names:
-            continue
-        args = obj.get("arguments", obj.get("parameters", {}))
-        if isinstance(args, str):
-            try:
-                args = json.loads(args or "{}")
-            except ValueError:
-                continue
-        if not isinstance(args, dict):
-            continue
-        calls.append({"id": f"text_{len(calls)}", "type": "function",
-                      "function": {"name": obj["name"], "arguments": json.dumps(args)}})
-        rest = rest.replace(raw, "")
-    return calls, (rest.strip() if calls else content)
-
-
-def seed_providers() -> None:
-    if db.one("SELECT id FROM providers LIMIT 1"):
+def seed_connections() -> None:
+    """First start only: connections for a host Ollama and for provider keys given in .env."""
+    if db.one("SELECT id FROM connections LIMIT 1"):
         return
-    if config.OLLAMA_URL:
-        db.run(
-            "INSERT INTO providers(name, kind, base_url, created_at) VALUES (?, 'ollama', ?, ?)",
-            PRESETS["ollama"]["name"], PRESETS["ollama"]["base_url"], db.now(),
-        )
-    for kind, key in config.SEED_KEYS.items():
-        if key:
-            p = PRESETS[kind]
-            db.run(
-                "INSERT INTO providers(name, kind, base_url, api_key_enc, created_at) VALUES (?, ?, ?, ?, ?)",
-                p["name"], "anthropic" if kind == "anthropic" else "openai", p["base_url"], encrypt(key), db.now(),
-            )
+    seeds = [("ollama", "")] if config.OLLAMA_URL else []
+    seeds += [(SEED[k], key) for k, key in config.SEED_KEYS.items() if key]
+    for preset, key in seeds:
+        p = PRESETS[preset]
+        db.run("INSERT INTO connections(name, auth_kind, protocol, base_url, secret_enc, residency, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+               p["name"], p["auth_kind"], p["protocol"], p["base_url"], encrypt(key), "local" if p["auth_kind"] == "local_ollama" else "cloud",
+               db.now())
 
 
-def _provider(pid: int) -> dict:
-    p = db.one("SELECT * FROM providers WHERE id = ? AND enabled = 1", pid)
-    if not p:
-        raise HTTPException(404, f"Provider {pid} not found or disabled")
-    return p
-
-
-def _headers(p: dict) -> dict:
-    key = decrypt(p["api_key_enc"]) or "none"
-    h = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
-    if p["kind"] == "anthropic":
-        h["x-api-key"] = key
-        h["anthropic-version"] = "2023-06-01"
-    return h
+def _connection(cid: int) -> dict:
+    c = db.one("SELECT * FROM connections WHERE id = ? AND enabled = 1", cid)
+    if not c:
+        raise HTTPException(404, f"Connection {cid} not found or disabled")
+    return c
 
 
 def split_ref(ref: str) -> tuple[dict, str]:
-    pid, _, model = ref.partition("/")
-    if not pid.isdigit() or not model:
+    cid, _, model = ref.partition("/")
+    if not cid.isdigit() or not model:
         raise HTTPException(400, f"Invalid model reference '{ref}'")
-    return _provider(int(pid)), model
+    return _connection(int(cid)), model
+
+
+def adapter(ref: str | None) -> tuple[Adapter, dict, str, str]:
+    """(adapter, connection, model, full ref) for a model reference, or the default model."""
+    ref = ref or default_model_ref()
+    conn, model = split_ref(ref)
+    return Adapter(conn), conn, model, ref
 
 
 def default_model_ref() -> str:
     saved = db.get_setting("default_model")
     if saved:
         return saved
-    p = db.one("SELECT id FROM providers WHERE kind = 'ollama' AND enabled = 1 ORDER BY id LIMIT 1")
-    if p:
-        return f"{p['id']}/{config.DEFAULT_MODEL}"
-    providers = db.all("SELECT id, base_url FROM providers WHERE enabled = 1 ORDER BY id")
-    if not providers:
+    local = db.one("SELECT id FROM connections WHERE auth_kind = 'local_ollama' AND enabled = 1 ORDER BY id LIMIT 1")
+    if local:
+        return f"{local['id']}/{config.DEFAULT_MODEL}"
+    conns = db.all("SELECT id, base_url FROM connections WHERE enabled = 1 ORDER BY id")
+    if not conns:
         raise HTTPException(400, "No model provider configured. Add an API key in Settings.")
     # Sensible current defaults when the provider lists them; otherwise the first model it lists
     preferred = {"api.anthropic.com": "claude-sonnet-5-5", "openrouter.ai": "anthropic/claude-sonnet-5.5",
                  "generativelanguage.googleapis.com": "gemini-3.8-flash"}
-    for p in providers:
-        want = next((m for host, m in preferred.items() if host in p["base_url"]), None)
-        models = list_models_for(p["id"])
-        if want and any(m["model"] == want for m in models):
-            return f"{p['id']}/{want}"
-    for p in providers:
-        models = list_models_for(p["id"])
+    for c in conns:
+        want = next((m for host, m in preferred.items() if host in c["base_url"]), None)
+        if want and any(m["model"] == want for m in list_models_for(c["id"])):
+            return f"{c['id']}/{want}"
+    for c in conns:
+        models = list_models_for(c["id"])
         if models:
             return models[0]["ref"]
     raise HTTPException(400, "No models available. Pick a default model in Settings.")
@@ -248,248 +103,99 @@ def default_model_ref() -> str:
 _model_cache: dict[int, tuple[float, list[dict]]] = {}
 
 
-def list_models_for(pid: int, fresh: bool = False) -> list[dict]:
-    p = _provider(pid)
-    cached = _model_cache.get(pid)
+def list_models_for(cid: int, fresh: bool = False) -> list[dict]:
+    conn = _connection(cid)
+    cached = _model_cache.get(cid)
     if cached and not fresh and cached[0] > time.time() - 120:
         return cached[1]
-    names: list[str] = []
-    try:
-        r = httpx.get(_models_url(p["base_url"]), headers=_headers(p), timeout=15)
-        r.raise_for_status()
-        ids = {m["id"].removeprefix("models/") for m in r.json().get("data", []) if m.get("id")}
-        names = sorted(i for i in ids if _keep_model(p["base_url"], i))
-    except (httpx.HTTPError, ValueError, KeyError):
-        names = []
-    manual = [m.strip() for m in p["models"].split(",") if m.strip()]
-    names = sorted(set(names) | set(manual))
-    out = [{"ref": f"{pid}/{n}", "model": n, "provider": p["name"], "provider_id": pid, "free": is_free(p, n)} for n in names]
-    _model_cache[pid] = (time.time(), out)
+    a = Adapter(conn)
+    out = [{"ref": f"{cid}/{n}", "model": n, "provider": conn["name"], "provider_id": cid, "free": a.is_free(n)}
+           for n in a.list_models()]
+    _model_cache[cid] = (time.time(), out)
     return out
 
 
 def list_models(fresh: bool = False) -> list[dict]:
+    """Every usable model. A connection that cannot be used (refused, needs sign-in) is skipped, never fatal (R4)."""
     out: list[dict] = []
-    for p in db.all("SELECT id FROM providers WHERE enabled = 1 ORDER BY id"):
-        out.extend(list_models_for(p["id"], fresh))
+    for c in db.all("SELECT id FROM connections WHERE enabled = 1 ORDER BY id"):
+        try:
+            out.extend(list_models_for(c["id"], fresh))
+        except HTTPException as e:
+            db.run("UPDATE connections SET last_error = ? WHERE id = ?", str(e.detail)[:300], c["id"])
     return out
 
 
-def _body(p: dict, model: str, messages: list[dict], stream: bool) -> dict:
-    body: dict = {"model": model, "messages": messages, "stream": stream}
-    if p["kind"] == "anthropic":
-        body["max_tokens"] = 8192
-    if stream:
-        body["stream_options"] = {"include_usage": True}
-    # temperature is deliberately not sent: recent Claude models reject values below 1
-    return body
+def is_free(conn: dict, model: str) -> bool:
+    return Adapter(conn).is_free(model)
 
 
-def describe(p: dict) -> tuple[str, str]:
-    """(auth_kind, protocol) for the run log. Derived from today's single `kind` field until the R1 split lands."""
-    if p["kind"] == "ollama":
-        return "local_ollama", "ollama_native"
-    official = ("api.openai.com", "api.anthropic.com", "openrouter.ai", "generativelanguage.googleapis.com", "opencode.ai")
-    return ("api_key" if any(h in p["base_url"] for h in official) else "openai_compatible"), "chat_completions"
+def context_chars(ref: str | None) -> int:
+    """Characters of prompt this model can take, keeping a quarter of the window for the reply."""
+    try:
+        return adapter(ref)[0].context_chars()
+    except HTTPException:
+        return 300_000
 
 
 def _reported_cost(usage: dict) -> float | None:
     return usage.get("cost") if isinstance(usage.get("cost"), (int, float)) else None
 
 
-def _record(p: dict, ref: str, trace: dict | None, started: float, usage: dict, reported: float | None,
-            outcome: str, error: str = "") -> tuple[int, float | None]:
+def _record(conn: dict, ref: str, trace: dict | None, started: float, usage: dict, outcome: str, error: str = "") -> tuple[int, float | None]:
     """One model_call row per call, success or failure (R2). Returns (action id, USD cost or None if unpriced)."""
     from . import actions
     from .usage import price_usd
 
     pt, ct = int(usage.get("prompt_tokens") or 0), int(usage.get("completion_tokens") or 0)
+    reported = _reported_cost(usage)
     usd = reported if reported is not None else price_usd(ref, pt, ct)
-    auth_kind, protocol = describe(p)
-    aid = actions.add("model_call", outcome, trace=trace, provider=p["name"], model=ref, auth_kind=auth_kind,
-                      protocol=protocol, latency_ms=int((time.monotonic() - started) * 1000), tokens_in=pt, tokens_out=ct,
+    aid = actions.add("model_call", outcome, trace=trace, provider=conn["name"], model=ref, auth_kind=conn["auth_kind"],
+                      protocol=conn["protocol"], latency_ms=int((time.monotonic() - started) * 1000), tokens_in=pt, tokens_out=ct,
                       usd_cost=usd, failure_reason=error)
     return aid, usd
-
-
-async def complete(ref: str | None, messages: list[dict], trace: dict | None = None) -> str:
-    ref = ref or default_model_ref()
-    p, model = split_ref(ref)
-    started = time.monotonic()
-    try:
-        text, usage = await _complete(p, model, messages)
-    except HTTPException as e:
-        _record(p, ref, trace, started, {}, None, "error", str(e.detail))
-        raise
-    _record(p, ref, trace, started, usage, _reported_cost(usage), "ok")
-    return text
-
-
-async def _complete(p: dict, model: str, messages: list[dict]) -> tuple[str, dict]:
-    if p["kind"] == "ollama":
-        data = await _ollama_post(p, _ollama_body(model, messages, False))
-        return THINK_RE.sub("", (data.get("message") or {}).get("content") or "").strip(), _ollama_usage(data)
-    r = await _post(p, f"{p['base_url'].rstrip('/')}/chat/completions", _body(p, model, messages, False), _headers(p))
-    if r.status_code >= 400:
-        raise HTTPException(502, f"{p['name']} error {r.status_code}: {r.text[:400]}")
-    data = r.json()
-    content = data["choices"][0]["message"].get("content") or ""
-    return THINK_RE.sub("", content).strip(), data.get("usage") or {}
-
-
-async def stream(ref: str | None, messages: list[dict], trace: dict | None = None) -> AsyncIterator[dict]:
-    """Yields {"reasoning": str} and {"delta": str} chunks, then a final {"done": True, "usage": {...}, "ms": int}."""
-    ref = ref or default_model_ref()
-    p, _ = split_ref(ref)
-    started = time.monotonic()
-    recorded = False
-    try:
-        async for e in _stream(p, ref, messages, started):
-            if "done" in e or "error" in e:
-                recorded = True
-                ok = "done" in e
-                _record(p, ref, trace, started, e.get("usage") or {}, _reported_cost(e.get("usage") or {}),
-                        "ok" if ok else "error", "" if ok else e["error"])
-            yield e
-    finally:
-        if not recorded:  # the reader went away (closed tab) or the transport failed mid stream
-            _record(p, ref, trace, started, {}, None, "error", "stream ended before the model finished")
-
-
-async def _stream(p: dict, ref: str, messages: list[dict], started: float) -> AsyncIterator[dict]:
-    _, model = split_ref(ref)
-    first_token_ms = None
-    usage: dict = {}
-    if p["kind"] == "ollama":
-        async for e in _ollama_stream(p, model, messages, started):
-            yield e
-        return
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-        async with client.stream(
-            "POST", f"{p['base_url'].rstrip('/')}/chat/completions", headers=_headers(p), json=_body(p, model, messages, True)
-        ) as r:
-            if r.status_code >= 400:
-                text = (await r.aread()).decode(errors="replace")
-                yield {"error": f"{p['name']} error {r.status_code}: {text[:400]}"}
-                return
-            async for line in r.aiter_lines():
-                if not line.startswith("data:"):
-                    continue
-                data = line[5:].strip()
-                if data == "[DONE]":
-                    break
-                try:
-                    chunk = json.loads(data)
-                except ValueError:
-                    continue
-                if chunk.get("usage"):
-                    usage = chunk["usage"]
-                for choice in chunk.get("choices") or []:
-                    d = choice.get("delta") or {}
-                    # Thinking models stream reasoning separately (Ollama: "reasoning", others: "reasoning_content")
-                    thought = d.get("reasoning") or d.get("reasoning_content")
-                    if thought:
-                        yield {"reasoning": thought}
-                    delta = d.get("content")
-                    if delta:
-                        if first_token_ms is None:
-                            first_token_ms = int((time.monotonic() - started) * 1000)
-                        yield {"delta": delta}
-    yield {"done": True, "usage": usage, "ms": int((time.monotonic() - started) * 1000), "first_token_ms": first_token_ms}
 
 
 async def chat(ref: str | None, messages: list[dict], tools: list[dict] | None = None, trace: dict | None = None) -> dict:
     """One non-streaming turn with optional tool calling, recorded as one model_call action.
 
     Returns {"message": {...}, "usage": {...}, "ref": str, "model": str, "usd": float | None, "action_id": int}.
-    OpenRouter reports the real cost of each call; other providers are priced from Settings (usage.py).
     """
-    ref = ref or default_model_ref()
-    p, model = split_ref(ref)
+    a, conn, model, ref = adapter(ref)
     started = time.monotonic()
     try:
-        res = await _chat(p, ref, model, messages, tools)
+        res = await a.chat(model, messages, tools)
     except HTTPException as e:
-        _record(p, ref, trace, started, {}, None, "error", str(e.detail))
+        _record(conn, ref, trace, started, {}, "error", str(e.detail))
         raise
-    res["action_id"], res["usd"] = _record(p, ref, trace, started, res["usage"], _reported_cost(res["usage"]), "ok")
+    res.update(ref=ref, model=model)
+    res["action_id"], res["usd"] = _record(conn, ref, trace, started, res["usage"], "ok")
     return res
 
 
-async def _chat(p: dict, ref: str, model: str, messages: list[dict], tools: list[dict] | None) -> dict:
-    names = {t["function"]["name"] for t in tools or []}
-    if p["kind"] == "ollama":
-        data = await _ollama_post(p, _ollama_body(model, messages, False, tools))
-        msg = data.get("message") or {}
-        out = {"role": "assistant", "content": THINK_RE.sub("", msg.get("content") or "").strip()}
-        calls = [{"id": f"call_{i}", "type": "function",
-                  "function": {"name": tc["function"]["name"], "arguments": json.dumps(tc["function"].get("arguments") or {})}}
-                 for i, tc in enumerate(msg.get("tool_calls") or []) if (tc.get("function") or {}).get("name") in names]
-        _attach_calls(out, calls, names)
-        return {"message": out, "usage": _ollama_usage(data), "ref": ref, "model": model}
-    body = _body(p, model, messages, False)
-    if tools:
-        body["tools"] = tools  # tool_choice left to the default ("auto"): some Claude models reject forced choice
-    if "openrouter.ai" in p["base_url"]:
-        body["usage"] = {"include": True}
-    r = await _post(p, f"{p['base_url'].rstrip('/')}/chat/completions", body, _headers(p))
-    if r.status_code >= 400:
-        raise HTTPException(502, f"{p['name']} error {r.status_code}: {r.text[:400]}")
-    data = r.json()
-    msg = (data.get("choices") or [{}])[0].get("message") or {}
-    content = THINK_RE.sub("", msg.get("content") or "").strip()
-    out = {"role": "assistant", "content": content}
-    calls = [
-        {"id": tc.get("id") or f"call_{i}", "type": "function",
-         "function": {"name": tc["function"]["name"], "arguments": tc["function"].get("arguments") or "{}"}}
-        for i, tc in enumerate(msg.get("tool_calls") or []) if tc.get("function", {}).get("name")
-    ]
-    _attach_calls(out, calls, names)
-    return {"message": out, "usage": data.get("usage") or {}, "ref": ref, "model": model}
+async def complete(ref: str | None, messages: list[dict], trace: dict | None = None) -> str:
+    return (await chat(ref, messages, None, trace))["message"]["content"]
 
 
-def _attach_calls(out: dict, calls: list[dict], names: set[str]) -> None:
-    """Structured calls win; otherwise a call the model printed as text is recovered and flagged."""
-    if not calls and names and out["content"]:
-        calls, out["content"] = parse_text_tool_calls(out["content"], names)
-        if calls:
-            out["parsed_from_text"] = True
-    if calls:
-        out["tool_calls"] = calls
-
-
-async def _ollama_stream(p: dict, model: str, messages: list[dict], started: float) -> AsyncIterator[dict]:
+async def stream(ref: str | None, messages: list[dict], trace: dict | None = None) -> AsyncIterator[dict]:
+    """Yields {"reasoning"} and {"delta"} chunks, then {"done": True, "usage", "ms", "first_token_ms"} or {"error"}."""
+    a, conn, model, ref = adapter(ref)
+    started = time.monotonic()
     first_token_ms = None
-    usage: dict = {}
-    async with httpx.AsyncClient(timeout=OLLAMA_TIMEOUT) as client:
-        async with client.stream("POST", f"{_ollama_root(p)}/api/chat", json=_ollama_body(model, messages, True)) as r:
-            if r.status_code >= 400:
-                text = (await r.aread()).decode(errors="replace")
-                yield {"error": f"{p['name']} error {r.status_code}: {text[:400]}"}
-                return
-            async for line in r.aiter_lines():
-                try:
-                    chunk = json.loads(line) if line.strip() else None
-                except ValueError:
-                    continue
-                if not chunk:
-                    continue
-                if chunk.get("error"):
-                    yield {"error": f"{p['name']}: {chunk['error']}"}
-                    return
-                m = chunk.get("message") or {}
-                if m.get("thinking"):
-                    yield {"reasoning": m["thinking"]}
-                if m.get("content"):
-                    if first_token_ms is None:
-                        first_token_ms = int((time.monotonic() - started) * 1000)
-                    yield {"delta": m["content"]}
-                if chunk.get("done"):
-                    usage = _ollama_usage(chunk)
-    if usage.get("prompt_tokens", 0) >= OLLAMA_NUM_CTX:
-        yield {"error": f"The prompt filled the whole {OLLAMA_NUM_CTX} token window, so Ollama cut part of it."}
-        return
-    yield {"done": True, "usage": usage, "ms": int((time.monotonic() - started) * 1000), "first_token_ms": first_token_ms}
+    recorded = False
+    try:
+        async for e in a.stream(model, messages):
+            if "delta" in e and first_token_ms is None:
+                first_token_ms = int((time.monotonic() - started) * 1000)
+            if "done" in e or "error" in e:
+                recorded = True
+                _record(conn, ref, trace, started, e.get("usage") or {}, "ok" if "done" in e else "error", e.get("error", ""))
+                if "done" in e:
+                    e = {**e, "ms": int((time.monotonic() - started) * 1000), "first_token_ms": first_token_ms}
+            yield e
+    finally:
+        if not recorded:  # the reader went away (closed tab) or the transport failed mid stream
+            _record(conn, ref, trace, started, {}, "error", "stream ended before the model finished")
 
 
 def parse_json(text: str):

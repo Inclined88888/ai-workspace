@@ -19,10 +19,12 @@ Out of scope for the current branch, dropped, or blocked. Nothing is dropped sil
 ## Scheduled later
 
 * **Claude Code launcher add-on (Phase 3, decision D2).** It runs the user's own unmodified Claude Code binary, and the user signs in through Anthropic's flow. Needs Node, so it is an add-on (R6).
-* **R1 split (Phase 0 item 3).** Until then, `llm.describe()` derives `auth_kind` and `protocol` from the old `kind` field for the run log.
 * **Idempotency semantics (item 28).** `actions.request_id` is unique per row today; callers cannot yet supply a key to deduplicate retries.
 
 ## Found during work, not yet scheduled
+
+* **Live-key check of the new protocols.** The `responses` and `anthropic_messages` adapters pass contract tests against their documented and SDK-typed wire formats, but have not been run against the live APIs (no keys in this environment or CI). Manual check: one tool-using turn and one stream with a real OpenAI key and a real Anthropic key; record the result in docs/design/0002.
+* **Native Anthropic for migrated connections.** Connections from before schema 2 keep Chat Completions through Anthropic's compatibility layer, which Anthropic says is for testing. Consider prompting the user to switch once the live-key check above passes.
 
 * **Release numbers.** Workbench has no version scheme; CHANGELOG entries use the schema version and merge commit until releases exist (item 80).
 * **Unseparated phone numbers.** R7 redaction does not match a phone written as one run of digits; it is indistinguishable from epoch timestamps and ids in logs. Revisit if a context-aware detector (item 78) lands.

@@ -15,6 +15,11 @@ def _legacy_db(path: Path) -> sqlite3.Connection:
     c.row_factory = sqlite3.Row
     c.executescript(V0)
     c.execute("INSERT INTO conversations(id, title, channel, created_at, updated_at) VALUES (1, 'old', 'web', 't', 't')")
+    c.execute("INSERT INTO providers(id, name, kind, base_url, api_key_enc, models, created_at) VALUES "
+              "(1, 'Ollama (local)', 'ollama', 'http://host.docker.internal:11434/v1', '', '', 't'), "
+              "(3, 'Anthropic', 'anthropic', 'https://api.anthropic.com/v1', 'enc-key', '', 't'), "
+              "(4, 'LM Studio', 'openai', 'http://192.168.1.5:1234/v1', '', 'qwen', 't'), "
+              "(7, 'OpenRouter', 'openai', 'https://openrouter.ai/api/v1', 'enc-or', '', 't')")
     c.execute("INSERT INTO usage(ts, model, agent_id, conversation_id, channel, prompt_tokens, completion_tokens, cost_cents, priced) "
               "VALUES ('2026-10-01T00:00:00+00:00', 'gpt-x', 7, 1, 'agent', 1000, 500, 1.05, 1), "
               "('2026-10-02T00:00:00+00:00', 'qwen3:4b', NULL, 1, 'web', 900, 50, 0, 0)")
@@ -36,9 +41,15 @@ def test_migration_moves_every_legacy_row_and_backs_up_first(client, tmp_path):
     c = _legacy_db(path)
     db.migrate(c, path)
     names = {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
-    assert not names & set(LEGACY) and "actions" in names
+    assert not names & {*LEGACY, "providers"} and {"actions", "connections"} <= names
+    conns = [dict(r) for r in c.execute("SELECT id, auth_kind, protocol, secret_enc, residency FROM connections ORDER BY id")]
+    # ids survive (model refs "<id>/<model>" keep working); behaviour is unchanged: Anthropic stays on the compat protocol
+    assert conns == [{"id": 1, "auth_kind": "local_ollama", "protocol": "ollama_native", "secret_enc": "", "residency": "local"},
+                     {"id": 3, "auth_kind": "api_key", "protocol": "chat_completions", "secret_enc": "enc-key", "residency": "cloud"},
+                     {"id": 4, "auth_kind": "openai_compatible", "protocol": "chat_completions", "secret_enc": "", "residency": "cloud"},
+                     {"id": 7, "auth_kind": "api_key", "protocol": "chat_completions", "secret_enc": "enc-or", "residency": "cloud"}]
     assert c.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION
-    backups = list(tmp_path.glob("workbench.db.pre-v1-*.bak"))
+    backups = list(tmp_path.glob(f"workbench.db.pre-v{db.SCHEMA_VERSION}-*.bak"))
     assert len(backups) == 1 and sqlite3.connect(backups[0]).execute("SELECT COUNT(*) FROM usage").fetchone()[0] == 2
 
     rows = [dict(r) for r in c.execute("SELECT * FROM actions ORDER BY id")]

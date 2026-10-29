@@ -1,6 +1,6 @@
 # 0001: Run log and connection schemas
 
-Status: run log **built** (Phase 0 item 1). Connection table **designed**, to be built in Phase 0 item 3 (R1 split).
+Status: run log **built** (Phase 0 item 1). Connection table **built** (Phase 0 item 3, schema version 2; adapter interface in 0002).
 
 ## Run log: `actions` (R2)
 
@@ -45,7 +45,7 @@ Mapping:
 ### Rollback
 Stop Workbench, move the `.bak` file over `workbench.db`, and start the previous image. Anything recorded after the upgrade is lost. That is the cost of a one-way schema change, and why the backup is automatic.
 
-## Connections (R1), for Phase 0 item 3
+## Connections (R1), built in Phase 0 item 3
 
 It replaces `providers`. Two separate fields replace today's overloaded `kind`.
 
@@ -53,7 +53,7 @@ It replaces `providers`. Two separate fields replace today's overloaded `kind`.
 CREATE TABLE connections (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,
-  auth_kind TEXT NOT NULL,        -- api_key | oauth_subscription | experimental_session_slot | local_ollama | openai_compatible
+  auth_kind TEXT NOT NULL,        -- api_key | oauth_subscription | session_scraping_forbidden | local_ollama | openai_compatible
   protocol TEXT NOT NULL,         -- responses | chat_completions | anthropic_messages | ollama_native
   base_url TEXT NOT NULL,
   secret_enc TEXT NOT NULL DEFAULT '',   -- API key, or OAuth refresh token (encrypted)
@@ -69,8 +69,13 @@ CREATE TABLE connections (
 );
 ```
 
-Decision on `experimental_session_slot` (product ambiguity, reversible):
-* R1 lists it as one of the five backends, but R5 and D3 forbid session scraping.
-* It stays as a reserved enum value. Its adapter always refuses with the R5 reason, and its contract test asserts that refusal.
-* Alternative considered: deleting the value from the enum. Rejected, because R1 names five backends.
-* Reversibility: dropping the value later needs only a CHECK change, with no data, since nothing can create such a connection.
+Decision on the refusal-only kind (D7, accepted): it exists as `session_scraping_forbidden`, renamed from the design's
+`experimental_session_slot`. It cannot be created (the API answers 400 with the R5 text), and a row put in by hand refuses every use
+with a user-visible error citing R5 (403). The model list skips it instead of failing (tests/test_contract.py).
+
+### Migration (schema version 1 → 2)
+`providers(kind)` rows become `connections` with the **same ids**, so model references (`3/claude-…`) keep working.
+`kind = ollama` → `local_ollama` + `ollama_native` (residency `local`). `kind = anthropic` → `api_key` + `chat_completions`
+(behaviour unchanged: the OpenAI compatibility layer it used; switching to native `anthropic_messages` is a choice in Settings).
+`kind = openai` → `api_key` + `chat_completions` for the official hosts, otherwise `openai_compatible` + `chat_completions`.
+One backup per upgrade run (`workbench.db.pre-v2-<UTC>.bak`), steps in one transaction each, rollback on failure.

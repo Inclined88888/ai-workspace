@@ -4,6 +4,30 @@ Every user-visible change that needs action, or changes data on upgrade, gets an
 migration steps, rollback steps. Workbench has no release numbers yet (BACKLOG). Entries are identified by schema
 version and the merge commit on `main`.
 
+## 2026-10-29 · Schema version 2: connections (auth kind + protocol) · Phase 0 item 3
+
+**Breaking changes**
+* The `providers` table is replaced by `connections`. Each connection has an `auth_kind` (API key, local Ollama, OpenAI
+  compatible server, subscription sign-in) and a `protocol` (Chat Completions, OpenAI Responses, Anthropic Messages, Ollama
+  native) instead of the old `kind`. Ids are kept, so every saved model choice (`3/claude-…`) keeps working.
+* `/api/providers` returns `auth_kind`, `protocol`, `state` and `last_error` instead of `kind`. It still accepts `kind` when
+  creating a connection.
+* New connections from the **OpenAI** preset use the Responses API, and from the **Anthropic** preset the native Messages API.
+  Existing connections keep the protocol they used (Chat Completions); change it in Settings → Model providers.
+* Connection types that are not legitimate are refused with an R5 message. No existing connection is affected: none can be of
+  that type.
+* A connection that cannot be used (for example one that needs sign-in) no longer breaks the model list; it shows its error in
+  Settings.
+
+**Migration steps:** automatic on first start. Workbench copies the database to `workbench.db.pre-v2-<UTC time>.bak`, then moves
+every provider into `connections` in one transaction. On failure nothing changes and the database stays at version 1.
+
+**Rollback steps**
+1. `docker compose stop workbench`
+2. Replace `workbench.db` with the newest `workbench.db.pre-v2-*.bak` (delete `workbench.db-wal` and `workbench.db-shm` if present).
+3. Start the previous image.
+4. Connections added after the upgrade are lost.
+
 ## 2026-10-29 · Logs and error messages are redacted (R7, item 110) · PR #4
 
 **Breaking changes**
