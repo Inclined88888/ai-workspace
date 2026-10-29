@@ -22,9 +22,12 @@ bad() { report "FAIL: $1"; fail=1; }
 
 # shellcheck disable=SC2086
 docker build ${BUILD_FLAGS:-} -t "$TAG" -f "${DOCKERFILE:-workbench/Dockerfile}" workbench
-bytes=$(docker image inspect -f '{{.Size}}' "$TAG")
-mb=$(( bytes / 1000000 ))
-report "Image size: ${mb} MB (limit ${MAX_IMAGE_MB} MB)"
+# Size = sum of the image's layers, unpacked. Not `docker image inspect .Size`: with Docker's containerd image store
+# that adds the compressed blobs on top (measured: 282 MB of layers + 85 MB of blobs read as 367.8 MB), while the classic
+# store reports layers only, so the same image would pass on one engine and fail on another.
+mb=$(docker history --no-trunc --format '{{.Size}}' "$TAG" | awk '{v=$1; u=v; gsub(/[0-9.]/,"",u); gsub(/[A-Za-z]/,"",v);
+  f=(u=="GB")?1e9:(u=="MB")?1e6:(u=="kB")?1e3:1; s+=v*f} END {printf "%d", s/1e6}')
+report "Image size: ${mb} MB of layers (limit ${MAX_IMAGE_MB} MB; inspect reports $(( $(docker image inspect -f '{{.Size}}' "$TAG") / 1000000 )) MB on this engine)"
 (( mb <= MAX_IMAGE_MB )) || bad "image is ${mb} MB, over ${MAX_IMAGE_MB} MB"
 
 secret=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
