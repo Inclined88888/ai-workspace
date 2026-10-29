@@ -1,0 +1,9 @@
+forced_login_method = "chatgpt"
+[analytics]
+enabled = false
+[feedback]
+enabled = false
+[otel]
+exporter = "none"
+trace_exporter = "none"
+metrics_exporter = "none"

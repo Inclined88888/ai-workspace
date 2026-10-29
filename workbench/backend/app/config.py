@@ -40,3 +40,6 @@ if len(APP_SECRET) < 32:
 if len(TOOLS_API_KEY) < 24:
     raise RuntimeError("TOOLS_API_KEY must be at least 24 characters. Run ./setup.sh to generate one.")
 
+
+CODEX_URL = os.getenv("CODEX_URL", "").rstrip("/")
+CODEX_API_KEY = os.getenv("CODEX_API_KEY", "")

@@ -1,0 +1,11 @@
+FROM node:22-bookworm-slim
+RUN npm install --global --no-audit --no-fund @openai/codex@0.163.0 \
+    && npm cache clean --force \
+    && mkdir -p /workspace /home/node/.codex \
+    && chown -R node:node /workspace /home/node/.codex
+COPY --chown=node:node server.mjs codex.mjs /app/
+COPY --chown=node:node codex-config.toml /home/node/.codex/config.toml
+ENV HOME=/home/node
+USER node
+WORKDIR /workspace
+CMD ["node", "/app/server.mjs"]

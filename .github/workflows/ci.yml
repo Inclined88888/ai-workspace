@@ -97,3 +97,5 @@ jobs:
         run: docker compose --profile claude-code config --quiet
       - name: Build the pinned official CLI add-on
         run: docker build -f cli-launcher/Dockerfile.claude cli-launcher
+      - name: Build the pinned Codex CLI add-on
+        run: docker build -f cli-launcher/Dockerfile.codex cli-launcher

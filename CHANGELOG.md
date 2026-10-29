@@ -17,6 +17,16 @@ version and the merge commit on `main`.
 No schema/key migration. Recreate enabled Paperclip containers to apply its new
 environment. Roll back the image/client if needed; preserve volumes and APP_SECRET.
 [Phase 0 gate](docs/PHASE0-GATE.md) records the acceptance assumptions and limits.
+## 2026-10-29 · Official Codex CLI launcher · Phase 1 item 117
+
+Optional `codex` profile reuses Item 116's unchanged Node transport. The official
+CLI is pinned to 0.163.0; a CLI-specific adapter sanitizes login status and forwards
+only the task result. Analytics, feedback and all OTel exporters are disabled.
+
+Enable and authenticate through [the official CLI](cli-launcher/CODEX.md).
+No database migration or core dependency change. Roll back by disabling the profile;
+auth and workspace volumes remain. Live login/inference and egress checks require
+owner acceptance.
 
 ## 2026-10-29 · Official Claude Code launcher · Phase 1 item 116
 

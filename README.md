@@ -9,6 +9,7 @@ Everything heavier is an **optional add-on, off by default**:
 | Add-on | Turn on with | Adds | Cost |
 | --- | --- | --- | --- |
 | `search` | SearXNG | Free private web search (otherwise use a Brave or Tavily key, or none) | small |
+| `codex` | Official Codex CLI 0.163.0 | Explicit CLI task hand-off ([setup](cli-launcher/CODEX.md)) | image size unmeasured |
 | `claude-code` | Official Claude Code 2.1.308 | Explicit CLI task hand-off using the user's own official login ([setup and API](cli-launcher/README.md)) | image size unmeasured |
 | `browser` | browser-use + Chromium | Browser agent page and a `browse_web` tool | ≈ 2.5 GB image |
 | `local-models` | Ollama in Docker | Local models (on a Mac, native Ollama is faster and is detected by setup) | ≈ 8.5 GB image + models |
