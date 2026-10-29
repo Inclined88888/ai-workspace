@@ -10,6 +10,7 @@ import logging
 import httpx
 
 from . import assistant, db
+from .redact import redact
 from .security import decrypt, encrypt
 
 log = logging.getLogger("telegram")
@@ -126,5 +127,5 @@ async def loop() -> None:
                             except Exception as e:  # noqa: BLE001 - one bad message must not stop the bot
                                 log.warning("telegram message failed: %s", e)
         except Exception as e:  # noqa: BLE001
-            _status.update(running=False, error=str(e)[:300])
+            _status.update(running=False, error=redact(str(e))[:300])  # shown in Settings; may quote the request URL
             await asyncio.sleep(15)
