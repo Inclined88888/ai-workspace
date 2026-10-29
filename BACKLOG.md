@@ -30,6 +30,8 @@ Out of scope for the current branch, dropped, or blocked. Nothing is dropped sil
 * **Pin Playwright.** `browser-agent/pyproject.toml` allows `playwright>=1.50`, so a fresh install can pull a version that expects a browser build that is not installed (6 browser-agent tests failed this way until `CHROME_PATH` was set).
 * **Learning competes with turns on single-slot local models.** The benchmark measured learning calls racing the next turn on Ollama's one slot. Learning should yield to a waiting turn.
 * **Benchmark coverage.** `bench/local_tasks.py` completed 25 of 50 tasks on CPU before the environment's time limit. Memory, calendar, drafts and "change nothing" tasks are unmeasured.
-* **Re-measure against Docker Hub.** Image and RAM numbers so far come from Google's mirror (Docker Hub returned 429) and include a 0.2 MB proxy CA.
+* **Image size figures before CI were inflated.** Resolved by item 111. Every "368 MB" reported before CI came from Docker's containerd image store, whose `inspect .Size` adds compressed blobs to unpacked layers (282 MB + 85 MB). CI builds from Docker Hub on the classic engine and measures unpacked layers: **248 MB** on main. A residual 34 MB gap between local layer sums (282 MB, mirror base images) and CI (248 MB) is not explained yet; CI's figure is the canonical one.
+* **Browser-agent tests are not in CI.** They need Chromium and a pinned Playwright (see the Playwright entry). Add a job once Playwright is pinned.
+* **Remote branch `ci-demo/reintroduce-pr1-bug` still exists.** It belongs to closed PR #6 (the CI regression demonstration). This session cannot delete remote branches (HTTP 403); delete it in the GitHub UI.
 * **Migrated legacy cost rows** keep the bare model name in `model`; new rows store the model ref. Reports group the two separately for the month of the upgrade.
 * **`browse_web` results cannot be verified** by receipts, and say so.
