@@ -283,3 +283,22 @@ label.field .hint { font-weight: 400; color: var(--muted); font-size: 12px; }
 
 .thinking { margin: 6px 0 10px; padding: 6px 10px; border-left: 2px solid var(--border-strong); }
 .thinking summary { cursor: pointer; }
+
+/* Run log trace (item 21) */
+.trace-row { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--border); cursor: pointer; }
+.trace-row:hover { background: var(--panel-2); }
+.trace-meta { white-space: nowrap; }
+.trace-facts { margin: 0; padding: 8px 14px 12px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
+.trace-facts > div { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 8px; }
+.trace-facts dt { color: var(--muted); font-size: 12px; }
+.trace-facts dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 640px) {
+  .trace-meta { display: none; }
+  .trace-facts > div { grid-template-columns: 1fr; gap: 2px; }
+}
+.run-meta { text-align: right; white-space: nowrap; }
+@media (max-width: 640px) {
+  .run-item { flex-wrap: wrap; }
+  .run-item .grow { flex-basis: calc(100% - 80px); }
+  .run-meta { width: 100%; text-align: left; padding-left: 2px; }
+}

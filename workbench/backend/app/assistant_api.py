@@ -125,6 +125,19 @@ def reliability():
                              "WHERE kind = 'tool_call' ORDER BY id DESC LIMIT 50")}
 
 
+# Run log and trace (item 21): every turn and model call, with the model calls, tool calls and decisions under it
+@router.get("/runs")
+def runs(limit: int = 50, before: int | None = None, channel: str = "", failed: bool = False, conversation_id: int | None = None):
+    return {"runs": actions.runs(limit, before, channel, failed, conversation_id),
+            "channels": [r["channel"] for r in db.all("SELECT DISTINCT channel FROM actions WHERE parent_action_id IS NULL "
+                                                       "AND channel != '' ORDER BY channel")]}
+
+
+@router.get("/runs/{aid}")
+def run_trace(aid: int):
+    return actions.trace(aid)
+
+
 # Memory
 class MemoryIn(BaseModel):
     content: str = Field(..., min_length=3, max_length=1000)
