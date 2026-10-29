@@ -115,3 +115,59 @@ def args_preview(raw: str) -> str:
         return json.dumps(json.loads(raw or "{}"), ensure_ascii=False)[:2000]
     except ValueError:
         return (raw or "")[:2000]
+
+
+# The trace (item 21): top-level runs and the tree of actions under each. payload_enc never leaves this module.
+_TREE = ("WITH RECURSIVE tree(id) AS (SELECT ? UNION ALL SELECT a.id FROM actions a JOIN tree t ON a.parent_action_id = t.id) ")
+FAILED = ("error", "check_failed", "bad_args", "unknown_tool", "tool_error", "unbacked", "model_error", "step_limit",
+          "empty_answer", "interrupted", "denied", "rejected")
+
+
+def runs(limit: int = 50, before: int | None = None, channel: str = "", failed: bool = False,
+         conversation_id: int | None = None) -> list[dict]:
+    """Newest first: actions with no parent (turns, and model calls made outside a turn), with totals over their tree."""
+    where, params = ["r.parent_action_id IS NULL", "r.kind IN ('turn', 'model_call', 'tool_call')"], []
+    if before:
+        where.append("r.id < ?"); params.append(before)
+    if channel:
+        where.append("r.channel = ?"); params.append(channel)
+    if conversation_id:
+        where.append("r.conversation_id = ?"); params.append(conversation_id)
+    if failed:
+        where.append(f"r.outcome IN ({','.join('?' * len(FAILED))})"); params.extend(FAILED)
+    rows = db.all(f"SELECT r.*, c.title AS conversation_title "
+                  f"FROM actions r LEFT JOIN conversations c ON c.id = r.conversation_id "
+                  f"WHERE {' AND '.join(where)} ORDER BY r.id DESC LIMIT ?", *params, max(1, min(limit, 200)))
+    for r in rows:
+        r.pop("payload_enc")
+        r.update(totals(r["id"]))
+    return rows
+
+
+def totals(root: int) -> dict:
+    t = db.one(_TREE + "SELECT COUNT(*) - 1 AS steps, "
+               "SUM(CASE WHEN kind = 'model_call' THEN 1 ELSE 0 END) AS model_calls, "
+               "SUM(CASE WHEN kind = 'tool_call' THEN 1 ELSE 0 END) AS tool_calls, "
+               "COALESCE(SUM(tokens_in), 0) AS total_tokens_in, COALESCE(SUM(tokens_out), 0) AS total_tokens_out, "
+               "SUM(usd_cost) AS total_usd, SUM(CASE WHEN kind = 'model_call' AND usd_cost IS NULL THEN 1 ELSE 0 END) AS unpriced, "
+               f"SUM(CASE WHEN outcome IN ({','.join('?' * len(FAILED))}) THEN 1 ELSE 0 END) AS failures "
+               "FROM actions WHERE id IN tree", root, *FAILED)
+    return {k: (v or 0) if k != "total_usd" else v for k, v in t.items()}
+
+
+def trace(root: int) -> dict:
+    """One run as a tree: the action and everything under it, oldest first at each level."""
+    rows = db.all(_TREE + "SELECT * FROM actions WHERE id IN tree ORDER BY id", root)
+    if not rows:
+        raise HTTPException(404, "Run not found")
+    by_id = {r["id"]: r | {"children": []} for r in rows}
+    for r in by_id.values():
+        r.pop("payload_enc")
+    for r in by_id.values():
+        if r["id"] != root and r["parent_action_id"] in by_id:
+            by_id[r["parent_action_id"]]["children"].append(r)
+    out = by_id[root]
+    conv = db.one("SELECT title FROM conversations WHERE id = ?", out["conversation_id"]) if out["conversation_id"] else None
+    out["conversation_title"] = conv["title"] if conv else None
+    out.update(totals(root))
+    return out

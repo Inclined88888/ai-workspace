@@ -4,6 +4,20 @@ Every user-visible change that needs action, or changes data on upgrade, gets an
 migration steps, rollback steps. Workbench has no release numbers yet (BACKLOG). Entries are identified by schema
 version and the merge commit on `main`.
 
+## 2026-10-29 · Run log page · Phase 0 item 21
+
+**New**
+* A **Run log** page (sidebar, `/runs`) lists every turn and every model call made outside a turn, newest first, with its
+  outcome, channel, model, model and tool call counts, tokens, cost and duration. Filter by channel or show only runs
+  with a failed step.
+* Opening a run shows its trace: each model call (provider, auth kind, protocol, latency, tokens, cost), each tool call
+  (effect, redacted arguments, failure, receipt) and each approval decision nested under the call it answered.
+* API: `GET /api/runs` (`limit`, `before`, `channel`, `failed`, `conversation_id`) and `GET /api/runs/{id}`. Both need a
+  signed-in session or the CLI token. Encrypted raw arguments of held calls are never returned.
+
+**Breaking changes:** none. **Migration steps:** none; the page reads the existing run log (schema v2 unchanged).
+**Rollback steps:** run the previous image. No data changes.
+
 ## 2026-10-29 · The browser agent uses Workbench's models · Phase 0 item 3 (part b)
 
 **Breaking changes**
