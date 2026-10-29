@@ -4,6 +4,21 @@ Every user-visible change that needs action, or changes data on upgrade, gets an
 migration steps, rollback steps. Workbench has no release numbers yet (BACKLOG). Entries are identified by schema
 version and the merge commit on `main`.
 
+## 2026-10-29 · Official Claude Code launcher · Phase 1 item 116
+
+**New:** optional `claude-code` Compose profile, with the official CLI pinned to 2.1.308.
+The dependency-free Node transport checks official CLI auth, sends tasks on stdin,
+returns output privately, and terminates bounded subprocesses. Nonessential traffic
+and auto-updates are disabled. No provider/session adapter or core Node dependency.
+
+**Migration steps:** opt in with `./setup.sh --with claude-code` (include any existing
+add-ons in the list), then sign in through the official CLI. See [launcher setup and
+API](cli-launcher/README.md). No database migration or breaking change.
+
+**Rollback steps:** disable with `./setup.sh --with none`, or rerun setup listing only
+your other add-ons. Login and workspace volumes are kept; official logout and volume
+removal are documented separately. Existing core installs stay off by default.
+
 ## 2026-10-29 · Outbound audit log · Phase 0 item 75
 
 **New**
@@ -169,3 +184,4 @@ apart from timestamps and ids.
    `workbench.db-wal` and `workbench.db-shm` if present).
 3. Start the previous image.
 4. Anything recorded after the upgrade (costs, approvals, tool runs) is lost.
+

@@ -1,5 +1,5 @@
 # AI Workspace: one light container by default. Everything else is an optional add-on (Compose profile).
-# Run ./setup.sh for a guided first start. Add-ons: ./setup.sh --with search,browser,local-models,openwebui,paperclip,hermes
+# Run ./setup.sh for a guided first start. Add-ons: ./setup.sh --with search,browser,local-models,openwebui,paperclip,hermes,claude-code
 #
 #   Workspace (assistant, memory, skills, automations, company, notes, tasks, calendar, mail, research)
 #             http://localhost:${WORKBENCH_PORT:-3100}
@@ -112,10 +112,45 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      CLAUDE_CODE_URL: ${CLAUDE_CODE_URL:-}
+      CLAUDE_CODE_API_KEY: ${CLAUDE_CODE_API_KEY:-}
       BROWSER_URL: ${BROWSER_URL:-}
       BROWSER_API_KEY: ${BROWSER_API_KEY:-}
       PAPERCLIP_URL: ${PAPERCLIP_URL:-}
       HERMES_URL: ${HERMES_URL:-}
+
+  # Official CLI hand-off only; no subscription credentials enter Workbench.
+  claude-code:
+    profiles: ["claude-code"]
+    build:
+      context: ./cli-launcher
+      dockerfile: Dockerfile.claude
+    image: ai-workspace/claude-code-launcher:local
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 10s
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    # Internal only; no host port, provider keys, Docker socket or host home mounts.
+    volumes:
+      - claude-code-auth:/home/node/.claude
+      - claude-code-workspace:/workspace
+    environment:
+      LAUNCHER_API_KEY: ${CLAUDE_CODE_API_KEY:-}
+      LAUNCHER_COMMAND: claude
+      LAUNCHER_ARGS: '["--print", "--output-format", "text", "--no-session-persistence"]'
+      LAUNCHER_AUTH_ARGS: '["auth", "status"]'
+      LAUNCHER_AUTH_MATCH: '{"loggedIn":true,"authMethod":"claude.ai"}'
+      LAUNCHER_CHILD_ENV: '{"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC":"1","DISABLE_AUTOUPDATER":"1"}'
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+      DISABLE_AUTOUPDATER: "1"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8110/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
   # Browser agent (browser-use + Playwright). Internal only: reached by Workbench, Chat and Paperclip.
   browser:
@@ -210,9 +245,12 @@ services:
       BROWSER_API_KEY: ${BROWSER_API_KEY}
 
 volumes:
+  claude-code-auth:
+  claude-code-workspace:
   ollama:
   open-webui:
   workbench:
   browser:
   paperclip:
   hermes:
+

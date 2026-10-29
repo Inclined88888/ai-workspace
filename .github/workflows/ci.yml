@@ -77,3 +77,21 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Build, start, measure and check logs
         run: scripts/ci/check-image.sh
+
+  cli-launcher:
+    name: Official CLI launcher tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: "22"
+      - run: node --test cli-launcher/test/*.test.mjs
+      - run: bash -n setup.sh
+      - name: Validate optional Compose profiles
+        env:
+          APP_SECRET: ci-placeholder-secret-at-least-32-characters
+          TOOLS_API_KEY: ci-placeholder-key-at-least-24-characters
+        run: docker compose --profile claude-code config --quiet
+      - name: Build the pinned official CLI add-on
+        run: docker build -f cli-launcher/Dockerfile.claude cli-launcher
