@@ -111,6 +111,10 @@ async def mine_skill(conv_id: int) -> str:
         return ""
     rows = db.all("SELECT role, content, tool_calls, name FROM messages WHERE conversation_id = ? AND id >= ? ORDER BY id",
                   conv_id, last_user["id"])
+    from .assistant import UNTRUSTED_TOOLS
+
+    if any(r["role"] == "tool" and r["name"] in UNTRUSTED_TOOLS for r in rows):
+        return ""  # a skill learned from a turn that read web pages or email could carry injected instructions forever
     lines = []
     for r in rows:
         if r["role"] == "tool":

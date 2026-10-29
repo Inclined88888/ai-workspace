@@ -5,7 +5,11 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import api, assistant_api, browser_proxy, company, config, db, llm, scheduler, telegram
+from . import redact
+
+redact.install()  # before anything logs: no secret reaches a log sink (R7)
+
+from . import api, assistant_api, browser_proxy, company, config, db, llm, scheduler, telegram  # noqa: E402
 from .mcp_server import mcp, mcp_app
 from .security import check_bearer
 from .tools import tools

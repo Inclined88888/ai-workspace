@@ -10,6 +10,7 @@ import logging
 import httpx
 
 from . import assistant, db
+from .redact import redact
 from .security import decrypt, encrypt
 
 log = logging.getLogger("telegram")
@@ -97,7 +98,11 @@ async def _handle(client: httpx.AsyncClient, msg: dict) -> None:
         return
     await _api(client, "sendChatAction", chat_id=chat_id, action="typing")
     ctx = assistant.Ctx(channel="telegram", conversation_id=_conversation(chat_id))
-    reply, _ = await assistant.ask(ctx, text)
+    reply, events = await assistant.ask(ctx, text)
+    held = [e for e in events if e["type"] == "approval_required"]
+    if held:
+        reply += "\n\n" + "\n".join(f"Waiting for your approval: #{e['id']} {e['tool']}. Approve or deny it in the "
+                                    f"workspace (Assistant) or with: ws approve {e['id']}" for e in held)
     await send(client, chat_id, reply)
 
 
@@ -122,5 +127,5 @@ async def loop() -> None:
                             except Exception as e:  # noqa: BLE001 - one bad message must not stop the bot
                                 log.warning("telegram message failed: %s", e)
         except Exception as e:  # noqa: BLE001
-            _status.update(running=False, error=str(e)[:300])
+            _status.update(running=False, error=redact(str(e))[:300])  # shown in Settings; may quote the request URL
             await asyncio.sleep(15)

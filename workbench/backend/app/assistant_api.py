@@ -11,7 +11,7 @@ import secrets
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from . import assistant, company, db, learn, scheduler, search, telegram, usage
+from . import assistant, company, db, learn, receipts, scheduler, search, telegram, usage
 from .api import sse
 from .security import COOKIE, check_session, encrypt
 
@@ -99,6 +99,30 @@ def rename(cid: int, data: ConvPatch):
 def delete_conversation(cid: int):
     db.run("DELETE FROM conversations WHERE id = ?", cid)
     return {"ok": True}
+
+
+# Approvals: actions held by assistant.needs_approval
+@router.get("/approvals")
+def approvals(status: str = "pending", conversation_id: int | None = None):
+    if conversation_id:
+        return db.all("SELECT * FROM pending_actions WHERE status = ? AND conversation_id = ? ORDER BY id", status, conversation_id)
+    return db.all("SELECT * FROM pending_actions WHERE status = ? ORDER BY id DESC LIMIT 200", status)
+
+
+class DecisionIn(BaseModel):
+    approve: bool
+
+
+@router.post("/approvals/{aid}")
+async def decide(aid: int, data: DecisionIn):
+    return await assistant.decide(aid, data.approve)
+
+
+# Reliability record: per model tool outcomes and claim checks
+@router.get("/reliability")
+def reliability():
+    return {"models": list(receipts.reliability().values()),
+            "recent": db.all("SELECT * FROM tool_runs ORDER BY id DESC LIMIT 50")}
 
 
 # Memory

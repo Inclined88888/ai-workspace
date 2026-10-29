@@ -4,6 +4,7 @@ Model references are "<provider_id>/<model>", e.g. "1/qwen3:4b" or "3/openai/gpt
 """
 
 import json
+import os
 import re
 import time
 from typing import AsyncIterator
@@ -61,6 +62,122 @@ def is_free(p: dict, model: str) -> bool:
 
 THINK_RE = re.compile(r"<think>.*?</think>", re.S)
 TIMEOUT = httpx.Timeout(connect=10, read=300, write=30, pool=10)
+# Ollama's OpenAI endpoint (/v1) ignores num_ctx and runs at the server default (4096 tokens), silently cutting
+# the start of the prompt (system prompt, memories, tool rules) once a page or a few messages are added.
+# Ollama is therefore called on its native /api/chat with an explicit window.
+OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "16384"))
+# Local models on a CPU need minutes per answer; measured here: qwen3:4b on 4 cores ran past the 300 s cloud timeout
+OLLAMA_TIMEOUT = httpx.Timeout(connect=10, read=float(os.getenv("OLLAMA_TIMEOUT_S", "900")), write=30, pool=10)
+CHARS_PER_TOKEN = 3  # conservative: real text averages 3.5 to 4, code and JSON less
+CLOUD_CONTEXT_CHARS = 300_000  # about 100K tokens; every current cloud chat model has at least this
+
+
+def context_chars(ref: str | None) -> int:
+    """Characters of prompt this model can take, keeping a quarter of the window for the reply."""
+    try:
+        p, _ = split_ref(ref or default_model_ref())
+    except HTTPException:
+        return CLOUD_CONTEXT_CHARS
+    if p["kind"] == "ollama":
+        return int(OLLAMA_NUM_CTX * CHARS_PER_TOKEN * 0.75)
+    return CLOUD_CONTEXT_CHARS
+
+
+def _ollama_root(p: dict) -> str:
+    return p["base_url"].rstrip("/").removesuffix("/v1")
+
+
+def _ollama_messages(messages: list[dict]) -> list[dict]:
+    """OpenAI shaped messages to Ollama's native shape: tool arguments are objects, tool results carry tool_name."""
+    names: dict[str, str] = {}
+    out = []
+    for m in messages:
+        m = dict(m)
+        if m.get("tool_calls"):
+            calls = []
+            for tc in m["tool_calls"]:
+                names[tc["id"]] = tc["function"]["name"]
+                try:
+                    args = json.loads(tc["function"].get("arguments") or "{}")
+                except ValueError:
+                    args = {}
+                calls.append({"function": {"name": tc["function"]["name"], "arguments": args if isinstance(args, dict) else {}}})
+            m["tool_calls"] = calls
+        if m["role"] == "tool":
+            m = {"role": "tool", "content": m["content"], "tool_name": names.get(m.get("tool_call_id", ""), "")}
+        out.append(m)
+    return out
+
+
+def _ollama_body(model: str, messages: list[dict], stream: bool, tools: list[dict] | None = None) -> dict:
+    body: dict = {"model": model, "messages": _ollama_messages(messages), "stream": stream,
+                  "options": {"num_ctx": OLLAMA_NUM_CTX}}
+    if tools:
+        body["tools"] = tools
+    return body
+
+
+def _ollama_usage(data: dict) -> dict:
+    return {"prompt_tokens": data.get("prompt_eval_count") or 0, "completion_tokens": data.get("eval_count") or 0}
+
+
+async def _post(p: dict, url: str, body: dict, headers: dict | None = None, timeout: httpx.Timeout = TIMEOUT) -> httpx.Response:
+    """A network failure or timeout becomes a clear error the caller can record, not a bare exception."""
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            return await client.post(url, headers=headers, json=body)
+    except httpx.TimeoutException as e:
+        raise HTTPException(504, f"{p['name']} did not answer within {int(timeout.read or 0)} s") from e
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"{p['name']} unreachable: {e.__class__.__name__}") from e
+
+
+async def _ollama_post(p: dict, body: dict) -> dict:
+    r = await _post(p, f"{_ollama_root(p)}/api/chat", body, timeout=OLLAMA_TIMEOUT)
+    if r.status_code >= 400:
+        raise HTTPException(502, f"{p['name']} error {r.status_code}: {r.text[:400]}")
+    data = r.json()
+    if (data.get("prompt_eval_count") or 0) >= OLLAMA_NUM_CTX:
+        raise HTTPException(502, f"The prompt filled the whole {OLLAMA_NUM_CTX} token window of {body['model']}, so Ollama cut "
+                                 "part of it. Start a new conversation, or raise OLLAMA_NUM_CTX if you have the memory.")
+    return data
+
+
+# Some local models (and some servers' parsers) print a tool call as text instead of returning a structured call.
+# Accept only well formed calls to tools that were actually offered; anything else stays plain text.
+_TOOL_TAG_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.S)
+_FENCE_RE = re.compile(r"^```(?:json)?\s*(.*?)\s*```$", re.S)
+
+
+def parse_text_tool_calls(content: str, tool_names: set[str]) -> tuple[list[dict], str]:
+    """Returns (tool_calls, remaining_text). Empty list when the text holds no valid call to an offered tool."""
+    candidates = [(m.group(0), m.group(1)) for m in _TOOL_TAG_RE.finditer(content)]
+    if not candidates:
+        stripped = content.strip()
+        fenced = _FENCE_RE.match(stripped)
+        body = fenced.group(1) if fenced else stripped
+        if body.startswith("{") and body.endswith("}"):
+            candidates = [(content, body)]
+    calls, rest = [], content
+    for raw, payload in candidates:
+        try:
+            obj = json.loads(payload)
+        except ValueError:
+            continue
+        if not isinstance(obj, dict) or obj.get("name") not in tool_names:
+            continue
+        args = obj.get("arguments", obj.get("parameters", {}))
+        if isinstance(args, str):
+            try:
+                args = json.loads(args or "{}")
+            except ValueError:
+                continue
+        if not isinstance(args, dict):
+            continue
+        calls.append({"id": f"text_{len(calls)}", "type": "function",
+                      "function": {"name": obj["name"], "arguments": json.dumps(args)}})
+        rest = rest.replace(raw, "")
+    return calls, (rest.strip() if calls else content)
 
 
 def seed_providers() -> None:
@@ -170,8 +287,10 @@ def _body(p: dict, model: str, messages: list[dict], stream: bool) -> dict:
 
 async def complete(ref: str | None, messages: list[dict]) -> str:
     p, model = split_ref(ref or default_model_ref())
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-        r = await client.post(f"{p['base_url'].rstrip('/')}/chat/completions", headers=_headers(p), json=_body(p, model, messages, False))
+    if p["kind"] == "ollama":
+        data = await _ollama_post(p, _ollama_body(model, messages, False))
+        return THINK_RE.sub("", (data.get("message") or {}).get("content") or "").strip()
+    r = await _post(p, f"{p['base_url'].rstrip('/')}/chat/completions", _body(p, model, messages, False), _headers(p))
     if r.status_code >= 400:
         raise HTTPException(502, f"{p['name']} error {r.status_code}: {r.text[:400]}")
     content = r.json()["choices"][0]["message"].get("content") or ""
@@ -184,6 +303,10 @@ async def stream(ref: str | None, messages: list[dict]) -> AsyncIterator[dict]:
     started = time.monotonic()
     first_token_ms = None
     usage: dict = {}
+    if p["kind"] == "ollama":
+        async for e in _ollama_stream(p, model, messages, started):
+            yield e
+        return
     async with httpx.AsyncClient(timeout=TIMEOUT) as client:
         async with client.stream(
             "POST", f"{p['base_url'].rstrip('/')}/chat/completions", headers=_headers(p), json=_body(p, model, messages, True)
@@ -226,28 +349,81 @@ async def chat(ref: str | None, messages: list[dict], tools: list[dict] | None =
     """
     ref = ref or default_model_ref()
     p, model = split_ref(ref)
+    names = {t["function"]["name"] for t in tools or []}
+    if p["kind"] == "ollama":
+        data = await _ollama_post(p, _ollama_body(model, messages, False, tools))
+        msg = data.get("message") or {}
+        out = {"role": "assistant", "content": THINK_RE.sub("", msg.get("content") or "").strip()}
+        calls = [{"id": f"call_{i}", "type": "function",
+                  "function": {"name": tc["function"]["name"], "arguments": json.dumps(tc["function"].get("arguments") or {})}}
+                 for i, tc in enumerate(msg.get("tool_calls") or []) if (tc.get("function") or {}).get("name") in names]
+        _attach_calls(out, calls, names)
+        return {"message": out, "usage": _ollama_usage(data), "ref": ref, "model": model, "cost_usd": None}
     body = _body(p, model, messages, False)
     if tools:
         body["tools"] = tools  # tool_choice left to the default ("auto"): some Claude models reject forced choice
     if "openrouter.ai" in p["base_url"]:
         body["usage"] = {"include": True}
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-        r = await client.post(f"{p['base_url'].rstrip('/')}/chat/completions", headers=_headers(p), json=body)
+    r = await _post(p, f"{p['base_url'].rstrip('/')}/chat/completions", body, _headers(p))
     if r.status_code >= 400:
         raise HTTPException(502, f"{p['name']} error {r.status_code}: {r.text[:400]}")
     data = r.json()
     msg = (data.get("choices") or [{}])[0].get("message") or {}
     content = THINK_RE.sub("", msg.get("content") or "").strip()
     out = {"role": "assistant", "content": content}
-    if msg.get("tool_calls"):
-        out["tool_calls"] = [
-            {"id": tc.get("id") or f"call_{i}", "type": "function",
-             "function": {"name": tc["function"]["name"], "arguments": tc["function"].get("arguments") or "{}"}}
-            for i, tc in enumerate(msg["tool_calls"]) if tc.get("function", {}).get("name")
-        ]
+    calls = [
+        {"id": tc.get("id") or f"call_{i}", "type": "function",
+         "function": {"name": tc["function"]["name"], "arguments": tc["function"].get("arguments") or "{}"}}
+        for i, tc in enumerate(msg.get("tool_calls") or []) if tc.get("function", {}).get("name")
+    ]
+    _attach_calls(out, calls, names)
     usage = data.get("usage") or {}
     cost = usage.get("cost") if isinstance(usage.get("cost"), (int, float)) else None
     return {"message": out, "usage": usage, "ref": ref, "model": model, "cost_usd": cost}
+
+
+def _attach_calls(out: dict, calls: list[dict], names: set[str]) -> None:
+    """Structured calls win; otherwise a call the model printed as text is recovered and flagged."""
+    if not calls and names and out["content"]:
+        calls, out["content"] = parse_text_tool_calls(out["content"], names)
+        if calls:
+            out["parsed_from_text"] = True
+    if calls:
+        out["tool_calls"] = calls
+
+
+async def _ollama_stream(p: dict, model: str, messages: list[dict], started: float) -> AsyncIterator[dict]:
+    first_token_ms = None
+    usage: dict = {}
+    async with httpx.AsyncClient(timeout=OLLAMA_TIMEOUT) as client:
+        async with client.stream("POST", f"{_ollama_root(p)}/api/chat", json=_ollama_body(model, messages, True)) as r:
+            if r.status_code >= 400:
+                text = (await r.aread()).decode(errors="replace")
+                yield {"error": f"{p['name']} error {r.status_code}: {text[:400]}"}
+                return
+            async for line in r.aiter_lines():
+                try:
+                    chunk = json.loads(line) if line.strip() else None
+                except ValueError:
+                    continue
+                if not chunk:
+                    continue
+                if chunk.get("error"):
+                    yield {"error": f"{p['name']}: {chunk['error']}"}
+                    return
+                m = chunk.get("message") or {}
+                if m.get("thinking"):
+                    yield {"reasoning": m["thinking"]}
+                if m.get("content"):
+                    if first_token_ms is None:
+                        first_token_ms = int((time.monotonic() - started) * 1000)
+                    yield {"delta": m["content"]}
+                if chunk.get("done"):
+                    usage = _ollama_usage(chunk)
+    if usage.get("prompt_tokens", 0) >= OLLAMA_NUM_CTX:
+        yield {"error": f"The prompt filled the whole {OLLAMA_NUM_CTX} token window, so Ollama cut part of it."}
+        return
+    yield {"done": True, "usage": usage, "ms": int((time.monotonic() - started) * 1000), "first_token_ms": first_token_ms}
 
 
 def parse_json(text: str):

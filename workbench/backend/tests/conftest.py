@@ -9,6 +9,7 @@ import time
 import pytest
 import uvicorn
 from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
 SCRIPT: list = []          # queued replies: dict message or callable(messages) -> dict
 CALLS: list[dict] = []     # every request body the fake model received
@@ -25,10 +26,29 @@ def _port() -> int:
 fake = FastAPI()
 
 
+def _tool_pairing_problem(messages: list[dict]) -> str:
+    """Every assistant tool call must be answered by a tool message before the next non-tool message."""
+    pending: set[str] = set()
+    for m in messages:
+        if m["role"] == "tool":
+            if m.get("tool_call_id") not in pending:
+                return f"tool message {m.get('tool_call_id')} has no matching tool call"
+            pending.discard(m["tool_call_id"])
+            continue
+        if pending:
+            return f"tool_call_ids did not have response messages: {sorted(pending)}"
+        if m["role"] == "assistant":
+            pending = {tc["id"] for tc in m.get("tool_calls") or []}
+    return f"tool_call_ids did not have response messages: {sorted(pending)}" if pending else ""
+
+
 @fake.post("/v1/chat/completions")
 async def completions(req: Request):
     body = await req.json()
     CALLS.append(body)
+    problem = _tool_pairing_problem(body["messages"])
+    if problem:  # same rule OpenAI and Anthropic enforce
+        return JSONResponse({"error": {"message": problem}}, status_code=400)
     sys_prompt = body["messages"][0]["content"] if body["messages"] and body["messages"][0]["role"] == "system" else ""
     if "long term memory" in sys_prompt:
         msg = {"role": "assistant", "content": json.dumps([{"content": "The user is a nurse in Sydney", "kind": "profile"}])}
@@ -41,6 +61,21 @@ async def completions(req: Request):
     else:
         msg = {"role": "assistant", "content": "ok"}
     return {"choices": [{"message": msg}], "usage": {"prompt_tokens": 1000, "completion_tokens": 500}}
+
+
+OLLAMA_CALLS: list[dict] = []
+OLLAMA_SCRIPT: list = []
+
+
+@fake.post("/api/chat")
+async def ollama_chat(req: Request):
+    """Ollama's native endpoint: tool arguments are objects, usage is prompt_eval_count/eval_count."""
+    body = await req.json()
+    OLLAMA_CALLS.append(body)
+    nxt = OLLAMA_SCRIPT.pop(0) if OLLAMA_SCRIPT else {"content": "ok"}
+    nxt = nxt(body) if callable(nxt) else nxt
+    return {"model": body["model"], "message": {"role": "assistant", **nxt}, "done": True,
+            "prompt_eval_count": nxt.get("_prompt_tokens", 900), "eval_count": 50}
 
 
 @fake.get("/v1/models")

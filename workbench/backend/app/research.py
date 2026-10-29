@@ -99,7 +99,9 @@ async def run(rid: int, question: str, model: str, depth: int) -> None:
             raise RuntimeError("None of the result pages could be read.")
 
         _update(rid, progress="Writing the report", sources=json.dumps([{k: s[k] for k in ("title", "url", "snippet")} for s in sources]))
-        context = "\n\n".join(f"[{i}] {s['title']}\nURL: {s['url']}\n{s['text']}" for i, s in enumerate(sources, 1))
+        # Share the model's window between sources instead of letting a small local window cut the prompt
+        per_source = max(800, min(PAGE_CHARS, (llm.context_chars(model) - 4000 - len(question)) // len(sources)))
+        context = "\n\n".join(f"[{i}] {s['title']}\nURL: {s['url']}\n{s['text'][:per_source]}" for i, s in enumerate(sources, 1))
         report = await llm.complete(model, [
             {"role": "system", "content": (
                 "You are a careful research analyst. Answer only from the numbered sources provided. "
