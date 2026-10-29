@@ -195,7 +195,7 @@ def contradiction(text: str, receipts: list[dict]) -> tuple[str, str]:
 def summary(receipts: list[dict]) -> str:
     """What this turn really did, from the receipts alone: used when the model gives no usable answer."""
     lines = [f"- {r['evidence']}" for r in receipts if r["verified"] is True and r["effect"] != "read"]
-    failed = [f"- {r['tool']} failed ({r['outcome']})" for r in receipts if r["outcome"] not in ("ok", "verified")]
+    failed = [f"- {r['tool']} failed ({r['outcome']})" for r in receipts if r["outcome"] not in ("ok", "verified", "duplicate")]
     if not lines and not failed:
         return ""
     return "\n".join(["Here is what was actually done:", *lines, *failed])
@@ -214,12 +214,14 @@ def unbacked_claim(text: str, receipts: list[dict]) -> tuple[str, str]:
 
 # The ledger: tool calls and turns are rows in `actions` (actions.py), next to the model calls llm.py records
 def record_tool(ctx, tool: str, outcome: str, verified: bool | None, evidence: str, from_text: bool, ms: int, *,
-                effect: str = "", args: str = "", payload: str | None = None, detail: str = "", failure: str = "") -> int:
+                effect: str = "", args: str = "", payload: str | None = None, detail: str = "", failure: str = "",
+                request_id: str | None = None) -> int:
     from . import actions
 
     return actions.add("tool_call", outcome, trace=ctx.trace(), payload=payload, model=ctx.model, tool=tool, effect=effect,
                        args=actions.args_preview(args), verified=None if verified is None else int(verified), evidence=evidence,
-                       from_text=int(from_text), latency_ms=ms, detail=detail, failure_reason=failure)
+                       from_text=int(from_text), latency_ms=ms, detail=detail, failure_reason=failure,
+                       request_id=request_id)
 
 
 def record_turn(ctx, outcome: str, detail: str = "") -> None:

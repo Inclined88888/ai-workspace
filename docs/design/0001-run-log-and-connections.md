@@ -15,7 +15,7 @@ One table, one writer module (`app/actions.py`). It replaces `usage`, `tool_runs
 | `tool`, `effect`, `args`, `payload_enc` | tool calls. `args` is redacted for display and trace. `payload_enc` holds encrypted raw arguments, kept only for held calls that may run later. |
 | `latency_ms`, `tokens_in`, `tokens_out`, `usd_cost` | `usd_cost` NULL means the price is unknown |
 | `outcome`, `failure_reason`, `verified`, `evidence`, `detail`, `from_text` | result, receipts, flags |
-| `request_id` | unique idempotency key (uuid4 hex); item 28 will give it caller-supplied semantics |
+| `request_id` | unique per row; carries the idempotency key where one applies (item 28, see below), otherwise uuid4 hex |
 | `parent_action_id` | tree: turn → model and tool calls; held call → decision → executed call |
 
 Rules:
@@ -79,3 +79,24 @@ with a user-visible error citing R5 (403). The model list skips it instead of fa
 (behaviour unchanged: the OpenAI compatibility layer it used; switching to native `anthropic_messages` is a choice in Settings).
 `kind = openai` → `api_key` + `chat_completions` for the official hosts, otherwise `openai_compatible` + `chat_completions`.
 One backup per upgrade run (`workbench.db.pre-v2-<UTC>.bak`), steps in one transaction each, rollback on failure.
+
+### Idempotency keys (item 28, no schema change)
+`request_id` stays unique per row. Two kinds of key live in it:
+
+| Key | Set by | Effect |
+|---|---|---|
+| `turn:<key>` | the `Idempotency-Key` header on `POST /api/assistant/chat` (8 to 200 of `A-Z a-z 0-9 . _ : -`); Telegram uses `telegram:<bot id>:<update id>` | a second request with the same key is not run. The API answers 409 with the first turn's `conversation_id`, `turn_id` and `outcome`; Telegram drops the redelivered update |
+| `tool:<turn id>:<sha256(tool, sorted arguments)[:32]>:<random 8 hex>` | every write tool call that succeeded inside a turn | when the model calls the same tool with the same arguments again and **no other change ran in between**, the call is not run; it is recorded as outcome `duplicate` and the model is told it was already done |
+
+Rules and their reasons:
+* Reads are never deduplicated: their results can change.
+* Failed calls carry no key, so a retry after a failure runs.
+* "No other change in between" keeps deliberate toggles working (`doing`, `todo`, `doing` runs three times).
+* An approved run is not keyed: approvals are already answered once (unique index on the decision's parent).
+* Scheduled runs are not keyed: the scheduler books the next slot before it runs a job.
+
+Known limits:
+* A loop that interleaves two writes (A, B, A) runs A twice. Telling that apart from a toggle needs per-tool semantics.
+* The check and the insert are not one transaction. Within a turn tool calls run one after another, so only two clients
+  sending the same chat key at the same moment can race. The unique index then rejects the second turn row and that
+  request ends with an error, not a second run.

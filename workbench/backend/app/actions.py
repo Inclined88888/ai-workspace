@@ -3,7 +3,7 @@
 Kinds and their outcomes:
   turn        running | no_claim | backed | fixed | unbacked | model_error | step_limit | empty_answer | budget_paused | interrupted
   model_call  ok | error
-  tool_call   verified | ok | check_failed | bad_args | unknown_tool | rejected | tool_error | held | denied
+  tool_call   verified | ok | check_failed | bad_args | unknown_tool | rejected | tool_error | held | denied | duplicate
   decision    approved | denied        (the user's answer to a held tool_call, which is its parent)
 
 Rows link through parent_action_id: a turn's model and tool calls point at the turn; an approved tool run points at
@@ -41,6 +41,24 @@ def add(kind: str, outcome: str, *, trace: dict | None = None, payload: str | No
     row.update(ts=db.now(), kind=kind, outcome=outcome, request_id=row.get("request_id") or uuid.uuid4().hex)
     cols = ", ".join(row)
     return db.run(f"INSERT INTO actions({cols}) VALUES ({', '.join('?' * len(row))})", *row.values())
+
+
+def by_key(request_id: str) -> dict | None:
+    """The action recorded under an idempotency key (item 28), if any. Keys are request_id values:
+    "turn:<caller key>" for a turn a client may retry. Tool calls use last_change below."""
+    return db.one("SELECT id, kind, outcome, conversation_id, evidence FROM actions WHERE request_id = ?", request_id)
+
+
+def last_change(turn_id: int, key: str) -> dict | None:
+    """The newest change in this turn made under an idempotency key ("tool:<turn>:<hash of tool and arguments>")."""
+    return db.one("SELECT id, evidence FROM actions WHERE parent_action_id = ? AND kind = 'tool_call' AND request_id LIKE ? "
+                  "ORDER BY id DESC LIMIT 1", turn_id, key + ":%")
+
+
+def changed_since(turn_id: int, action_id: int) -> bool:
+    """Whether any change (a write that ran) happened in this turn after the given action."""
+    return bool(db.one("SELECT 1 FROM actions WHERE parent_action_id = ? AND kind = 'tool_call' AND id > ? AND effect != 'read' "
+                       "AND outcome IN ('ok', 'verified') LIMIT 1", turn_id, action_id))
 
 
 def finish(action_id: int, outcome: str, **fields) -> None:

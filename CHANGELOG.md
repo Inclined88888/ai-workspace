@@ -4,6 +4,21 @@ Every user-visible change that needs action, or changes data on upgrade, gets an
 migration steps, rollback steps. Workbench has no release numbers yet (BACKLOG). Entries are identified by schema
 version and the merge commit on `main`.
 
+## 2026-10-29 · A change is made once · Phase 0 item 28
+
+**New**
+* When a model repeats a write in the same turn (the same tool with the same arguments, nothing else changed in between),
+  the repeat is not run. The run log records it as `duplicate`, and the model is told it was already done. Reads and
+  retries after a failure still run.
+* `POST /api/assistant/chat` accepts an `Idempotency-Key` header. A retried request with the same key is not run again;
+  the answer is 409 with the first turn's `conversation_id`, `turn_id` and `outcome`. A malformed key gets 400.
+* Telegram no longer answers a message twice when the bot restarts before Telegram has been told the message was read.
+
+**Breaking changes:** none. A client that sends an `Idempotency-Key` it reuses for different messages will now get 409;
+send a new key per message. **Migration steps:** none (schema v2 unchanged; design record 0001 documents the keys).
+**Rollback steps:** run the previous image. Rows recorded as `duplicate` stay in the run log and count as neither success
+nor failure in the reliability record.
+
 ## 2026-10-29 · Run log page · Phase 0 item 21
 
 **New**

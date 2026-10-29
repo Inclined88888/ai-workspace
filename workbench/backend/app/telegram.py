@@ -9,7 +9,7 @@ import logging
 
 import httpx
 
-from . import assistant, db
+from . import actions, assistant, db
 from .redact import redact
 from .security import decrypt, encrypt
 
@@ -80,7 +80,7 @@ def _conversation(chat_id: int, fresh: bool = False) -> int:
     return assistant.new_conversation("telegram", "Telegram chat", str(chat_id))
 
 
-async def _handle(client: httpx.AsyncClient, msg: dict) -> None:
+async def _handle(client: httpx.AsyncClient, msg: dict, update_id: int | None = None) -> None:
     chat_id, user_id = msg["chat"]["id"], (msg.get("from") or {}).get("id")
     text = (msg.get("text") or "").strip()
     if user_id not in allowed():
@@ -96,8 +96,15 @@ async def _handle(client: httpx.AsyncClient, msg: dict) -> None:
         _conversation(chat_id, fresh=True)
         await send(client, chat_id, "New conversation started.")
         return
+    # Telegram redelivers an update until the next getUpdates acknowledges it, so after a restart the last message can
+    # arrive again. Its update id is the idempotency key: a message already answered is not run again (item 28).
+    # Update ids are per bot, so the key carries the bot id (the public part of the token before ':').
+    key = f"telegram:{token().split(':')[0]}:{update_id}" if update_id is not None else ""
+    if key and actions.by_key("turn:" + key):
+        log.info("telegram update %s already handled", update_id)
+        return
     await _api(client, "sendChatAction", chat_id=chat_id, action="typing")
-    ctx = assistant.Ctx(channel="telegram", conversation_id=_conversation(chat_id))
+    ctx = assistant.Ctx(channel="telegram", conversation_id=_conversation(chat_id), request_key=key)
     reply, events = await assistant.ask(ctx, text)
     held = [e for e in events if e["type"] == "approval_required"]
     if held:
@@ -123,7 +130,7 @@ async def loop() -> None:
                         _offset = u["update_id"] + 1
                         if u.get("message"):
                             try:
-                                await _handle(client, u["message"])
+                                await _handle(client, u["message"], u["update_id"])
                             except Exception as e:  # noqa: BLE001 - one bad message must not stop the bot
                                 log.warning("telegram message failed: %s", e)
         except Exception as e:  # noqa: BLE001

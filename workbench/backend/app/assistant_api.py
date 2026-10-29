@@ -6,9 +6,11 @@ Signed-in browser sessions and the terminal CLI (bearer token from Settings) can
 import hashlib
 import hmac
 import json
+import re
 import secrets
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from . import actions, assistant, company, db, learn, receipts, scheduler, search, telegram, usage
@@ -38,8 +40,22 @@ class ChatIn(BaseModel):
     channel: str = Field("web", pattern="^(web|cli)$")
 
 
+IDEMPOTENCY_KEY = re.compile(r"^[A-Za-z0-9._:-]{8,200}$")
+
+
 @router.post("/assistant/chat")
-def chat(data: ChatIn):
+def chat(data: ChatIn, idempotency_key: str | None = Header(None)):
+    """One turn, streamed. A client that may retry sends an Idempotency-Key header; a second request with the same key
+    is answered 409 with the first turn's ids instead of running the turn (and its tool calls) again (item 28)."""
+    key = idempotency_key or ""
+    if key:
+        if not IDEMPOTENCY_KEY.match(key):
+            raise HTTPException(400, "Idempotency-Key must be 8 to 200 characters of letters, digits, '.', '_', ':' or '-'")
+        prior = actions.by_key("turn:" + key)
+        if prior:
+            return JSONResponse(status_code=409, content={
+                "detail": "This request was already received (same Idempotency-Key); it was not run again",
+                "conversation_id": prior["conversation_id"], "turn_id": prior["id"], "outcome": prior["outcome"]})
     cid = data.conversation_id
     if cid:
         if not db.one("SELECT id FROM conversations WHERE id = ?", cid):
@@ -51,7 +67,8 @@ def chat(data: ChatIn):
 
     async def events():
         yield {"type": "start", "conversation_id": cid}
-        async for e in assistant.run_turn(assistant.Ctx(channel=data.channel, conversation_id=cid), data.message, data.model):
+        ctx = assistant.Ctx(channel=data.channel, conversation_id=cid, request_key=key)
+        async for e in assistant.run_turn(ctx, data.message, data.model):
             yield e
 
     return sse(events())
