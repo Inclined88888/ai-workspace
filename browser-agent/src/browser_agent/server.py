@@ -28,7 +28,7 @@ from pydantic import BaseModel, Field
 
 from . import actions
 from .agent import StepEvent, run_task
-from .llm import PROVIDERS, available, resolve_provider
+from .llm import PROVIDERS, available, resolve_provider, workbench_required
 
 API_KEY = os.getenv("BROWSER_API_KEY", "")
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
@@ -144,7 +144,10 @@ def start_job(data: JobIn, source: str = "api") -> dict:
                                      "Raise BROWSER_MONTHLY_STEP_LIMIT or wait for next month.")
     if data.provider not in (None, "", "auto") and data.provider not in PROVIDERS:
         raise HTTPException(400, f"Unknown provider {data.provider}")
-    provider = resolve_provider(data.provider)
+    try:
+        provider = resolve_provider(data.provider)
+    except ValueError as e:  # e.g. R1: a direct provider requested inside the stack
+        raise HTTPException(400, str(e)) from e
     job_id = uuid.uuid4().hex[:12]
     now = time.time()
     with _db() as c:
@@ -261,10 +264,11 @@ def healthz():
 def providers():
     have = set(available())
     return {
-        "auto": resolve_provider(None),
+        "auto": next(iter(available()), "") if workbench_required() else resolve_provider(None),
         "usage": month_usage(),
         "providers": [{"name": n, "label": p.label, "ready": n in have, "default_model": p.default_model, "notes": p.notes}
-                      for n, p in PROVIDERS.items()],
+                      for n, p in PROVIDERS.items() if not workbench_required() or n == "workbench"],
+        "workbench_required": workbench_required(),
     }
 
 

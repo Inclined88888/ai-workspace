@@ -156,7 +156,8 @@ def _record(conn: dict, ref: str, trace: dict | None, started: float, usage: dic
     return aid, usd
 
 
-async def chat(ref: str | None, messages: list[dict], tools: list[dict] | None = None, trace: dict | None = None) -> dict:
+async def chat(ref: str | None, messages: list[dict], tools: list[dict] | None = None, trace: dict | None = None,
+               schema: dict | None = None) -> dict:
     """One non-streaming turn with optional tool calling, recorded as one model_call action.
 
     Returns {"message": {...}, "usage": {...}, "ref": str, "model": str, "usd": float | None, "action_id": int}.
@@ -164,7 +165,7 @@ async def chat(ref: str | None, messages: list[dict], tools: list[dict] | None =
     a, conn, model, ref = adapter(ref)
     started = time.monotonic()
     try:
-        res = await a.chat(model, messages, tools)
+        res = await a.chat(model, messages, tools, schema)
     except HTTPException as e:
         _record(conn, ref, trace, started, {}, "error", str(e.detail))
         raise

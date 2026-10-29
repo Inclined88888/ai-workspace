@@ -52,6 +52,24 @@ jobs:
       - run: npx tsc --noEmit -p .
       - run: npm run build
 
+  browser-agent:
+    name: Browser agent tests
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: browser-agent
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: "3.12"  # the browser image's Python (browser-agent/Dockerfile)
+          cache: pip
+          cache-dependency-path: browser-agent/pyproject.toml
+      - run: pip install -e ".[server,dev]"
+      - name: Chromium for the pinned Playwright
+        run: python -m playwright install --with-deps chromium
+      - run: python -m pytest -q
+
   image:
     name: Image size, idle RAM and access log
     runs-on: ubuntu-24.04

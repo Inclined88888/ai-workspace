@@ -122,6 +122,8 @@ services:
     profiles: ["browser"]
     build: ./browser-agent
     image: ai-workspace/browser-agent:local
+    depends_on:
+      - workbench
     restart: unless-stopped
     shm_size: 1gb
     volumes:
@@ -135,14 +137,10 @@ services:
       # Keep the agent off IP addresses and the stack's own hostnames
       BROWSER_BLOCK_IP_ADDRESSES: "true"
       BROWSER_PROHIBITED_DOMAINS: localhost,ollama,searxng,open-webui,workbench,paperclip,browser
-      # Model providers (auto picks Anthropic, then Gemini, then local Ollama)
-      BROWSER_LLM_PROVIDER: ${BROWSER_LLM_PROVIDER:-auto}
-      BROWSER_LLM_MODEL: ${BROWSER_LLM_MODEL:-}
-      OLLAMA_HOST: ${OLLAMA_URL:-http://host.docker.internal:11434}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      # Models: every call goes through Workbench's /v1 endpoint and its adapter layer (R1). No provider keys here:
+      # they stay in Workbench, and browser spend lands in Workbench's run log.
+      WORKBENCH_URL: http://workbench:8000
+      BROWSER_REQUIRE_WORKBENCH: "true"
 
   # Paperclip: run a company of AI agents (org chart, goals, tasks, per agent monthly budgets).
   # Upstream image, unmodified: upgrade with `docker compose pull paperclip && docker compose up -d paperclip`.

@@ -172,7 +172,9 @@ class Protocol:
     def context_chars(self, conn: dict) -> int:
         return CLOUD_CONTEXT_CHARS
 
-    async def chat(self, conn: dict, secret: str, model: str, messages: list[dict], tools: list[dict] | None) -> dict:
+    async def chat(self, conn: dict, secret: str, model: str, messages: list[dict], tools: list[dict] | None,
+                   schema: dict | None = None) -> dict:
+        """schema: {"name", "schema"} asks for JSON matching it, by the protocol's own structured output mechanism."""
         raise NotImplementedError
 
     def stream(self, conn: dict, secret: str, model: str, messages: list[dict]) -> AsyncIterator[dict]:
@@ -203,10 +205,12 @@ class ChatCompletions(Protocol):
             body["stream_options"] = {"include_usage": True}
         return body  # temperature is deliberately not sent: recent Claude models reject values below 1
 
-    async def chat(self, conn, secret, model, messages, tools):
+    async def chat(self, conn, secret, model, messages, tools, schema=None):
         body = self._body(conn, model, messages, False)
         if tools:
             body["tools"] = tools
+        if schema:
+            body["response_format"] = {"type": "json_schema", "json_schema": {"name": schema["name"], "schema": schema["schema"], "strict": True}}
         if "openrouter.ai" in conn["base_url"]:
             body["usage"] = {"include": True}
         data = (await _post(conn, f"{conn['base_url'].rstrip('/')}/chat/completions", body, self.headers(conn, secret), self.timeout)).json()
@@ -275,18 +279,20 @@ class OllamaNative(Protocol):
             out.append(o)
         return out
 
-    def _body(self, model, messages, stream, tools=None):
+    def _body(self, model, messages, stream, tools=None, schema=None):
         body: dict = {"model": model, "messages": self.convert(messages), "stream": stream, "options": {"num_ctx": OLLAMA_NUM_CTX}}
         if tools:
             body["tools"] = tools
+        if schema:
+            body["format"] = schema["schema"]  # Ollama structured outputs: a JSON schema in "format"
         return body
 
     @staticmethod
     def _usage(data: dict) -> dict:
         return {"prompt_tokens": data.get("prompt_eval_count") or 0, "completion_tokens": data.get("eval_count") or 0}
 
-    async def chat(self, conn, secret, model, messages, tools):
-        data = (await _post(conn, self.root(conn) + "/api/chat", self._body(model, messages, False, tools), self.headers(conn, secret), self.timeout)).json()
+    async def chat(self, conn, secret, model, messages, tools, schema=None):
+        data = (await _post(conn, self.root(conn) + "/api/chat", self._body(model, messages, False, tools, schema), self.headers(conn, secret), self.timeout)).json()
         if (data.get("prompt_eval_count") or 0) >= OLLAMA_NUM_CTX:
             raise HTTPException(502, f"The prompt filled the whole {OLLAMA_NUM_CTX} token window of {model}, so Ollama cut part of it. "
                                      "Start a new conversation, or raise OLLAMA_NUM_CTX if you have the memory.")
@@ -347,9 +353,11 @@ class Responses(Protocol):
                 items.append({"role": "user", "content": parts})
         return system, items
 
-    def _body(self, model, messages, stream, tools=None):
+    def _body(self, model, messages, stream, tools=None, schema=None):
         system, items = self.convert(messages)
         body: dict = {"model": model, "input": items, "store": False, "stream": stream}  # store=False: nothing kept server side
+        if schema:
+            body["text"] = {"format": {"type": "json_schema", "name": schema["name"], "schema": schema["schema"], "strict": True}}
         if system:
             body["instructions"] = system
         if tools:
@@ -363,8 +371,8 @@ class Responses(Protocol):
         u = u or {}
         return {"prompt_tokens": u.get("input_tokens") or 0, "completion_tokens": u.get("output_tokens") or 0}
 
-    async def chat(self, conn, secret, model, messages, tools):
-        data = (await _post(conn, conn["base_url"].rstrip("/") + "/responses", self._body(model, messages, False, tools),
+    async def chat(self, conn, secret, model, messages, tools, schema=None):
+        data = (await _post(conn, conn["base_url"].rstrip("/") + "/responses", self._body(model, messages, False, tools, schema),
                             self.headers(conn, secret), self.timeout)).json()
         text, calls = "", []
         for item in data.get("output") or []:
@@ -426,7 +434,11 @@ class AnthropicMessages(Protocol):
                 add("user", blocks)
         return system, out
 
-    def _body(self, model, messages, stream, tools=None):
+    @staticmethod
+    def schema_tool(schema: dict) -> str:
+        return re.sub(r"[^a-zA-Z0-9_-]", "_", schema["name"])[:128] or "respond"
+
+    def _body(self, model, messages, stream, tools=None, schema=None):
         system, msgs = self.convert(messages)
         body: dict = {"model": model, "max_tokens": ANTHROPIC_MAX_TOKENS, "messages": msgs, "stream": stream}
         if system:
@@ -434,13 +446,21 @@ class AnthropicMessages(Protocol):
         if tools:
             body["tools"] = [{"name": t["function"]["name"], "description": t["function"].get("description", ""),
                               "input_schema": t["function"].get("parameters") or {"type": "object", "properties": {}}} for t in tools]
+        if schema:  # the Messages API has no response_format: a forced tool with the schema as input is the documented route
+            name = self.schema_tool(schema)
+            body["tools"] = [*body.get("tools", []), {"name": name, "description": "Give the answer in this structure.",
+                                                       "input_schema": schema["schema"]}]
+            body["tool_choice"] = {"type": "tool", "name": name}
         return body
 
-    async def chat(self, conn, secret, model, messages, tools):
-        data = (await _post(conn, conn["base_url"].rstrip("/") + "/messages", self._body(model, messages, False, tools),
+    async def chat(self, conn, secret, model, messages, tools, schema=None):
+        data = (await _post(conn, conn["base_url"].rstrip("/") + "/messages", self._body(model, messages, False, tools, schema),
                             self.headers(conn, secret), self.timeout)).json()
         text = "".join(b.get("text", "") for b in data.get("content") or [] if b.get("type") == "text")
         calls = [_call(b["id"], b["name"], b.get("input") or {}) for b in data.get("content") or [] if b.get("type") == "tool_use"]
+        if schema:  # the forced tool's input is the structured answer
+            forced = [c for c in calls if c["function"]["name"] == self.schema_tool(schema)]
+            text, calls = (forced[0]["function"]["arguments"], []) if forced else (text, calls)
         u = data.get("usage") or {}
         return {"message": {"role": "assistant", "content": text, "tool_calls": calls},
                 "usage": {"prompt_tokens": u.get("input_tokens") or 0, "completion_tokens": u.get("output_tokens") or 0}}
@@ -506,9 +526,10 @@ class Adapter:
                 names = []
         return sorted(set(names) | set(manual))
 
-    async def chat(self, model: str, messages: list[dict], tools: list[dict] | None = None) -> dict:
+    async def chat(self, model: str, messages: list[dict], tools: list[dict] | None = None, schema: dict | None = None) -> dict:
+        """schema: {"name", "schema"} for structured output; the answer's content is then JSON text matching it."""
         secret = credential(self.conn)
-        res = await self.protocol.chat(self.conn, secret, model, messages, tools)
+        res = await self.protocol.chat(self.conn, secret, model, messages, tools, schema)
         msg = res["message"]
         msg["content"] = THINK_RE.sub("", msg.get("content") or "").strip()
         names = {t["function"]["name"] for t in tools or []}

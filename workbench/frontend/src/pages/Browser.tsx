@@ -2,9 +2,8 @@ import { CheckCircle2, CircleStop, Globe, Loader2, Play, Trash2, XCircle } from 
 import { FormEvent, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
-import { Empty, Markdown, useToast } from "../util";
+import { Empty, Markdown, ModelSelect, useModels, useToast } from "../util";
 
-type Provider = { name: string; label: string; ready: boolean; default_model: string | null; notes: string };
 type JobSummary = { id: string; goal: string; provider: string; model: string; status: string; source: string; created_at: number };
 type Step = { step: number; url: string; title: string; evaluation: string; next_goal: string; actions: Record<string, unknown>[] };
 type Job = JobSummary & {
@@ -31,8 +30,7 @@ function ago(ts: number) {
 export default function Browser() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const [providers, setProviders] = useState<Provider[]>([]);
-  const [auto, setAuto] = useState("");
+  const { models } = useModels();
   const [usage, setUsage] = useState<{ used: number; limit: number } | null>(null);
   const [jobs, setJobs] = useState<JobSummary[]>([]);
   const [job, setJob] = useState<Job | null>(null);
@@ -42,7 +40,7 @@ export default function Browser() {
 
   const loadJobs = () => api<JobSummary[]>("/browser/jobs").then(setJobs).catch(toast.err);
   useEffect(() => {
-    api<{ auto: string; providers: Provider[]; usage: { used: number; limit: number } }>("/browser/providers").then((r) => { setProviders(r.providers); setAuto(r.auto); setUsage(r.usage); }).catch(toast.err);
+    api<{ usage: { used: number; limit: number } }>("/browser/providers").then((r) => setUsage(r.usage)).catch(toast.err);
     loadJobs();
   }, []);
 
@@ -71,7 +69,7 @@ export default function Browser() {
     try {
       const j = await api<Job>("/browser/jobs", {
         body: {
-          goal: form.goal, provider: form.provider || null, model: form.model || null, max_steps: form.max_steps,
+          goal: form.goal, provider: "workbench", model: form.model || "default", max_steps: form.max_steps,
           allowed_domains: form.domains.split(",").map((d) => d.trim()).filter(Boolean),
         },
       });
@@ -88,7 +86,6 @@ export default function Browser() {
     loadJobs();
   };
 
-  const chosen = providers.find((p) => p.name === (form.provider || auto));
   return (
     <div className="page wide" style={{ maxWidth: 1400 }}>
       <div className="page-head">
@@ -101,18 +98,14 @@ export default function Browser() {
           {EXAMPLES.map((ex) => <button type="button" key={ex} className="btn sm ghost" onClick={() => setForm({ ...form, goal: ex })}>{ex.slice(0, 48)}…</button>)}
         </div>
         <div className="row wrap">
-          <select className="input" style={{ width: 210 }} value={form.provider} onChange={(e) => setForm({ ...form, provider: e.target.value, model: "" })}>
-            <option value="">Auto ({auto || "…"})</option>
-            {providers.map((p) => <option key={p.name} value={p.name} disabled={!p.ready}>{p.label}{p.ready ? "" : " (no key)"}</option>)}
-          </select>
-          <input className="input" style={{ width: 200 }} value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} placeholder={chosen?.default_model ?? "model id (required)"} />
+          <div style={{ width: 260 }}><ModelSelect value={form.model} onChange={(model) => setForm({ ...form, model })} models={models} /></div>
           <label className="row small muted">Max steps
             <input className="input" type="number" min={1} max={50} style={{ width: 80 }} value={form.max_steps} onChange={(e) => setForm({ ...form, max_steps: Number(e.target.value) })} />
           </label>
           <input className="input grow" style={{ minWidth: 200 }} value={form.domains} onChange={(e) => setForm({ ...form, domains: e.target.value })} placeholder="Only these sites (optional): *.pcpartpicker.com, …" />
           <button className="btn primary" disabled={form.goal.trim().length < 3}><Play size={15} /> Run</button>
         </div>
-        {chosen && <div className="muted small">{chosen.notes} Max steps caps the cost of a run.</div>}
+        <div className="muted small">Runs on any model connected in Settings, through Workbench, so its spend shows in Usage. Vision models read screenshots; small local models are unreliable at browsing. Max steps caps the cost of a run.</div>
         {usage && <div className="muted small">This month: {usage.used} of {usage.limit || "unlimited"} browser steps used (all callers, including Chat and Paperclip).</div>}
       </form>
 
