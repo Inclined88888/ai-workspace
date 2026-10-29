@@ -526,6 +526,32 @@ class Adapter:
                 names = []
         return sorted(set(names) | set(manual))
 
+    def probe(self) -> tuple[str, str]:
+        """Health check (item 25): (ok | degraded | down, detail). Unlike list_models, a failure is reported, not hidden.
+
+        Only status codes are reported, never the provider's error body: some quote the rejected key back (R7).
+        """
+        secret = credential(self.conn)  # raises for a refused kind (R5) or an expired sign-in
+        manual = [m.strip() for m in (self.conn.get("models") or "").split(",") if m.strip()]
+        if self.auth_kind == "oauth_subscription":  # no model listing on plan tokens; a valid token is the check
+            return "ok", f"signed in; {len(manual)} models typed in"
+        try:
+            r = httpx.get(self.protocol.models_url(self.conn), headers=self.protocol.headers(self.conn, secret), timeout=8)
+        except httpx.HTTPError as e:
+            return "down", f"unreachable ({e.__class__.__name__})"
+        if r.status_code in (401, 403):
+            return "down", f"the key was rejected (HTTP {r.status_code})"
+        if r.status_code >= 400:
+            if manual:
+                return "degraded", f"no model list (HTTP {r.status_code}); {len(manual)} models typed in are used"
+            return "down", f"HTTP {r.status_code}"
+        try:
+            names = [n for n in self.protocol.parse_models(r.json()) if keep_model(self.conn["base_url"], n)]
+        except (ValueError, KeyError, TypeError):
+            return "degraded", "reachable, but its model list could not be read"
+        n = len(set(names) | set(manual))
+        return ("ok", f"{n} model{'s' if n != 1 else ''}") if n else ("degraded", "reachable, but it lists no models")
+
     async def chat(self, model: str, messages: list[dict], tools: list[dict] | None = None, schema: dict | None = None) -> dict:
         """schema: {"name", "schema"} for structured output; the answer's content is then JSON text matching it."""
         secret = credential(self.conn)

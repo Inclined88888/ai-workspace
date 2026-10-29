@@ -260,6 +260,16 @@ def models():
     return {"data": [{"id": "fake-model"}]}
 
 
+@fake.get("/leaky/v1/models")  # a provider that quotes the rejected key back in its error
+def leaky_models():
+    return JSONResponse({"error": {"message": "Incorrect API key provided: sk-proj-LEAKEDabcdefghijklmnopqrstu"}}, status_code=401)
+
+
+@fake.get("/healthz")  # stands in for an add-on's health endpoint (browser agent, SearXNG)
+def fake_healthz():
+    return {"ok": True}
+
+
 @pytest.fixture(scope="session")
 def fake_url():
     port = _port()

@@ -1,5 +1,5 @@
 import {
-  Bot, Brain, Building2, CalendarClock, CalendarDays, MessageSquare, CheckSquare, Globe, Columns3, ExternalLink, FileText, Home, LogOut, Mail, Menu, Moon, NotebookPen,
+  Activity, Bot, Brain, Building2, CalendarClock, CalendarDays, MessageSquare, CheckSquare, Globe, Columns3, ExternalLink, FileText, Home, LogOut, Mail, Menu, Moon, NotebookPen,
   ListTree, Search, Settings as SettingsIcon, Sun, Sparkles,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -17,6 +17,7 @@ import Docs from "./pages/Docs";
 import MailPage from "./pages/Mail";
 import Research from "./pages/Research";
 import Runs from "./pages/Runs";
+import Status from "./pages/Status";
 import Settings from "./pages/Settings";
 import Tasks from "./pages/Tasks";
 
@@ -43,6 +44,7 @@ const NAV = [
   { to: "/browser", label: "Browser agent", icon: Globe, addon: "browser" },
   { to: "/compare", label: "Compare models", icon: Columns3 },
   { to: "/runs", label: "Run log", icon: ListTree },
+  { to: "/status", label: "System status", icon: Activity },
   { section: "Your stuff" },
   { to: "/notes", label: "Notes", icon: NotebookPen },
   { to: "/documents", label: "Documents", icon: FileText },
@@ -167,6 +169,7 @@ export default function App() {
           <Route path="/compare" element={<Compare />} />
           <Route path="/runs" element={<Runs />} />
           <Route path="/runs/:id" element={<Runs />} />
+          <Route path="/status" element={<Status />} />
           <Route path="/notes" element={<Docs kind="note" />} />
           <Route path="/notes/:id" element={<Docs kind="note" />} />
           <Route path="/documents" element={<Docs kind="document" />} />

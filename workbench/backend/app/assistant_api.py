@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from . import actions, assistant, company, db, learn, receipts, scheduler, search, telegram, usage
+from . import actions, assistant, company, db, health, learn, receipts, scheduler, search, telegram, usage
 from .api import sse
 from .security import COOKIE, check_session, encrypt
 
@@ -140,6 +140,12 @@ def reliability():
     return {"models": list(receipts.reliability().values()),
             "recent": db.all("SELECT id, ts, model, tool, outcome, verified, evidence, from_text, latency_ms FROM actions "
                              "WHERE kind = 'tool_call' ORDER BY id DESC LIMIT 50")}
+
+
+# Status page (item 25): every integration's health, checked on request only (R8)
+@router.get("/health")
+async def health_report(fresh: bool = False):
+    return await health.report(fresh)
 
 
 # Run log and trace (item 21): every turn and model call, with the model calls, tool calls and decisions under it
