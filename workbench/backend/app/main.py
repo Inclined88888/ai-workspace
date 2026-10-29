@@ -2,7 +2,10 @@ import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.staticfiles import StaticFiles
 
 from . import redact
@@ -46,6 +49,17 @@ async def guard(request: Request, call_next):
     if not request.url.path.startswith("/tools"):
         response.headers.setdefault("X-Frame-Options", "DENY")
     return response
+
+
+# R7: error messages reach clients redacted. Provider errors can quote keys; 422 errors echo the rejected input.
+@app.exception_handler(StarletteHTTPException)
+async def http_error(_: Request, exc: StarletteHTTPException):
+    return JSONResponse({"detail": redact.redact_obj(exc.detail)}, status_code=exc.status_code, headers=exc.headers)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error(_: Request, exc: RequestValidationError):
+    return JSONResponse({"detail": redact.redact_obj(jsonable_encoder(exc.errors()))}, status_code=422)
 
 
 @app.get("/healthz", include_in_schema=False)

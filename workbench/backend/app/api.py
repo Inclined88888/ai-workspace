@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from . import calendar_sync, config, db, llm, mail, research, services
+from .redact import redact, redact_obj
 from .security import (
     COOKIE, check_session, decrypt, encrypt, hash_password, make_session, require_user, throttle, verify_password,
 )
@@ -23,11 +24,13 @@ def sse(gen):
     async def body():
         try:
             async for item in gen:
+                if isinstance(item, dict) and "error" in item:  # R7: error text can quote provider keys
+                    item = {**item, "error": redact(str(item["error"]))}
                 yield f"data: {json.dumps(item)}\n\n"
         except HTTPException as e:
-            yield f"data: {json.dumps({'error': e.detail})}\n\n"
+            yield f"data: {json.dumps({'error': redact_obj(e.detail)})}\n\n"
         except Exception as e:  # noqa: BLE001 - report to the client instead of dropping the stream
-            yield f"data: {json.dumps({'error': str(e) or e.__class__.__name__})}\n\n"
+            yield f"data: {json.dumps({'error': redact(str(e) or e.__class__.__name__)})}\n\n"
 
     return StreamingResponse(body(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
