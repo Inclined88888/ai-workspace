@@ -6,6 +6,8 @@ import { Empty, relTime } from "../util";
 // Health of every moving part (backend health.py). Checked only when this page asks: no background probes (R8).
 type Check = { name: string; kind: string; status: "ok" | "degraded" | "down" | "off"; detail: string; latency_ms: number };
 type Report = { status: "ok" | "degraded" | "down"; checked_at: string; checks: Check[] };
+type Host = { host: string; effect: "local" | "external"; components: string; requests: number; failures: number; last: string };
+type Egress = { hours: number; local_only: boolean; external_requests: number; hosts: Host[] };
 
 const TONE = { ok: "ok", degraded: "warn", down: "danger", off: "" } as const;
 const LABEL = { ok: "Working", degraded: "Degraded", down: "Down", off: "Not set up" } as const;
@@ -13,6 +15,7 @@ const GROUPS: [string, string][] = [["core", "Workbench"], ["model connection", 
 
 export default function Status() {
   const [report, setReport] = useState<Report | null>(null);
+  const [egress, setEgress] = useState<Egress | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const load = (fresh: boolean) => {
@@ -20,7 +23,10 @@ export default function Status() {
     api<Report>(`/health${fresh ? "?fresh=true" : ""}`)
       .then((r) => { setReport(r); setError(""); })
       .catch((e) => setError(e.message))
-      .finally(() => setBusy(false));
+      .finally(() => {
+        setBusy(false);
+        api<Egress>("/egress?hours=24").then(setEgress).catch(() => setEgress(null)); // after the probes, so they are counted
+      });
   };
   useEffect(() => load(false), []);
 
@@ -66,6 +72,34 @@ export default function Status() {
             );
           })}
         </>
+      )}
+      {egress && (
+        <div style={{ marginBottom: 16 }}>
+          <h3 className="muted small" style={{ margin: "0 0 6px" }}>Outbound connections, last {egress.hours} hours</h3>
+          <div className={`alert ${egress.local_only ? "ok" : ""}`} style={{ marginBottom: 8 }}>
+            {egress.local_only
+              ? "Local only: Workbench sent nothing beyond this machine or its private network."
+              : `${egress.external_requests} requests went to the internet, to ${egress.hosts.filter((h) => h.effect === "external").length} hosts.`}
+            <span className="small" style={{ marginLeft: 8, opacity: 0.8 }}>From the audit log of every connection Workbench makes. Pages the browser add-on visits are listed in its own job steps, not here.</span>
+          </div>
+          {egress.hosts.length > 0 && (
+            <div className="card flush">
+              {egress.hosts.map((h) => (
+                <div key={`${h.host}-${h.effect}`} className="list-item run-item" style={{ cursor: "default" }}>
+                  <span className={`badge ${h.effect === "external" ? "warn" : ""}`}>{h.effect === "external" ? "Internet" : "Local"}</span>
+                  <div className="grow">
+                    <div className="truncate mono">{h.host}</div>
+                    <div className="small muted truncate">from {h.components.split(",").join(", ")}</div>
+                  </div>
+                  <div className="small muted run-meta">
+                    <div>{h.requests} requests{h.failures ? `, ${h.failures} failed` : ""}</div>
+                    <div>last {relTime(h.last)}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

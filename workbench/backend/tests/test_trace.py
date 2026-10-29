@@ -71,7 +71,8 @@ def test_filters_and_paging(client):
     assert len(first) == 2 and first[0]["id"] > first[1]["id"]
     nxt = client.get("/api/runs", params={"limit": 2, "before": first[1]["id"]}).json()["runs"]
     assert nxt and all(r["id"] < first[1]["id"] for r in nxt)
-    roots = db.one("SELECT COUNT(*) AS n FROM actions WHERE parent_action_id IS NULL AND kind != 'decision'")["n"]
+    roots = db.one("SELECT COUNT(*) AS n FROM actions WHERE parent_action_id IS NULL "
+                   "AND kind IN ('turn', 'model_call', 'tool_call')")["n"]  # egress rows are an audit log, not runs
     assert len(client.get("/api/runs", params={"limit": 200}).json()["runs"]) == min(roots, 200)
 
 

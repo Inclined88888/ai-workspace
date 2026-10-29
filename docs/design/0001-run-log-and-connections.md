@@ -9,7 +9,7 @@ One table, one writer module (`app/actions.py`). It replaces `usage`, `tool_runs
 | Column | Meaning |
 | --- | --- |
 | `id`, `ts` | row id, UTC ISO time |
-| `kind` | `turn`, `model_call`, `tool_call`, `decision` |
+| `kind` | `turn`, `model_call`, `tool_call`, `decision`, `egress` (outbound audit log, item 75; see below) |
 | `agent_id`, `channel`, `conversation_id` | who and where ("agent" in the spec is `agent_id`; NULL is the assistant itself) |
 | `provider`, `model`, `auth_kind`, `protocol` | which backend answered; `model` is the model ref |
 | `tool`, `effect`, `args`, `payload_enc` | tool calls. `args` is redacted for display and trace. `payload_enc` holds encrypted raw arguments, kept only for held calls that may run later. |
@@ -100,3 +100,34 @@ Known limits:
 * The check and the insert are not one transaction. Within a turn tool calls run one after another, so only two clients
   sending the same chat key at the same moment can race. The unique index then rejects the second turn row and that
   request ends with an error, not a second run.
+
+### Outbound audit log (item 75, no schema change)
+Every outbound request Workbench makes is an `actions` row of kind `egress`. It goes in the one run log rather than a
+second table (R2).
+
+| Column | Holds |
+|---|---|
+| `provider` | destination host |
+| `tool` | the Workbench module that made the call (`adapters`, `telegram`, `search`, `research`, `health`, `calendar_sync`, `mail`, ...) |
+| `effect` | `local` (loopback, private, link-local, `*.local`, `*.internal`, single-label Docker names) or `external` |
+| `args` | `METHOD scheme://host[:port]/path`: no query string, redacted like every text column (a Telegram token in the path is masked) |
+| `outcome` | `ok`, `http_<status>` or `error`; `failure_reason` holds the exception class |
+| `latency_ms`, `ts`, `request_id` | as for every row; `parent_action_id` is empty |
+
+How coverage is made complete for Workbench's own code:
+* The httpx sync and async transports are wrapped once at startup. `requests.adapters.HTTPAdapter.send` is wrapped too,
+  because caldav uses requests.
+* IMAP and SMTP are recorded where mail.py opens the connection.
+* A source scan in tests/test_egress.py fails if any other network library is imported by the app.
+* A failed audit write is logged and never breaks the request (R4).
+
+Local-only mode is verifiable from these rows alone: no `external` row in a period means Workbench sent nothing beyond
+the machine or its private network (`GET /api/egress`, System status page).
+
+Known limits:
+* DNS lookups are not recorded.
+* A hostname that resolves to a private address but has public form (`nas.example.com` on a LAN) counts as external.
+  This errs on the side of reporting.
+* Traffic that add-on containers make themselves is outside this log: pages the browser agent visits, model downloads by
+  the ollama container, Paperclip and Open WebUI. Workbench's own calls *to* those add-ons are in it, as local rows.
+* Run and trace queries select their kinds explicitly, so egress rows never appear as runs.

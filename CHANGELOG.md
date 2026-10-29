@@ -4,6 +4,23 @@ Every user-visible change that needs action, or changes data on upgrade, gets an
 migration steps, rollback steps. Workbench has no release numbers yet (BACKLOG). Entries are identified by schema
 version and the merge commit on `main`.
 
+## 2026-10-29 · Outbound audit log · Phase 0 item 75
+
+**New**
+* Every outbound request Workbench makes is recorded in the run log as an `egress` row: destination host, local or
+  internet, which part of Workbench made it, method and path, outcome and latency. Query strings are not recorded,
+  and tokens in URL paths are masked.
+* The System status page has an **Outbound connections** section. It shows each host contacted in the last 24 hours, and
+  a "Local only" line when nothing went beyond this machine or its private network.
+* API: `GET /api/egress?hours=24` (1 to 2160). It needs sign-in or the CLI token.
+
+**Not covered:** traffic that add-on containers make themselves, for example pages the browser agent visits or models
+the ollama container downloads. Workbench's own calls to them are recorded. See BACKLOG.
+
+**Breaking changes:** none. The run log grows by one row per outbound request. **Migration steps:** none (schema v2
+unchanged; design record 0001 documents the rows). **Rollback steps:** run the previous image. Existing `egress` rows
+stay and are ignored.
+
 ## 2026-10-29 · System status page · Phase 0 item 25
 
 **New**
