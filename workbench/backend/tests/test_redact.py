@@ -43,3 +43,31 @@ def test_telegram_token_in_a_traceback_is_redacted(client):
 def test_ordinary_messages_are_untouched(client):
     out = _capture("scheduler", lambda log: log.warning("schedule %s failed after %d s", "Daily report", 30))
     assert out == "schedule Daily report failed after 30 s"
+
+
+def test_formatters_that_unpack_args_still_work(client):
+    """uvicorn's access log unpacks record.args; redaction must keep its shape (it broke every access line before)."""
+    from uvicorn.logging import AccessFormatter
+
+    from app import main  # noqa: F401
+
+    records = []
+    handler = logging.Handler()
+    handler.emit = lambda r: records.append(r)
+    log = logging.getLogger("uvicorn.access.test")
+    log.addHandler(handler)
+    log.setLevel(logging.INFO)
+    try:
+        log.info('%s - "%s %s HTTP/%s" %d', "127.0.0.1:5000", "GET", f"/hook/bot{TOKEN}/x", "1.1", 200)
+    finally:
+        log.removeHandler(handler)
+    line = AccessFormatter('%(client_addr)s - "%(request_line)s" %(status_code)s', use_colors=False).format(records[0])
+    assert line == '127.0.0.1:5000 - "GET /hook/bot<redacted>/x HTTP/1.1" 200 OK'
+
+
+def test_url_objects_are_redacted(client):
+    import httpx
+
+    url = httpx.URL(f"https://api.telegram.org/bot{TOKEN}/getMe")
+    out = _capture("httpx", lambda log: log.info("HTTP Request: %s %s", "POST", url))
+    assert TOKEN not in out and "/bot<redacted>/getMe" in out
