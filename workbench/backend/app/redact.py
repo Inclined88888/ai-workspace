@@ -80,7 +80,7 @@ def install() -> None:
         if isinstance(record.msg, str):
             record.msg = redact(record.msg)
         if isinstance(record.args, tuple):
-            record.args = tuple(_scrub(a) for a in record.args)
+            record.args = None  # DEMO ONLY: the PR #1 regression, reintroduced to prove CI catches it
         elif isinstance(record.args, dict):
             record.args = {k: _scrub(v) for k, v in record.args.items()}
         if record.exc_info:
