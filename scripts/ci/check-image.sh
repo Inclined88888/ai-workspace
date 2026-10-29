@@ -31,8 +31,12 @@ report "Image size: ${mb} MB of layers (limit ${MAX_IMAGE_MB} MB; inspect report
 (( mb <= MAX_IMAGE_MB )) || bad "image is ${mb} MB, over ${MAX_IMAGE_MB} MB"
 
 secret=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
-docker run -d --name "$NAME" -p "127.0.0.1:${PORT}:8000" -e APP_SECRET="$secret" -e TOOLS_API_KEY="$secret" "$TAG" >/dev/null
-trap 'docker rm -f "$NAME" >/dev/null 2>&1 || true' EXIT
+docker run -d --memory=1g --memory-swap=1g --cpus=1 --pids-limit=256 --name "$NAME" -p "127.0.0.1:${PORT}:8000" -e APP_SECRET="$secret" -e TOOLS_API_KEY="$secret" "$TAG" >/dev/null
+# Refuse an apparent pass when the daemon did not enforce the requested cap.
+actual_limit=$(docker exec "$NAME" sh -c 'cat /sys/fs/cgroup/memory.max 2>/dev/null || cat /sys/fs/cgroup/memory/memory.limit_in_bytes')
+[[ "$actual_limit" == 1073741824 ]] || { bad "memory cap not enforced ($actual_limit)"; docker rm -f "$NAME" >/dev/null; exit 1; }
+cookie_jar=$(mktemp)
+trap 'rm -f "$cookie_jar"; docker rm -f "$NAME" >/dev/null 2>&1 || true' EXIT
 for _ in $(seq 1 60); do curl -fsS "http://127.0.0.1:${PORT}/healthz" >/dev/null 2>&1 && break; sleep 1; done
 curl -fsS "http://127.0.0.1:${PORT}/healthz" >/dev/null || { docker logs "$NAME"; bad "container never became healthy"; exit 1; }
 
@@ -45,6 +49,17 @@ curl -s -o /dev/null -X POST "$base/api/tasks" -H 'Content-Type: application/jso
 curl -s -o /dev/null -X POST "$base/api/login" -H 'Content-Type: application/json' -H 'X-Workbench: 1' -d "{\"password\":\"${SECRET_KEY}\"}"
 expected_lines=6  # the five above plus at least one healthz
 
+# Exercise authenticated writes, readback and persistence under the 1 GiB hard cap.
+curl -fsS -c "$cookie_jar" -X POST "$base/api/setup" -H 'X-Workbench: 1' -H 'Content-Type: application/json' \
+  -d "{\"password\":\"$secret\"}" >/dev/null
+curl -fsS -b "$cookie_jar" -X POST "$base/api/tasks" -H 'X-Workbench: 1' -H 'Content-Type: application/json' \
+  -d '{"title":"one-gib-persistence-marker"}' >/dev/null
+curl -fsS -b "$cookie_jar" "$base/api/tasks" | grep -q one-gib-persistence-marker || bad "task readback failed"
+docker restart "$NAME" >/dev/null
+for _ in $(seq 1 60); do curl -fsS "$base/healthz" >/dev/null 2>&1 && break; sleep 1; done
+curl -fsS -b "$cookie_jar" "$base/api/tasks" | grep -q one-gib-persistence-marker || bad "task did not survive restart"
+[[ "$(docker inspect -f '{{.State.OOMKilled}}' "$NAME")" == false ]] || bad "container was OOM killed"
+report "1 GiB container cap: authenticated task write/read and restart persistence passed (one CPU, no swap allowance)"
 sleep "$IDLE_S"
 samples=()
 for _ in $(seq 1 6); do

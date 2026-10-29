@@ -1,0 +1,68 @@
+name: Signed release
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*.*.*']
+permissions:
+  contents: read
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - name: Require tested main commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor HEAD origin/main
+          gh api -X GET "repos/$GITHUB_REPOSITORY/actions/runs" -f head_sha="$GITHUB_SHA" -f per_page=100 > /tmp/release-runs.json
+          jq -e 'any(.workflow_runs[]; .name == "CI" and .conclusion == "success")' /tmp/release-runs.json
+      - name: Prepare reproducible source and terminal client
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
+            [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
+          else
+            VERSION="candidate-$GITHUB_SHA"
+          fi
+          mkdir dist
+          git archive --format=tar --prefix="ai-workspace-$VERSION/" HEAD | gzip -n > "dist/ai-workspace-$VERSION.tar.gz"
+          cp cli/ws dist/ws
+          (cd dist && sha256sum *.tar.gz ws > SHA256SUMS)
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+      - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
+        id: provenance
+        with:
+          subject-path: dist/*
+      - name: Preserve offline verification bundle
+        env:
+          BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+        run: cp "$BUNDLE" dist/provenance.sigstore.json
+      - name: Verify signed subjects before publishing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for subject in dist/*.tar.gz dist/ws dist/SHA256SUMS; do
+            gh attestation verify "$subject" --repo "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml"
+          done
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: signed-release
+          path: dist/
+          if-no-files-found: error
+      - name: Publish tagged release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$VERSION" --verify-tag --title "$VERSION" --notes-file docs/RELEASES.md dist/*
+

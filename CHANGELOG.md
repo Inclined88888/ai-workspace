@@ -4,6 +4,20 @@ Every user-visible change that needs action, or changes data on upgrade, gets an
 migration steps, rollback steps. Workbench has no release numbers yet (BACKLOG). Entries are identified by schema
 version and the merge commit on `main`.
 
+## 2026-10-29 · Phase 0 acceptance and release foundations · 73, 79, 83, 84, 80
+
+* Authenticate main API schema discovery at `/api/openapi.json`.
+* Terminal tasks carry persisted idempotency keys; `ws retry` deliberately reuses
+  the key. Stream failures exit nonzero; config writes are atomic and private.
+* Paperclip telemetry is explicitly disabled via upstream environment controls.
+* Add keyless signed-artifact release workflow and verification instructions.
+* Exercise task write/read/restart under a 1 GiB core-container limit in CI.
+* Verify credential encryption through API writes and ciphertext readback tests.
+
+No schema/key migration. Recreate enabled Paperclip containers to apply its new
+environment. Roll back the image/client if needed; preserve volumes and APP_SECRET.
+[Phase 0 gate](docs/PHASE0-GATE.md) records the acceptance assumptions and limits.
+
 ## 2026-10-29 · Official Claude Code launcher · Phase 1 item 116
 
 **New:** optional `claude-code` Compose profile, with the official CLI pinned to 2.1.308.

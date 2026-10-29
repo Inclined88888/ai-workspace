@@ -192,6 +192,10 @@ services:
       - ./paperclip/opencode.json:/etc/ai-workspace/opencode.json:ro
     environment:
       HOST: 0.0.0.0
+      # Upstream telemetry/config.ts gives these precedence over file settings.
+      PAPERCLIP_TELEMETRY_DISABLED: "1"
+      DO_NOT_TRACK: "1"
+      OTEL_SDK_DISABLED: "true"
       PAPERCLIP_HOME: /paperclip
       PAPERCLIP_DEPLOYMENT_MODE: authenticated
       PAPERCLIP_DEPLOYMENT_EXPOSURE: private
