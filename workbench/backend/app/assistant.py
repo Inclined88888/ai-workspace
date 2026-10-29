@@ -91,12 +91,14 @@ async def _read_page(url: str) -> dict:
     return {"url": url, "text": text}
 
 
-async def _browse(goal: str, max_steps: int = 15) -> dict:
+async def _browse(goal: str, max_steps: int = 15, ctx: "Ctx | None" = None) -> dict:
     if not (config.BROWSER_URL and config.BROWSER_API_KEY):
         raise HTTPException(400, "The browser add-on is not enabled.")
     h = {"Authorization": f"Bearer {config.BROWSER_API_KEY}"}
     async with httpx.AsyncClient(timeout=30) as c:
-        r = await c.post(f"{config.BROWSER_URL}/api/jobs", json={"goal": goal, "max_steps": max_steps}, headers=h)
+        # the browser runs on the conversation's own model, through Workbench's /v1 bridge (R1)
+        job = {"goal": goal, "max_steps": max_steps, "provider": "workbench", "model": (ctx.model if ctx else "") or "default"}
+        r = await c.post(f"{config.BROWSER_URL}/api/jobs", json=job, headers=h)
         if r.status_code >= 400:
             raise HTTPException(r.status_code, r.json().get("detail", r.text))
         jid = r.json()["id"]

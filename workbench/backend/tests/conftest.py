@@ -51,6 +51,9 @@ async def completions(req: Request):
     if body.get("stream"):
         return _sse([{"choices": [{"delta": {"content": "streamed"}}]},
                      {"choices": [], "usage": {"prompt_tokens": 600, "completion_tokens": 20}}])
+    rf = body.get("response_format")
+    if rf is not None and not (rf.get("type") == "json_schema" and {"name", "schema", "strict"} <= set(rf.get("json_schema") or {})):
+        return JSONResponse({"error": {"message": f"bad response_format {rf}"}}, status_code=400)
     if body.get("model") == "leaky-model":  # some providers quote the rejected key back
         return JSONResponse({"error": {"message": "Incorrect API key provided: sk-proj-LEAKEDabcdefghijklmnopqrstu"}}, status_code=401)
     problem = _tool_pairing_problem(body["messages"])
@@ -156,6 +159,13 @@ async def responses(req: Request):
     for t in body.get("tools") or []:
         if t.get("type") != "function" or "name" not in t or "parameters" not in t or "strict" not in t:
             problems.append(f"bad tool {t}")
+    fmt = (body.get("text") or {}).get("format")
+    if fmt is not None and not (fmt.get("type") == "json_schema" and {"name", "schema"} <= set(fmt)):
+        problems.append(f"bad text.format {fmt}")
+    for it in body.get("input", []):
+        for part in it.get("content") if isinstance(it.get("content"), list) else []:
+            if part.get("type") == "input_image" and not str(part.get("image_url", "")).startswith("data:image/"):
+                problems.append("input_image needs an image_url")
     if problems:
         return JSONResponse({"error": {"message": "; ".join(problems)}}, status_code=400)
     reply = _next_reply(body)
@@ -199,9 +209,20 @@ async def messages(req: Request):
     for t in body.get("tools") or []:
         if "input_schema" not in t or "name" not in t:
             problems.append(f"bad tool {t}")
+    forced = (body.get("tool_choice") or {}).get("name") if (body.get("tool_choice") or {}).get("type") == "tool" else None
+    if forced and forced not in {t["name"] for t in body.get("tools") or []}:
+        problems.append(f"tool_choice names a tool that was not given: {forced}")
+    for m in msgs:
+        for b in m["content"] if isinstance(m["content"], list) else []:
+            if b["type"] == "image" and not (b.get("source", {}).get("type") == "base64" and b["source"].get("data")):
+                problems.append("image blocks need a base64 source")
     if problems:
         return JSONResponse({"type": "error", "error": {"type": "invalid_request_error", "message": "; ".join(problems)}}, status_code=400)
     reply = _next_reply(body)
+    if forced and not reply.get("_fail"):  # a forced tool answers with a tool_use whose input is the structured answer
+        return {"id": "msg_1", "type": "message", "role": "assistant", "stop_reason": "tool_use",
+                "content": [{"type": "tool_use", "id": "toolu_forced", "name": forced, "input": json.loads(reply["content"])}],
+                "usage": {"input_tokens": 650, "output_tokens": 25}}
     if reply.get("_fail"):
         return JSONResponse({"type": "error", "error": {"type": "api_error", "message": "upstream exploded"}}, status_code=500)
     if body.get("stream"):
@@ -217,6 +238,21 @@ async def messages(req: Request):
                 for tc in reply.get("tool_calls") or []]
     return {"id": "msg_1", "type": "message", "role": "assistant", "content": content,
             "stop_reason": "tool_use" if reply.get("tool_calls") else "end_turn", "usage": {"input_tokens": 650, "output_tokens": 25}}
+
+
+BROWSER_JOBS: list[dict] = []
+
+
+@fake.post("/api/jobs")
+async def browser_job(req: Request):
+    """The browser service's job API, enough for the browse_web tool."""
+    BROWSER_JOBS.append(await req.json())
+    return {"id": f"job{len(BROWSER_JOBS)}", "status": "queued"}
+
+
+@fake.get("/api/jobs/{job_id}")
+def browser_job_status(job_id: str):
+    return {"id": job_id, "status": "done", "result": {"final": "Found it.", "success": True, "urls": ["https://example.com"]}}
 
 
 @fake.get("/v1/models")

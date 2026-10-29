@@ -4,6 +4,27 @@ Every user-visible change that needs action, or changes data on upgrade, gets an
 migration steps, rollback steps. Workbench has no release numbers yet (BACKLOG). Entries are identified by schema
 version and the merge commit on `main`.
 
+## 2026-10-29 · The browser agent uses Workbench's models · Phase 0 item 3 (part b)
+
+**Breaking changes**
+* `BROWSER_LLM_PROVIDER` and `BROWSER_LLM_MODEL` in `.env` are no longer used by the stack. The browser agent now calls the
+  models connected in Workbench through Workbench (`/v1/chat/completions`, authenticated with `BROWSER_API_KEY`).
+  * Pick the model on the Browser agent page.
+  * From chat, the conversation's model is used.
+  * Paperclip and Hermes browser runs use Workbench's default model.
+* The browser container no longer receives `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY` or `OPENROUTER_API_KEY`.
+  Inside the stack it refuses any other provider (rule R1).
+* Browser model calls now appear in Workbench's usage (channel `browser`). Monthly totals rise by what browser runs already
+  spent, which was previously invisible to Workbench.
+* The standalone `browser-agent` CLI, used without Workbench, keeps its direct providers.
+
+**Migration steps**
+1. Connect the model you want the browser to use in Settings → Model providers. A previous browser-only key must be
+   added there.
+2. Run `./setup.sh` or `docker compose up -d` to recreate the browser container.
+
+**Rollback steps:** run the previous images. Their compose file passes the provider keys to the browser container again.
+
 ## 2026-10-29 · Schema version 2: connections (auth kind + protocol) · Phase 0 item 3
 
 **Breaking changes**

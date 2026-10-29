@@ -10,16 +10,16 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
 dependencies = [
-  # Agent loop. Kept inside one minor series because browser-use changes its API between minors.
-  # Upgrade: bump this range, run `pytest`, done.
-  "browser-use>=0.13.11,<0.14",
-  # Direct page control for the one-off CLI actions.
-  "playwright>=1.50",
+  # Pinned exactly: browser-use changes its API between releases, and each Playwright release expects its own browser
+  # build (an unpinned Playwright once pulled 1.64.1 against an installed 1248-less browser and broke 6 tests).
+  # Upgrade: change both pins, run `pytest` (CI installs the matching browser), done.
+  "browser-use==0.13.14",
+  "playwright==1.64.1",
 ]
 
 [project.optional-dependencies]
-server = ["fastapi>=0.115", "uvicorn[standard]>=0.30"]
-dev = ["pytest>=8", "pytest-asyncio>=0.24"]
+server = ["fastapi==0.162.0", "uvicorn[standard]==0.54.0"]
+dev = ["pytest==9.2.0", "pytest-asyncio==1.4.1"]
 
 [project.scripts]
 browser-agent = "browser_agent.cli:main"

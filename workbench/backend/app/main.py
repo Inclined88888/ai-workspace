@@ -12,7 +12,7 @@ from . import redact
 
 redact.install()  # before anything logs: no secret reaches a log sink (R7)
 
-from . import actions, api, assistant_api, browser_proxy, company, config, db, llm, scheduler, telegram  # noqa: E402
+from . import actions, api, assistant_api, bridge, browser_proxy, company, config, db, llm, scheduler, telegram  # noqa: E402
 from .mcp_server import mcp, mcp_app
 from .security import check_bearer
 from .tools import tools
@@ -71,6 +71,7 @@ app.include_router(api.public)
 app.include_router(api.api)
 app.include_router(assistant_api.router)
 app.include_router(browser_proxy.router)
+app.include_router(bridge.router)  # /v1: OpenAI-shaped access to every connection, for the browser agent (item 103)
 app.mount("/tools", tools)
 app.mount("/mcp", mcp_app)  # MCP clients use http://workbench:8000/mcp/
 
@@ -79,7 +80,7 @@ if config.STATIC_DIR.exists():
 
     @app.get("/{path:path}", include_in_schema=False)
     def spa(path: str):
-        if path.startswith(("api/", "tools/", "mcp")):
+        if path.startswith(("api/", "tools/", "mcp", "v1/")):
             return JSONResponse({"detail": "Not found"}, status_code=404)
         candidate = (config.STATIC_DIR / path).resolve()
         if path and candidate.is_file() and config.STATIC_DIR.resolve() in candidate.parents:

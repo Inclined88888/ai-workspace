@@ -77,3 +77,14 @@ def test_monthly_step_budget(client, monkeypatch):
     r = c.post("/api/jobs", json={"goal": "second job", "max_steps": 10}, headers=h)
     assert r.status_code == 429 and "budget" in r.json()["detail"]
     assert c.get("/api/providers", headers=h).json()["usage"] == {"used": 25, "limit": 30}
+
+
+def test_in_the_stack_jobs_must_use_workbench(client, monkeypatch):
+    c, _ = client
+    h = {"Authorization": f"Bearer {KEY}"}
+    monkeypatch.setenv("BROWSER_REQUIRE_WORKBENCH", "true")
+    monkeypatch.setenv("WORKBENCH_URL", "http://workbench:8000")
+    r = c.post("/api/jobs", json={"goal": "find the weather", "provider": "anthropic"}, headers=h)
+    assert r.status_code == 400 and "R1" in r.json()["detail"]
+    providers = c.get("/api/providers", headers=h).json()
+    assert [p["name"] for p in providers["providers"]] == ["workbench"] and providers["auto"] == "workbench"
