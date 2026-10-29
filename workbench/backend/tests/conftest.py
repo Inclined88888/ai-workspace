@@ -46,6 +46,8 @@ def _tool_pairing_problem(messages: list[dict]) -> str:
 async def completions(req: Request):
     body = await req.json()
     CALLS.append(body)
+    if body.get("model") == "leaky-model":  # some providers quote the rejected key back
+        return JSONResponse({"error": {"message": "Incorrect API key provided: sk-proj-LEAKEDabcdefghijklmnopqrstu"}}, status_code=401)
     problem = _tool_pairing_problem(body["messages"])
     if problem:  # same rule OpenAI and Anthropic enforce
         return JSONResponse({"error": {"message": problem}}, status_code=400)
