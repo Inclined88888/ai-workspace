@@ -1,0 +1,2 @@
+# Test tools for the backend suite (CI and local). Runtime dependencies are in requirements.txt.
+pytest==9.2.0
