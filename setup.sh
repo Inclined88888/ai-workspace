@@ -9,6 +9,7 @@
 #       local-models  Ollama in Docker (on a Mac prefer the native Ollama app: it uses the GPU)
 #       openwebui     Open WebUI chat app                              (~6.5 GB download)
 #       paperclip     Paperclip company app                            (~13 GB download)
+#       claude-code   Official Claude Code CLI launcher (subscription login via CLI)
 #       hermes        Hermes Agent                                     (~4.3 GB download)
 #   ./setup.sh --with none              back to the core only (stops add-ons, keeps their data)
 #   ./setup.sh --yes                    accept defaults, no prompts
@@ -24,7 +25,7 @@ while [[ $# -gt 0 ]]; do
     --yes|-y) YES=true ;;
     --with) WITH=${2:-}; WITH_GIVEN=true; shift ;;
     --with=*) WITH=${1#--with=}; WITH_GIVEN=true ;;
-    -h|--help) sed -n '2,17p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
     *) echo "Unknown option $1 (see ./setup.sh --help)" >&2; exit 1 ;;
   esac
   shift
@@ -77,7 +78,7 @@ while IFS= read -r line; do
   if [[ "$line" =~ ^[A-Z_]+= ]] && ! grep -qE "^$key=" .env; then printf '%s\n' "$line" >> .env; fi
 done < .env.example
 # Secrets: generate any that are empty; never rotate existing ones (that would lock you out of stored data)
-for key in APP_SECRET TOOLS_API_KEY WEBUI_SECRET_KEY SEARXNG_SECRET BROWSER_API_KEY PAPERCLIP_AUTH_SECRET \
+for key in APP_SECRET TOOLS_API_KEY WEBUI_SECRET_KEY SEARXNG_SECRET BROWSER_API_KEY CLAUDE_CODE_API_KEY PAPERCLIP_AUTH_SECRET \
            PAPERCLIP_TOOL_ACTION_SECRET PAPERCLIP_AGENT_JWT_SECRET HERMES_API_KEY HERMES_DASHBOARD_SECRET; do
   if [[ -z "$(get_env "$key")" ]]; then set_env "$key" "$(rand 32)"; fi
 done
@@ -89,7 +90,7 @@ if $WITH_GIVEN; then
   ADDONS=$(echo "$WITH" | tr -d ' ' | tr 'A-Z' 'a-z')
   [[ "$ADDONS" == "none" ]] && ADDONS=""
   for a in $(echo "$ADDONS" | tr ',' ' '); do
-    case "$a" in search|browser|local-models|openwebui|paperclip|hermes) ;; *) fail "Unknown add-on '$a'" ;; esac
+    case "$a" in search|browser|local-models|openwebui|paperclip|hermes|claude-code) ;; *) fail "Unknown add-on '$a'" ;; esac
   done
   set_env ADDONS "$ADDONS"
 else
@@ -132,6 +133,7 @@ if [[ "$(get_env BIND_ADDRESS)" == "0.0.0.0" ]]; then
   HOST=$( (hostname -I 2>/dev/null || ipconfig getifaddr en0 2>/dev/null || echo localhost) | awk '{print $1}')
 fi
 if has search; then set_env SEARXNG_URL "http://searxng:8080"; set_env WEBUI_ENABLE_WEB_SEARCH true; else set_env SEARXNG_URL ""; set_env WEBUI_ENABLE_WEB_SEARCH false; fi
+if has claude-code; then set_env CLAUDE_CODE_URL "http://claude-code:8110"; else set_env CLAUDE_CODE_URL ""; fi
 if has browser; then set_env BROWSER_URL "http://browser:8100"; else set_env BROWSER_URL ""; fi
 if has openwebui; then set_env CHAT_URL "http://${HOST}:$(get_env WEBUI_PORT)"; set_env WEBUI_PUBLIC_URL "$(get_env CHAT_URL)"; else set_env CHAT_URL ""; fi
 if has paperclip; then
@@ -157,7 +159,7 @@ fi
 echo; bold "Starting${ADDONS:+ (add-ons: $ADDONS)}"
 docker compose up -d --build
 # Stop add-ons that are no longer enabled (their data volumes are kept)
-for svc in searxng browser ollama open-webui paperclip hermes; do
+for svc in searxng browser ollama open-webui paperclip hermes claude-code; do
   case "$svc" in searxng) a=search ;; ollama) a=local-models ;; open-webui) a=openwebui ;; *) a=$svc ;; esac
   if ! has "$a" && [[ -n "$(docker compose --profile "$a" ps -q "$svc" 2>/dev/null)" ]]; then
     docker compose --profile "$a" stop "$svc" >/dev/null 2>&1 && info "Stopped $svc (add-on off)"
@@ -188,5 +190,7 @@ if has paperclip; then
   if [[ "${PAPERCLIP_INVITE:-}" == http* ]]; then info "            first admin: $PAPERCLIP_INVITE (expires in 72h)"; else info "            ${PAPERCLIP_INVITE:-}"; fi
 fi
 has hermes && info "Hermes:     $(get_env HERMES_URL)    (admin / $(get_env HERMES_DASHBOARD_PASSWORD)); terminal: ./hermes"
-[[ -z "$ADDONS" ]] && info "Add-ons (optional): ./setup.sh --with search,browser,local-models,openwebui,paperclip,hermes"
+[[ -z "$ADDONS" ]] && info "Add-ons (optional): ./setup.sh --with search,browser,local-models,openwebui,paperclip,hermes,claude-code"
+has claude-code && info "Claude Code: sign in through the official CLI: docker compose run --rm --no-deps claude-code claude auth login (see cli-launcher/README.md)"
 info "Stop: docker compose down    Update: run the install command again, or git pull && ./setup.sh"
+

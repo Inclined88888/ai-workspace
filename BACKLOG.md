@@ -18,7 +18,7 @@ Out of scope for the current branch, dropped, or blocked. Nothing is dropped sil
 
 ## Scheduled later
 
-* **Claude Code launcher add-on (Phase 3, decision D2).** It runs the user's own unmodified Claude Code binary, and the user signs in through Anthropic's flow. Needs Node, so it is an add-on (R6).
+* **Claude Code launcher add-on (Item 116, decision D2).** Implemented as an optional official CLI hand-off in `cli-launcher/` (Compose profile `claude-code`); awaiting owner review before merge. Live subscription login and a real prompt still need maintainer validation. Node stays in the add-on (R6). Item 117 will reuse the same transport for Codex after 116 is merged.
 * **Idempotency across interleaved writes (item 28 follow up).** A model loop of the form A, B, A runs A twice, because a repeat is only recognised when no other change ran in between (so toggles keep working). Closing it needs per tool semantics (which writes are naturally idempotent). Design record 0001, "Idempotency keys".
 * **The web chat does not send an Idempotency-Key yet.** It never retries a request, so there is nothing to deduplicate; the CLI (item 84) should send one.
 
@@ -44,3 +44,4 @@ Out of scope for the current branch, dropped, or blocked. Nothing is dropped sil
 * **Remote branch `ci-demo/reintroduce-pr1-bug` still exists.** It belongs to closed PR #6 (the CI regression demonstration). This session cannot delete remote branches (HTTP 403); delete it in the GitHub UI.
 * **Migrated legacy cost rows** keep the bare model name in `model`; new rows store the model ref. Reports group the two separately for the month of the upgrade.
 * **`browse_web` results cannot be verified** by receipts, and say so.
+

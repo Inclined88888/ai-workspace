@@ -19,6 +19,8 @@ SEARXNG_URL = os.getenv("SEARXNG_URL", "").rstrip("/")  # optional add-on
 OLLAMA_URL = os.getenv("OLLAMA_URL", "").rstrip("/")  # optional: add-on container or native app on the host
 DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "qwen3:4b")
 COOKIE_SECURE = _bool("COOKIE_SECURE")
+CLAUDE_CODE_URL = os.getenv("CLAUDE_CODE_URL", "").rstrip("/")  # optional official CLI launcher
+CLAUDE_CODE_API_KEY = os.getenv("CLAUDE_CODE_API_KEY", "")
 BROWSER_URL = os.getenv("BROWSER_URL", "").rstrip("/")  # optional add-on
 BROWSER_API_KEY = os.getenv("BROWSER_API_KEY", "")
 PAPERCLIP_URL = os.getenv("PAPERCLIP_URL", "")
@@ -37,3 +39,4 @@ if len(APP_SECRET) < 32:
     raise RuntimeError("APP_SECRET must be at least 32 characters. Run ./setup.sh to generate one.")
 if len(TOOLS_API_KEY) < 24:
     raise RuntimeError("TOOLS_API_KEY must be at least 24 characters. Run ./setup.sh to generate one.")
+
