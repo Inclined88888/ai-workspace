@@ -124,4 +124,5 @@ Nothing is sent until all of these are true:
    - **Android:** a Firebase project and its FCM V1 service-account key uploaded to EAS (free).
 4. Optional: if "enhanced push security" is on in the Expo project, set `EXPO_ACCESS_TOKEN` where Workbench runs.
 
-Expo Go can receive push on Android only for development; iOS needs a development or TestFlight build.
+Expo Go cannot receive remote push notifications (since SDK 53, on both platforms). Use a development build
+(`eas build --profile development`), TestFlight or a Play internal-testing build.
