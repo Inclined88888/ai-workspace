@@ -440,9 +440,9 @@ SUBSCRIPTIONS = [
      "detail": "OpenAI lets open-source apps use your ChatGPT plan through its official sign-in. Usage counts against your "
                "plan's limits, shared with your other apps.",
      "source": "https://developers.openai.com/siwc/token-sharing-open-source"},
-    {"id": "claude", "name": "Claude", "plans": "Pro, Max", "available": False,
-     "detail": "Not available. Anthropic's terms don't allow Claude Pro or Max sign-ins in other apps; accounts have been "
-               "cut off for it. Use a Claude API key instead.",
+    {"id": "claude", "name": "Claude", "plans": "Pro, Max, Team, Enterprise", "available": True, "via": "claude_code",
+     "detail": "Through Claude Code, Anthropic's own app. Install it and sign in with your plan there; this app hands coding "
+               "jobs to it and shows the work. Your sign-in never passes through this app.",
      "source": "https://code.claude.com/docs/en/legal-and-compliance"},
     {"id": "grok", "name": "Grok", "plans": "SuperGrok", "available": False,
      "detail": "Not available yet. xAI only offers SuperGrok sign-in to partner apps so far, with no public sign-up for "

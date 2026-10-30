@@ -58,7 +58,7 @@
 .ap-section { padding: 22px 0; border-bottom: 1px solid var(--border); }
 .ap-section:first-child { padding-top: 0; }
 .ap-section h3 { margin-bottom: 14px; }
-.ap-options { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.ap-options { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 10px; }
 .ap-option {
   position: relative; text-align: left; background: var(--panel); border: 1px solid var(--border); padding: 12px; cursor: pointer;
   color: var(--text); font: inherit; display: flex; flex-direction: column; gap: 8px; min-height: 92px;

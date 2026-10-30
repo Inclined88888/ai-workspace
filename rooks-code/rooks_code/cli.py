@@ -5,6 +5,7 @@ or local Ollama / LM Studio (works fully offline).
   rooks "fix the failing test"  one prompt, then exit (prints the final answer; exit 1 if it did not finish)
   rooks undo                    put back the files changed by the last prompt
   rooks receipts [list|show|import --db PATH]
+  rooks -P claude-code "task"   hand the job to your own signed-in Claude Code (your Claude plan); also -P codex
   rooks doctor                  check the provider, key and MCP servers
   rooks init                    write an example config file
   rooks mcp                     list MCP servers and their tools
@@ -155,6 +156,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.no_mcp:
         s.mcp_servers = {}
     ui = UI(color=False if args.no_color else None)
+    if s.kind == "delegate":
+        from . import delegate
+        return delegate.main(s.provider, s, ui, " ".join(args.prompt) if args.prompt else None)
     if s.key_env and not s.api_key and not s.key_optional:
         ui.error(f"{s.provider} needs an API key in the {s.key_env} environment variable (or use --provider ollama)")
         return 2
@@ -331,6 +335,9 @@ def doctor(root: Path, a) -> int:
     print(f"rooks {__version__}, Python {sys.version.split()[0]}, {sys.platform}")
     print(f"config: {config.config_path()} ({'found' if config.config_path().exists() else 'not found, using defaults'})")
     s = config.resolve({"provider": a.provider, "model": a.model, "base_url": a.base_url}, root)
+    if s.kind == "delegate":
+        from . import delegate
+        return delegate.doctor(s.provider)
     print(f"provider: {s.provider} ({s.kind}) at {s.base_url}, model {s.model}")
     if s.key_env:
         print(f"api key: {s.key_env} is {'set' if s.api_key else 'NOT set'}")

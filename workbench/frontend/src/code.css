@@ -1,0 +1,61 @@
+/* Coding agent page (Claude Code / Codex hand-off). Theme-neutral: uses tokens only. */
+.code-page .page-head p { max-width: 640px; }
+.code-new { margin-bottom: var(--space-6); }
+.code-layout { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: var(--space-6); align-items: start; }
+.code-list { gap: 2px; }
+.code-list .list-item { padding: 10px 12px; border-bottom: none; }
+.list-label { padding: 0 12px 6px; }
+.seg { display: inline-flex; gap: 2px; padding: 3px; background: var(--panel-2); border-radius: calc(var(--radius) + 4px); align-self: flex-start; }
+.seg button {
+  display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 14px; border: none; border-radius: var(--radius);
+  background: transparent; color: var(--muted); font: inherit; font-size: var(--text-sm); font-weight: 550; cursor: pointer;
+}
+.seg button.on { background: var(--panel); color: var(--text); box-shadow: var(--shadow-1); }
+.seg .dot, .cli-setup .dot { width: 7px; height: 7px; background: var(--border-strong); }
+.dot.ok { background: var(--ok); }
+.dot.warn { background: var(--warn); }
+.cli-setup { gap: 10px; padding: 14px 16px; background: var(--panel-2); border-radius: var(--radius); }
+.cli-steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; font-size: var(--text-sm); color: var(--muted); }
+.cli-steps code, .cli-setup code { font-family: var(--mono); font-size: 12px; background: var(--panel); padding: 2px 6px; border-radius: 4px; color: var(--text); user-select: all; }
+.input-icon { position: relative; display: flex; align-items: center; }
+.input-icon > svg { position: absolute; left: 11px; color: var(--faint); pointer-events: none; }
+.input-icon > .input { padding-left: 34px; }
+.events { gap: 10px; }
+.cev { font-size: var(--text-sm); }
+.cev-user { align-self: flex-end; max-width: 80%; padding: 8px 14px; background: var(--panel-2); border-radius: var(--radius); white-space: pre-wrap; }
+.cev-text .prose { font-size: var(--text-md); }
+.cev.sub { margin-left: 18px; }
+.cev-think summary, .cev-tool summary, .pending summary { cursor: pointer; color: var(--muted); display: flex; align-items: center; gap: 8px; list-style: none; }
+.cev-think summary::-webkit-details-marker, .cev-tool summary::-webkit-details-marker, .pending summary::-webkit-details-marker { display: none; }
+.cev-tool summary { font-family: var(--mono); font-size: 12px; color: var(--text); }
+.cev-tool pre, .pending pre, .cev-out {
+  margin: 6px 0 0; padding: 10px 12px; background: var(--code-bg); border-radius: var(--radius); font-family: var(--mono); font-size: 11.5px;
+  white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto; color: var(--muted);
+}
+.cev-out.err { color: var(--danger-text); }
+.cev-note { color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.cev-note.ok { color: var(--ok-text); }
+.pre { white-space: pre-wrap; }
+.approval { border-left: 3px solid var(--accent); }
+.pending summary { color: var(--text); font-weight: 550; }
+.diff { margin: 0; padding: 12px 0; background: var(--code-bg); border-radius: var(--radius); font-family: var(--mono); font-size: 12px; line-height: 1.6; overflow: auto; max-height: 520px; }
+.diff span { display: block; padding: 0 14px; white-space: pre; }
+.diff .add { background: var(--ok-soft); color: var(--ok-text); }
+.diff .del { background: var(--danger-soft); color: var(--danger-text); }
+.diff .hunk { color: var(--accent-text); }
+.diff .meta { color: var(--faint); }
+.sub-card .cli-setup { margin: 4px 0; }
+@media (max-width: 900px) { .code-layout { grid-template-columns: 1fr; } }
+
+/* Home: a one-line summary instead of stat tiles; compact empty states */
+.home-summary { font-size: var(--text-lg); }
+.home-grid .empty { padding: 18px 20px 26px; align-items: flex-start; text-align: left; }
+.home-grid .empty-icon { display: none; }
+.home-grid .empty-title { font-size: var(--text-md); }
+.input-icon > input.input { padding-left: 36px !important; }
+.cev-user { font-weight: 500; }
+
+/* Browser agent example prompts */
+.example-chips { gap: 6px; align-items: center; }
+.example-chip { border: 1px solid var(--border); background: var(--panel-2, var(--panel)); color: var(--muted); border-radius: 999px; padding: 4px 12px; font: inherit; font-size: var(--text-xs); cursor: pointer; }
+.example-chip:hover { color: var(--text); border-color: var(--border-strong); }
