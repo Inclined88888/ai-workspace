@@ -1,13 +1,76 @@
 import DOMPurify from "dompurify";
 import { marked } from "marked";
-import { useEffect, useState } from "react";
+import { Check, X } from "lucide-react";
+import { MouseEvent, useEffect, useRef, useState } from "react";
 import { api, Model } from "./api";
 
 marked.setOptions({ gfm: true, breaks: true });
 
+const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+// Fenced code gets a header with the language and a copy button (handled by onCopyClick below; no inline JS).
+marked.use({
+  renderer: {
+    code({ text, lang }) {
+      const language = (lang || "").split(/\s/)[0];
+      return `<div class="code-block"><div class="code-head"><span>${esc(language || "code")}</span><button type="button" class="code-copy" aria-label="Copy code">Copy</button></div><pre><code>${esc(text)}</code></pre></div>`;
+    },
+  },
+});
+
+function onCopyClick(e: MouseEvent<HTMLDivElement>) {
+  const btn = (e.target as HTMLElement).closest(".code-copy");
+  if (!btn) return;
+  const code = btn.closest(".code-block")?.querySelector("pre")?.textContent ?? "";
+  navigator.clipboard?.writeText(code).then(() => {
+    btn.textContent = "Copied";
+    btn.classList.add("copied");
+    setTimeout(() => { btn.textContent = "Copy"; btn.classList.remove("copied"); }, 1600);
+  }).catch(() => undefined);
+}
+
 export function Markdown({ text, className = "" }: { text: string; className?: string }) {
   const html = DOMPurify.sanitize(marked.parse(text || "", { async: false }) as string);
-  return <div className={`prose ${className}`} dangerouslySetInnerHTML={{ __html: html }} />;
+  return <div className={`prose ${className}`} onClick={onCopyClick} dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
+const reducedMotion = () => typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+
+/** Reveals a freshly arrived answer progressively with a caret, like a live stream. Instant under reduced motion. */
+export function StreamingMarkdown({ text, onDone }: { text: string; onDone?: () => void }) {
+  const [n, setN] = useState(() => (reducedMotion() ? text.length : 0));
+  const done = useRef(false);
+  useEffect(() => {
+    if (n >= text.length) {
+      if (!done.current) { done.current = true; onDone?.(); }
+      return;
+    }
+    // Finish in ~0.9s whatever the length, at least 3 chars a frame
+    const step = Math.max(3, Math.ceil(text.length / 54));
+    const raf = requestAnimationFrame(() => setN((x) => Math.min(text.length, x + step)));
+    return () => cancelAnimationFrame(raf);
+  }, [n, text]);
+  return <Markdown text={text.slice(0, n)} className={n < text.length ? "streaming" : ""} />;
+}
+
+export function Skeleton({ w = "100%", h = 12, style }: { w?: number | string; h?: number; style?: React.CSSProperties }) {
+  return <span className="skeleton" aria-hidden="true" style={{ width: w, height: h, ...style }} />;
+}
+
+/** Placeholder rows while a list loads. */
+export function SkeletonList({ rows = 4, avatar = false }: { rows?: number; avatar?: boolean }) {
+  return (
+    <div role="status" aria-label="Loading">
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} className="skeleton-row">
+          {avatar && <Skeleton w={18} h={18} style={{ borderRadius: 6, flex: "none" }} />}
+          <div className="grow col" style={{ gap: 7 }}>
+            <Skeleton w={`${62 - ((i * 13) % 30)}%`} h={11} />
+            <Skeleton w={`${34 - ((i * 7) % 14)}%`} h={9} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export function useModels() {
@@ -88,26 +151,35 @@ export function fmtTime(iso: string): string {
 }
 
 export function useToast() {
-  const [msg, setMsg] = useState<{ text: string; kind: "ok" | "err" } | null>(null);
+  const [msg, setMsg] = useState<{ text: string; kind: "ok" | "err"; key: number } | null>(null);
+  const [leaving, setLeaving] = useState(false);
   useEffect(() => {
     if (!msg) return;
+    setLeaving(false);
+    const a = setTimeout(() => setLeaving(true), 3800);
     const t = setTimeout(() => setMsg(null), 4000);
-    return () => clearTimeout(t);
+    return () => { clearTimeout(a); clearTimeout(t); };
   }, [msg]);
-  const node = msg ? <div className={`toast ${msg.kind}`}>{msg.text}</div> : null;
+  const node = msg ? (
+    <div key={msg.key} className={`toast ${msg.kind} ${leaving ? "leaving" : ""}`} role={msg.kind === "err" ? "alert" : "status"}>
+      <span className="toast-icon" aria-hidden="true">{msg.kind === "err" ? <X size={12} strokeWidth={3} /> : <Check size={12} strokeWidth={3} />}</span>
+      <span>{msg.text}</span>
+    </div>
+  ) : null;
   return {
     node,
-    ok: (text: string) => setMsg({ text, kind: "ok" }),
-    err: (e: unknown) => setMsg({ text: e instanceof Error ? e.message : String(e), kind: "err" }),
+    ok: (text: string) => setMsg({ text, kind: "ok", key: Date.now() }),
+    err: (e: unknown) => setMsg({ text: e instanceof Error ? e.message : String(e), kind: "err", key: Date.now() }),
   };
 }
 
-export function Empty({ icon, title, hint }: { icon: React.ReactNode; title: string; hint?: string }) {
+export function Empty({ icon, title, hint, hero = false, children }: { icon?: React.ReactNode; title: string; hint?: string; hero?: boolean; children?: React.ReactNode }) {
   return (
-    <div className="empty">
-      <div className="empty-icon">{icon}</div>
+    <div className={`empty ${hero ? "hero" : ""}`}>
+      {icon && <div className="empty-icon" aria-hidden="true">{icon}</div>}
       <div className="empty-title">{title}</div>
       {hint && <div className="muted">{hint}</div>}
+      {children}
     </div>
   );
 }

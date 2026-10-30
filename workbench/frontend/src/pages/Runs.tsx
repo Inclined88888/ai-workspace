@@ -2,7 +2,7 @@ import { ArrowLeft, ChevronDown, ChevronRight, ListTree, Loader2 } from "lucide-
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
-import { Empty, relTime } from "../util";
+import { Empty, relTime, SkeletonList } from "../util";
 
 // One row of the run log (backend actions.py). Text fields are already redacted on the server.
 type Action = {
@@ -76,6 +76,7 @@ function RunList() {
       </div>
       {error && <div className="alert err" style={{ marginBottom: 12 }}>{error}</div>}
       {!loading && !runs.length && !error && <Empty icon={<ListTree size={22} />} title="No runs yet" hint={failed ? "Nothing failed." : "Chat with the assistant and its runs appear here."} />}
+      {loading && !runs.length && <div className="card flush"><SkeletonList rows={5} avatar /></div>}
       {runs.length > 0 && (
         <div className="card flush">
           {runs.map((r) => (
@@ -96,7 +97,7 @@ function RunList() {
           ))}
         </div>
       )}
-      {loading && <div className="row muted" style={{ marginTop: 12 }}><Loader2 size={14} className="spin" /> Loading</div>}
+      {loading && runs.length > 0 && <div className="row muted" style={{ marginTop: 12 }}><Loader2 size={14} className="spin" /> Loading</div>}
       {more && !loading && <button className="btn" style={{ marginTop: 12 }} onClick={() => load(runs[runs.length - 1].id)}>Load older runs</button>}
     </div>
   );

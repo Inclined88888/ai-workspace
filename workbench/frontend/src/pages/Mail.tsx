@@ -1,4 +1,4 @@
-import { ArrowLeft, Inbox, Loader2, Mail, PenSquare, RefreshCw, Reply, Search, Send, Sparkles, Trash2, X } from "lucide-react";
+import { ArrowLeft, Inbox, Loader2, Mail, PenSquare, RefreshCw, Reply, Search, PenLine, Send, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, stream } from "../api";
@@ -51,7 +51,7 @@ function Composer({ account, initial, onClose, onSent }: { account: Account; ini
       <input className="input" placeholder="To" value={c.to} onChange={(e) => setC({ ...c, to: e.target.value })} />
       <input className="input" placeholder="Subject" value={c.subject} onChange={(e) => setC({ ...c, subject: e.target.value })} />
       <div className="row wrap">
-        <Sparkles size={15} className="prio-1" />
+        <PenLine size={15} className="prio-1" />
         <input className="input grow" style={{ minWidth: 180 }} placeholder="What should it say? e.g. 'accept, suggest Thursday 2pm'" value={intent} onChange={(e) => setIntent(e.target.value)} />
         <div style={{ width: 170 }}><ModelSelect value={model} onChange={setModel} models={models} /></div>
         <button className="btn" onClick={draft} disabled={drafting}>{drafting ? <Loader2 size={15} className="spin" /> : "Draft with AI"}</button>

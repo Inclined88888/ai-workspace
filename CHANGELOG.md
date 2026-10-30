@@ -4,6 +4,38 @@ Every user-visible change that needs action, or changes data on upgrade, gets an
 migration steps, rollback steps. Workbench has no release numbers yet (BACKLOG). Entries are identified by schema
 version and the merge commit on `main`.
 
+## 2026-10-30 · Editorial UI redesign (light-first) · branch feat/premium-ui (builds on feat/desktop-app)
+
+Replaces the dark, gradient "premium" look with a quiet 90s fashion-editorial style. The structural work from the premium pass is kept: command palette, code blocks, skeletons, streaming and accessibility.
+
+- **Light by default.** Warm paper (#F5F1E8) and near-black ink (#141311). Dark mode is an opt-in toggle (Light / Dark in the sidebar or the palette). It is stored in `wb-theme` and no longer follows the OS setting.
+- **Type.** Bodoni Moda (Didone, optical sizes) for headings and the wordmark, Hanken Grotesk for the UI and JetBrains Mono for code. All three are bundled locally (OFL 1.1). Inter has been removed.
+- **Colour.** One accent, cherry red (#D21F3C; #B5122B for text), and a baby-blue secondary (#D5E5F4) used only for fills. Every text pair meets WCAG AA.
+- **No gradients, glow, blur or sparkle icons.** The logo mark is now a typographic wordmark. Surfaces are flat with hairline rules and square corners, and nav items are text only.
+- **Motion** is limited to fades and small page turns, and is fully disabled under reduced motion.
+- **Desktop splash and welcome screen** were restyled to match. The splash bundles its own Bodoni subset (116 KB).
+- **Bundle:** JS 410.07 kB (122.45 gzip), CSS 37.41 kB (8.13 gzip).
+- Screenshots are in `screenshots/editorial/`.
+
+## 2026-10-30 · Premium UI redesign + animations · branch feat/premium-ui (builds on feat/desktop-app)
+
+* New design system in `workbench/frontend/src/styles.css`: tokens for colour, type, spacing, radius, elevation and
+  motion, with light and dark themes checked for WCAG AA contrast. The theme follows the OS; a System / Light / Dark switch
+  in the sidebar overrides it (stored in the browser as `wb-theme`).
+* Inter and JetBrains Mono are bundled (`@fontsource-variable`, OFL 1.1). The app makes no font requests to the network.
+* Cmd/Ctrl+K command palette for pages, new chat / note / task and the theme.
+* Chat: new message layout, code blocks with a language label and a Copy button, a streaming reveal with a caret, a
+  typing indicator, an auto-growing composer with the model picker, and suggestion cards on an empty chat.
+* Redesigned app shell and sidebar, auth, the desktop welcome flow and the desktop splash (`desktop/ui/index.html`), with
+  skeleton loaders, empty states, toasts and modals.
+* Motion stays between 120 and 240 ms and is CSS only. All of it switches off under `prefers-reduced-motion`. Focus
+  rings are visible and every new control works from the keyboard.
+* Bundle: JS 398.6 → 411.1 kB (gzip 118.7 → 122.7 kB), CSS 14.5 → 39.6 kB (gzip 3.8 → 8.6 kB), plus 88.7 kB of Latin
+  fonts (Latin Extended, 85 kB, loads only when a page needs it). No new JS dependencies.
+* Docs: README image size now uses the CI figure (248 MB), and the BACKLOG note for item 116 records that it is merged.
+
+No API, schema or backend changes; no action needed on upgrade. Rollback: revert the merge.
+
 ## 2026-10-30 · Desktop app for macOS and Windows (preview) · branch feat/desktop-app
 
 * New `desktop/`: a Tauri v2 app that runs Workbench natively, without Docker. The backend is frozen with PyInstaller

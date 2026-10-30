@@ -1,4 +1,4 @@
-import { ArrowRight, Check, Cpu, Download, KeyRound, Loader2, Sparkles } from "lucide-react";
+import { ArrowRight, Check, Cpu, Download, KeyRound, Loader2, Lock } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { api, stream } from "../api";
 import type { Status } from "../App";
@@ -29,14 +29,17 @@ function Login({ onDone }: { onDone: () => void }) {
   };
   return (
     <form className="col gap-lg" onSubmit={submit}>
-      <div>
-        <h1>Welcome back</h1>
-        <p className="muted">Sign in to your workspace.</p>
+      <div className="auth-brand">
+        <div className="wordmark lg" aria-hidden="true">AI Workspace</div>
+        <div>
+          <h1>Welcome back</h1>
+          <p className="muted">Sign in to your workspace.</p>
+        </div>
       </div>
       {error && <div className="alert err">{error}</div>}
       <label className="field">
         Password
-        <input className="input" type="password" autoFocus value={password} onChange={(e) => setPassword(e.target.value)} />
+        <input className="input" type="password" autoFocus autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
       </label>
       <button className="btn primary" disabled={busy || !password}>{busy ? <Loader2 size={16} className="spin" /> : "Sign in"}</button>
     </form>
@@ -151,7 +154,7 @@ export default function Auth({ status, onDone }: { status: Status; onDone: () =>
 
   if (status.setup_complete && step === 0) {
     return (
-      <div className="auth"><div className="card auth-card"><Login onDone={onDone} /></div></div>
+      <div className="auth"><div><div className="card auth-card"><Login onDone={onDone} /></div><div className="auth-foot"><Lock size={12} /> Self-hosted. Your data stays on your server.</div></div></div>
     );
   }
 
@@ -176,8 +179,13 @@ export default function Auth({ status, onDone }: { status: Status; onDone: () =>
         <div className="steps">{[0, 1, 2].map((i) => <span key={i} className={i <= step ? "on" : ""} />)}</div>
         {step === 0 && (
           <form className="col gap-lg" onSubmit={createAccount}>
-            <div className="row"><div className="brand-mark"><Sparkles size={16} /></div><h1>Set up your workspace</h1></div>
-            <p className="muted" style={{ margin: 0 }}>Create the password that protects Workbench. This is a single owner app.</p>
+            <div className="auth-brand">
+              <div className="wordmark lg" aria-hidden="true">AI Workspace</div>
+              <div>
+                <h1>Set up your workspace</h1>
+                <p className="muted">Create the password that protects Workbench. This is a single owner app.</p>
+              </div>
+            </div>
             {error && <div className="alert err">{error}</div>}
             {status.setup_code_required && (
               <label className="field">
