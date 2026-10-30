@@ -47,6 +47,7 @@
 
   # 2. uv: one small program that brings its own Python.
   New-Item -ItemType Directory -Force -Path $bin | Out-Null
+  $env:AI_WORKSPACE_ORIG_PATH = [Environment]::GetEnvironmentVariable('Path', 'User')  # the helper adds $bin if missing
   $env:Path = "$bin;$env:Path"
   $uv = (Get-Command uv -ErrorAction SilentlyContinue).Source
   if (-not $uv) {

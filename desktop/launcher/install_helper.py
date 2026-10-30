@@ -231,7 +231,8 @@ def install_native(repo: str, home: Path) -> str:
 
 
 def ensure_path(bin_dir: Path) -> str:
-    parts = [os.path.normcase(os.path.normpath(p)) for p in os.environ.get("PATH", "").split(os.pathsep) if p]
+    current = os.environ.get("AI_WORKSPACE_ORIG_PATH", os.environ.get("PATH", ""))
+    parts = [os.path.normcase(os.path.normpath(os.path.expandvars(p))) for p in current.split(os.pathsep) if p]
     if os.path.normcase(os.path.normpath(str(bin_dir))) in parts:
         return ""
     if WIN:

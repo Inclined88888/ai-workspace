@@ -14,6 +14,16 @@ git archive --format=tar --prefix="$name/" HEAD | tar -x -C "$tmp"
 mkdir -p "$tmp/$name/workbench/frontend"
 cp -R workbench/frontend/dist "$tmp/$name/workbench/frontend/dist"
 rm -f "$out"
-(cd "$tmp" && zip -qr -X "$out" "$name")
+# zip with the executable bits kept (install.sh), using Python so `zip` need not be installed
+(cd "$tmp" && python3 - "$out" "$name" <<'PY'
+import os, sys, zipfile
+out, root = sys.argv[1], sys.argv[2]
+with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+    for d, _, files in os.walk(root):
+        for f in sorted(files):
+            p = os.path.join(d, f)
+            z.write(p, p)
+PY
+)
 rm -rf "$tmp"
 echo "$out ($(du -h "$out" | cut -f1))"

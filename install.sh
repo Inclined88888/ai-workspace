@@ -65,6 +65,7 @@ main() {
   printf '  Source: %s\n' "$src"
 
   # 2. uv: one small binary that brings its own Python, so nothing else has to be installed first.
+  export AI_WORKSPACE_ORIG_PATH=$PATH  # so the helper can tell whether $bin is on the user's own PATH
   export PATH="$bin:$HOME/.cargo/bin:$PATH"
   if ! command -v uv >/dev/null 2>&1; then
     printf '  Installing uv (Python manager, astral.sh) into %s…\n' "$bin"
