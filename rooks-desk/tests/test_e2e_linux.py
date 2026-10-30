@@ -87,7 +87,11 @@ def test_editor_write_and_save(work):
         return {"action": "type", "args": {"text": str(target), "clear": True}}
 
     def click_save(prompt):
-        return {"thought": "press the dialog's Save button", "action": "click", "args": {"id": find(prompt, r"button 'Save'")}}
+        if re.search(r"\[\d+\] button 'Save'", prompt):
+            return {"thought": "press the dialog's Save button", "action": "click", "args": {"id": find(prompt, r"button 'Save'")}}
+        # The GTK dialog sometimes publishes no element list (seen on CI); a person would just press Enter in the name field
+        assert "Save As" in prompt, prompt[-1500:]
+        return {"thought": "no Save button listed; Enter saves", "action": "hotkey", "args": {"keys": "enter"}}
 
     script = [{"action": "open_app", "args": {"name": "mousepad", "wait": 2.5}}, type_in_editor,
               {"action": "hotkey", "args": {"keys": "ctrl+s"}}, save_name, click_save, {"action": "wait", "args": {"seconds": 1}},

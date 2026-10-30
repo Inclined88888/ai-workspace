@@ -240,24 +240,35 @@ class LinuxBackend(Backend):
         win = win or self.focused_window()
         if not win:
             return []
-        try:
-            from . import _atspi_dump
-            import pyatspi  # noqa: F401
-            rows = _atspi_dump.dump(win.pid, win.title, max_nodes)
-        except ImportError:
-            py = _system_atspi()
-            if not py:
-                return []
-            # pyatspi lives in the system Python (it needs PyGObject); ask it, as a separate process
+        def dump():
             try:
-                r = subprocess.run([py, os.path.join(os.path.dirname(__file__), "_atspi_dump.py"), str(win.pid), win.title, str(max_nodes)],
-                                   capture_output=True, text=True, timeout=15)
-                rows = json.loads(r.stdout or "[]")
-            except (OSError, ValueError, subprocess.TimeoutExpired):
-                return []
+                from . import _atspi_dump
+                import pyatspi  # noqa: F401
+                return _atspi_dump.dump(win.pid, win.title, max_nodes)
+            except ImportError:
+                return self._dump_with_system_python(win, max_nodes)
+
+        rows = dump()
+        if not rows:
+            # A window that has just appeared (a GTK Save dialog, say) can take a moment to publish its tree
+            time.sleep(0.6)
+            rows = dump()
         return [Element(d["role"], d["name"], d["x"], d["y"], d["width"], d["height"], value=d.get("value", ""),
                         enabled=d.get("enabled", True), secret=d.get("secret", False), depth=d.get("depth", 0),
                         extra={"focused": True} if d.get("focused") else {}) for d in rows]
+
+    @staticmethod
+    def _dump_with_system_python(win, max_nodes):
+        py = _system_atspi()
+        if not py:
+            return []
+        # pyatspi lives in the system Python (it needs PyGObject); ask it, as a separate process
+        try:
+            r = subprocess.run([py, os.path.join(os.path.dirname(__file__), "_atspi_dump.py"), str(win.pid), win.title, str(max_nodes)],
+                               capture_output=True, text=True, timeout=15)
+            return json.loads(r.stdout or "[]")
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            return []
 
 
 _SYS_PY: list = []

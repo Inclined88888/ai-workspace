@@ -50,7 +50,10 @@ class Shell:
     def argv(self, command: str) -> list[str]:
         if os.name == "nt":
             exe = shutil.which("pwsh") or "powershell"
-            wrapped = f"{command}\n$__c=$LASTEXITCODE; Write-Output \"{MARK}$((Get-Location).Path)\"; exit $__c"
+            # Render the command's objects as text inside its own pipeline: otherwise PowerShell's table formatter can
+            # swallow them (and our cwd marker) when the script exits, e.g. `pwd` or `Get-ChildItem` printed nothing.
+            wrapped = (f"& {{\n{command}\n}} | Out-String -Stream -Width 400\n"
+                       f"$__c=$LASTEXITCODE; [Console]::Out.WriteLine(\"{MARK}$((Get-Location).Path)\"); exit $__c")
             return [exe, "-NoProfile", "-NonInteractive", "-Command", wrapped]
         sh = os.environ.get("SHELL") or "/bin/bash"
         if not os.path.exists(sh):

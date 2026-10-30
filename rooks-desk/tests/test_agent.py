@@ -95,7 +95,7 @@ def test_shell_asks_streams_and_keeps_cwd(desk_home):
                                                    {"action": "shell", "args": {"command": "pwd"}},
                                                    {"action": "done", "args": {"answer": "ok"}}]))
     assert res.commands[0]["output"].split() == ["one", "two"] and res.commands[0]["exit_code"] == 0
-    assert res.commands[1]["output"].strip() == str(work)  # `pwd` is read-only: ran without asking, in the cd'd folder
+    assert res.commands[1]["output"].strip().splitlines()[-1] == str(work)  # (PowerShell prints a Path table) `pwd` is read-only: ran without asking, in the cd'd folder
     assert any("one" in x for x in lines)
 
 
