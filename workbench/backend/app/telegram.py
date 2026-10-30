@@ -77,7 +77,11 @@ def _conversation(chat_id: int, fresh: bool = False) -> int:
         c = db.one("SELECT id FROM conversations WHERE channel = 'telegram' AND external_id = ? ORDER BY id DESC LIMIT 1", str(chat_id))
         if c:
             return c["id"]
-    return assistant.new_conversation("telegram", "Telegram chat", str(chat_id))
+    cid = assistant.new_conversation("telegram", "Telegram chat", str(chat_id))
+    from .teammates import channels as tm_channels  # feat/grok-style: the teammate picked for Telegram answers
+
+    tm_channels.on_channel_conversation(cid, "telegram")
+    return cid
 
 
 async def _handle(client: httpx.AsyncClient, msg: dict, update_id: int | None = None) -> None:

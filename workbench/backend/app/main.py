@@ -39,6 +39,11 @@ async def lifespan(_: FastAPI):
     v02 = [asyncio.create_task(fn()) for fn in (automations.loop, jobs.loop)]  # feat/v02-automations
     health.LOOPS.update(zip(("Automations", "Jobs board"), v02))
     loops += v02
+    from .teammates import routes as tm_routes  # feat/grok-style: Slack gateway and the encrypted phone relay
+
+    tm = [(n, asyncio.create_task(fn())) for n, fn in tm_routes.background()]
+    health.LOOPS.update(dict(tm))
+    loops += [t for _, t in tm]
     async with mcp.session_manager.run():
         yield
     mobile.lan_stop()
@@ -119,6 +124,9 @@ packs_tools.register_tools()  # feat/v02-packs: pack shortcuts, shown only once 
 app.include_router(bridge.router)  # /v1: OpenAI-shaped access to every connection, for the browser agent (item 103)
 from . import account  # noqa: E402
 account.install(app)  # Your plan: account sign-in, signed entitlements and the Pro feature gate
+from .teammates import routes as tm_routes  # noqa: E402 - feat/grok-style: teammates, groups, vault, outbox, pages, channels, phone link
+
+tm_routes.install(app)
 app.mount("/tools", tools)
 app.mount("/mcp", mcp_app)  # MCP clients use http://workbench:8000/mcp/
 
