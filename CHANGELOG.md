@@ -4,6 +4,25 @@ Every user-visible change that needs action, or changes data on upgrade, gets an
 migration steps, rollback steps. Workbench has no release numbers yet (BACKLOG). Entries are identified by schema
 version and the merge commit on `main`.
 
+## 2026-10-30 · Premium UI redesign + animations · branch feat/premium-ui (builds on feat/desktop-app)
+
+* New design system in `workbench/frontend/src/styles.css`: tokens for colour, type, spacing, radius, elevation and
+  motion, with light and dark themes checked for WCAG AA contrast. The theme follows the OS; a System / Light / Dark switch
+  in the sidebar overrides it (stored in the browser as `wb-theme`).
+* Inter and JetBrains Mono are bundled (`@fontsource-variable`, OFL 1.1). The app makes no font requests to the network.
+* Cmd/Ctrl+K command palette for pages, new chat / note / task and the theme.
+* Chat: new message layout, code blocks with a language label and a Copy button, a streaming reveal with a caret, a
+  typing indicator, an auto-growing composer with the model picker, and suggestion cards on an empty chat.
+* Redesigned app shell and sidebar, auth, the desktop welcome flow and the desktop splash (`desktop/ui/index.html`), with
+  skeleton loaders, empty states, toasts and modals.
+* Motion stays between 120 and 240 ms and is CSS only. All of it switches off under `prefers-reduced-motion`. Focus
+  rings are visible and every new control works from the keyboard.
+* Bundle: JS 398.6 → 411.1 kB (gzip 118.7 → 122.7 kB), CSS 14.5 → 39.6 kB (gzip 3.8 → 8.6 kB), plus 88.7 kB of Latin
+  fonts (Latin Extended, 85 kB, loads only when a page needs it). No new JS dependencies.
+* Docs: README image size now uses the CI figure (248 MB), and the BACKLOG note for item 116 records that it is merged.
+
+No API, schema or backend changes; no action needed on upgrade. Rollback: revert the merge.
+
 ## 2026-10-30 · Desktop app for macOS and Windows (preview) · branch feat/desktop-app
 
 * New `desktop/`: a Tauri v2 app that runs Workbench natively, without Docker. The backend is frozen with PyInstaller
