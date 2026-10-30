@@ -37,6 +37,9 @@ This installs three commands for your user only (no admin password): `ai-workspa
 `rooks` (terminal coding agent) and `rooks-browser` (AI browser agent). The only prerequisite is `curl` (built into macOS
 and Windows 10/11). Run it again to upgrade; your chats, keys and settings are kept.
 
+Something wrong? `ai-workspace --status` checks the app and its web UI, and `ai-workspace --logs` prints the log
+folder and the last lines of `launcher.log` and `workbench.log`.
+
 ## Download for Mac / Windows
 
 **Desktop app (preview).** Double-click to install. No Docker, no terminal: it runs Workbench on your own computer,

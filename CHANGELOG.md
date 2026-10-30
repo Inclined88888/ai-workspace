@@ -10,8 +10,18 @@ version and the merge commit on `main`.
   `rooks` and `rooks-browser` for the current user. uv brings Python 3.12. When the source has no prebuilt web UI and the
   computer has no Node.js, the installer downloads Node.js 22 from nodejs.org, checks its SHA-256, builds, and removes it.
   See [QUICKSTART.md](QUICKSTART.md).
-- **Launcher**: the sign-in token is no longer on the browser's command line (a private, short-lived redirect file is
-  used instead); a leftover app window is closed on start and by `--stop`.
+- **Launcher**: the window opens on a one-time sign-in link served by the app (one use, two minutes), so the launch token
+  is never on a command line or in a URL. This fixes a blank "Your file couldn't be accessed" (ERR_FILE_NOT_FOUND)
+  window on macOS caused by an earlier temporary redirect file. It waits for the app and checks the web UI loads, logs to
+  `logs/launcher.log`, and has `--logs`; `--status` also shows the UI check, version and logs folder. The installer's
+  Applications / Start menu shortcut is no longer mistaken for the native app and now has the real icon.
+- **Agents**: `rooks` and `rooks-browser` accept `GROQ_API_KEY` and `GEMINI_API_KEY` directly, and explain how to set up a
+  model when none is available. rooks-browser on Groq backs off on rate limits, trims long pages to fit, and recovers
+  malformed replies.
+- **Browser agent page**: live picture while a run works, a screenshot per step, the agent's thinking and actions, and
+  Allow / Deny for paused sensitive steps.
+- **CI**: `macOS window` workflow (macos-14) installs with the one-command install and checks the window shows the UI.
+  The desktop build falls back to ad-hoc signing when the Apple certificate secret cannot be imported.
 - **Local models**: the first chat works with whichever Ollama model is installed; Rooks Code prefers an installed
   coder model when Ollama is the only provider; one answer is capped at `OLLAMA_NUM_PREDICT` (4096) tokens; the assistant
   only offers `web_search` when a search provider is set up.

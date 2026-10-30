@@ -110,8 +110,10 @@ rooks-browser doctor                                                 # browsers 
 | Command | What it does |
 | --- | --- |
 | `ai-workspace` | Opens the app (and starts it if it's not running). Closing the window stops it. |
-| `ai-workspace --status` | Shows whether it's running, the data folder, and where `rooks` / `rooks-browser` are. |
+| `ai-workspace --status` | Shows whether it's running, whether the web UI loads, the version, the data and logs folders, and where `rooks` / `rooks-browser` are. |
+| `ai-workspace --logs` | Prints where the logs are and their last lines (`launcher.log`, `workbench.log`). Paste this when reporting a problem. |
 | `ai-workspace --stop` | Stops it. |
+| `ai-workspace --no-open` | Starts without a window and prints a one-time sign-in link (valid 2 minutes). |
 | `ai-workspace --no-open` | Starts the app without a window and prints a one-time sign-in link. |
 | `ai-workspace --web` | Uses the app window even when the native app is installed. |
 
@@ -159,3 +161,13 @@ The native app and the `ai-workspace` window share the same data folder.
 * **Claude Pro/Max subscriptions can't be connected** (Anthropic's terms). Use a Claude API key.
 * The mobile app (Expo) pairs with a running desktop app. See [docs/mobile-pairing.md](docs/mobile-pairing.md). It isn't
   in the app stores.
+
+## Agents without the app
+
+`rooks` and `rooks-browser` use the open app's models automatically. Without the app, set a free key in your terminal:
+`export GROQ_API_KEY=...` (console.groq.com/keys) or `export GEMINI_API_KEY=...` (aistudio.google.com/apikey).
+On Windows PowerShell: `$env:GROQ_API_KEY="..."`. If neither is set up, both explain what to do instead of failing.
+
+## Update
+
+Run the installer again (your chats, keys and settings are kept), then `ai-workspace --stop` and `ai-workspace`.
