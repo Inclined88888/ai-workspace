@@ -60,6 +60,7 @@ def status(request: Request):
         "paperclip_url": config.PAPERCLIP_URL,
         "hermes_url": config.HERMES_URL,
         "browser_enabled": bool(config.BROWSER_URL and config.BROWSER_API_KEY),
+        "desk_enabled": bool(config.DESK_URL and config.DESK_API_KEY),
         "local_models_enabled": bool(config.OLLAMA_URL),
         "desktop": config.DESKTOP,
         "welcome_done": db.get_setting("desktop_welcome_done") == "1",

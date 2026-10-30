@@ -135,16 +135,23 @@ def get_message(acct: dict, uid: str, folder: str = "INBOX") -> dict:
             pass
 
 
-def send(acct: dict, to: str, subject: str, body: str, in_reply_to: str = "") -> str:
+def send(acct: dict, to: str, subject: str, body: str, in_reply_to: str = "", *, cc: str = "",
+         attachments: list[tuple[str, str, bytes]] | None = None) -> str:
+    """Send one message. attachments: (filename, content type, bytes)."""
     msg = EmailMessage()
     msg["From"] = f'{acct["name"]} <{acct["email"]}>'
     msg["To"] = to
+    if cc:
+        msg["Cc"] = cc
     msg["Subject"] = subject
     msg["Message-ID"] = make_msgid(domain=acct["email"].split("@")[-1])
     if in_reply_to:
         msg["In-Reply-To"] = in_reply_to
         msg["References"] = in_reply_to
     msg.set_content(body)
+    for filename, ctype, data in attachments or []:
+        main, _, sub = (ctype or "application/octet-stream").partition("/")
+        msg.add_attachment(data, maintype=main or "application", subtype=sub or "octet-stream", filename=filename)
     password = decrypt(acct["password_enc"])
     try:
         with egress.track("SEND", f"smtp://{acct['smtp_host']}:{acct['smtp_port']}"):
