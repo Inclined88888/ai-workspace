@@ -43,7 +43,8 @@ PROVIDERS = {p.name: p for p in [
     ProviderInfo("openrouter", "OpenRouter", ("OPENROUTER_API_KEY",), "openai/gpt-4.1-mini", "Any OpenRouter model id; :free models work."),
     ProviderInfo("ollama", "Ollama (local, free)", (), "qwen2.5:7b", "OLLAMA_HOST, default http://localhost:11434. Text only unless the model can see (llava, qwen2.5vl, gemma3, ...)."),
     ProviderInfo("openai-compatible", "Any OpenAI-compatible server", ("OPENAI_COMPATIBLE_BASE_URL",), "", "LM Studio, vLLM, llama.cpp, Groq, ..."),
-    ProviderInfo("workbench", "Workbench (your model connections)", ("WORKBENCH_URL",), "default", "Any model connected in Workbench."),
+    ProviderInfo("workbench", "AI Workspace app (its smart router)", ("WORKBENCH_URL",), "default",
+                 "Found automatically while the desktop app is open; or set WORKBENCH_URL and WORKBENCH_API_KEY."),
     ProviderInfo("scripted", "Scripted (tests and demos, no model)", (), "", "--model is a JSON file of actions."),
 ]}
 AUTO_ORDER = ("workbench", "anthropic", "openai", "openrouter", "ollama")
@@ -57,6 +58,33 @@ def _env(*names: str) -> str:
     return ""
 
 
+def app_link() -> dict:
+    """The running AI Workspace desktop app ({"url", "key"}) from the app.json it writes, or WORKBENCH_URL /
+    WORKBENCH_API_KEY. Empty when neither is there. Same file as rooks_code.config.app_link."""
+    if _env("WORKBENCH_URL"):
+        return {"url": _env("WORKBENCH_URL").rstrip("/"), "key": _env("WORKBENCH_API_KEY", "BROWSER_API_KEY")}
+    if os.getenv("AI_WORKSPACE_APP_FILE"):
+        path = os.environ["AI_WORKSPACE_APP_FILE"]
+    elif os.name == "nt" and os.getenv("APPDATA"):
+        path = os.path.join(os.environ["APPDATA"], "ai-workspace", "app.json")
+    else:
+        path = os.path.join(os.getenv("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config"), "ai-workspace", "app.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            d = json.load(f)
+        url = str(d.get("url") or "").rstrip("/")
+        if not url:
+            return {}
+        urllib.request.urlopen(f"{url}/healthz", timeout=1.5).close()  # a file left by a crashed app is ignored
+        return {"url": url, "key": str(d.get("key") or "")}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
+def _has_credentials(name: str) -> bool:
+    return bool(app_link()) if name == "workbench" else bool(_env(*PROVIDERS[name].key_env))
+
+
 def ollama_host() -> str:
     h = _env("OLLAMA_HOST") or "http://localhost:11434"
     return h if "://" in h else f"http://{h}"
@@ -64,7 +92,7 @@ def ollama_host() -> str:
 
 def ready() -> list[str]:
     """Providers with credentials (ollama counts when its server answers)."""
-    out = [n for n in AUTO_ORDER if n != "ollama" and _env(*PROVIDERS[n].key_env)]
+    out = [n for n in AUTO_ORDER if n != "ollama" and _has_credentials(n)]
     try:
         urllib.request.urlopen(f"{ollama_host()}/api/tags", timeout=1.5).close()
         out.append("ollama")
@@ -82,7 +110,7 @@ def resolve(provider: str | None) -> str:
             raise ValueError(f"unknown provider {p!r} (choose from {', '.join(PROVIDERS)})")
         return p
     for n in AUTO_ORDER:
-        if n == "ollama" or _env(*PROVIDERS[n].key_env):
+        if n == "ollama" or _has_credentials(n):
             return n
     return "ollama"
 
@@ -239,11 +267,12 @@ def make(provider: str | None, model: str | None = None, *, base_url: str | None
         return OpenAIChat("openrouter", m, base_url or "https://openrouter.ai/api/v1", key, on_egress, json_mode=False,
                           extra_headers={"X-Title": "Rooks Browser"})
     if p == "workbench":
-        base = (base_url or _env("WORKBENCH_URL")).rstrip("/")
+        link = {} if base_url else app_link()
+        base = (base_url or link.get("url") or "").rstrip("/")
         if not base:
-            raise ValueError("the workbench provider needs WORKBENCH_URL, e.g. http://localhost:3100")
-        return OpenAIChat("workbench", m, f"{base}/v1", api_key or _env("WORKBENCH_API_KEY", "BROWSER_API_KEY"), on_egress,
-                          json_mode=False)
+            raise ValueError("the workbench provider needs the AI Workspace app open, or WORKBENCH_URL (e.g. http://localhost:3100)")
+        return OpenAIChat("workbench", m, f"{base}/v1", api_key or link.get("key") or _env("WORKBENCH_API_KEY", "BROWSER_API_KEY"),
+                          on_egress, json_mode=False, extra_headers={"X-Workbench-Channel": "rooks-browser"})
     base = base_url or _env("OPENAI_COMPATIBLE_BASE_URL")
     if not base:
         raise ValueError("openai-compatible needs --base-url or OPENAI_COMPATIBLE_BASE_URL")

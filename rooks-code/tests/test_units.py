@@ -28,7 +28,7 @@ def test_config_precedence(tmp_path, monkeypatch):
 
 def test_example_config_parses():
     import tomllib
-    assert tomllib.loads(config.EXAMPLE)["provider"] == "ollama"
+    assert "provider" not in tomllib.loads(config.EXAMPLE)  # the default is chosen at run time (open app, else ollama)
 
 
 def test_prices():

@@ -132,14 +132,15 @@ def _post(url: str, body: dict, headers: dict, on_egress: Egress | None, timeout
 class OpenAIChat:
     """OpenAI Chat Completions with tools: OpenAI, OpenRouter, Ollama, LM Studio and any compatible server."""
 
-    def __init__(self, base_url: str, api_key: str, model: str, on_egress: Egress | None = None):
+    def __init__(self, base_url: str, api_key: str, model: str, on_egress: Egress | None = None, headers: dict | None = None):
         self.base_url, self.api_key, self.model, self.on_egress = base_url, api_key, model, on_egress
+        self.headers = headers or {}
 
     def complete(self, system: str, messages: list[dict], tools: list[dict]) -> Reply:
         body: dict = {"model": self.model, "messages": [{"role": "system", "content": system}, *messages]}
         if tools:
             body["tools"] = [{"type": "function", "function": t} for t in tools]
-        headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
+        headers = {**self.headers, **({"Authorization": f"Bearer {self.api_key}"} if self.api_key else {})}
         data = _post(self.base_url + "/chat/completions", body, headers, self.on_egress)
         try:
             msg = data["choices"][0]["message"]
@@ -206,5 +207,5 @@ def make(settings, on_egress: Egress | None = None):
     if settings.kind == "anthropic":
         return Anthropic(settings.base_url, settings.api_key, settings.model, on_egress)
     if settings.kind == "openai":
-        return OpenAIChat(settings.base_url, settings.api_key, settings.model, on_egress)
+        return OpenAIChat(settings.base_url, settings.api_key, settings.model, on_egress, getattr(settings, "headers", None))
     raise SystemExit(f"rooks: provider kind {settings.kind!r} is not supported (use openai or anthropic)")

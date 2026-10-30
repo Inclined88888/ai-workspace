@@ -61,3 +61,9 @@ def isolated_home(tmp_path, monkeypatch):
 
 
 ENGINE = os.getenv("ROOKS_BROWSER_TEST_ENGINE", "auto")
+
+
+@pytest.fixture(autouse=True)
+def _no_running_app(tmp_path, monkeypatch):
+    """Never pick up a real AI Workspace app that happens to be open on this computer."""
+    monkeypatch.setenv("AI_WORKSPACE_APP_FILE", str(tmp_path / "no-app.json"))

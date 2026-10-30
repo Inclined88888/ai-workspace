@@ -297,11 +297,24 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--host", default=os.getenv("ROOKS_BROWSER_HOST", "127.0.0.1"))
     p.add_argument("--port", type=int, default=int(os.getenv("ROOKS_BROWSER_PORT", "8765")))
     p.add_argument("--headed", action="store_true", default=os.getenv("ROOKS_BROWSER_HEADED") == "1" and has_display())
+    p.add_argument("--headless", dest="headed", action="store_false", help="no window (overrides --headed)")
+    p.add_argument("--exit-with-parent", action="store_true", help="exit when stdin closes (used by the desktop app)")
     p.add_argument("--browser", dest="engine", default=os.getenv("ROOKS_BROWSER_ENGINE", "auto"))
     p.add_argument("--cdp", dest="cdp_url", default=os.getenv("ROOKS_BROWSER_CDP_URL"))
     p.add_argument("--block-private", action="store_true", default=os.getenv("ROOKS_BROWSER_BLOCK_PRIVATE") == "1",
                    help="refuse localhost and LAN addresses (use when other services share the network)")
     a = p.parse_args(argv)
+    if a.exit_with_parent:
+        import sys
+
+        def watch():
+            try:
+                while sys.stdin.read(1):
+                    pass
+            finally:
+                os._exit(0)
+
+        threading.Thread(target=watch, daemon=True, name="parent-watch").start()
     token = os.getenv("ROOKS_BROWSER_TOKEN") or os.getenv("BROWSER_API_KEY") or ""
     srv, _ = serve(a.host, a.port, token, headless=not a.headed, engine=a.engine, cdp_url=a.cdp_url, block_private=a.block_private,
                    approval_timeout=float(os.getenv("ROOKS_BROWSER_APPROVAL_TIMEOUT", "600")))

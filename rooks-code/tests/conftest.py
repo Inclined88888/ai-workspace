@@ -19,7 +19,8 @@ def project(tmp_path, monkeypatch):
     cfg = tmp_path / "rooks.toml"
     cfg.write_text("")
     monkeypatch.setenv("ROOKS_CONFIG", str(cfg))
-    for k in ("ROOKS_PROVIDER", "ROOKS_MODEL", "ROOKS_BASE_URL"):
+    monkeypatch.setenv("AI_WORKSPACE_APP_FILE", str(tmp_path / "no-app.json"))  # never pick up a real running app
+    for k in ("ROOKS_PROVIDER", "ROOKS_MODEL", "ROOKS_BASE_URL", "WORKBENCH_URL", "WORKBENCH_API_KEY"):
         monkeypatch.delenv(k, raising=False)
     return p
 
