@@ -52,6 +52,7 @@ import Packs from "./pages/Packs"; // feat/v02-packs
 import PackTrade from "./pages/PackTrade"; // feat/v02-packs
 import PackLegal from "./pages/PackLegal"; // feat/v02-packs
 import PackStudy from "./pages/PackStudy"; // feat/v02-packs
+import Knowledge from "./memory/Knowledge"; // feat/memory-core
 
 export type Status = {
   setup_complete: boolean;
@@ -110,6 +111,7 @@ const NAV: NavGroup[] = [
     { to: "/skills", label: "Skills", icon: Puzzle },
     { to: "/history", label: "History", icon: HistoryIcon }, // feat/v02-core: everything done, with undo
     { to: "/about-you", label: "About you", icon: Brain },
+    { to: "/knowledge", label: "Memory", icon: Brain }, // feat/memory-core: people, project knowledge, what I know
     { to: "/plan", label: "Your plan", icon: Sparkles },
     { to: "/settings", label: "Settings", icon: SettingsIcon },
     { to: "/appearance", label: "Appearance", icon: PaletteIcon },
@@ -282,6 +284,7 @@ export default function App() {
           <Route path="/assistant-skills" element={<Navigate to="/skills" replace />} />
           <Route path="/skills" element={<Skills />} />
           <Route path="/about-you" element={<AboutYou />} />
+          <Route path="/knowledge" element={<Knowledge />} />{/* feat/memory-core */}
           <Route path="/teach" element={<Teach />} />
           <Route path="/teach/:id" element={<Teach />} />
           {/* feat/v02-packs */}
