@@ -62,3 +62,16 @@ async def delete(job_id: str):
 async def screenshot(job_id: str):
     r = await _call("GET", f"/api/jobs/{job_id}/screenshot")
     return Response(r.content, media_type="image/png", headers={"Cache-Control": "no-store"})
+
+
+@router.get("/jobs/{job_id}/screenshot/{step}")
+async def step_screenshot(job_id: str, step: int):
+    r = await _call("GET", f"/api/jobs/{job_id}/screenshot/{step}")
+    return Response(r.content, media_type="image/png", headers={"Cache-Control": "private, max-age=3600"})
+
+
+@router.post("/jobs/{job_id}/approvals/{approval_id}")
+async def answer_approval(job_id: str, approval_id: str, request: Request):
+    """Approve or deny a step the agent paused on (submit, purchase, message, login, download)."""
+    body = await request.json()
+    return (await _call("POST", f"/api/jobs/{job_id}/approvals/{approval_id}", json={"approve": bool(body.get("approve"))})).json()

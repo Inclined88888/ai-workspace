@@ -111,7 +111,8 @@ class Jobs:
         self.cancel(jid) if jid in self.tasks else None
         with self.lock:
             self.jobs.pop(jid, None)
-        (self.shots / f"{jid}.png").unlink(missing_ok=True)
+        for f in [self.shots / f"{jid}.png", *self.shots.glob(f"{jid}-*.png")]:
+            f.unlink(missing_ok=True)
         return {"ok": True}
 
     def wait(self, jid: str, timeout: float) -> dict:
@@ -152,20 +153,41 @@ class Jobs:
             self._set(jid, waiting_for_approval=None)
             return ok
 
+        async def save(ag, *paths):  # write then rename, so the app never reads half a PNG
+            data = await ag.browser.screenshot()
+            shot.parent.mkdir(parents=True, exist_ok=True)
+            for p in paths:
+                tmp = p.with_suffix(".tmp")
+                tmp.write_bytes(data)
+                os.replace(tmp, p)
+
         async def on_event(ev):
             d = ev.to_dict()
             d.pop("screenshot", None)
-            with self.lock:
-                self.jobs[jid]["steps"].append(d)
+            d["has_screenshot"] = False
             ag = holder.get("agent")
-            if ag:
+            if ag:  # a picture of every step, so the app can replay the run step by step
                 try:
-                    await ag.browser.screenshot(shot)
+                    await save(ag, shot, self.shots / f"{jid}-{ev.step}.png")
+                    d["has_screenshot"] = True
                 except Exception:  # noqa: BLE001
                     pass
+            with self.lock:
+                self.jobs[jid]["steps"].append(d)
+
+        async def live_view():  # keep the live picture fresh while a page loads or the model thinks
+            while True:
+                await asyncio.sleep(1.5)
+                ag = holder.get("agent")
+                if ag:
+                    try:
+                        await save(ag, shot)
+                    except Exception:  # noqa: BLE001 - a page mid-navigation; the next tick catches up
+                        pass
 
         async with self.sem:
             self._set(jid, status="running")
+            live = asyncio.ensure_future(live_view())
             try:
                 res = await runner.run_task(goal, s, approver=approver, on_event=on_event,
                                             on_agent=lambda ag: (holder.update(agent=ag), self._policy(ag)))
@@ -175,6 +197,7 @@ class Jobs:
             except Exception as e:  # noqa: BLE001 - every failure is shown on the job
                 self._set(jid, status="error", error=str(e) or e.__class__.__name__)
             finally:
+                live.cancel()
                 self.tasks.pop(jid, None)
 
     def _policy(self, agent):
@@ -245,8 +268,11 @@ def make_handler(jobs: Jobs, token: str):
                         return self._send(200, jobs.delete(jid))
                     if parts[3:] == ["cancel"] and method == "POST":
                         return self._send(200, jobs.cancel(jid))
-                    if parts[3:] == ["screenshot"]:
-                        p = jobs.shots / f"{jid}.png"
+                    if parts[3:4] == ["screenshot"] and len(parts) <= 5:
+                        step = parts[4] if len(parts) == 5 else ""
+                        if step and not step.isdigit():
+                            return self._send(404, {"detail": "No such step"})
+                        p = jobs.shots / (f"{jid}-{step}.png" if step else f"{jid}.png")
                         if not p.exists():
                             return self._send(404, {"detail": "No screenshot yet"})
                         return self._send(200, p.read_bytes(), "image/png")

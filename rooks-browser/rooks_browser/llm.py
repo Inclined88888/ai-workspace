@@ -164,60 +164,159 @@ class Model:
         raise NotImplementedError
 
 
+class ProviderHTTPError(RuntimeError):
+    def __init__(self, msg: str, code: int, body: str):
+        super().__init__(msg)
+        self.code, self.body = code, body
+
+
+RETRY_CODES = (429, 498, 500, 502, 503, 504)  # rate limits (Groq's 8K tokens a minute on free keys), overload
+MAX_WAIT_S = 90  # past this (e.g. a daily limit) we stop and say so instead of hanging
+
+
+def retry_after(headers, body: str, attempt: int) -> float:
+    """Seconds to wait before retrying: Retry-After, Groq's "try again in 7.5s" / "in 1m2s", else 2, 4, 8, 16 s."""
+    try:
+        v = (headers or {}).get("retry-after")
+        if v:
+            return float(v)
+    except (TypeError, ValueError):
+        pass
+    m = re.search(r"try again in (?:(\d+)h)?(?:(\d+)m)?(?:([\d.]+)s)?", body or "")
+    if m and any(m.groups()):
+        h, mi, se = (float(x) if x else 0.0 for x in m.groups())
+        return h * 3600 + mi * 60 + se
+    return float(min(2 ** (attempt + 1), 30))
+
+
 class _HTTP(Model):
+    retries = 5
+
     def __init__(self, on_egress: EgressFn | None, timeout: float):
         self.on_egress = on_egress or (lambda *a: None)
         self.timeout = timeout
+        self.sleep = time.sleep
 
     def _post(self, url: str, body: dict, headers: dict) -> dict:
         req = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST",
                                      headers={"Content-Type": "application/json", "User-Agent": "rooks-browser/0.1", **headers})
-        started = time.monotonic()
-        try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as r:
-                data = json.loads(r.read().decode("utf-8"))
-        except urllib.error.HTTPError as e:
-            self.on_egress("POST", url, f"http_{e.code}", int((time.monotonic() - started) * 1000), "")
-            detail = e.read().decode("utf-8", "replace")[:500]
-            if e.code == 400 and "No model provider configured" in detail:
-                raise RuntimeError(NO_MODEL_HELP) from e
-            if e.code in (401, 403) and self.provider in ("groq", "gemini", "openai", "anthropic", "openrouter"):
-                raise RuntimeError(f"{self.provider} refused the API key (HTTP {e.code}). Check the key and try again.") from e
-            raise RuntimeError(f"{self.provider} returned HTTP {e.code}: {detail}") from e
-        except (OSError, ValueError) as e:
-            self.on_egress("POST", url, "error", int((time.monotonic() - started) * 1000), e.__class__.__name__)
-            raise RuntimeError(f"{self.provider} unreachable at {url}: {e}") from e
-        self.on_egress("POST", url, "ok", int((time.monotonic() - started) * 1000), "")
-        return data
+        for attempt in range(self.retries + 1):
+            started = time.monotonic()
+            try:
+                with urllib.request.urlopen(req, timeout=self.timeout) as r:
+                    data = json.loads(r.read().decode("utf-8"))
+            except urllib.error.HTTPError as e:
+                self.on_egress("POST", url, f"http_{e.code}", int((time.monotonic() - started) * 1000), "")
+                raw = e.read().decode("utf-8", "replace")
+                detail = raw[:500]
+                if e.code in RETRY_CODES and attempt < self.retries:
+                    wait = retry_after(e.headers, raw, attempt)
+                    if wait <= MAX_WAIT_S:
+                        self.sleep(wait + 0.25)
+                        continue
+                if e.code == 429:
+                    raise ProviderHTTPError(f"{self.provider} rate limit reached and it did not clear in time "
+                                            f"({_short(raw)}). Wait a minute, pick a bigger plan or another model, or lower max steps.", 429, raw) from e
+                if e.code == 400 and "No model provider configured" in detail:
+                    raise RuntimeError(NO_MODEL_HELP) from e
+                if e.code in (401, 403) and self.provider in ("groq", "gemini", "openai", "anthropic", "openrouter"):
+                    raise RuntimeError(f"{self.provider} refused the API key (HTTP {e.code}). Check the key and try again.") from e
+                raise ProviderHTTPError(f"{self.provider} returned HTTP {e.code}: {detail}", e.code, raw) from e
+            except (OSError, ValueError) as e:
+                self.on_egress("POST", url, "error", int((time.monotonic() - started) * 1000), e.__class__.__name__)
+                if attempt < min(self.retries, 2) and not isinstance(e, ValueError):  # a dropped connection: try twice more
+                    self.sleep(2.0 * (attempt + 1))
+                    continue
+                raise RuntimeError(f"{self.provider} unreachable at {url}: {e}") from e
+            self.on_egress("POST", url, "ok", int((time.monotonic() - started) * 1000), "")
+            return data
+        raise RuntimeError(f"{self.provider}: gave up after {self.retries} retries")  # pragma: no cover
+
+
+def _short(raw: str) -> str:
+    try:
+        return str(json.loads(raw)["error"]["message"])[:200]
+    except (ValueError, KeyError, TypeError):
+        return raw[:200]
+
+
+def fit_prompt(text: str, limit: int) -> str:
+    """Trim the middle of a prompt (the long page listing) so it fits a small context or rate limit. The task, the
+    previous steps and the reply instructions at the end are kept."""
+    if limit <= 0 or len(text) <= limit:
+        return text
+    mark = "\n…(rest of the page trimmed to fit the model's limit; scroll or extract to see more)…\n"
+    tail = min(800, limit // 4)
+    head = text[: max(0, limit - tail - len(mark))]
+    head = head[: head.rfind("\n")] if "\n" in head[-400:] else head
+    return head + mark + text[-tail:]
+
+
+_TOO_LARGE = re.compile(r"request too large|reduce your message size|context.length|maximum context|too many tokens|"
+                        r"rate_limit_exceeded.*tokens per minute|prompt is too long", re.I)
+_BAD_GENERATION = re.compile(r"tool_use_failed|json_validate_failed|failed_generation|Failed to (?:generate|call a function)|"
+                             r"output_parse_failed", re.I)
 
 
 class OpenAIChat(_HTTP):
     def __init__(self, provider: str, model: str, base_url: str, api_key: str, on_egress=None, timeout=180, json_mode=True,
-                 extra_headers: dict | None = None):
+                 extra_headers: dict | None = None, max_prompt_chars: int = 0, extra_body: dict | None = None):
         super().__init__(on_egress, timeout)
         self.provider, self.model, self.base_url, self.api_key = provider, model, base_url.rstrip("/"), api_key
         self.json_mode, self.extra_headers = json_mode, extra_headers or {}
+        self.max_prompt_chars, self.extra_body = max_prompt_chars, extra_body or {}
 
-    def complete(self, system, user, image_b64=None):
+    def complete(self, system, user, image_b64=None, _tries=0):
+        user = fit_prompt(user, self.max_prompt_chars)
         content: list | str = user
         if image_b64:
             content = [{"type": "text", "text": user},
                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}}]
         body = {"model": self.model, "messages": [{"role": "system", "content": system}, {"role": "user", "content": content}],
-                "temperature": 0}
+                "temperature": 0, **self.extra_body}
         if self.json_mode:
             body["response_format"] = {"type": "json_object"}
         h = {"Authorization": f"Bearer {self.api_key}", **self.extra_headers} if self.api_key else dict(self.extra_headers)
         try:
             d = self._post(f"{self.base_url}/chat/completions", body, h)
-        except RuntimeError as e:
-            if self.json_mode and "response_format" in str(e):  # servers without JSON mode: retry plain once
+        except ProviderHTTPError as e:
+            if self.json_mode and "response_format" in e.body:  # servers without JSON mode: retry plain once
                 self.json_mode = False
-                return self.complete(system, user, image_b64)
+                return self.complete(system, user, image_b64, _tries)
+            if e.code in (400, 413, 422) and _BAD_GENERATION.search(e.body):
+                # Groq rejects replies that are not clean JSON or that try to call a tool; the text it did write is
+                # usually the action we want, so hand it to the parser (which also tolerates prose around the JSON).
+                try:
+                    failed = json.loads(e.body)["error"].get("failed_generation") or ""
+                except (ValueError, KeyError, TypeError, AttributeError):
+                    failed = ""
+                if failed:
+                    return Reply(str(failed), 0, 0)
+                if _tries < 1:
+                    return self.complete(system, user + "\n\nAnswer with plain text containing only the JSON object. Do not call tools.",
+                                         image_b64, _tries + 1)
+            if e.code in (400, 413, 429) and _TOO_LARGE.search(e.body) and _tries < 2:
+                limit = int(len(user) * 0.6)
+                self.max_prompt_chars = limit if not self.max_prompt_chars else min(self.max_prompt_chars, limit)
+                return self.complete(system, user, image_b64, _tries + 1)
             raise
         u = d.get("usage") or {}
         msg = ((d.get("choices") or [{}])[0].get("message") or {})
-        return Reply(msg.get("content") or "", int(u.get("prompt_tokens") or 0), int(u.get("completion_tokens") or 0))
+        text = msg.get("content") or ""
+        if not text.strip() and isinstance(msg.get("tool_calls"), list) and msg["tool_calls"]:  # a tool call instead of text
+            fn = msg["tool_calls"][0].get("function") or {}
+            text = json.dumps({"thought": "", "action": fn.get("name", ""), "args": _loads(fn.get("arguments"))})
+        return Reply(text, int(u.get("prompt_tokens") or 0), int(u.get("completion_tokens") or 0))
+
+
+def _loads(v) -> dict:
+    if isinstance(v, dict):
+        return v
+    try:
+        d = json.loads(v or "{}")
+        return d if isinstance(d, dict) else {}
+    except ValueError:
+        return {}
 
 
 class AnthropicChat(_HTTP):
@@ -306,6 +405,12 @@ def make(provider: str | None, model: str | None = None, *, base_url: str | None
         if not key:
             raise ValueError(f"{p} needs {PROVIDERS[p].key_env[0]}")
         base = base_url or ("https://api.groq.com/openai/v1" if p == "groq" else "https://generativelanguage.googleapis.com/v1beta/openai")
+        if p == "groq":  # free keys allow ~8K tokens a minute: smaller prompts, capped replies, light reasoning
+            extra = {"max_completion_tokens": 1500}
+            if m.startswith("openai/gpt-oss"):
+                extra["reasoning_effort"] = "low"
+            return OpenAIChat(p, m, base, key, on_egress, json_mode=False, max_prompt_chars=int(_env("ROOKS_BROWSER_MAX_PROMPT_CHARS") or 14000),
+                              extra_body=extra)
         return OpenAIChat(p, m, base, key, on_egress, json_mode=False)
     if p == "workbench":
         link = {} if base_url else app_link()
