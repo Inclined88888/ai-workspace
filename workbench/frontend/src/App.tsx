@@ -31,6 +31,9 @@ import Welcome from "./pages/Welcome";
 import Models from "./pages/Models";
 import AboutYou from "./pages/AboutYou"; // adapt and learn (feat/learn-and-adapt)
 import Teach from "./pages/Teach"; // adapt and learn (feat/learn-and-adapt)
+import { FolderKanban, History as HistoryIcon } from "lucide-react"; // feat/v02-core
+import Projects from "./pages/Projects"; // feat/v02-core
+import HistoryPage from "./pages/History"; // feat/v02-core
 
 export type Status = {
   setup_complete: boolean;
@@ -64,10 +67,12 @@ const NAV: NavGroup[] = [
     { to: "/mail", label: "Mail", icon: Mail },
   ] },
   { section: "Your work", items: [
+    { to: "/projects", label: "Projects", icon: FolderKanban }, // feat/v02-core
     { to: "/files", label: "Files", icon: FolderOpen },
     { to: "/sites", label: "Sites", icon: Globe2 },
     { to: "/teach", label: "Show me how", icon: GraduationCap },
     { to: "/automations", label: "Automations", icon: CalendarClock },
+    { to: "/history", label: "History", icon: HistoryIcon }, // feat/v02-core: everything done, with undo
   ] },
   { section: "Helpers", items: [
     { to: "/research", label: "Research", icon: Search },
@@ -237,6 +242,9 @@ export default function App() {
           <Route path="/computer" element={<Computer />} />
           <Route path="/computer/:id" element={<Computer />} />
           <Route path="/compare" element={<Compare />} />
+          <Route path="/projects" element={<Projects />} />{/* feat/v02-core */}
+          <Route path="/projects/:id" element={<Projects />} />{/* feat/v02-core */}
+          <Route path="/history" element={<HistoryPage />} />{/* feat/v02-core */}
           <Route path="/runs" element={<Runs />} />
           <Route path="/runs/:id" element={<Runs />} />
           <Route path="/status" element={<Status />} />
