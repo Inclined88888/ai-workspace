@@ -72,6 +72,14 @@ def find(prompt, pattern):
     return int(m.group(1))
 
 
+def editor_type_action(prompt, text):
+    match = re.search(r"\[(\d+)\] text '' ", prompt)
+    args = {"text": text}
+    if match:
+        args["id"] = int(match.group(1))
+    return {"thought": "the document area", "action": "type", "args": args}
+
+
 @pytest.mark.skipif(not shutil.which("mousepad"), reason="needs mousepad")
 def test_editor_write_and_save(work):
     pkill("mousepad")
@@ -80,7 +88,7 @@ def test_editor_write_and_save(work):
 
     def type_in_editor(prompt):
         assert "Mousepad" in prompt
-        return {"thought": "the document area", "action": "type", "args": {"id": find(prompt, r"text '' "), "text": text}}
+        return editor_type_action(prompt, text)
 
     def save_name(prompt):
         assert "Save As" in prompt, prompt[-1500:]
