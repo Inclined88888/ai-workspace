@@ -24,6 +24,7 @@ import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 import urllib.request
 import webbrowser
@@ -128,10 +129,36 @@ def write_state(d: dict) -> None:
         json.dump(d, fh)
 
 
+_REDIRECTS: list[Path] = []
+
+
+def _private_redirect(url: str, folder: Path) -> str:
+    """A file:// page (0600, in the private data folder) that forwards to url, so the sign-in token is never on a
+    command line where other local users could read it (ps / Task Manager). Removed a few seconds later."""
+    folder.mkdir(parents=True, exist_ok=True)
+    if sys.platform != "win32":
+        folder.chmod(0o700)
+    for old in folder.glob("open-*.html"):  # left over from a launcher that exited early
+        if old.stat().st_mtime < time.time() - 60:
+            old.unlink(missing_ok=True)
+    f = folder / f"open-{secrets.token_hex(8)}.html"
+    _REDIRECTS.append(f)
+    fd = os.open(f, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as fh:
+        fh.write(f'<!doctype html><meta charset="utf-8"><title>{NAME}</title>'
+                 f'<script>location.replace({json.dumps(url)})</script>')
+    t = threading.Timer(15, lambda: f.unlink(missing_ok=True))
+    t.daemon = True
+    t.start()
+    return f.as_uri()
+
+
 def open_window(url: str, profile: Path) -> subprocess.Popen | None:
     exe = window_browser()
     if exe:
         profile.mkdir(parents=True, exist_ok=True)
+        if "token=" in url:
+            url = _private_redirect(url, data_dir() / "run")
         args = [exe, f"--app={url}", f"--user-data-dir={profile}", "--no-first-run", "--no-default-browser-check",
                 "--window-size=1280,860", f"--class={NAME}"]
         if os.environ.get("AI_WORKSPACE_WINDOW_ARGS"):
@@ -167,6 +194,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--status", action="store_true")
     p.add_argument("--version", action="store_true")
     a = p.parse_args(argv)
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(line_buffering=True)  # progress lines show up at once, even when piped to a log
 
     st = read_state()
     running = bool(st.get("url")) and healthy(st["url"])
@@ -195,6 +224,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{NAME} is already running at {st['url']}")
         if not a.no_open:
             open_window(st["session_url"], data_dir() / "window")
+            time.sleep(5)  # let the window read the forwarding page, then remove it
+            for f in _REDIRECTS:
+                f.unlink(missing_ok=True)
         return 0
 
     dd = data_dir()

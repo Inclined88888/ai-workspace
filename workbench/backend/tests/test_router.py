@@ -232,3 +232,19 @@ def test_local_is_last_and_only_when_allowed(client, routed):
     finally:
         router.save_settings({"local_fallback": False})
         client.delete(f"/api/providers/{oll}")
+
+
+def test_local_default_uses_an_installed_model(monkeypatch):
+    """Ollama without the configured DEFAULT_MODEL: the first chat must not 404 on a model that is not installed."""
+    from app import config, llm
+
+    monkeypatch.setattr(config, "DEFAULT_MODEL", "qwen3:4b")
+    monkeypatch.setattr(llm, "list_models_for", lambda cid, fresh=False: [{"model": "nomic-embed-text"}, {"model": "qwen2.5:7b"}])
+    assert llm._local_default(1) == "qwen2.5:7b"
+    monkeypatch.setattr(llm, "list_models_for", lambda cid, fresh=False: [{"model": "qwen3:4b"}, {"model": "qwen2.5:7b"}])
+    assert llm._local_default(1) == "qwen3:4b"
+
+    def down(cid, fresh=False):
+        raise RuntimeError("refused")
+    monkeypatch.setattr(llm, "list_models_for", down)
+    assert llm._local_default(1) == "qwen3:4b"

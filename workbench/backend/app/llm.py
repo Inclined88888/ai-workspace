@@ -5,6 +5,7 @@ which one is active. Model references are "<connection_id>/<model>", e.g. "1/qwe
 """
 
 import json
+import re
 import time
 from typing import AsyncIterator
 
@@ -130,7 +131,7 @@ def default_model_ref() -> str:
         return "auto"  # cloud first: the smart router uses whatever is connected and falls back on limits
     local = db.one("SELECT id FROM connections WHERE auth_kind = 'local_ollama' AND enabled = 1 ORDER BY id LIMIT 1")
     if local:
-        return f"{local['id']}/{config.DEFAULT_MODEL}"
+        return f"{local['id']}/{_local_default(local['id'])}"
     conns = db.all("SELECT id, base_url FROM connections WHERE enabled = 1 ORDER BY id")
     if not conns:
         raise HTTPException(400, "No model provider configured. Add an API key in Settings.")
@@ -146,6 +147,18 @@ def default_model_ref() -> str:
         if models:
             return models[0]["ref"]
     raise HTTPException(400, "No models available. Pick a default model in Settings.")
+
+
+def _local_default(cid: int) -> str:
+    """config.DEFAULT_MODEL when Ollama has it, else the first installed chat model (never a 404 on first chat)."""
+    try:
+        names = [m["model"] for m in list_models_for(cid)]
+    except Exception:  # Ollama not reachable yet: keep the configured name
+        return config.DEFAULT_MODEL
+    if not names or config.DEFAULT_MODEL in names:
+        return config.DEFAULT_MODEL
+    chat = [n for n in names if not re.search(r"embed|bge|minilm|nomic", n, re.I)]
+    return (chat or names)[0]
 
 
 _model_cache: dict[int, tuple[float, list[dict]]] = {}
