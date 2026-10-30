@@ -45,11 +45,22 @@ def test_windows_notepad_round_trip(tmp_path):
         w = _wait_window(b, "notepad")
         assert w, f"no Notepad window in {[x.title for x in b.windows()]}"
         b.focus_window(w)
+        assert b.ax_available()[0]
+        # Like the agent's `type` with an id: wait until the text area is listed, click into it, then type
+        field, end = None, time.time() + 15
+        while not field and time.time() < end:
+            field = next((e for e in b.accessibility(w) if e.role in ("edit", "document") and e.width > 50), None)
+            time.sleep(0.5)
+        assert field, f"no text area in Notepad: {[(e.role, e.name) for e in b.accessibility(w)][:40]}"
+        b.click(*field.center)
         time.sleep(0.5)
         b.type_text(TEXT)
-        time.sleep(0.8)
-        assert b.ax_available()[0]
-        texts = [e.value for e in b.accessibility(w) if e.role in ("edit", "document")]
+        texts, end = [], time.time() + 5
+        while time.time() < end:
+            texts = [e.value for e in b.accessibility(w) if e.role in ("edit", "document")]
+            if any(TEXT in t for t in texts):
+                break
+            time.sleep(0.5)
         assert any(TEXT in t for t in texts), texts
         shot = b.screenshot()
         shot.save(os.path.join(os.getenv("ROOKS_DESK_E2E_SHOTS", str(tmp_path)), "windows-notepad.png"))
