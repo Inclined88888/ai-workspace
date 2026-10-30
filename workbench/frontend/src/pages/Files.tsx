@@ -18,7 +18,38 @@ type Change = { change: string; where_before: string; where_after: string; redli
 type Comparison = { a: string; b: string; summary: string; similarity_percent: number; text_changes: Change[];
   cell_changes: { table: string; cell?: string; column?: string; before?: unknown; after?: unknown; change?: string }[]; report?: { download: string } };
 type RunResult = { status: string; isolation: string; stdout: string; error: string; outputs: { id: number; name: string; url: string }[] };
-type Caps = { readers: Record<string, boolean>; apps: Record<string, boolean> };
+type Helpers = { missing: { key: string; label: string; why: string }[]; can_install: boolean; hint: string; installing: boolean; log: string[]; error: string };
+type Caps = { readers: Record<string, boolean>; apps: Record<string, boolean>; helpers?: Helpers };
+
+/** Plain words about missing helper apps, and one Install button (quiet brew / winget install; failures are skipped). */
+function HelperApps({ initial }: { initial?: Helpers }) {
+  const [h, setH] = useState<Helpers | undefined>(initial);
+  useEffect(() => setH(initial), [initial]);
+  useEffect(() => {
+    if (!h?.installing) return;
+    const t = window.setInterval(() => api<Helpers>("/files/helpers").then(setH).catch(() => undefined), 2000);
+    return () => window.clearInterval(t);
+  }, [h?.installing]);
+  if (!h || (h.missing.length === 0 && h.log.length === 0)) return null;
+  const install = () => api<Helpers>("/files/helpers/install", { method: "POST" }).then(setH).catch(() => undefined);
+  return (
+    <div className="card work-helpers" role="status">
+      {h.missing.length > 0 ? (
+        <p>
+          {h.missing.length === 1 ? "One free helper app is" : "Some free helper apps are"} not installed yet, so a few files are read with less detail:{" "}
+          {h.missing.map((m, i) => <span key={m.key}>{i > 0 && ", "}<b>{m.label}</b> ({m.why})</span>)}.
+        </p>
+      ) : <p>All helper apps are installed.</p>}
+      {h.log.length > 0 && <div className="muted small">{h.log.join(" ")}</div>}
+      {h.error && <div className="muted small">{h.error}</div>}
+      {h.missing.length > 0 && (
+        <button className="btn sm primary" disabled={h.installing} onClick={install}>
+          {h.installing ? <><Loader2 size={14} className="spin" /> Installing…</> : "Install"}
+        </button>
+      )}
+    </div>
+  );
+}
 
 const KB = (n: number) => (n > 1 << 20 ? `${(n / (1 << 20)).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 const fmt = (v: unknown) => (typeof v === "number" ? v.toLocaleString(undefined, { maximumFractionDigits: 2 }) : String(v ?? ""));
@@ -121,7 +152,7 @@ export default function Files() {
     load();
   };
   const ask = () => sel && navigate("/assistant", { state: { draft: `About my file “${sel.name}” (file ${sel.id}): ` } });
-  const missing = caps ? [...Object.entries(caps.readers).filter(([, v]) => !v).map(([k]) => k), ...Object.entries(caps.apps).filter(([, v]) => !v).map(([k]) => k)] : [];
+  const missing = caps ? [...Object.entries(caps.readers).filter(([, v]) => !v).map(([k]) => k), ...Object.entries(caps.apps).filter(([k, v]) => !v && !/^(LibreOffice|Tesseract|FFmpeg)/.test(k)).map(([k]) => k)] : [];
 
   return (
     <div className="page work">
@@ -130,6 +161,7 @@ export default function Files() {
         <div><h1>Files</h1><p className="muted">Drop in anything: spreadsheets, Word, PDFs, slides, emails, zips, drawings, photos, data or code. It is read on this computer; only the text you ask about goes to your model.</p></div>
       </div>
 
+      <HelperApps initial={caps?.helpers} />
       <div className={`work-drop ${over ? "over" : ""}`} onDragOver={(e) => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)} onDrop={onDrop}
         onClick={() => pick.current?.click()} role="button" tabIndex={0} onKeyDown={(e) => e.key === "Enter" && pick.current?.click()}>
         <Upload size={22} />

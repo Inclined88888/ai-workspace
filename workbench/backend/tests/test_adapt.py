@@ -342,3 +342,14 @@ def test_old_memories_move_into_the_encrypted_store_and_remember_forget_use_it(c
     assert any(m["id"] == saved["saved"] for m in client.get("/api/memories").json())  # the Memory tab shows the same facts
     assistant._forget(saved["saved"])
     assert not [f for f in knowledge.all_facts() if f["id"] == saved["saved"]]
+
+
+def test_files_and_sites_report_their_work_to_learn(client):
+    from app import db, learn_hook
+
+    before = db.one("SELECT COUNT(*) AS n FROM adapt_activity")["n"]
+    learn_hook.observe("file", "Read invoice-114.pdf: supplier invoice", "file:1")
+    learn_hook.observe("site", "Checked Supplier portal: 2 new jobs", "site:1")
+    rows = db.all("SELECT source, ref FROM adapt_activity ORDER BY id DESC LIMIT 2")
+    assert db.one("SELECT COUNT(*) AS n FROM adapt_activity")["n"] == before + 2
+    assert {(r["source"], r["ref"]) for r in rows} == {("file", "file:1"), ("site", "site:1")}

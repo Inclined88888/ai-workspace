@@ -265,7 +265,7 @@ export default function Computer() {
                   <h3>{active(job.status) ? "Live screen" : "Last screen"}</h3>
                   {job.has_screenshot ? <img key={shotKey} src={`/api/desk/jobs/${job.id}/screenshot?k=${shotKey}`} alt="Screen" style={{ width: "100%", borderRadius: 8, border: "1px solid var(--border)" }} />
                     : <div className="muted small">{active(job.status) ? "Looking at the screen…" : "No screenshot."}</div>}
-                  {job.live?.output && active(job.status) && <pre className="mono small" style={{ maxHeight: 220, overflow: "auto", background: "var(--surface-2, #f6f4ef)", padding: 8, borderRadius: 6 }}>{job.live.output}</pre>}
+                  {job.live?.output && active(job.status) && <pre className="mono small" style={{ maxHeight: 220, overflow: "auto", background: "var(--code-bg)", padding: 8, borderRadius: 6 }}>{job.live.output}</pre>}
                 </div>
                 <div className="card col">
                   <h3>Thinking and actions</h3>

@@ -53,7 +53,7 @@ export type Status = {
 type NavItem = { to: string; label: string; icon: typeof Home; addon?: "browser" | "desk" };
 type NavGroup = { section?: string; collapsible?: boolean; items: NavItem[] };
 
-/** Six everyday places first, the agent tools second, everything else folded under More. */
+/** Six everyday places first, then the person's own work, then the helpers that act for them; the rest folded under More. */
 const NAV: NavGroup[] = [
   { items: [
     { to: "/", label: "Home", icon: Home },
@@ -63,13 +63,14 @@ const NAV: NavGroup[] = [
     { to: "/calendar", label: "Calendar", icon: CalendarDays },
     { to: "/mail", label: "Mail", icon: Mail },
   ] },
-  { section: "Agents", items: [
-    { to: "/automations", label: "Automations", icon: CalendarClock },
-    { to: "/teach", label: "Show me how", icon: GraduationCap },
-    { to: "/skills", label: "Skills", icon: Puzzle },
-    { to: "/research", label: "Research", icon: Search },
+  { section: "Your work", items: [
     { to: "/files", label: "Files", icon: FolderOpen },
     { to: "/sites", label: "Sites", icon: Globe2 },
+    { to: "/teach", label: "Show me how", icon: GraduationCap },
+    { to: "/automations", label: "Automations", icon: CalendarClock },
+  ] },
+  { section: "Helpers", items: [
+    { to: "/research", label: "Research", icon: Search },
     { to: "/code", label: "Coding agent", icon: Code2 },
     { to: "/browser", label: "Browser agent", icon: Globe, addon: "browser" },
     { to: "/computer", label: "Computer", icon: Monitor, addon: "desk" },
@@ -77,6 +78,7 @@ const NAV: NavGroup[] = [
   { section: "More", collapsible: true, items: [
     { to: "/documents", label: "Documents", icon: FileText },
     { to: "/about-you", label: "What I know", icon: Brain },
+    { to: "/skills", label: "Skills", icon: Puzzle },
     { to: "/company", label: "Company", icon: Building2 },
     { to: "/compare", label: "Compare models", icon: Columns3 },
     { to: "/runs", label: "Run log", icon: ListTree },
@@ -137,7 +139,7 @@ export default function App() {
     [nav],
   );
   // Keep More open while you're on one of its pages
-  const inMore = NAV[2].items.some((i) => location.pathname === i.to || location.pathname.startsWith(i.to + "/"));
+  const inMore = (NAV.find((g) => g.collapsible)?.items ?? []).some((i) => location.pathname === i.to || location.pathname.startsWith(i.to + "/"));
   const toggleMore = () => setMoreOpen((o) => { localStorage.setItem("wb-nav-more", o ? "0" : "1"); return !o; });
   // Route transition key: top-level section only, so switching conversations or notes doesn't remount the page
   const section = "/" + (location.pathname.split("/")[1] ?? "");

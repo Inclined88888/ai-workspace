@@ -18,6 +18,7 @@
 # Options (env vars, because `irm | iex` cannot take arguments):
 #   AI_WORKSPACE_NO_START=1   don't open the app at the end
 #   AI_WORKSPACE_NATIVE=auto|yes|no   native installer from GitHub releases (default auto)
+#   AI_WORKSPACE_HELPERS=yes|no   optional helper apps for Files (Tesseract, FFmpeg, LibreOffice via winget; default: ask)
 #   AI_WORKSPACE_REF (branch/tag to download, default main)   AI_WORKSPACE_REPO (owner/repo)
 # Run it again to upgrade. Your chats, keys and settings are kept. Uninstall: QUICKSTART.md.
 
@@ -66,6 +67,35 @@
   $native = if ($env:AI_WORKSPACE_NATIVE) { $env:AI_WORKSPACE_NATIVE } else { 'auto' }
   & $uv run --quiet --no-project --python 3.12 (Join-Path $src 'desktop\launcher\install_helper.py') --src $src --bin $bin --native $native
   if ($LASTEXITCODE -ne 0) { throw "Install failed (exit $LASTEXITCODE). Scroll up for the reason." }
+
+  # 4. Optional helper apps for the Files page. Quiet, skipped on any failure, never stops the install.
+  try {
+    $helpers = if ($env:AI_WORKSPACE_HELPERS) { $env:AI_WORKSPACE_HELPERS } else { 'ask' }
+    $winget = Get-Command winget -ErrorAction SilentlyContinue
+    $want = @()
+    if (-not (Get-Command tesseract -ErrorAction SilentlyContinue) -and -not (Test-Path 'C:\Program Files\Tesseract-OCR\tesseract.exe')) { $want += ,@('Tesseract (scanned pages)', 'UB-Mannheim.TesseractOCR') }
+    if (-not (Get-Command ffprobe -ErrorAction SilentlyContinue)) { $want += ,@('FFmpeg (video details)', 'Gyan.FFmpeg') }
+    if (-not (Get-Command soffice -ErrorAction SilentlyContinue) -and -not (Test-Path 'C:\Program Files\LibreOffice\program\soffice.exe')) { $want += ,@('LibreOffice (old Office files)', 'TheDocumentFoundation.LibreOffice') }
+    if ($want.Count -gt 0 -and $helpers -notin @('no', '0', 'false')) {
+      if (-not $winget) {
+        Write-Host '  Helper apps skipped (winget not found). The Files page explains how to add them.'
+      } else {
+        $go = $true
+        if ($helpers -eq 'ask' -and [Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
+          $names = ($want | ForEach-Object { $_[0] }) -join ', '
+          $reply = Read-Host "`nOptional: install free helper apps so Files can read more ($names)? [Y/n]"
+          if ($reply -match '^(n|no)$') { $go = $false; Write-Host '  Skipped. The Files page can install them later.' }
+        }
+        if ($go) {
+          foreach ($h in $want) {
+            Write-Host "  Installing $($h[0]) (optional)..."
+            & winget install --id $h[1] -e --silent --accept-package-agreements --accept-source-agreements --disable-interactivity *> $null
+            if ($LASTEXITCODE -ne 0) { Write-Host "  $($h[0]) skipped (install failed). The Files page can retry." }
+          }
+        }
+      }
+    }
+  } catch { Write-Host '  Helper apps skipped. The Files page can install them later.' }
 
   if ($env:AI_WORKSPACE_NO_START -ne '1') {
     Write-Host "`nStarting AI Workspace..."

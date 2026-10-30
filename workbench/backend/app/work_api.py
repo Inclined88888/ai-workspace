@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
-from . import analysis, compute, config, files, sites
+from . import analysis, compute, config, files, helpers, sites
 from .security import require_user
 
 router = APIRouter(prefix="/api", dependencies=[Depends(require_user)])
@@ -65,7 +65,18 @@ def capabilities():
     apps = {"LibreOffice (old Office formats)": bool(shutil.which("soffice") or shutil.which("libreoffice") or Path("/Applications/LibreOffice.app").exists()),
             "ODA File Converter (DWG)": bool(files.oda_converter()), "Tesseract (scanned pages)": bool(shutil.which("tesseract")),
             "FFmpeg (video details)": bool(shutil.which("ffprobe"))}
-    return {"readers": have, "apps": apps, "sandbox": compute.available()}
+    return {"readers": have, "apps": apps, "sandbox": compute.available(), "helpers": helpers.status()}
+
+
+@router.get("/files/helpers")
+def helpers_status():
+    return helpers.status()
+
+
+@router.post("/files/helpers/install")
+def helpers_install():
+    """The one Install button on the Files page: quietly installs the missing helper apps (brew / winget)."""
+    return helpers.install()
 
 
 @router.get("/files/{fid}")

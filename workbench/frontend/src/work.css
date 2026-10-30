@@ -57,3 +57,5 @@
 .gantt-swatch.late { background: var(--danger); }
 .gantt-swatch.done { background: var(--ok); opacity: 0.6; }
 .gantt-swatch.now { width: 2px; background: var(--accent); }
+.work-helpers { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-bottom: 14px; }
+.work-helpers p { margin: 0; flex: 1 1 320px; }
