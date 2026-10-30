@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, Check, Cpu, Download, ExternalLink, KeyRound, Loader2, ShieldCheck, Sparkles } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Cpu, Download, ExternalLink, KeyRound, Loader2, ListChecks, ShieldCheck, Sparkles } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { api, stream } from "../api";
 
@@ -192,18 +192,27 @@ export default function Welcome({ onDone }: { onDone: () => void }) {
         <div className="steps">{[0, 1].map((i) => <span key={i} className={i <= (step === "choose" ? 0 : 1) ? "on" : ""} />)}</div>
         {step === "choose" && (
           <div className="col gap-lg">
-            <div className="row"><div className="brand-mark"><Sparkles size={16} /></div><h1>Welcome to AI Workspace</h1></div>
-            <p className="muted" style={{ margin: 0 }}>Connect a model to get started. Everything else (notes, tasks, research, the run log) works on this computer.</p>
-            <button className="welcome-option" onClick={() => setStep("key")} disabled={!presets}>
-              <KeyRound size={20} />
-              <span className="grow"><strong>Paste an API key</strong><span className="muted small">OpenAI, Anthropic, OpenRouter, Gemini and more.</span></span>
-              <ArrowRight size={16} />
-            </button>
-            <button className="welcome-option" onClick={() => setStep("ollama")} disabled={!presets?.ollama}>
-              <Cpu size={20} />
-              <span className="grow"><strong>Use local Ollama</strong><span className="muted small">Free, private, runs on your machine.</span></span>
-              <ArrowRight size={16} />
-            </button>
+            <div className="welcome-hero">
+              <div className="brand-mark lg" aria-hidden="true"><Sparkles size={22} /></div>
+              <h1>Welcome to AI Workspace</h1>
+              <p className="muted">Connect a model to get started. Everything else (notes, tasks, research, the run log) works on this computer.</p>
+            </div>
+            <div className="col" style={{ gap: 10 }}>
+              <button className="welcome-option" onClick={() => setStep("key")} disabled={!presets}>
+                <KeyRound size={20} />
+                <span className="grow"><strong>Paste an API key</strong><span className="muted small">OpenAI, Anthropic, OpenRouter, Gemini and more.</span></span>
+                <ArrowRight size={16} />
+              </button>
+              <button className="welcome-option" onClick={() => setStep("ollama")} disabled={!presets?.ollama}>
+                <Cpu size={20} />
+                <span className="grow"><strong>Use local Ollama</strong><span className="muted small">Free, private, runs on your machine.</span></span>
+                <ArrowRight size={16} />
+              </button>
+            </div>
+            <div className="welcome-trust">
+              <span><ShieldCheck size={13} /> Keys stay on this computer</span>
+              <span><ListChecks size={13} /> Every action is logged</span>
+            </div>
           </div>
         )}
         {step === "key" && presets && <KeyStep presets={presets} onBack={() => setStep("choose")} onDone={onDone} />}
