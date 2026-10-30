@@ -2,7 +2,7 @@ import { ArrowRight, CalendarDays, CheckSquare, FileText, NotebookPen, Plus, Sea
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, CalEvent, Doc, Task } from "../api";
-import { Empty, fmtTime, relTime, todayISO, useToast } from "../util";
+import { Empty, fmtTime, relTime, Skeleton, SkeletonList, todayISO, useToast } from "../util";
 
 type Dash = {
   events: CalEvent[];
@@ -99,9 +99,9 @@ export default function Dashboard(_: { chatUrl?: string }) {
       </form>
 
       <div className="grid three stats" style={{ marginBottom: 16 }}>
-        <div className="card stat"><span className="muted small">Open tasks</span><span className="num">{data?.open_tasks ?? "–"}</span></div>
-        <div className="card stat"><span className="muted small">Overdue</span><span className="num" style={{ color: data?.overdue ? "var(--danger)" : undefined }}>{data?.overdue ?? "–"}</span></div>
-        <div className="card stat"><span className="muted small">Events this week</span><span className="num">{data?.events.length ?? "–"}</span></div>
+        <div className="card stat"><span className="muted small">Open tasks</span><span className="num">{data ? data.open_tasks : <Skeleton w={36} h={28} />}</span></div>
+        <div className="card stat"><span className="muted small">Overdue</span><span className="num" style={{ color: data?.overdue ? "var(--danger-text)" : undefined }}>{data ? data.overdue : <Skeleton w={36} h={28} />}</span></div>
+        <div className="card stat"><span className="muted small">Events this week</span><span className="num">{data ? data.events.length : <Skeleton w={36} h={28} />}</span></div>
       </div>
 
       <div className="grid two">
@@ -109,6 +109,7 @@ export default function Dashboard(_: { chatUrl?: string }) {
           <div className="card-head" style={{ padding: "14px 14px 0" }}>
             <CalendarDays size={16} /><h2>Coming up</h2><div className="spacer" /><Link to="/calendar" className="small">Calendar <ArrowRight size={12} /></Link>
           </div>
+          {!data && <SkeletonList rows={3} />}
           {data && data.events.length === 0 && <Empty icon={<CalendarDays size={22} />} title="Nothing scheduled" hint="Add a calendar from the Calendar page." />}
           {data?.events.slice(0, 8).map((ev) => (
             <div key={ev.id} className="list-item" style={{ cursor: "default" }}>
@@ -125,6 +126,7 @@ export default function Dashboard(_: { chatUrl?: string }) {
           <div className="card-head" style={{ padding: "14px 14px 0" }}>
             <CheckSquare size={16} /><h2>Due soon</h2><div className="spacer" /><Link to="/tasks" className="small">Tasks <ArrowRight size={12} /></Link>
           </div>
+          {!data && <SkeletonList rows={3} />}
           {data && data.tasks_due.length === 0 && <Empty icon={<CheckSquare size={22} />} title="Nothing due this week" />}
           {data?.tasks_due.slice(0, 8).map((t) => (
             <Link key={t.id} to="/tasks" className="list-item">
@@ -136,6 +138,7 @@ export default function Dashboard(_: { chatUrl?: string }) {
 
         <div className="card flush">
           <div className="card-head" style={{ padding: "14px 14px 0" }}><FileText size={16} /><h2>Recent writing</h2></div>
+          {!data && <SkeletonList rows={3} />}
           {data && data.recent_docs.length === 0 && <Empty icon={<NotebookPen size={22} />} title="No notes yet" />}
           {data?.recent_docs.map((d) => (
             <Link key={d.id} to={`/${d.kind === "note" ? "notes" : "documents"}/${d.id}`} className="list-item">
@@ -148,6 +151,7 @@ export default function Dashboard(_: { chatUrl?: string }) {
 
         <div className="card flush">
           <div className="card-head" style={{ padding: "14px 14px 0" }}><Search size={16} /><h2>Research</h2><div className="spacer" /><Link to="/research" className="small">All <ArrowRight size={12} /></Link></div>
+          {!data && <SkeletonList rows={3} />}
           {data && data.research.length === 0 && <Empty icon={<Search size={22} />} title="No research yet" hint="Use quick capture above." />}
           {data?.research.map((r) => (
             <Link key={r.id} to={`/research/${r.id}`} className="list-item">

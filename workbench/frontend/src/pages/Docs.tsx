@@ -2,7 +2,7 @@ import { ArrowLeft, Eye, FileText, Loader2, NotebookPen, Pencil, Pin, Plus, Sear
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, Doc, stream } from "../api";
-import { Empty, Markdown, ModelSelect, relTime, useModels, useToast } from "../util";
+import { Empty, Markdown, ModelSelect, relTime, SkeletonList, useModels, useToast } from "../util";
 
 const ACTIONS = [
   { id: "improve", label: "Improve writing" },
@@ -145,13 +145,14 @@ export default function Docs({ kind }: { kind: "note" | "document" }) {
   const { id } = useParams();
   const navigate = useNavigate();
   const [list, setList] = useState<Doc[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [q, setQ] = useState("");
   const [current, setCurrent] = useState<Doc | null>(null);
   const toast = useToast();
   const base = kind === "note" ? "/notes" : "/documents";
   const Icon = kind === "note" ? NotebookPen : FileText;
 
-  const load = () => api<Doc[]>(`/docs?kind=${kind}&q=${encodeURIComponent(q)}`).then(setList).catch(toast.err);
+  const load = () => api<Doc[]>(`/docs?kind=${kind}&q=${encodeURIComponent(q)}`).then(setList).catch(toast.err).finally(() => setLoaded(true));
   useEffect(() => {
     const t = setTimeout(load, 200);
     return () => clearTimeout(t);
@@ -181,7 +182,8 @@ export default function Docs({ kind }: { kind: "note" | "document" }) {
           </div>
         </div>
         <div className="scroll">
-          {list.length === 0 && <Empty icon={<Icon size={22} />} title={q ? "No matches" : `No ${kind}s yet`} />}
+          {!loaded && <SkeletonList rows={4} />}
+          {loaded && list.length === 0 && <Empty icon={<Icon size={22} />} title={q ? "No matches" : `No ${kind}s yet`} />}
           {list.map((d) => (
             <div key={d.id} className={`list-item ${current?.id === d.id ? "active" : ""}`} onClick={() => navigate(`${base}/${d.id}`)} style={{ alignItems: "flex-start" }}>
               <div className="grow">

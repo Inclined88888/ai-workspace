@@ -1,7 +1,7 @@
 import { Check, CheckSquare, Flag, Loader2, Plus, Sparkles, Trash2 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { api, Task } from "../api";
-import { Empty, ModelSelect, todayISO, useModels, useToast } from "../util";
+import { Empty, ModelSelect, SkeletonList, todayISO, useModels, useToast } from "../util";
 
 const PRIO = ["None", "Low", "Medium", "High"];
 
@@ -53,6 +53,7 @@ function TaskRow({ task, onChange, onDelete }: { task: Task; onChange: (t: Task)
 
 export default function Tasks() {
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [title, setTitle] = useState("");
   const [due, setDue] = useState("");
   const [filter, setFilter] = useState<"open" | "done" | "all">("open");
@@ -63,7 +64,7 @@ export default function Tasks() {
   const { models } = useModels();
   const toast = useToast();
 
-  const load = () => api<Task[]>("/tasks").then(setTasks).catch(toast.err);
+  const load = () => api<Task[]>("/tasks").then(setTasks).catch(toast.err).finally(() => setLoaded(true));
   useEffect(() => {
     load();
   }, []);
@@ -143,7 +144,8 @@ export default function Tasks() {
         <button className="btn" disabled={goal.trim().length < 3 || busy} onClick={breakdown}>{busy ? <Loader2 size={15} className="spin" /> : "Break down"}</button>
       </div>
 
-      {visible.length === 0 && <Empty icon={<CheckSquare size={24} />} title={filter === "done" ? "Nothing completed yet" : "All clear"} />}
+      {!loaded && <div className="card flush"><SkeletonList rows={4} avatar /></div>}
+      {loaded && visible.length === 0 && <Empty icon={<CheckSquare size={24} />} title={filter === "done" ? "Nothing completed yet" : "All clear"} />}
       <div className="col gap-lg">
         {groups.filter(([, l]) => l.length).map(([name, list]) => (
           <div key={name}>
