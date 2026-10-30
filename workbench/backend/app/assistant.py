@@ -309,6 +309,10 @@ async def run_tool(name: str, raw_args: str, ctx: Ctx, approved: bool = False) -
         return done(False, f"Invalid arguments: {e}", "bad_args")
     if needs_approval(t, ctx) and not approved:
         done(False, "", "denied" if ctx.channel in UNATTENDED else "held", payload=raw_args or "{}", detail=HOLD_REASON)
+        if ctx.channel not in UNATTENDED:
+            from . import push
+
+            push.approval_needed(ctx.receipts[-1]["action_id"], name)
         return False, _hold_message(t, ctx.receipts[-1]["action_id"], ctx)
     # Idempotency (item 28): when the model repeats a change it already made in this turn, it is not made again.
     # A repeat is the same tool with the same arguments and no other change in between, so a deliberate toggle
@@ -561,20 +565,25 @@ async def _run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> Async
         receipts.record_turn(ctx, "step_limit")
     yield {"type": "message", "content": final}
     yield {"type": "done", "conversation_id": ctx.conversation_id, "cost_cents": round(cost, 3), "tool_calls": ctx.tool_calls}
+    if ctx.turn_action_id:
+        from . import push
+
+        row = db.one("SELECT outcome FROM actions WHERE id = ?", ctx.turn_action_id)
+        push.run_finished(ctx.turn_action_id, row["outcome"] if row else "", ctx.conversation_id, ctx.channel)
     from .learn import after_turn
 
     after_turn(ctx)
 
 
-async def decide(action_id: int, approve: bool) -> dict:
+async def decide(action_id: int, approve: bool, channel: str = "web") -> dict:
     """The user's answer to a held action. Approved actions run now; the outcome is added to the conversation
     so the assistant sees it on the next turn."""
     a = actions.approval(action_id)
-    decision = actions.decide(action_id, approve)  # 409 if already answered
+    decision = actions.decide(action_id, approve, channel)  # 409 if already answered
     if not approve:
         _save(a["conversation_id"], "user", f"[I denied request #{action_id}: {a['tool']}. Do not do it.]")
         return actions.approval(action_id)
-    ctx = Ctx(channel="web", conversation_id=a["conversation_id"], turn_action_id=decision)
+    ctx = Ctx(channel=channel, conversation_id=a["conversation_id"], turn_action_id=decision)
     ok, out = await run_tool(a["tool"], actions.raw_args(action_id), ctx, approved=True)
     run = ctx.receipts[-1]
     actions.finish(run["action_id"], run["outcome"], detail=out[:2000])
