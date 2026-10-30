@@ -57,3 +57,24 @@ def test_importers_chatgpt_claude_obsidian(client):
     assert any(h["kind"] == "message" for h in hits)
     assert client.get("/api/knowledge/entities", params={"type": "note", "q": "Reece"}).json()
     assert client.post("/api/knowledge/import/claude", files={"file": ("x.json", b"not json")}).status_code == 400
+
+
+def test_phone_reads_knowledge_but_never_sensitive(client):
+    from fastapi.testclient import TestClient
+
+    from app import knowledge, main
+
+    phone = TestClient(main.app, headers={"X-Workbench": "1"})
+    start = client.post("/api/mobile/pair/start").json()
+    token = phone.post("/api/mobile/pair/claim", json={"code": start["code"], "name": "kn phone", "platform": "ios"}).json()["device_token"]
+    h = {"Authorization": f"Bearer {token}"}
+    assert phone.get("/api/mobile/knowledge/search?q=gate").status_code == 401
+    p = knowledge.upsert_entity("project", "Phone Knowledge Job", {"status": "active"})
+    knowledge.remember("Phone Knowledge Job alarm code is 4471", "project", project_id=p["id"], privacy="sensitive")
+    knowledge.remember("Phone Knowledge Job skip bin arrives Monday", "project", project_id=p["id"])
+    hits = phone.get("/api/mobile/knowledge/search", params={"q": "Phone Knowledge Job"}, headers=h).json()
+    assert hits and not any("4471" in (x["title"] or "") for x in hits)
+    assert any(e["name"] == "Phone Knowledge Job" for e in phone.get("/api/mobile/knowledge/entities?type=project", headers=h).json())
+    d = phone.get(f"/api/mobile/knowledge/entities/{p['id']}", headers=h).json()
+    assert "4471" not in str(d) and any(m["sensitive"] for m in d["memories"]) and any("skip bin" in m["content"] for m in d["memories"])
+    assert phone.post("/api/mobile/knowledge/entities", headers=h).status_code in (404, 405)  # read-only

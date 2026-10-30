@@ -130,6 +130,9 @@ app.include_router(meetings.router)
 v02_hooks.install(app)  # feat/v02-core: /api/projects, /api/history (undo), /api/checked
 from .knowledge import routes as knowledge_routes  # feat/memory-core: shared memory and data layer
 app.include_router(knowledge_routes.router)  # feat/memory-core
+from .knowledge import mobile as knowledge_mobile  # feat/memory-core: read-only search, People and Projects on the phone
+
+app.include_router(knowledge_mobile.device)  # feat/memory-core
 app.include_router(packs_routes.router)  # feat/v02-packs
 app.include_router(packs_mobile.router)  # feat/v02-packs: phone flashcards and quotes
 packs_tools.register_tools()  # feat/v02-packs: pack shortcuts, shown only once a pack is added
