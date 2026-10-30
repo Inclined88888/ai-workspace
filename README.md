@@ -2,7 +2,7 @@
 
 A self hosted AI workspace in **one light container**. Chat with an assistant that remembers you and learns skills, plus notes, documents, tasks, calendar, mail, research with sources, scheduled reports, a company of AI agents with budgets, and model comparison. Runs on Anthropic, OpenAI, OpenRouter or any OpenAI compatible provider, or local models.
 
-**The core is Workbench:** FastAPI + SQLite + React, one image (about 350 MB), about 100 MB of RAM at idle (measured on the backend process; real use depends on traffic). No GPU, no database server, no extra containers. A small VPS with 1 GB of RAM or a Mac laptop runs it.
+**The core is Workbench:** FastAPI + SQLite + React, one image (248 MB of unpacked layers, measured by CI), about 100 MB of RAM at idle (measured on the backend process; real use depends on traffic). No GPU, no database server, no extra containers. A small VPS with 1 GB of RAM or a Mac laptop runs it.
 
 Everything heavier is an **optional add-on, off by default**:
 
@@ -40,7 +40,7 @@ are still Docker-only; the server install below is unchanged.
 
 ## Why AI Workspace
 
-1. **Light.** Core image is ~350 MB, not multi-GB, and idles at ~100 MB of RAM (measured outside Docker).
+1. **Light.** Core image is 248 MB (CI, unpacked layers), not multi-GB, and idles at ~100 MB of RAM (measured outside Docker).
 2. **Cheap to run.** Comfortable on a €4 VPS; no GPU required for the core.
 3. **Pay for nothing you don't use.** Every add-on is off by default; Compose profiles add weight only when you ask for it.
 4. **Real GPU on a Mac.** Native Ollama on macOS is supported, so the GPU is actually used.

@@ -16,7 +16,7 @@ A self hosted AI workspace in one light container. Start with the [README](../RE
 
 ## Weight and footprint
 
-1. Core image is ~350 MB, not multi-GB.
+1. Core image is 248 MB (CI, unpacked layers), not multi-GB.
 2. ~100 MB RAM at idle, measured outside Docker.
 3. Runs comfortably on a €4 VPS.
 4. No GPU required for the core.

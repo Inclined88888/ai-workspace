@@ -18,7 +18,7 @@ Out of scope for the current branch, dropped, or blocked. Nothing is dropped sil
 
 ## Scheduled later
 
-* **Claude Code launcher add-on (Item 116, decision D2).** Implemented as an optional official CLI hand-off in `cli-launcher/` (Compose profile `claude-code`); awaiting owner review before merge. Live subscription login and a real prompt still need maintainer validation. Node stays in the add-on (R6). Item 117 will reuse the same transport for Codex after 116 is merged.
+* **Claude Code launcher add-on (Item 116, decision D2).** Merged to `main` as an optional official CLI hand-off in `cli-launcher/` (Compose profile `claude-code`). Item 117 (Codex) is merged on the same transport. Still open: a maintainer has to validate live subscription login and a real prompt. Node stays in the add-on (R6).
 * **Idempotency across interleaved writes (item 28 follow up).** A model loop of the form A, B, A runs A twice, because a repeat is only recognised when no other change ran in between (so toggles keep working). Closing it needs per tool semantics (which writes are naturally idempotent). Design record 0001, "Idempotency keys".
 * **The web chat does not send an Idempotency-Key yet.** It never retries a request, so there is nothing to deduplicate; the CLI (item 84) should send one.
 
