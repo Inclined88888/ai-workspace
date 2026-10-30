@@ -1,0 +1,112 @@
+{
+  "expo": {
+    "name": "AI Workspace",
+    "slug": "ai-workspace",
+    "scheme": "aiworkspace",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "backgroundColor": "#F5F1E8",
+    "ios": {
+      "bundleIdentifier": "com.example.aiworkspace",
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Scan the pairing code on your computer, and take photos to send to your workspace.",
+        "NSPhotoLibraryUsageDescription": "Attach photos to a message for your workspace.",
+        "NSMicrophoneUsageDescription": "Dictate messages to your workspace.",
+        "NSSpeechRecognitionUsageDescription": "Turn your voice into text on this phone before it is sent.",
+        "NSLocalNetworkUsageDescription": "Connect to AI Workspace on your computer over your Wi-Fi.",
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        },
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.example.aiworkspace",
+      "adaptiveIcon": {
+        "backgroundColor": "#F5F1E8",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ],
+      "blockedPermissions": [
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION"
+      ],
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "output": "single",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-status-bar",
+      "expo-secure-store",
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#F5F1E8",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 160,
+          "dark": {
+            "backgroundColor": "#121110"
+          }
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Scan the pairing code on your computer, and take photos to send to your workspace.",
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Attach photos to a message for your workspace.",
+          "cameraPermission": "Take photos to send to your workspace."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#D21F3C"
+        }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Dictate messages to your workspace.",
+          "speechRecognitionPermission": "Turn your voice into text on this phone before it is sent.",
+          "androidSpeechServicePackages": [
+            "com.google.android.googlequicksearchbox",
+            "com.google.android.as"
+          ]
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "eas": {}
+    }
+  }
+}
