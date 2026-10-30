@@ -295,7 +295,9 @@ def needs_approval(t: Tool, ctx: Ctx) -> bool:
 
     Prompt injection cannot be filtered reliably, so the boundary is on what the model may do after reading it.
     """
-    return ctx.tainted and t.effect in GATED_EFFECTS
+    from .adapt import hooks as adapt_hooks  # routines created from a suggestion never act outside on their own
+
+    return (ctx.tainted and t.effect in GATED_EFFECTS) or adapt_hooks.guard(t.effect, ctx.channel, ctx.conversation_id)
 
 
 HOLD_REASON = "This conversation contains untrusted web or email content."
@@ -405,6 +407,9 @@ def system_prompt(ctx: Ctx, user_text: str) -> str:
             mem_lines.append(f"- [{m['id']}] {m['content']}")
     if mem_lines:
         parts.append("What you know about the user (memory ids in brackets):\n" + "\n".join(mem_lines))
+    from .adapt import hooks as adapt_hooks  # adapt and learn: what the assistant has learned about this person
+
+    parts.extend(adapt_hooks.context(user_text))
     skills = db.all("SELECT name, description FROM skills WHERE enabled = 1 ORDER BY uses DESC, updated_at DESC LIMIT 30")
     if skills:
         parts.append("Your saved skills (load_skill before using):\n" + "\n".join(f"- {s['name']}: {s['description']}" for s in skills))

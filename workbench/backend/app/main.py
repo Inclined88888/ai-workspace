@@ -18,6 +18,7 @@ egress.install()  # before anything connects: every outbound request is in the a
 
 from . import actions, api, assistant_api, bridge, browser_proxy, company, config, db, health, llm, mobile, scheduler, skills_hub, telegram  # noqa: E402
 from .mcp_server import mcp, mcp_app
+from .adapt import hooks as adapt_hooks, routes as adapt_routes  # adapt and learn (feat/learn-and-adapt)
 from .security import check_bearer
 from .tools import tools
 
@@ -86,6 +87,8 @@ app.include_router(mobile.owner)
 app.include_router(mobile.device)
 app.include_router(browser_proxy.router)
 app.include_router(skills_hub.router)  # Skills from GitHub behind the security gate
+app.include_router(adapt_routes.router)  # /api/learn: What I know about you, Show me how, suggestions
+adapt_hooks.register_tools()
 app.include_router(bridge.router)  # /v1: OpenAI-shaped access to every connection, for the browser agent (item 103)
 app.mount("/tools", tools)
 app.mount("/mcp", mcp_app)  # MCP clients use http://workbench:8000/mcp/
