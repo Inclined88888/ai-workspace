@@ -152,7 +152,7 @@ def cmd_search(argv):
     p.add_argument("--json", action="store_true")
     a = p.parse_args(argv)
     res = asyncio.run(one_off_search(" ".join(a.query), settings_from(a, headed_default=False)))
-    print(json.dumps(res, indent=2) if a.json else search.format_results(res["results"], res["source"]))
+    print(json.dumps(res, indent=2) if a.json else search.format_results(res["results"], res["source"], res.get("note", "")))
     return 0
 
 
@@ -165,8 +165,8 @@ async def one_off_search(query: str, s: runner.Settings) -> dict:
     policy = SitePolicy.load(runner.sites_file()).merged(s.allow, s.deny)
     async with Browser(policy=policy, log=log, headless=s.headless, engine=s.engine, cdp_url=s.cdp_url) as b:
         await b.open(search.fallback_url(query))
-        results = await b.page.evaluate(search.RESULTS_JS, 8)
-    return {"source": "browser search page", "results": results, "receipt": str(log.path)}
+        results, note = await search.page_results(b.page, 8)
+    return {"source": "browser search page", "results": results, "receipt": str(log.path)} | ({"note": note} if note else {})
 
 
 async def one_off_read(url: str, s: runner.Settings, max_chars: int = 20000, screenshot: str | None = None) -> dict:

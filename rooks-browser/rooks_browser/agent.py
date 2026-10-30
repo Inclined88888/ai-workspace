@@ -324,8 +324,8 @@ class Agent:
         if base:
             return search.format_results(search.searxng(base, query, self.log, row), "SearXNG")
         await self.browser.open(search.fallback_url(query))
-        results = await self.browser.page.evaluate(search.RESULTS_JS, 8)
-        return search.format_results(results, "browser search page")
+        results, note = await search.page_results(self.browser.page, 8)
+        return search.format_results(results, "browser search page", note)
 
 
 def _goal_text(name: str, args: dict, snap: Snapshot) -> str:

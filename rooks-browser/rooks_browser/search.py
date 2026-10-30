@@ -84,9 +84,22 @@ def fallback_url(query: str) -> str:
     return tmpl.replace("{q}", urllib.parse.quote_plus(query))
 
 
-def format_results(results: list[dict], source: str) -> str:
+CHALLENGE_JS = r"""() => /captcha|are you a robot|bots use duckduckgo|unusual traffic|confirm this search was made by a human/i
+  .test((document.body && document.body.innerText || '').slice(0, 3000))"""
+CHALLENGE_NOTE = ("the search page asked for a human check (common in headless mode). Rooks Browser does not solve those: "
+                  "set SEARXNG_URL (the `search` add-on), run headed, or open a site you know directly.")
+
+
+async def page_results(page, count: int = 8) -> tuple[list[dict], str]:
+    """Results from the fallback search page, or a note when the page is a captcha / bot check."""
+    if await page.evaluate(CHALLENGE_JS):
+        return [], CHALLENGE_NOTE
+    return await page.evaluate(RESULTS_JS, count), ""
+
+
+def format_results(results: list[dict], source: str, note: str = "") -> str:
     if not results:
-        return f"no results ({source})"
+        return f"no results ({source}): {note}" if note else f"no results ({source})"
     lines = [f"{len(results)} results ({source}); open one with the open action:"]
     for n, r in enumerate(results, 1):
         lines.append(f"{n}. {r['title']} — {r['url']}" + (f"\n   {r['snippet']}" if r.get("snippet") else ""))

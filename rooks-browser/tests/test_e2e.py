@@ -137,6 +137,13 @@ def test_search_falls_back_to_a_search_page_in_the_browser(site, monkeypatch):
     assert "results (browser search page)" in model.prompts[1] and "widget.html" in model.prompts[1]
 
 
+def test_a_captcha_search_page_is_reported_not_solved(site, monkeypatch):
+    monkeypatch.setenv("ROOKS_BROWSER_SEARCH_URL", f"{site}/challenge.html?q={{q}}")
+    res, model, *_ = run("search", [act("search", query="widget"), act("done", answer="ok")])
+    assert "asked for a human check" in model.prompts[1] and "SEARXNG_URL" in model.prompts[1]
+    assert "not a search result" not in model.prompts[1].split("CURRENT PAGE")[0]
+
+
 def test_bad_replies_and_unknown_ids_are_reported_back(site):
     script = ["I think I should click", act("click", id=999), act("fly"), act("done", answer="gave up", success=False)]
     res, model, *_ = run("x", script, start_url=f"{site}/index.html")
