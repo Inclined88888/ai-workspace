@@ -87,3 +87,13 @@ def test_announced_step_detection():
     assert not announces_step("Shall I run the tests?")
     assert announces_step("Next, I'll **search** in `test_calc.py`:\n\n1. **Search in `test_calc.py`** for failed tests:")
     assert not announces_step("Here is a summary: 1. Listed files. I'll be here if you need more. Let me know!")
+
+
+def test_text_tool_calls_several_objects_in_one_fence():
+    from rooks_code import providers
+
+    text = ('Step 4\n```json\n{"name": "edit_file", "arguments": {"path": "a.py", "old_text": "x", "new_text": "y"}}\n'
+            '{"name": "edit_file", "arguments": {"path": "a.py", "old_text": "p", "new_text": "q"}}\n```\nthen check')
+    calls, rest = providers.parse_text_tool_calls(text, {"edit_file", "run_command"})
+    assert [c.arguments["new_text"] for c in calls] == ["y", "q"]
+    assert "edit_file" not in rest

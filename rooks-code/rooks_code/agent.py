@@ -136,9 +136,17 @@ class Agent:
                 finally:
                     self.ui.thinking(False)
                 reply.text = providers.THINK_RE.sub("", reply.text or "").strip()
-                if not reply.tool_calls and reply.text:
+                if reply.text:
+                    # Small local models may print some calls as text and return others as real calls in the same
+                    # reply (edit as text, then "run the check" as a real call): keep both, text ones first.
                     names = {t["name"] for t in self.tool_specs()}
-                    reply.tool_calls, reply.text = providers.parse_text_tool_calls(reply.text, names)
+                    text_calls, text = providers.parse_text_tool_calls(reply.text, names)
+                    if text_calls:
+                        seen = {(c.name, json.dumps(c.arguments, sort_keys=True)) for c in reply.tool_calls}
+                        extra = [c for c in text_calls if (c.name, json.dumps(c.arguments, sort_keys=True)) not in seen]
+                        for n, c in enumerate(extra):
+                            c.id = f"text_{n}"
+                        reply.tool_calls, reply.text = extra + reply.tool_calls, text
                 usd = providers.cost(self.s.model, reply.tokens_in, reply.tokens_out, self.s.prices, self.s.local)
                 self.log.add("model_call", "ok", parent=turn, latency_ms=int((time.monotonic() - t0) * 1000),
                              tokens_in=reply.tokens_in, tokens_out=reply.tokens_out, usd_cost=usd,

@@ -53,6 +53,23 @@ class ProviderError(Exception):
 THINK_RE = re.compile(r"<think>.*?</think>", re.S)
 _TOOL_TAG_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.S)
 _FENCE_ANY_RE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.S)
+_DECODER = json.JSONDecoder()
+
+
+def _objects(payload: str) -> list[str]:
+    """Split a payload holding one or more JSON objects back to back (one per line, as small models often print)."""
+    out, i = [], 0
+    while i < len(payload):
+        j = payload.find("{", i)
+        if j < 0:
+            break
+        try:
+            _, end = _DECODER.raw_decode(payload, j)
+        except ValueError:
+            return [payload]
+        out.append(payload[j:end])
+        i = end
+    return out or [payload]
 
 
 def parse_text_tool_calls(content: str, tool_names: set[str]) -> tuple[list[ToolCall], str]:
@@ -64,7 +81,7 @@ def parse_text_tool_calls(content: str, tool_names: set[str]) -> tuple[list[Tool
         if body.startswith("{") and body.endswith("}"):
             candidates = [(content, body)]
     calls, rest = [], content
-    for raw, payload in candidates:
+    for raw, payload in [(r, o) for r, p in candidates for o in _objects(p)]:
         try:
             obj = json.loads(payload)
         except ValueError:
