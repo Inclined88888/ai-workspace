@@ -4,6 +4,38 @@ Every user-visible change that needs action, or changes data on upgrade, gets an
 migration steps, rollback steps. Workbench has no release numbers yet (BACKLOG). Entries are identified by schema
 version and the merge commit on `main`.
 
+## 2026-10-30 · Cloud by default: "Choose how to think", Sign in with ChatGPT, smart router · branch feat/cloud-models (builds on feat/skills-and-motion)
+
+- **First run is now "Choose how to think"**, shown on the desktop app's first start and in Docker whenever no model is connected. It offers four options:
+  - **Free cloud** (recommended): a guided Gemini or Groq key. It opens the key page, takes the key by paste or from the clipboard, recognises the provider and checks the key before saving it.
+  - **Sign in with your subscription**: ChatGPT, through OpenAI's official open-source flow. Claude, SuperGrok and Google AI show "not available" with the reason and a link to the source.
+  - **Paste API keys**: OpenAI, Anthropic, xAI, Google, Groq, OpenRouter, Mistral, DeepSeek, or any OpenAI-compatible URL.
+  - **Local Ollama**, marked advanced.
+- **Smart router.** `auto` (also `auto:fast` and `auto:strong`) is the default model once any cloud provider is connected.
+  - Each turn uses a fast or a strong model depending on the task.
+  - On a 429, a quota or credit error, a 5xx or an outage, the router moves to the next provider.
+  - A provider that hits its daily limit is parked until its reset.
+  - Each answer shows who replied and how many free requests are left.
+  - The new **Models** page (`/models`) sets the order, the models per tier and the local fallback, and shows quota meters.
+  - Chat, the assistant, research, Rooks Code and Rooks Browser all use the router (`-P workbench -m auto`, `X-Workbench-Channel`).
+- **New presets**: Groq, xAI, Mistral and DeepSeek. Setup's `GROQ_API_KEY` and `XAI_API_KEY` are now seeded as connections.
+- **API.** New endpoints:
+  - `/api/providers/detect` and `/api/providers/validate`
+  - `/api/router` and `/api/router/reset/{id}`
+  - `/api/auth/subscriptions`
+  - `/api/auth/chatgpt/*`
+  - `/api/status` gains `needs_models`.
+- **Data / migration.** One new table is created on startup: `router_state` (additive). The router settings are stored in the `router` setting. Existing default models are not changed; `auto` becomes the default only when no default was set.
+- **Rollback.** Check out `feat/skills-and-motion`. The old build ignores `router_state`, but a default model of `auto` has to be changed back in Settings.
+- **Docs**: `docs/models-and-router.md`, and `docs/hosted-free-tier.md`, which is a design only.
+- **Tests.** The backend has 212 passing tests, including:
+  - router fallback with fake 429, daily-limit and 5xx providers
+  - stream fallback and quota headers
+  - onboarding and key validation
+  - Sign in with ChatGPT end to end against a fake OAuth server
+- **Bundle.** JS is 464.11 kB (137.34 kB gzip) and CSS is 56.48 kB (11.83 kB gzip).
+- **Screenshots** are in `screenshots/models/`.
+
 ## 2026-10-30 · Signature motion, simple appearance controls, secure GitHub skills · branch feat/skills-and-motion (builds on feat/premium-ui)
 
 - **Tracer.** While the assistant, a research job, a browser-agent task or a run is working, a thin cherry line with an ink tip travels around the composer or card border. It is drawn as an SVG rect with `stroke-dashoffset` on the compositor, so it adds no layout work.

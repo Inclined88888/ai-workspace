@@ -5,6 +5,7 @@ import App from "./App";
 import "./styles.css";
 import "./appearance.css";
 import "./skills.css";
+import "./models.css";
 import "./motion.css";
 import { applyTo, readAppearance } from "./appearance";
 

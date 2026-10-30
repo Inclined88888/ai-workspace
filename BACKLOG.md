@@ -11,10 +11,9 @@ Out of scope for the current branch, dropped, or blocked. Nothing is dropped sil
 
 ## Blocked on someone else
 
-### 101: Sign in with ChatGPT client ID (decision D4)
-* Plan usage needs an OpenAI-approved client ID, which the repo owner registers.
-* Until then, the flow ships behind a feature flag in a "request access" state, with a localhost callback and a manual code paste.
-* Whether OpenAI accepts a localhost callback for self-hosted apps is not stated in the docs (checked 2026-10-28).
+### 101: Sign in with ChatGPT: live check against OpenAI
+* Built on feat/cloud-models (`workbench/backend/app/siwc.py`). OpenAI's open-source token-sharing guide (https://developers.openai.com/siwc/token-sharing-open-source, read 2026-10-30) uses dynamic registration (`client_id=dynamic_agent_client` issues an `oaiapp_…` id per install) with a 127.0.0.1 loopback callback, so no pre-approved client id is needed for this MIT open-source app. Commercial distribution would need OpenAI's approval.
+* Still open: it is tested end to end only against a fake OAuth server. A maintainer has to sign in with a real ChatGPT account and confirm a reply, the usage-limit errors, and refresh.
 
 ## Scheduled later
 

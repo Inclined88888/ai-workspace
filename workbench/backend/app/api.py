@@ -48,9 +48,12 @@ def _login(response: Response) -> None:
 # Status, setup, auth
 @public.get("/status")
 def status(request: Request):
+    signed_in = check_session(request.cookies.get(COOKIE))
     return {
         "setup_complete": db.get_setting("setup_complete") == "1",
-        "signed_in": check_session(request.cookies.get(COOKIE)),
+        "signed_in": signed_in,
+        # Docker installs get the same first-run "Choose how to think" screen while no model is connected
+        "needs_models": bool(signed_in) and not db.one("SELECT id FROM connections WHERE enabled = 1 LIMIT 1"),
         "setup_code_required": bool(SETUP_CODE),
         "workspace_name": db.get_setting("workspace_name", config.WORKSPACE_NAME),
         "chat_url": config.CHAT_URL,
@@ -174,7 +177,7 @@ def put_settings(data: SettingsIn):
         db.set_setting("workspace_name", data.workspace_name.strip() or config.WORKSPACE_NAME)
     if data.default_model is not None:
         if data.default_model:
-            llm.split_ref(data.default_model)
+            llm.check_ref(data.default_model)
         db.set_setting("default_model", data.default_model)
     return get_settings()
 
@@ -189,6 +192,7 @@ def _provider_out(c: dict) -> dict:
 def providers():
     """Model connections (one per provider account or local server). See adapters.py for auth kinds and protocols."""
     return {"providers": [_provider_out(c) for c in db.all("SELECT * FROM connections ORDER BY id")], "presets": llm.PRESETS,
+            "key_info": llm.KEY_INFO,
             "auth_kinds": {k: list(v) for k, v in ALLOWED.items() if k != "session_scraping_forbidden"}}
 
 
@@ -254,6 +258,158 @@ def delete_provider(pid: int):
     db.run("DELETE FROM connections WHERE id = ?", pid)
     llm._model_cache.pop(pid, None)
     return {"ok": True}
+
+
+class KeyIn(BaseModel):
+    api_key: str = Field(..., min_length=8, max_length=500)
+    preset: str | None = Field(None, max_length=40)
+    base_url: str | None = Field(None, pattern=r"^https?://", max_length=300)
+    save: bool = False
+
+
+def _key_connection(data: KeyIn) -> tuple[str, dict]:
+    preset = data.preset or llm.detect_key(data.api_key)
+    if not preset or preset not in llm.PRESETS or llm.PRESETS[preset]["auth_kind"] == "local_ollama":
+        raise HTTPException(400, "That doesn't look like a key we know. Pick the provider, then paste it again.")
+    p = llm.PRESETS[preset]
+    return preset, {"id": 0, "name": p["name"], "auth_kind": p["auth_kind"], "protocol": p["protocol"],
+                    "base_url": (data.base_url or p["base_url"]).rstrip("/"), "secret_enc": encrypt(data.api_key.strip()),
+                    "models": "", "state": "connected", "enabled": 1}
+
+
+@api.post("/providers/detect")
+def detect_key(data: KeyIn):
+    """Which provider a pasted key is for, from its shape. The key is not sent anywhere."""
+    preset = llm.detect_key(data.api_key)
+    return {"preset": preset, "name": llm.PRESETS[preset]["name"] if preset else None}
+
+
+@api.post("/providers/validate")
+def validate_key(data: KeyIn):
+    """Checks a pasted key against the provider's model list before anything is saved; with save, connects it.
+
+    Only the outcome is returned, never the provider's error text (some quote the key back)."""
+    from .adapters import Adapter
+
+    preset, conn = _key_connection(data)
+    try:
+        health, detail = Adapter(conn).probe()
+    except HTTPException as e:
+        health, detail = "down", str(e.detail)
+    out = {"preset": preset, "name": conn["name"], "ok": health != "down", "health": health, "detail": detail}
+    if out["ok"] and data.save:
+        same = db.one("SELECT id FROM connections WHERE base_url = ? AND auth_kind = ?", conn["base_url"], conn["auth_kind"])
+        cid = same["id"] if same else db.run(
+            "INSERT INTO connections(name, auth_kind, protocol, base_url, secret_enc, residency, created_at) VALUES (?, ?, ?, ?, '', 'cloud', ?)",
+            conn["name"], conn["auth_kind"], conn["protocol"], conn["base_url"], db.now())
+        db.run("UPDATE connections SET enabled = 1, state = 'connected', last_error = '' WHERE id = ?", cid)
+        store_connection_secret(cid, data.api_key.strip())
+        llm._model_cache.pop(cid, None)
+        out["provider"] = _provider_out(db.one("SELECT * FROM connections WHERE id = ?", cid))
+    return out
+
+
+@api.get("/router")
+def router_status():
+    """The smart router: routing order, the fast and strong model each provider would use, quota and cool-downs."""
+    from . import router
+
+    return router.status()
+
+
+class RouterIn(BaseModel):
+    order: list[int] | None = None
+    disabled: list[int] | None = None
+    models: dict[str, dict[str, str]] | None = None
+    local_fallback: bool | None = None
+
+
+@api.put("/router")
+def router_save(data: RouterIn):
+    from . import router
+
+    router.save_settings(data.model_dump())
+    return router.status()
+
+
+@api.post("/router/reset/{cid}")
+def router_reset(cid: int):
+    """Try a provider again now, even though it said to wait."""
+    from . import router
+
+    router.reset(cid)
+    return router.status()
+
+
+class ChatGPTStartIn(BaseModel):
+    account: str | None = Field(None, max_length=200)
+
+
+@api.post("/auth/chatgpt/start")
+async def chatgpt_start(data: ChatGPTStartIn | None = None):
+    """Sign in with ChatGPT (OpenAI's official flow for open-source apps). Open the URL in the system browser."""
+    from . import siwc
+
+    return await siwc.start((data.account if data else None), listen=True)
+
+
+@api.get("/auth/chatgpt/status/{state}")
+def chatgpt_status(state: str):
+    from . import siwc
+
+    return siwc.status(state)
+
+
+class CallbackIn(BaseModel):
+    url: str = Field(..., min_length=10, max_length=8000)
+
+
+@api.post("/auth/chatgpt/complete")
+async def chatgpt_complete(data: CallbackIn):
+    """Finish a sign-in from a pasted callback URL (when the browser can't reach this computer's 127.0.0.1)."""
+    from . import siwc
+
+    res = await siwc.complete(data.url)
+    if res.get("connection_id"):
+        llm._model_cache.pop(res["connection_id"], None)
+    return res
+
+
+@api.post("/auth/chatgpt/signout/{cid}")
+def chatgpt_signout(cid: int):
+    from . import siwc
+
+    conn = db.one("SELECT * FROM connections WHERE id = ? AND auth_kind = 'oauth_subscription'", cid)
+    if not conn:
+        raise HTTPException(404, "No ChatGPT sign-in with that id")
+    llm._model_cache.pop(cid, None)
+    return siwc.sign_out(conn)
+
+
+@api.get("/auth/subscriptions")
+def subscriptions():
+    """Which plan sign-ins exist, and an honest reason for each one that isn't offered."""
+    return {"options": SUBSCRIPTIONS}
+
+
+SUBSCRIPTIONS = [
+    {"id": "chatgpt", "name": "ChatGPT", "plans": "Free, Go, Plus, Pro, Business", "available": True,
+     "detail": "OpenAI lets open-source apps use your ChatGPT plan through its official sign-in. Usage counts against your "
+               "plan's limits, shared with your other apps.",
+     "source": "https://developers.openai.com/siwc/token-sharing-open-source"},
+    {"id": "claude", "name": "Claude", "plans": "Pro, Max", "available": False,
+     "detail": "Not available. Anthropic's terms don't allow Claude Pro or Max sign-ins in other apps; accounts have been "
+               "cut off for it. Use a Claude API key instead.",
+     "source": "https://code.claude.com/docs/en/legal-and-compliance"},
+    {"id": "grok", "name": "Grok", "plans": "SuperGrok", "available": False,
+     "detail": "Not available yet. xAI only offers SuperGrok sign-in to partner apps so far, with no public sign-up for "
+               "other apps. Use an xAI API key for now.",
+     "source": "https://x.ai/news/grok-hermes"},
+    {"id": "gemini", "name": "Gemini", "plans": "Google AI Pro, Ultra", "available": False,
+     "detail": "Not available. Google doesn't allow other apps to use Gemini CLI or Antigravity sign-ins. A free AI Studio "
+               "key gives you Gemini anyway.",
+     "source": "https://github.com/google-gemini/gemini-cli/discussions/20632"},
+]
 
 
 @api.get("/models")
@@ -611,7 +767,7 @@ class ResearchIn(BaseModel):
 @api.post("/research")
 def start_research(data: ResearchIn):
     model = data.model or llm.default_model_ref()
-    llm.split_ref(model)
+    llm.check_ref(model)
     now = db.now()
     rid = db.run("INSERT INTO research(question, model, created_at, updated_at) VALUES (?, ?, ?, ?)", data.question, model, now, now)
     task = asyncio.get_running_loop().create_task(research.run(rid, data.question, model, data.depth))

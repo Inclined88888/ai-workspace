@@ -3,10 +3,10 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, stream } from "../api";
 import { Tracer } from "../Tracer";
-import { Empty, Markdown, ModelSelect, relTime, SkeletonList, StreamingMarkdown, useModels, useToast } from "../util";
+import { Empty, Markdown, ModelSelect, relTime, RouterInfo, RouterVia, SkeletonList, StreamingMarkdown, useModels, useToast } from "../util";
 
 type Conv = { id: number; title: string; channel: string; updated_at: string; model: string };
-type Msg = { id: number; role: string; content: string; tool_calls: string[]; name: string };
+type Msg = { id: number; role: string; content: string; tool_calls: string[]; name: string; via?: RouterInfo };
 type Step = { kind: "call" | "result" | "check"; name: string; text: string; ok?: boolean };
 type Approval = { id: number; tool: string; args: string; effect: string; reason: string };
 type Memory = { id: number; content: string; kind: string; source: string; updated_at: string };
@@ -31,11 +31,16 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   const endRef = useRef<HTMLDivElement>(null);
   const toast = useToast();
   const cid = id ? Number(id) : null;
+  // Who answered each reply this session (the smart router's "via" line); kept across the reload after a new chat
+  const viaByReply = useRef(new Map<string, RouterInfo>());
 
   const loadConvs = () => api<Conv[]>(`/conversations${q ? `?q=${encodeURIComponent(q)}` : ""}`).then(setConvs).catch(toast.err);
   useEffect(() => { const t = setTimeout(loadConvs, 200); return () => clearTimeout(t); }, [q]);
   const loadConv = (id: number) => {
-    api<{ messages: Msg[]; model: string }>(`/conversations/${id}`).then((c) => { setMessages(c.messages); setModel(c.model || ""); }).catch(toast.err);
+    api<{ messages: Msg[]; model: string }>(`/conversations/${id}`).then((c) => {
+      setMessages(c.messages.map((m) => (m.role === "assistant" && viaByReply.current.has(m.content) ? { ...m, via: viaByReply.current.get(m.content) } : m)));
+      setModel(c.model || "");
+    }).catch(toast.err);
     api<Approval[]>(`/approvals?conversation_id=${id}`).then(setApprovals).catch(toast.err);
   };
   useEffect(() => {
@@ -65,9 +70,11 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
     setSteps([]);
     setMessages((m) => [...m, { id: Date.now(), role: "user", content: msg, tool_calls: [], name: "" }]);
     let newId = cid;
+    let via: RouterInfo | undefined;
     await stream("/assistant/chat", { message: msg, conversation_id: cid, model: model || null }, (ev) => {
       const t = ev.type as string | undefined;
       if (t === "start") newId = Number(ev.conversation_id);
+      if (t === "router") via = ev as unknown as RouterInfo;
       if (t === "tool_call") setSteps((s) => [...s, { kind: "call", name: String(ev.name), text: String(ev.args) }]);
       if (t === "tool_result") {
         const r = (ev.receipt ?? {}) as { verified?: boolean | null; evidence?: string };
@@ -80,8 +87,9 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
       if (t === "approval_required") setApprovals((a) => [...a, { id: Number(ev.id), tool: String(ev.tool), args: String(ev.args), effect: String(ev.effect), reason: String(ev.reason) }]);
       if (t === "message") {
         const mid = Date.now() + 1;
+        if (via) viaByReply.current.set(String(ev.content), via);
         setFreshId(mid);
-        setMessages((m) => [...m, { id: mid, role: "assistant", content: String(ev.content), tool_calls: [], name: "" }]);
+        setMessages((m) => [...m, { id: mid, role: "assistant", content: String(ev.content), tool_calls: [], name: "", via }]);
       }
       if (t === "error" || (!t && ev.error)) toast.err(String(ev.error));
     });
@@ -159,6 +167,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
                     {m.content && (m.id === freshId
                       ? <StreamingMarkdown text={m.content} onDone={() => setFreshId(null)} />
                       : <Markdown text={m.content} />)}
+                    {m.via && <RouterVia r={m.via} />}
                   </div>
                 </div>)}
             {steps.length > 0 && (

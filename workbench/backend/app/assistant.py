@@ -526,6 +526,8 @@ async def _run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> Async
                 *_history(ctx.conversation_id, budget - len(system) - len(json.dumps(specs)))]
         try:
             res = await llm.chat(model, msgs, specs, trace=ctx.trace())
+            if res.get("router"):  # the smart router answered: say who, what it skipped, and what is left
+                yield {"type": "router", **res["router"]}
         except HTTPException as e:
             receipts.record_turn(ctx, "model_error", str(e.detail))
             yield {"type": "error", "error": str(e.detail)}

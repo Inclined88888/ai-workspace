@@ -168,10 +168,19 @@ async def responses(req: Request):
                 problems.append("input_image needs an image_url")
     if problems:
         return JSONResponse({"error": {"message": "; ".join(problems)}}, status_code=400)
+    scripted = bool(SCRIPT)
     reply = _next_reply(body)
     if reply.get("_fail"):
         return JSONResponse({"error": {"message": "upstream exploded"}}, status_code=500)
     usage = {"input_tokens": 700, "output_tokens": 30, "total_tokens": 730}
+    if body.get("stream") and scripted:  # a scripted turn, streamed the way Sign in with ChatGPT requires (stream: true)
+        out = [{"type": "function_call", "call_id": tc["id"], "name": tc["function"]["name"], "arguments": tc["function"]["arguments"]}
+               for tc in reply.get("tool_calls") or []]
+        if reply.get("content"):
+            out.insert(0, {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": reply["content"]}]})
+        evs = [{"type": "response.output_text.delta", "delta": reply["content"], "item_id": "m", "output_index": 0, "content_index": 0}] if reply.get("content") else []
+        evs += [{"type": "response.output_item.done", "output_index": i, "item": it} for i, it in enumerate(out)]
+        return _sse(evs + [{"type": "response.completed", "response": {"status": "completed", "output": out, "usage": usage}}], named=True)
     if body.get("stream"):
         return _sse([{"type": "response.output_text.delta", "delta": "streamed", "item_id": "m", "output_index": 0, "content_index": 0},
                      {"type": "response.completed", "response": {"status": "completed", "output": [], "usage": usage}}], named=True)
