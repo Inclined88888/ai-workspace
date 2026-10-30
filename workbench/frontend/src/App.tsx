@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CommandPalette } from "./Palette";
+import Teammates from "./teammates/Teammates"; // feat/grok-style
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { api } from "./api";
 import { EdgeGlow, transitionClick } from "./motion";
@@ -95,6 +96,7 @@ const NAV: NavGroup[] = [
     { to: "/files", label: "Files", icon: FolderOpen },
     { to: "/sites", label: "Sites", icon: Globe2 },
     { to: "/automations", label: "Automations", icon: CalendarClock },
+    { to: "/teammates", label: "Teammates", icon: Users }, // feat/grok-style
     { to: "/teach", label: "Show me how", icon: GraduationCap },
     { to: "/packs", label: "Packs", icon: Package }, // feat/v02-packs
     { to: "/meetings", label: "Meetings", icon: Users }, // feat/v02-anywhere-voice
@@ -294,6 +296,8 @@ export default function App() {
           <Route path="/models" element={<Models />} />
           <Route path="/assistant-settings" element={<Assistant tab="settings" />} />
           <Route path="/automations" element={<Automations />} />
+          <Route path="/teammates" element={<Teammates />} />{/* feat/grok-style */}
+          <Route path="/teammates/:id" element={<Teammates />} />{/* feat/grok-style */}
           <Route path="/jobs" element={<JobsPage />} />{/* feat/v02-automations */}
           <Route path="/company" element={<Company />} />
           <Route path="/research" element={<Research />} />
