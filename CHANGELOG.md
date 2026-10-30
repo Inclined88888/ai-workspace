@@ -4,6 +4,28 @@ Every user-visible change that needs action, or changes data on upgrade, gets an
 migration steps, rollback steps. Workbench has no release numbers yet (BACKLOG). Entries are identified by schema
 version and the merge commit on `main`.
 
+## 2026-10-30 · iPhone and Android companion app (phase 4) · branch feat/mobile-app (builds on feat/premium-ui)
+
+Workbench side (pairing, API, push hook). The app itself is in `mobile/`; its lines follow.
+
+- **Pairing.** Settings → Phone shows a QR code and an 8-character code (5 minutes, single use, stored hashed). The phone exchanges it for a device token (`wbd_…`, stored hashed; kept in the phone's Keychain/Keystore). Settings lists paired phones and unpairs them. Ten wrong codes per address per 5 minutes are refused.
+- **Scoped phone API** under `/api/mobile/*`: home glance, approvals approve/deny, runs and traces, tasks, notes, conversations, model list, chat (streamed, channel `mobile`), photo and voice attachments, push token. A device token cannot reach Settings, keys, mail, the password or other phones. Decisions from the phone are logged with channel `mobile`.
+- **On your Wi-Fi.** Desktop app: "Phone access on this Wi-Fi" starts a listener on `0.0.0.0:8766` (`WORKBENCH_MOBILE_PORT`) that serves only `/api/mobile/*` and `/healthz`; remembered across restarts. Docker: `BIND_ADDRESS=0.0.0.0` plus `MOBILE_URLS`.
+- **Away from home.** A relay address (Tailscale, Cloudflare Tunnel, or a future relay) in Settings or `MOBILE_RELAY_URL` is offered to the phone after the Wi-Fi address. See `docs/mobile-pairing.md`.
+- **Push (off by default).** "Approval needed" and "Run finished" through Expo's push service, only when Settings → Phone → Push notifications is on and a phone registered a token. Needs Expo/APNs/FCM credentials in the app build.
+- **New tables** `devices` and `pairing_codes` (created automatically; no data migration, schema version unchanged). New dependency `segno` (QR codes, pure Python). Rollback: run the previous build; the two tables are ignored.
+- Screenshots: `screenshots/mobile/settings-phone-*.png`.
+
+The app (`mobile/`, Expo SDK 58, React Native, TypeScript, Expo Router; see `mobile/README.md`):
+
+- **Screens.** Today (what needs you, an ask box, jobs on the desk, tasks, notes), Chats, Chat (streaming-style reveal, Markdown and code blocks with copy, tool receipts, inline approvals), Approvals (one-tap Approve/Deny, tab badge), Runs (live status, "Needs a look", receipt with trace), Settings (paired computer, model, Paper/Ink/System, haptics, notifications, unpair) and Pair (QR scan, typed address and code, `aiworkspace://pair` deep link).
+- **Compose from the phone.** On-device dictation (development build), photo from camera or library, image/audio files (10 MB); attachments go to the computer and are referred to in the message.
+- **Security.** Device token in SecureStore (Keychain/Keystore, this device only); tokens revocable from either side; every chat and decision from the phone is logged as a receipt with channel `mobile`; chat sends an Idempotency-Key; no secrets or credentials in the repo.
+- **Push.** Expo push for "Approval needed" and "Run finished"; tapping opens the approval or run. Needs an EAS project id plus APNs/FCM V1 credentials (documented).
+- **Look.** The editorial redesign on the phone: warm paper `#F5F1E8` and ink, Bodoni Moda and Hanken Grotesk, cherry red `#D21F3C`, baby-blue fills, hairline rules, square corners, fade/lift page turns and haptics. Optional dark (Ink).
+- **Builds.** `eas.json` profiles for a development client, an Android preview APK and store builds; README covers Expo Go, TestFlight, Play internal testing and store release (Apple US$99/year, Google Play US$25 once).
+- **Checks.** 37 jest tests (pairing links, SSE parsing, Markdown, reveal, turn reducer, API client), typecheck, lint, `expo-doctor` 20/20, web export. Phone screenshots: `screenshots/phone-*.png`.
+
 ## 2026-10-30 · Editorial UI redesign (light-first) · branch feat/premium-ui (builds on feat/desktop-app)
 
 Replaces the dark, gradient "premium" look with a quiet 90s fashion-editorial style. The structural work from the premium pass is kept: command palette, code blocks, skeletons, streaming and accessibility.

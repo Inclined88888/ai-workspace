@@ -108,14 +108,14 @@ def pending(conversation_id: int | None = None) -> list[dict]:
     return [approval(r["id"]) for r in rows]
 
 
-def decide(action_id: int, approve: bool) -> int:
+def decide(action_id: int, approve: bool, channel: str = "web") -> int:
     """Record the user's answer. Raises 409 if it was already answered (by another click or client)."""
     a = approval(action_id)
     if a["status"] != "pending":
         raise HTTPException(409, f"Already {a['status']}")
     try:
         return add("decision", "approved" if approve else "denied", tool=a["tool"],
-                   trace={"channel": "web", "conversation_id": a["conversation_id"], "parent": action_id})
+                   trace={"channel": channel, "conversation_id": a["conversation_id"], "parent": action_id})
     except sqlite3.IntegrityError as e:
         raise HTTPException(409, "Already decided") from e
 
