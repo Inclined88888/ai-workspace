@@ -160,6 +160,21 @@ def _load_skill(name: str, ctx: Ctx) -> dict:
     return {"name": s["name"], "steps": s["steps"]}
 
 
+def _read_skill_file(skill: str, path: str) -> dict:
+    from . import skills_hub
+
+    return skills_hub.read_file(skill, path)
+
+
+def _run_skill_script(skill: str, script: str, args: str = "") -> dict:
+    """Runs inside the skill sandbox with only the permissions the user granted at install."""
+    import shlex
+
+    from . import skills_hub
+
+    return skills_hub.run_script(skill, script, shlex.split(args)[:20] if args else [])
+
+
 def _save_skill(name: str, description: str, steps: str) -> dict:
     from .learn import upsert_skill
 
@@ -236,6 +251,12 @@ TOOLS: list[Tool] = [
     # Skills
     Tool("load_skill", "Load the steps of a saved skill by name before doing that kind of task.", {"name": S()},
          lambda name, ctx=None: _load_skill(name, ctx), ("name",)),
+    Tool("read_skill_file", "Read a helper file of a skill installed from GitHub (path relative to the skill folder).",
+         {"skill": S(), "path": S()}, _read_skill_file, ("skill", "path"), untrusted=True),
+    Tool("run_skill_script", "Run a helper script of a skill installed from GitHub, sandboxed with the permissions the user granted. "
+         "args is a space-separated string. Blocked actions come back as needs_approval: tell the user, do not retry.",
+         {"skill": S(), "script": S("path inside the skill, e.g. scripts/convert.py"), "args": S()}, _run_skill_script,
+         ("skill", "script"), effect="external", untrusted=True),
     Tool("save_skill", "Save or improve a reusable procedure. name is short-kebab-case; steps is Markdown.",
          {"name": S(), "description": S("when to use it"), "steps": S()}, _save_skill, ("name", "description", "steps"),
          effect="persistent"),

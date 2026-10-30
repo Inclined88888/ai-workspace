@@ -2,6 +2,7 @@ import { ArrowLeft, ArrowUp, BookOpen, Brain, Check, Copy, KeyRound, Loader2, Me
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, stream } from "../api";
+import { Tracer } from "../Tracer";
 import { Empty, Markdown, ModelSelect, relTime, SkeletonList, StreamingMarkdown, useModels, useToast } from "../util";
 
 type Conv = { id: number; title: string; channel: string; updated_at: string; model: string };
@@ -191,7 +192,8 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
           </div>
         </div>
         <form className="composer-wrap" onSubmit={send}>
-          <div className="composer">
+          <div className={`composer has-tracer${busy ? " is-working" : ""}`}>
+            <Tracer active={busy} label="Assistant is working" />
             <textarea ref={composerRef} rows={1} value={text} aria-label="Message"
               onChange={(e) => { setText(e.target.value); const t = e.target; t.style.height = "auto"; t.style.height = `${Math.min(240, t.scrollHeight)}px`; }}
               placeholder="Ask anything, or describe a job to do…"
@@ -252,12 +254,12 @@ function MemoryTab() {
   );
 }
 
-function SkillsTab() {
+export function SkillsTab() {
   const [items, setItems] = useState<Skill[]>([]);
   const [open, setOpen] = useState<number | null>(null);
   const [draft, setDraft] = useState<Skill | null>(null);
   const toast = useToast();
-  const load = () => api<Skill[]>("/skills").then(setItems).catch(toast.err);
+  const load = () => api<Skill[]>("/skills").then((r) => setItems(r.filter((s) => s.source !== "github"))).catch(toast.err);
   useEffect(() => { load(); }, []);
   const save = async () => {
     if (!draft) return;
@@ -269,7 +271,7 @@ function SkillsTab() {
   };
   return (
     <div className="col gap-lg">
-      <div className="row"><p className="muted grow" style={{ margin: 0 }}>Reusable procedures. The assistant writes these after complex tasks and improves them on reuse. You can edit, disable or add your own.</p>
+      <div className="row"><p className="muted grow" style={{ margin: 0 }}>Procedures written here or learned by the assistant after complex tasks. Edit, disable or add your own.</p>
         <button className="btn" onClick={() => setDraft({ id: 0, name: "", description: "", steps: "", uses: 0, source: "user", enabled: 1 })}><Plus size={14} /> Skill</button></div>
       {draft && (
         <div className="card col">

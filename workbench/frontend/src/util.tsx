@@ -3,6 +3,7 @@ import { marked } from "marked";
 import { Check, X } from "lucide-react";
 import { MouseEvent, useEffect, useRef, useState } from "react";
 import { api, Model } from "./api";
+import { motionOff } from "./appearance";
 
 marked.setOptions({ gfm: true, breaks: true });
 
@@ -33,9 +34,9 @@ export function Markdown({ text, className = "" }: { text: string; className?: s
   return <div className={`prose ${className}`} onClick={onCopyClick} dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
-const reducedMotion = () => typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+const reducedMotion = motionOff;
 
-/** Reveals a freshly arrived answer progressively with a caret, like a live stream. Instant under reduced motion. */
+/** Reveals a freshly arrived answer progressively with a caret, like a live stream. Instant when motion is off or the OS asks for reduced motion. */
 export function StreamingMarkdown({ text, onDone }: { text: string; onDone?: () => void }) {
   const [n, setN] = useState(() => (reducedMotion() ? text.length : 0));
   const done = useRef(false);

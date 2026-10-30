@@ -4,6 +4,41 @@ Every user-visible change that needs action, or changes data on upgrade, gets an
 migration steps, rollback steps. Workbench has no release numbers yet (BACKLOG). Entries are identified by schema
 version and the merge commit on `main`.
 
+## 2026-10-30 · Signature motion, simple appearance controls, secure GitHub skills · branch feat/skills-and-motion (builds on feat/premium-ui)
+
+- **Tracer.** While the assistant, a research job, a browser-agent task or a run is working, a thin cherry line with an ink tip travels around the composer or card border. It is drawn as an SVG rect with `stroke-dashoffset` on the compositor, so it adds no layout work.
+- **Motion.** Added page-turn route transitions, staggered cards, press and hover feedback, and nav dots.
+  - There is a new **Motion** setting: Full, Subtle (slower tracer, fades only) or Off (a static 1px line, no animation).
+  - The OS "reduce motion" setting always wins.
+- **Appearance page** (`/appearance`, also in the sidebar foot and the Cmd/Ctrl-K palette) has these controls, all with a live preview:
+  - Theme: Paper, Linen, Gallery or Night
+  - Typeface: Editorial, Modern, Classic or System
+  - Text size: 12–18 px
+  - Spacing: Comfortable or Compact
+  - Motion
+  - Accent: Cherry, Ink, Cobalt, Forest or Ochre
+
+  Settings are stored in the browser as `wb-appearance`. The old `wb-theme` value migrates automatically ("dark" becomes Night). The sidebar Light/Dark switch is gone; the palette has "Paper theme", "Night theme" and similar commands.
+- **Simpler navigation.** The sidebar now has three groups:
+  - Primary: Home, Chat, Tasks, Notes, Calendar, Mail
+  - Agents: Automations, Skills, Research, Browser agent
+  - A collapsible **More** group (remembered as `wb-nav-more`) holding the admin pages
+- **Skills page** (`/skills`; the old `/assistant-skills` redirects to it).
+  - Add a skill or MCP server from a GitHub link, or search GitHub.
+  - Every candidate passes an 8-stage gate: pinned fetch, code scan, prompt-injection scan, permission manifest, sealed trial run, risk verdict, your per-permission approval, and run-time enforcement with an audit log.
+  - High risk is blocked unless you type `install <name> anyway`.
+  - Updates re-run the gate and show a diff. Access an update newly asks for is never pre-ticked.
+  - Installed skills can be turned off or uninstalled. Blocked run-time actions become requests under **Activity**.
+  - Installed skills are available to the assistant (`load_skill`, `run_skill_script`) and to Rooks Code over MCP.
+  - Details and known gaps: `docs/skills-security.md`.
+- **Data / migration.** Three new tables are created on startup (`hub_skills`, `skill_audit`, `skill_permission_requests`; additive, `CREATE TABLE IF NOT EXISTS`). Skill files live in `DATA_DIR/skills/{staging,installed}`. No existing data changes.
+- **Rollback.** Check out `feat/premium-ui`. The new tables and `DATA_DIR/skills` are ignored by older builds and can be deleted.
+- **Tests.**
+  - Backend: 197 pass, including 30 skill-gate tests in which every malicious fixture comes out High and is refused, and the benign ones come out Low and install.
+  - Frontend: `npm test` runs 6 Appearance unit tests with Node's built-in runner.
+- **Bundle.** JS is 444.43 kB (132.37 kB gzip) and CSS is 51.25 kB (10.93 kB gzip).
+- **Screenshots** are in `screenshots/skills/`, including `tracer-composer.mp4` and `tracer-composer.gif`.
+
 ## 2026-10-30 · Editorial UI redesign (light-first) · branch feat/premium-ui (builds on feat/desktop-app)
 
 Replaces the dark, gradient "premium" look with a quiet 90s fashion-editorial style. The structural work from the premium pass is kept: command palette, code blocks, skeletons, streaming and accessibility.
