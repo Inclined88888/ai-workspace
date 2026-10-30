@@ -184,3 +184,50 @@ export function Empty({ icon, title, hint, hero = false, children }: { icon?: Re
     </div>
   );
 }
+
+/** What the smart router reports with each answer (router.py). */
+export type RouterQuota = {
+  used_today: number; free: boolean; resets_at: string; note?: string; limit?: number; remaining?: number | null;
+  window?: "day" | "minute"; estimated?: boolean; cooling_until?: string; cooling_reason?: string;
+};
+export type RouterInfo = {
+  provider: string; label?: string; model: string; tier: "fast" | "strong"; subscription?: boolean;
+  fallbacks: { provider: string; model: string; reason: string }[]; quota?: RouterQuota;
+  resting?: { provider: string; reason: string; until: string }[];
+};
+
+const n = (x: number) => x.toLocaleString();
+
+export function resetTime(iso?: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+/** "812 of 1,000 free requests left today", or the honest fallback when the provider doesn't say. */
+export function quotaText(q?: RouterQuota, subscription?: boolean): string {
+  if (!q) return "";
+  if (subscription) return "on your plan";
+  if (q.limit != null && q.remaining != null && q.window === "day")
+    return `${q.estimated ? "about " : ""}${n(q.remaining)} of ${n(q.limit)}${q.free ? " free" : ""} requests left today`;
+  if (q.limit != null && q.remaining != null) return `${n(q.used_today)} used today · ${n(q.remaining)} of ${n(q.limit)} left this minute`;
+  return `${n(q.used_today)} used today${q.free ? " · free tier" : ""}`;
+}
+
+/** The "via" line under an answer: who answered, how much free quota is left, and what was skipped. */
+export function RouterVia({ r }: { r: RouterInfo }) {
+  const short = r.model.split("/").pop();
+  return (
+    <div className="via" title={r.quota?.note || undefined}>
+      <span className="via-who">via <b>{r.provider}</b> · {short}</span>
+      <span className="via-tier">{r.tier}</span>
+      {r.quota && <span className="via-quota">{quotaText(r.quota, r.subscription)}</span>}
+      {r.fallbacks.map((f, i) => (
+        <span key={i} className="via-skip">{f.provider} {f.reason}{f.reason === "daily limit reached" ? ", switched" : ", skipped"}</span>
+      ))}
+      {(r.resting || []).map((x, i) => (
+        <span key={`r${i}`} className="via-skip">{x.provider} resting until {resetTime(x.until)} ({x.reason})</span>
+      ))}
+    </div>
+  );
+}

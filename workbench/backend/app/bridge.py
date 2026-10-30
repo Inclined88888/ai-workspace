@@ -49,11 +49,14 @@ def _schema(response_format: dict | None) -> dict | None:
 
 
 @router.post("/chat/completions")
-async def chat_completions(data: CompletionIn):
+async def chat_completions(data: CompletionIn, request: Request):
     if data.stream:
         raise HTTPException(400, "Streaming is not supported on this endpoint")
     ref = None if data.model in ("default", "") else data.model
-    res = await llm.chat(ref, data.messages, data.tools, trace={"channel": "browser"}, schema=_schema(data.response_format))
+    # Rooks Code sends X-Workbench-Channel: rooks-code; the router picks a strong model for both clients either way
+    channel = request.headers.get("x-workbench-channel", "browser")
+    channel = channel if channel in ("browser", "rooks-code", "rooks-browser") else "browser"
+    res = await llm.chat(ref, data.messages, data.tools, trace={"channel": channel}, schema=_schema(data.response_format))
     msg = res["message"]
     out = {"role": "assistant", "content": msg.get("content") or None}
     if msg.get("tool_calls"):
@@ -62,7 +65,8 @@ async def chat_completions(data: CompletionIn):
     return {"id": f"chatcmpl-{uuid.uuid4().hex[:24]}", "object": "chat.completion", "created": int(time.time()), "model": res["ref"],
             "choices": [{"index": 0, "message": out, "finish_reason": "tool_calls" if msg.get("tool_calls") else "stop"}],
             "usage": {"prompt_tokens": u.get("prompt_tokens", 0), "completion_tokens": u.get("completion_tokens", 0),
-                      "total_tokens": u.get("prompt_tokens", 0) + u.get("completion_tokens", 0)}}
+                      "total_tokens": u.get("prompt_tokens", 0) + u.get("completion_tokens", 0)},
+            **({"router": res["router"]} if res.get("router") else {})}
 
 
 @router.get("/models")

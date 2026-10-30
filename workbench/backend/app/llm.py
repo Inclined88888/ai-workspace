@@ -32,6 +32,14 @@ PRESETS = {
                "note": "Free tier with a key from aistudio.google.com (Flash and Flash-Lite models). Google may use free tier prompts to improve its products."},
     # OpenCode's own free models are refused outside the OpenCode app ("Free models work in OpenCode"),
     # so only the paid Zen and the Go subscription are offered here. Free OpenCode models: the paperclip add-on.
+    "groq": {"name": "Groq", "auth_kind": "api_key", "protocol": "chat_completions", "base_url": "https://api.groq.com/openai/v1",
+             "note": "Free key from console.groq.com, no card. gpt-oss-120b and -20b: 30 requests/min, 1,000 a day."},
+    "xai": {"name": "xAI Grok", "auth_kind": "api_key", "protocol": "chat_completions", "base_url": "https://api.x.ai/v1",
+            "note": "API key from console.x.ai. SuperGrok sign-in is only offered to xAI's partner apps for now."},
+    "mistral": {"name": "Mistral", "auth_kind": "api_key", "protocol": "chat_completions", "base_url": "https://api.mistral.ai/v1",
+                "note": "Key from console.mistral.ai (the free Experiment plan works, with low limits)."},
+    "deepseek": {"name": "DeepSeek", "auth_kind": "api_key", "protocol": "chat_completions", "base_url": "https://api.deepseek.com",
+                 "note": "Pay as you go key from platform.deepseek.com."},
     "opencode-go": {"name": "OpenCode Go", "auth_kind": "api_key", "protocol": "chat_completions",
                     "base_url": "https://opencode.ai/inference/go/openai/v1", "note": "OpenCode Go subscription ($10/month flat). Key from opencode.ai/console."},
     "opencode-zen": {"name": "OpenCode Zen", "auth_kind": "api_key", "protocol": "chat_completions",
@@ -39,7 +47,31 @@ PRESETS = {
     "compatible": {"name": "OpenAI compatible server", "auth_kind": "openai_compatible", "protocol": "chat_completions",
                    "base_url": "http://127.0.0.1:1234/v1" if config.DESKTOP else "http://host.docker.internal:1234/v1", "note": "LM Studio, vLLM, llama.cpp server, LiteLLM, Groq, Together. Key optional."},
 }
-SEED = {"openai": "openai", "anthropic": "anthropic", "openrouter": "openrouter", "gemini": "gemini"}  # .env key -> preset
+SEED = {"openai": "openai", "anthropic": "anthropic", "openrouter": "openrouter", "gemini": "gemini", "groq": "groq", "xai": "xai"}  # .env key -> preset
+
+# Shown by the first-run screen and Models: where to get a key, what the free tier gives, and how a key looks.
+KEY_INFO = {
+    "gemini": {"url": "https://aistudio.google.com/app/apikey", "prefix": "AIza", "free": True,
+               "limits": "Free: Flash-Lite and Flash, daily limits per project (see AI Studio). Resets midnight Pacific."},
+    "groq": {"url": "https://console.groq.com/keys", "prefix": "gsk_", "free": True,
+             "limits": "Free: 30 requests/min and 1,000 a day on gpt-oss-120b. Resets daily."},
+    "openrouter": {"url": "https://openrouter.ai/settings/keys", "prefix": "sk-or-", "free": True,
+                   "limits": "Free models: 20/min and 50 a day (1,000 a day after $10 of credits)."},
+    "openai": {"url": "https://platform.openai.com/api-keys", "prefix": "sk-"},
+    "anthropic": {"url": "https://console.anthropic.com/settings/keys", "prefix": "sk-ant-"},
+    "xai": {"url": "https://console.x.ai", "prefix": "xai-"},
+    "mistral": {"url": "https://console.mistral.ai/api-keys", "prefix": ""},
+    "deepseek": {"url": "https://platform.deepseek.com/api_keys", "prefix": "sk-"},
+}
+
+
+def detect_key(key: str) -> str | None:
+    """Which preset a pasted key belongs to, from its prefix. Ambiguous "sk-" keys are guessed as OpenAI."""
+    k = key.strip()
+    for preset in ("openrouter", "anthropic", "gemini", "groq", "xai"):
+        if k.startswith(KEY_INFO[preset]["prefix"]):
+            return preset
+    return "openai" if k.startswith("sk-") else None
 
 
 def seed_connections() -> None:
@@ -65,6 +97,10 @@ def _connection(cid: int) -> dict:
 
 
 def split_ref(ref: str) -> tuple[dict, str]:
+    from . import router
+
+    if router.is_auto(ref):
+        raise HTTPException(400, "The smart router picks a model per call; resolve it with router.candidates")
     cid, _, model = ref.partition("/")
     if not cid.isdigit() or not model:
         raise HTTPException(400, f"Invalid model reference '{ref}'")
@@ -78,10 +114,20 @@ def adapter(ref: str | None) -> tuple[Adapter, dict, str, str]:
     return Adapter(conn), conn, model, ref
 
 
+def check_ref(ref: str) -> None:
+    """Raises unless ref names a usable model: "<connection>/<model>", or "auto" (the smart router)."""
+    from . import router
+
+    if not router.is_auto(ref):
+        split_ref(ref)
+
+
 def default_model_ref() -> str:
     saved = db.get_setting("default_model")
     if saved:
         return saved
+    if db.one("SELECT id FROM connections WHERE enabled = 1 AND auth_kind NOT IN ('local_ollama', 'session_scraping_forbidden') LIMIT 1"):
+        return "auto"  # cloud first: the smart router uses whatever is connected and falls back on limits
     local = db.one("SELECT id FROM connections WHERE auth_kind = 'local_ollama' AND enabled = 1 ORDER BY id LIMIT 1")
     if local:
         return f"{local['id']}/{config.DEFAULT_MODEL}"
@@ -118,8 +164,14 @@ def list_models_for(cid: int, fresh: bool = False) -> list[dict]:
 
 
 def list_models(fresh: bool = False) -> list[dict]:
-    """Every usable model. A connection that cannot be used (refused, needs sign-in) is skipped, never fatal (R4)."""
+    """Every usable model, the smart router's "auto" refs first. A connection that cannot be used (refused, needs
+    sign-in) is skipped, never fatal (R4)."""
+    from . import router
+
     out: list[dict] = []
+    if router.any_routable():
+        out = [{"ref": r, "model": label, "provider": "Smart router", "provider_id": 0, "free": None, "virtual": True}
+               for r, label in router.AUTO_LABELS.items()]
     for c in db.all("SELECT id FROM connections WHERE enabled = 1 ORDER BY id"):
         try:
             out.extend(list_models_for(c["id"], fresh))
@@ -134,7 +186,12 @@ def is_free(conn: dict, model: str) -> bool:
 
 def context_chars(ref: str | None) -> int:
     """Characters of prompt this model can take, keeping a quarter of the window for the reply."""
+    from . import router
+
     try:
+        if router.is_auto(ref or default_model_ref()):
+            first = router.candidates("strong")
+            return Adapter(first[0][0]).context_chars() if first else 300_000
         return adapter(ref)[0].context_chars()
     except HTTPException:
         return 300_000
@@ -160,10 +217,21 @@ def _record(conn: dict, ref: str, trace: dict | None, started: float, usage: dic
 
 async def chat(ref: str | None, messages: list[dict], tools: list[dict] | None = None, trace: dict | None = None,
                schema: dict | None = None) -> dict:
-    """One non-streaming turn with optional tool calling, recorded as one model_call action.
+    """One non-streaming turn with optional tool calling, recorded as one model_call action per provider tried.
 
-    Returns {"message": {...}, "usage": {...}, "ref": str, "model": str, "usd": float | None, "action_id": int}.
+    Returns {"message": {...}, "usage": {...}, "ref": str, "model": str, "usd": float | None, "action_id": int}, plus
+    "router" (who answered, fallbacks, quota) when ref is "auto".
     """
+    from . import router
+
+    ref = ref or default_model_ref()
+    if router.is_auto(ref):
+        return await router.chat(ref, messages, tools, trace, schema)
+    return await chat_one(ref, messages, tools, trace, schema)
+
+
+async def chat_one(ref: str | None, messages: list[dict], tools: list[dict] | None = None, trace: dict | None = None,
+                   schema: dict | None = None) -> dict:
     a, conn, model, ref = adapter(ref)
     started = time.monotonic()
     try:
@@ -181,7 +249,20 @@ async def complete(ref: str | None, messages: list[dict], trace: dict | None = N
 
 
 async def stream(ref: str | None, messages: list[dict], trace: dict | None = None) -> AsyncIterator[dict]:
-    """Yields {"reasoning"} and {"delta"} chunks, then {"done": True, "usage", "ms", "first_token_ms"} or {"error"}."""
+    """Yields {"reasoning"} and {"delta"} chunks, then {"done": True, "usage", "ms", "first_token_ms"} or {"error"}.
+    With "auto", also {"router": {...}} before the first token and on the done event."""
+    from . import router
+
+    ref = ref or default_model_ref()
+    if router.is_auto(ref):
+        async for e in router.stream(ref, messages, trace):
+            yield e
+        return
+    async for e in stream_one(ref, messages, trace):
+        yield e
+
+
+async def stream_one(ref: str | None, messages: list[dict], trace: dict | None = None) -> AsyncIterator[dict]:
     a, conn, model, ref = adapter(ref)
     started = time.monotonic()
     first_token_ms = None

@@ -1,0 +1,79 @@
+/* ---- Cloud models: first-run "Choose how to think", the Models page, and the "via" line under answers ---- */
+.welcome-title { margin: 0; font-family: var(--serif); font-weight: 400; font-size: clamp(30px, 4.4vw, 40px); letter-spacing: -0.01em; line-height: 1.05; }
+.welcome-title::after { content: ""; display: block; width: 36px; height: 2px; margin: 14px auto 0; background: var(--accent); }
+.welcome-option.recommended strong { font-style: italic; }
+.welcome-option.quiet { padding-top: 14px; padding-bottom: 14px; }
+.welcome-option.quiet strong { font-size: 17px; color: var(--muted); }
+.tag-rec, .tag-adv, .tag-kind {
+  display: inline-flex; align-items: center; height: 18px; padding: 0 7px; font-family: var(--sans, inherit); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.12em; text-transform: uppercase; border: 1px solid currentColor; line-height: 1;
+}
+.tag-rec { color: var(--accent-text); }
+.tag-adv, .tag-kind { color: var(--muted); border-color: var(--border-strong); }
+.tag-kind.free { color: var(--ok-text); border-color: currentColor; }
+
+.free-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--border); }
+.free-card {
+  display: flex; flex-direction: column; gap: 6px; text-align: left; padding: 16px 16px 16px 0; background: none; border: none; cursor: pointer;
+  font: inherit; color: var(--text); position: relative;
+}
+.free-card + .free-card { padding-left: 16px; border-left: 1px solid var(--border); }
+.free-card strong { font-family: var(--serif); font-weight: 500; font-size: 20px; }
+.free-card.on strong { color: var(--accent-text); font-style: italic; }
+.free-card.on::before { content: ""; position: absolute; top: -1px; left: 0; right: 16px; height: 3px; background: var(--accent); }
+.free-card + .free-card.on::before { left: 16px; right: 0; }
+.free-card .tiny { font-size: 11px; line-height: 1.4; }
+.free-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.free-steps li { display: flex; align-items: flex-start; gap: 14px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.free-steps li .grow { padding-top: 3px; }
+.free-n { flex: none; width: 26px; height: 26px; display: grid; place-items: center; border: 1px solid var(--rule); font-family: var(--serif); font-size: 15px; font-style: italic; }
+.free-steps li.done .free-n { background: var(--ink-btn); color: var(--on-ink); border-color: var(--ink-btn); }
+.key-field { display: flex; gap: 6px; align-items: center; }
+.key-field .input { flex: 1; }
+
+.sub-card { padding: 16px 0; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
+.sub-card.on { border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
+.sub-card p { margin: 0; line-height: 1.5; }
+.sub-name { font-family: var(--serif); font-weight: 500; font-size: 20px; }
+.sub-card.off .sub-name { color: var(--muted); }
+.sub-card .tiny { font-size: 11px; letter-spacing: 0.04em; }
+
+/* Models page */
+.models-page .lede { margin: 2px 0 0; max-width: 620px; font-family: var(--serif); font-style: italic; font-size: 19px; line-height: 1.45; color: var(--muted); }
+.tier-strip { display: grid; grid-template-columns: 1fr 1fr; border-top: 2px solid var(--rule); border-bottom: 1px solid var(--rule); margin: 18px 0 8px; }
+.tier-strip > div { display: flex; flex-direction: column; gap: 2px; padding: 14px 0; }
+.tier-strip > div + div { padding-left: 20px; border-left: 1px solid var(--border); }
+.tier-strip .kicker { margin: 0; }
+.tier-strip strong { font-family: var(--serif); font-weight: 500; font-size: 24px; }
+.route-list { list-style: none; padding: 0; margin: 0 0 18px; }
+.route-item { display: grid; grid-template-columns: 54px 1fr auto; gap: 16px; padding: 18px 0; border-bottom: 1px solid var(--border); align-items: start; }
+.route-item.off { opacity: 0.5; }
+.route-n { font-family: var(--serif); font-size: 30px; font-style: italic; line-height: 1; color: var(--faint); }
+.route-item:first-child .route-n { color: var(--accent-text); }
+.route-main { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.route-name { font-family: var(--serif); font-weight: 500; font-size: 21px; }
+.route-models { display: flex; gap: 18px; flex-wrap: wrap; }
+.route-model { display: flex; flex-direction: column; gap: 4px; min-width: 220px; }
+.route-model .kicker { margin: 0; }
+.route-model .input.sm { height: 30px; font-size: var(--text-sm); }
+.route-quota { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.route-actions { display: flex; align-items: center; gap: 4px; }
+.route-item.cooling .route-name { text-decoration: line-through; text-decoration-color: var(--accent); text-decoration-thickness: 1px; }
+.meter { width: 120px; height: 4px; background: var(--border); }
+.meter > div { height: 100%; background: var(--text); transition: width var(--dur-slow) var(--ease-out); }
+.switch-label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+
+/* The "via" line under an answer */
+.via { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border);
+  font-size: 11px; letter-spacing: 0.02em; color: var(--muted); font-variant-numeric: tabular-nums; }
+.via-who b { font-weight: 650; color: var(--text); }
+.via-tier { text-transform: uppercase; letter-spacing: 0.12em; font-size: 9.5px; font-weight: 700; border: 1px solid var(--border-strong); padding: 1px 6px; }
+.via-quota::before, .via-skip::before { content: "·"; margin-right: 10px; color: var(--faint); }
+.via-skip { color: var(--accent-text); font-style: italic; font-family: var(--serif); font-size: 13px; }
+@media (max-width: 640px) {
+  .free-grid, .tier-strip { grid-template-columns: 1fr; }
+  .free-card + .free-card, .tier-strip > div + div { padding-left: 0; border-left: none; border-top: 1px solid var(--border); }
+  .route-item { grid-template-columns: 34px 1fr; }
+  .route-actions { grid-column: 2; }
+}
+.models-page { width: 100%; box-sizing: border-box; }

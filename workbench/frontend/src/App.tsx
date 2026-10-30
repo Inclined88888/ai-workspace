@@ -1,5 +1,5 @@
 import {
-  Activity, Bot, Brain, Building2, CalendarClock, CalendarDays, ChevronRight, MessageSquare, CheckSquare, Globe, Columns3, ExternalLink, FileText, Home, LogOut, Mail, Menu, NotebookPen,
+  Activity, Gauge, Bot, Brain, Building2, CalendarClock, CalendarDays, ChevronRight, MessageSquare, CheckSquare, Globe, Columns3, ExternalLink, FileText, Home, LogOut, Mail, Menu, NotebookPen,
   ListTree, Palette as PaletteIcon, Puzzle, Search, Settings as SettingsIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -24,6 +24,7 @@ import Settings from "./pages/Settings";
 import Skills from "./pages/Skills";
 import Tasks from "./pages/Tasks";
 import Welcome from "./pages/Welcome";
+import Models from "./pages/Models";
 
 export type Status = {
   setup_complete: boolean;
@@ -38,6 +39,7 @@ export type Status = {
   /** Running inside the native desktop app (desktop/), which signs the window in itself. */
   desktop?: boolean;
   welcome_done?: boolean;
+  needs_models?: boolean;
 };
 
 type NavItem = { to: string; label: string; icon: typeof Home; addon?: "browser" };
@@ -135,7 +137,7 @@ export default function App() {
     }
     return <Auth status={status} onDone={refresh} />;
   }
-  if (status.desktop && !status.welcome_done) {
+  if ((status.desktop || status.needs_models) && !status.welcome_done) {
     return <Welcome onDone={() => { refresh(); navigate("/assistant", { replace: true }); }} />;
   }
 
@@ -178,6 +180,7 @@ export default function App() {
           );
         })}
         <div className="spacer" />
+        <NavLink to="/models" className="nav-link"><Gauge size={16} /> Models</NavLink>
         <NavLink to="/appearance" className="nav-link"><PaletteIcon size={16} /> Appearance</NavLink>
         <NavLink to="/settings" className="nav-link"><SettingsIcon size={16} /> Settings</NavLink>
         <div className="sidebar-foot">
@@ -201,6 +204,7 @@ export default function App() {
           <Route path="/assistant-skills" element={<Navigate to="/skills" replace />} />
           <Route path="/skills" element={<Skills />} />
           <Route path="/appearance" element={<Appearance />} />
+          <Route path="/models" element={<Models />} />
           <Route path="/assistant-settings" element={<Assistant tab="settings" />} />
           <Route path="/automations" element={<Automations />} />
           <Route path="/company" element={<Company />} />

@@ -37,6 +37,23 @@ CREATE TABLE IF NOT EXISTS connections (
   created_at TEXT NOT NULL
 );
 
+-- Smart router (router.py): per connection usage today, the provider's own limit headers, and cool-downs after a 429
+CREATE TABLE IF NOT EXISTS router_state (
+  connection_id INTEGER PRIMARY KEY,
+  day TEXT NOT NULL DEFAULT '',                 -- the provider's quota day this row counts (its own reset time zone)
+  requests INTEGER NOT NULL DEFAULT 0,          -- answered requests on that day
+  tokens INTEGER NOT NULL DEFAULT 0,
+  limit_requests INTEGER,                       -- from x-ratelimit-limit-requests and the like, when sent
+  remaining_requests INTEGER,
+  limit_tokens INTEGER,
+  remaining_tokens INTEGER,
+  window TEXT NOT NULL DEFAULT '',              -- what the request numbers cover: day | minute
+  cooldown_until REAL NOT NULL DEFAULT 0,       -- unix time; skipped until then
+  cooldown_reason TEXT NOT NULL DEFAULT '',
+  last_ok_at TEXT,
+  last_error TEXT NOT NULL DEFAULT ''
+);
+
 CREATE TABLE IF NOT EXISTS docs (
   id INTEGER PRIMARY KEY,
   kind TEXT NOT NULL DEFAULT 'note',            -- note | document
