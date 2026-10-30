@@ -7,6 +7,11 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CommandPalette } from "./Palette";
+import Teammates from "./teammates/Teammates"; // feat/grok-style
+import Groups from "./teammates/Groups"; // feat/grok-style
+import Vault from "./teammates/Vault"; // feat/grok-style
+import PagesLib from "./teammates/Pages"; // feat/grok-style
+import Channels from "./teammates/Channels"; // feat/grok-style
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { api } from "./api";
 import { EdgeGlow, transitionClick } from "./motion";
@@ -46,6 +51,7 @@ import Meetings from "./pages/Meetings";
 import Talk from "./pages/Talk";
 import VoiceSettings from "./pages/VoiceSettings";
 import { FolderKanban, History as HistoryIcon } from "lucide-react"; // feat/v02-core
+import { FileText as FileTextIcon, Lock as LockIcon, MessageCircle as MessageCircleIcon } from "lucide-react"; // feat/grok-style
 import Projects from "./pages/Projects"; // feat/v02-core
 import HistoryPage from "./pages/History"; // feat/v02-core
 import Packs from "./pages/Packs"; // feat/v02-packs
@@ -96,6 +102,10 @@ const NAV: NavGroup[] = [
     { to: "/files", label: "Files", icon: FolderOpen },
     { to: "/sites", label: "Sites", icon: Globe2 },
     { to: "/automations", label: "Automations", icon: CalendarClock },
+    { to: "/teammates", label: "Teammates", icon: Users }, // feat/grok-style
+    { to: "/pages", label: "Pages", icon: FileTextIcon }, // feat/grok-style
+    { to: "/vault", label: "Vault", icon: LockIcon }, // feat/grok-style
+    { to: "/channels", label: "Channels", icon: MessageCircleIcon }, // feat/grok-style
     { to: "/teach", label: "Show me how", icon: GraduationCap },
     { to: "/packs", label: "Packs", icon: Package }, // feat/v02-packs
     { to: "/meetings", label: "Meetings", icon: Users }, // feat/v02-anywhere-voice
@@ -297,6 +307,13 @@ export default function App() {
           <Route path="/models" element={<Models />} />
           <Route path="/assistant-settings" element={<Assistant tab="settings" />} />
           <Route path="/automations" element={<Automations />} />
+          <Route path="/teammates" element={<Teammates />} />{/* feat/grok-style */}
+          <Route path="/teammates/:id" element={<Teammates />} />{/* feat/grok-style */}
+          <Route path="/groups/:id" element={<Groups />} />{/* feat/grok-style */}
+          <Route path="/vault" element={<Vault />} />{/* feat/grok-style */}
+          <Route path="/pages" element={<PagesLib />} />{/* feat/grok-style */}
+          <Route path="/pages/:id" element={<PagesLib />} />{/* feat/grok-style */}
+          <Route path="/channels" element={<Channels />} />{/* feat/grok-style */}
           <Route path="/jobs" element={<JobsPage />} />{/* feat/v02-automations */}
           <Route path="/company" element={<Company />} />
           <Route path="/research" element={<Research />} />
