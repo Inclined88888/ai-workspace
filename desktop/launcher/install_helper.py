@@ -66,19 +66,67 @@ def copy_app(src: Path, home: Path) -> Path:
     return app
 
 
-def ensure_frontend(src: Path) -> None:
+def portable_node(cache: Path) -> tuple[str, dict]:
+    """Node.js 22 from nodejs.org into cache/node (checksum verified), only to build the web UI when this computer has no
+    Node.js. Returns (npm, env with that node first on PATH)."""
+    arch = {"x86_64": "x64", "amd64": "x64", "arm64": "arm64", "aarch64": "arm64"}.get(platform.machine().lower())
+    osname = "win" if WIN else "darwin" if MAC else "linux"
+    if not arch:
+        raise RuntimeError(f"no Node.js build for {platform.machine()}")
+    with urllib.request.urlopen("https://nodejs.org/dist/index.json", timeout=30) as r:
+        version = next(v["version"] for v in json.load(r) if v["version"].startswith("v22."))
+    name = f"node-{version}-{osname}-{arch}"
+    fname = name + (".zip" if WIN else ".tar.gz")
+    base = f"https://nodejs.org/dist/{version}/"
+    root = cache / "node"
+    if not (root / name).exists():
+        say(f"Node.js: downloading {version} to build the web UI (about 30 MB; removed again afterwards)…")
+        root.mkdir(parents=True, exist_ok=True)
+        with urllib.request.urlopen(base + "SHASUMS256.txt", timeout=30) as r:
+            sums = dict(reversed(line.split()) for line in r.read().decode().splitlines() if line.strip())
+        archive = root / fname
+        urllib.request.urlretrieve(base + fname, archive)
+        import hashlib
+
+        if hashlib.sha256(archive.read_bytes()).hexdigest() != sums.get(fname):
+            archive.unlink(missing_ok=True)
+            raise RuntimeError("Node.js download failed its checksum")
+        if WIN:
+            import zipfile
+
+            zipfile.ZipFile(archive).extractall(root)
+        else:
+            import tarfile
+
+            with tarfile.open(archive) as t:
+                t.extractall(root, filter="tar") if hasattr(tarfile, "data_filter") else t.extractall(root)
+        archive.unlink(missing_ok=True)
+    home = root / name
+    bindir = home if WIN else home / "bin"
+    env = {**os.environ, "PATH": str(bindir) + os.pathsep + os.environ.get("PATH", "")}
+    return str(bindir / ("npm.cmd" if WIN else "npm")), env
+
+
+def ensure_frontend(src: Path, home: Path) -> None:
     dist = src / "workbench" / "frontend" / "dist" / "index.html"
     if dist.exists():
         say("web UI: prebuilt")
         return
-    npm = shutil.which("npm")
+    npm, env = shutil.which("npm"), dict(os.environ)
+    fetched = False
     if not npm:
-        sys.exit("This copy has no prebuilt web UI (workbench/frontend/dist). Use the release zip, or install Node.js 20+ "
-                 "(nodejs.org) and run the installer again.")
-    say("web UI: building with npm (one minute)…")
+        try:
+            npm, env = portable_node(home / "cache")
+            fetched = True
+        except Exception as e:  # noqa: BLE001 - explain and stop
+            sys.exit(f"This copy has no prebuilt web UI and Node.js could not be fetched ({e}). Use the release zip, or "
+                     "install Node.js 20+ (nodejs.org) and run the installer again.")
+    say("web UI: building (one or two minutes)…")
     fe = src / "workbench" / "frontend"
-    run([npm, "ci", "--no-audit", "--no-fund"], cwd=fe)
-    run([npm, "run", "build"], cwd=fe)
+    run([npm, "ci", "--no-audit", "--no-fund", "--loglevel=error"], cwd=fe, env=env)
+    run([npm, "run", "build"], cwd=fe, env=env)
+    if fetched:
+        shutil.rmtree(home / "cache" / "node", ignore_errors=True)
 
 
 def make_venv(home: Path, app: Path) -> Path:
@@ -273,7 +321,7 @@ def main() -> int:
     home.mkdir(parents=True, exist_ok=True)
 
     step("1/5  App")
-    ensure_frontend(src)
+    ensure_frontend(src, home)
     app = copy_app(src, home)
     py = make_venv(home, app)
     say(f"app: {app}")

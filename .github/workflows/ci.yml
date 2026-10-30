@@ -157,3 +157,51 @@ jobs:
         run: python -m playwright install chromium
       - run: python -m rooks_browser doctor
       - run: python -m pytest -q
+
+  mobile:
+    name: Mobile app (Expo)
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
+        with:
+          node-version: "22"
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test -- --ci
+
+  installer:
+    name: One-command install (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14, windows-2022]
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Build the web UI (the release zip ships it prebuilt)
+        shell: bash
+        run: cd workbench/frontend && npm ci --no-audit --no-fund && npm run build
+      - name: Install (macOS, Linux)
+        if: runner.os != 'Windows'
+        run: bash install.sh --no-start
+      - name: Install (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          AI_WORKSPACE_NO_START: "1"
+        run: ./install.ps1
+      - name: Start, answer, stop
+        run: python scripts/ci/install_smoke.py
