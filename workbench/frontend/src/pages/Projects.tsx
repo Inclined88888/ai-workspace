@@ -109,7 +109,7 @@ export default function Projects() {
             <div key={p.id} className={`work-item ${sel?.id === p.id ? "on" : ""}`} role="link" tabIndex={0}
               onClick={() => navigate(`/projects/${p.id}`)} onKeyDown={(e) => { if (e.key === "Enter") navigate(`/projects/${p.id}`); }}>
               <div className="grow">
-                <div className="truncate">{p.name}{list?.active_id === p.id && <span className="v02-pill">Open</span>}</div>
+                <div className="truncate">{p.name}{list?.active_id === p.id && <span className="v02-pill">Active</span>}</div>
                 <div className="small faint truncate">
                   {p.status === "archived" ? "Archived" : p.next_deadline ? `Next: ${p.next_deadline.title} · ${p.next_deadline.due}` : `${Object.values(p.counts ?? {}).reduce((a, b) => a + b, 0)} things`}
                 </div>
@@ -117,7 +117,9 @@ export default function Projects() {
             </div>
           ))}
           <div className="pad small"><button className="btn ghost sm" onClick={() => setArchived(!archived)}>{archived ? "Hide archived" : "Show archived"}</button>
-            {list && !list.limit.unlimited && <div className="faint" style={{ marginTop: 6 }}>Free plan: {list.limit.active} of {list.limit.free_limit} project in use.</div>}
+            {list && !list.limit.unlimited && <div className="faint" style={{ marginTop: 6 }}>{list.limit.active > list.limit.free_limit
+              ? `Free plan: ${list.limit.active} projects open, the free plan keeps ${list.limit.free_limit}. Archive ${list.limit.active - list.limit.free_limit} to start a new one, or upgrade.`
+              : `Free plan: ${list.limit.active} of ${list.limit.free_limit} project in use.`}</div>}
           </div>
         </div>
 
@@ -126,7 +128,7 @@ export default function Projects() {
           {sel && (
             <div className="card col gap-lg v02-project">
               <div className="row wrap" style={{ alignItems: "flex-start" }}>
-                <div className="grow">
+                <div style={{ flex: "1 1 260px", minWidth: 0 }}>
                   <div className="v02-kicker">{sel.kind_label}</div>
                   <h2 className="v02-title">{sel.name}</h2>
                   {sel.description && <p className="muted">{sel.description}</p>}

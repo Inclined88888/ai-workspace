@@ -85,7 +85,7 @@ export default function History() {
       {upgrade && <UpgradeCard feature="action_history_export" onClose={() => setUpgrade(false)} />}
 
       <div className="row wrap v02-filters">
-        <div className="row v02-search">
+        <div className="input-icon v02-search">
           <Search size={14} className="faint" aria-hidden="true" />
           <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search your history" aria-label="Search your history" />
         </div>

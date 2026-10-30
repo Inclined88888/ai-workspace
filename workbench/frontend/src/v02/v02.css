@@ -19,8 +19,8 @@
 /* History */
 .v02-filters { gap: 12px; margin-bottom: 16px; align-items: center; }
 .v02-search { position: relative; flex: 1 1 220px; max-width: 360px; }
-.v02-search svg { position: absolute; left: 10px; }
-.v02-search .input { padding-left: 30px; height: 34px; }
+.v02-search > svg { top: 50%; transform: translateY(-50%); }
+.v02-search > .input { height: 34px; width: 100%; }
 .v02-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .v02-chip { border: 1px solid var(--border); background: var(--panel); color: var(--text); border-radius: var(--radius-full); padding: 3px 11px; font: inherit; font-size: var(--text-xs); cursor: pointer;
   transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out); }

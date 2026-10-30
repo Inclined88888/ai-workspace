@@ -193,7 +193,7 @@ def describe(name: str, a: dict, result, snap: dict) -> dict | None:
             confirm = f"This also removes it from {remote[0]['cal']}."
             if invited:
                 confirm += " The people you invited will get a cancellation email."
-        return {"category": "calendar", "title": title, "detail": ", ".join(f"{e['title']} {e['start']}" for e in new[:5]),
+        return {"category": "calendar", "title": title, "detail": "; ".join(f"{e['title']}, {_when(e['start'])}" for e in new[:5]),
                 "undo_kind": "delete_events", "undo": {"events": [{"id": e["id"], "uid": e["uid"], "kind": e["kind"]} for e in new]},
                 "confirm": confirm}
     if name == "save_email_draft":
@@ -594,6 +594,21 @@ def timeline(limit: int = 100, before: str | None = None, category: str = "", q:
 
 
 # Export -------------------------------------------------------------------------------------------------------------
+def _when(start: str) -> str:
+    """An event start the way people say it, in the user's time zone: "Tue 3 Nov, 9:00 am" (all-day: "Tue 3 Nov")."""
+    try:
+        if len(start or "") == 10:
+            d = datetime.fromisoformat(start)
+            return f"{d:%a} {d.day} {d:%b}"
+        from .assistant import local_now
+
+        d = datetime.fromisoformat(start.replace("Z", "+00:00"))
+        d = d.astimezone(local_now().tzinfo) if d.tzinfo else d
+        return f"{d:%a} {d.day} {d:%b}, {d.hour % 12 or 12}:{d:%M} {'am' if d.hour < 12 else 'pm'}"
+    except Exception:  # noqa: BLE001
+        return start or ""
+
+
 def _local_time(iso: str) -> str:
     try:
         from .assistant import local_now

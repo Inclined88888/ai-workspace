@@ -333,3 +333,12 @@ def test_check_falls_back_when_model_returns_nothing(clean, checker):
     cid, _ = chat(c, "population?")
     r = c.post("/api/checked/check", json={"conversation_id": cid}).json()
     assert r["claims"] and r["claims"][0]["verdict"] == "unsupported" and r["counts"]["unsupported"] >= 1
+
+
+def test_history_event_times_read_like_people_say_them(client):
+    from app import db, history
+
+    db.set_setting("timezone", "Australia/Brisbane")
+    assert history._when("2026-11-02T23:00:00+00:00") == "Tue 3 Nov, 9:00 am"
+    assert history._when("2026-11-03") == "Tue 3 Nov"
+    assert history._when("not a date") == "not a date"
