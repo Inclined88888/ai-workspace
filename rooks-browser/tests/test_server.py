@@ -53,7 +53,7 @@ def wait(base, jid, cond, timeout=40):
 
 
 def test_job_with_approval_over_http(api, site, tmp_path):
-    base, _ = api
+    base, jobs = api
     steps = [{"action": "open", "args": {"url": f"{site}/widget.html"}},
              {"thought": "buy it", "action": "click", "args": {"id": 7}},
              {"action": "done", "args": {"answer": "ordered", "success": True}}]
@@ -71,12 +71,17 @@ def test_job_with_approval_over_http(api, site, tmp_path):
     assert j["has_screenshot"]
     code, png = call(base, "GET", f"/api/jobs/{job['id']}/screenshot")
     assert code == 200 and png[:8] == b"\x89PNG\r\n\x1a\n"
+    assert all(st["has_screenshot"] for st in j["steps"])  # a picture of every step, for the step-by-step view
+    code, png = call(base, "GET", f"/api/jobs/{job['id']}/screenshot/{s['step']}")
+    assert code == 200 and png[:8] == b"\x89PNG\r\n\x1a\n"
+    assert call(base, "GET", f"/api/jobs/{job['id']}/screenshot/99")[0] == 404
     code, rows = call(base, "GET", f"/api/jobs/{job['id']}/receipt")
     assert any(r["kind"] == "decision" and r["outcome"] == "approved" for r in rows)
     code, lst = call(base, "GET", "/api/jobs")
     assert lst[0]["id"] == job["id"]
     assert call(base, "DELETE", f"/api/jobs/{job['id']}")[0] == 200
     assert call(base, "GET", f"/api/jobs/{job['id']}")[0] == 404
+    assert not list(jobs.shots.glob(f"{job['id']}*"))  # deleting a run removes its pictures
 
 
 def test_denied_over_http(api, site, tmp_path):
