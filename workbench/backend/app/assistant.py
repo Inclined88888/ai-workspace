@@ -61,6 +61,7 @@ class Tool:
     untrusted: bool = False            # output comes from third parties (web pages, email) and may carry injected instructions
     # Calls that always need the user's yes, tainted or not (sending email, inviting people): returns the reason, or ""
     confirm: Callable[[dict], str] | None = None
+    always_ask: bool = False           # the user approves every call (changes on someone else's website)
 
     def spec(self) -> dict:
         return {"type": "function", "function": {
@@ -388,6 +389,9 @@ TOOLS: list[Tool] = [
          ("agent_name", "title"), when=lambda ctx: ctx.agent is not None, effect="external"),
     Tool("list_team", "List the people who report to you.", {}, lambda ctx=None: _team(ctx), when=lambda ctx: ctx.agent is not None),
 ]
+from . import work_tools  # noqa: E402 - files, analysis and work sites
+
+TOOLS += work_tools.build(Tool, S, I, B)
 TOOL_MAP = {t.name: t for t in TOOLS}
 UNTRUSTED_TOOLS = {t.name for t in TOOLS if t.untrusted}
 GATED_EFFECTS = ("external", "persistent")
@@ -409,6 +413,8 @@ HOLD_REASON = "This conversation contains untrusted web or email content."
 
 
 def hold_reason(t: Tool, ctx: Ctx, args: dict) -> str:
+    if t.always_ask:
+        return ALWAYS_ASK_REASON
     if t.confirm:
         try:
             why = t.confirm(args)
@@ -425,6 +431,7 @@ def hold_reason(t: Tool, ctx: Ctx, args: dict) -> str:
     return ""
 
 
+ALWAYS_ASK_REASON = "It changes something on a website, which always needs the user's OK."
 LEARNED_ROUTINE_REASON = "This routine was set up from a suggestion, so it never sends or changes anything outside on its own."
 
 

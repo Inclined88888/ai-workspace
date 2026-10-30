@@ -266,6 +266,12 @@ def _exit_with_parent() -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
+    raw = sys.argv[1:] if argv is None else argv
+    if raw[:1] == ["--run-python"]:  # the frozen app's own interpreter for the Files sandbox (app/compute.py)
+        from app import compute
+
+        compute.run_frozen(raw[1:])
+        return
     p = argparse.ArgumentParser(prog="workbench-server")
     p.add_argument("--port", type=int, default=int(os.getenv("WORKBENCH_PORT", "8765")))
     p.add_argument("--data-dir", default=os.getenv("DATA_DIR", ""))

@@ -16,7 +16,7 @@ from . import egress  # noqa: E402
 
 egress.install()  # before anything connects: every outbound request is in the audit log (R8, item 75)
 
-from . import actions, api, appearance, assistant_api, bridge, browser_proxy, cli_agents_api, company, config, connect, db, desk_proxy, health, llm, mobile, scheduler, skills_hub, telegram  # noqa: E402
+from . import actions, api, appearance, assistant_api, bridge, browser_proxy, cli_agents_api, company, config, connect, db, desk_proxy, health, llm, mobile, scheduler, sites, skills_hub, telegram, work_api  # noqa: E402
 from .mcp_server import mcp, mcp_app
 from .adapt import hooks as adapt_hooks, routes as adapt_routes  # adapt and learn (feat/learn-and-adapt)
 from .security import check_bearer
@@ -31,8 +31,8 @@ async def lifespan(_: FastAPI):
     actions.recover()
     company.recover()
     mobile.boot()
-    loops = [asyncio.create_task(fn()) for fn in (api.calendar_loop, scheduler.loop, telegram.loop, company.loop)]
-    health.LOOPS.update(zip(("Calendar sync", "Scheduler", "Telegram", "Company"), loops))
+    loops = [asyncio.create_task(fn()) for fn in (api.calendar_loop, scheduler.loop, telegram.loop, company.loop, sites.loop)]
+    health.LOOPS.update(zip(("Calendar sync", "Scheduler", "Telegram", "Company", "Site watches"), loops))
     async with mcp.session_manager.run():
         yield
     mobile.lan_stop()
@@ -90,6 +90,7 @@ app.include_router(appearance.owner)  # the chosen look, shared with the phone a
 app.include_router(appearance.device)
 app.include_router(browser_proxy.router)
 app.include_router(desk_proxy.router)
+app.include_router(work_api.router)  # Files (any file, analysis, sandboxed Python) and Sites (any website the user works in)
 app.include_router(skills_hub.router)  # Skills from GitHub behind the security gate
 app.include_router(cli_agents_api.router)  # hand jobs to the user's own Claude Code / Codex CLI
 app.include_router(adapt_routes.router)  # /api/learn: What I know about you, Show me how, suggestions

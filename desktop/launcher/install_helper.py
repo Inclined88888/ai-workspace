@@ -141,6 +141,9 @@ def make_venv(home: Path, app: Path) -> Path:
         run([uv(), "venv", "--quiet", "--python", "3.12", str(venv)])
     py = venv / ("Scripts/python.exe" if WIN else "bin/python")
     reqs = ["-r", str(app / "workbench" / "backend" / "requirements.txt"), "keyring==25.6.0"]
+    files_reqs = app / "workbench" / "backend" / "requirements-files.txt"  # Files page readers, statistics, charts, maths
+    if files_reqs.exists():
+        reqs += ["-r", str(files_reqs)]
     run([uv(), "pip", "install", "--quiet", "--python", str(py), *reqs])
     return py
 

@@ -29,7 +29,8 @@ jobs:
           cache-dependency-path: |
             workbench/backend/requirements.txt
             workbench/backend/requirements-dev.txt
-      - run: pip install -r requirements.txt -r requirements-dev.txt
+            workbench/backend/requirements-files.txt
+      - run: pip install -r requirements.txt -r requirements-dev.txt -r requirements-files.txt
       - name: Legacy database migration (schema v0 fixture from main 1a725f9)
         run: python -m pytest -q tests/test_actions.py -k migration
       - name: Full test suite
