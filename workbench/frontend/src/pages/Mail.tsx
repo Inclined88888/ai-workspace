@@ -98,7 +98,7 @@ export default function MailPage() {
 
   const open = async (uid: string) => {
     setCompose(null);
-    try { setMsg(await api<Message>(`/mail/${account!.id}/messages/${uid}`)); } catch (e) { toast.err(e); }
+    try { setMsg(await api<Message>(`/mail/${account!.id}/messages/${encodeURIComponent(uid)}`)); } catch (e) { toast.err(e); }
   };
   const reply = () => {
     if (!msg) return;
@@ -113,7 +113,7 @@ export default function MailPage() {
   if (!account) {
     return (
       <div className="page">
-        <Empty icon={<Mail size={28} />} title="No mail account connected" hint="Add an IMAP/SMTP account in Settings. Gmail and Outlook need an app password." />
+        <Empty icon={<Mail size={28} />} title="No mail account connected" hint="Connect Google or Microsoft with one sign-in, or add iCloud, Fastmail, Yahoo and others with an app password." />
         <div className="row" style={{ justifyContent: "center" }}><Link className="btn primary" to="/settings#mail">Connect mail</Link></div>
       </div>
     );

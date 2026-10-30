@@ -1,9 +1,10 @@
-import { Check, Cpu, Download, FolderOpen, KeyRound, Loader2, Mail, Monitor, Plug, Plus, RefreshCw, Shield, Trash2 } from "lucide-react";
+import { Cpu, Download, FolderOpen, KeyRound, Loader2, Monitor, Plug, Plus, RefreshCw, Shield, Trash2 } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, stream } from "../api";
 import { AppInfo, Sidecar, appInfo, inDesktopShell, listSidecars, openDataDir, openLogs, requestApproval } from "../desktop";
 import { ModelSelect, useModels, useToast } from "../util";
+import ConnectMailCalendar from "./ConnectMailCalendar";
 import { PhoneCard } from "./Phone";
 
 type DesktopInfo = { desktop: boolean; data_dir: string; secret_backend: string };
@@ -65,15 +66,6 @@ const CONNECTION_TYPES: Record<string, string> = {
 const typeLabel = (p: { auth_kind: string; protocol: string }) =>
   CONNECTION_TYPES[`${p.auth_kind}/${p.protocol}`] ?? `${p.auth_kind} · ${p.protocol}`;
 const EMPTY_FORM = { name: "", type: "openai_compatible/chat_completions", base_url: "", api_key: "", models: "" };
-type MailAccount = { id: number; name: string; email: string; imap_host: string; smtp_host: string };
-
-const MAIL_PRESETS: Record<string, { imap_host: string; smtp_host: string; smtp_port: number; smtp_security: "ssl" | "starttls"; note: string }> = {
-  Fastmail: { imap_host: "imap.fastmail.com", smtp_host: "smtp.fastmail.com", smtp_port: 465, smtp_security: "ssl", note: "Use an app password from Settings → Privacy & Security." },
-  iCloud: { imap_host: "imap.mail.me.com", smtp_host: "smtp.mail.me.com", smtp_port: 587, smtp_security: "starttls", note: "Use an app specific password from appleid.apple.com. Username is your full iCloud address." },
-  Gmail: { imap_host: "imap.gmail.com", smtp_host: "smtp.gmail.com", smtp_port: 465, smtp_security: "ssl", note: "Needs 2 step verification and an app password (myaccount.google.com/apppasswords). Some Workspace admins disable this." },
-  Other: { imap_host: "", smtp_host: "", smtp_port: 465, smtp_security: "ssl", note: "Ask your provider for IMAP (port 993, SSL) and SMTP settings." },
-};
-
 function Providers() {
   const [list, setList] = useState<Provider[]>([]);
   const [presets, setPresets] = useState<Presets>({});
@@ -184,59 +176,6 @@ function LocalModels() {
   );
 }
 
-function MailAccounts() {
-  const [list, setList] = useState<MailAccount[]>([]);
-  const [preset, setPreset] = useState("Fastmail");
-  const [form, setForm] = useState({ name: "", email: "", username: "", password: "", imap_port: 993, ...MAIL_PRESETS.Fastmail });
-  const [busy, setBusy] = useState(false);
-  const toast = useToast();
-  const load = () => api<MailAccount[]>("/mail/accounts").then(setList);
-  useEffect(() => { load(); }, []);
-  const pick = (k: string) => { setPreset(k); setForm({ ...form, ...MAIL_PRESETS[k] }); };
-  const add = async (e: FormEvent) => {
-    e.preventDefault();
-    setBusy(true);
-    try {
-      await api("/mail/accounts", { body: { ...form, username: form.username || form.email } });
-      toast.ok("Mail connected");
-      setForm({ ...form, password: "" });
-      load();
-    } catch (err) { toast.err(err); } finally { setBusy(false); }
-  };
-  return (
-    <div className="card col gap-lg" id="mail">
-      <div className="row"><Mail size={16} /><h2>Mail</h2></div>
-      {list.map((a) => (
-        <div key={a.id} className="row">
-          <Check size={14} className="prio-1" /><div className="grow">{a.name} <span className="muted">· {a.email}</span></div>
-          <button className="btn ghost sm icon" onClick={async () => { if (confirm(`Disconnect ${a.email}?`)) { await api(`/mail/accounts/${a.id}`, { method: "DELETE" }); load(); } }}><Trash2 size={13} /></button>
-        </div>
-      ))}
-      <form className="col" onSubmit={add}>
-        <div className="tabs">{Object.keys(MAIL_PRESETS).map((k) => <button type="button" key={k} className={`tab ${preset === k ? "active" : ""}`} onClick={() => pick(k)}>{k}</button>)}</div>
-        <div className="muted small">{MAIL_PRESETS[preset].note} Outlook.com and Microsoft 365 no longer accept passwords over IMAP (OAuth only), so they are not supported here.</div>
-        <div className="row wrap">
-          <input className="input grow" required placeholder="Your name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-          <input className="input grow" required type="email" placeholder="Email address" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-        </div>
-        <div className="row wrap">
-          <input className="input grow" placeholder="Username (defaults to email)" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} />
-          <input className="input grow" required type="password" placeholder="App password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
-        </div>
-        <div className="row wrap">
-          <input className="input grow" required placeholder="IMAP host" value={form.imap_host} onChange={(e) => setForm({ ...form, imap_host: e.target.value })} />
-          <input className="input" style={{ width: 90 }} type="number" value={form.imap_port} onChange={(e) => setForm({ ...form, imap_port: Number(e.target.value) })} />
-          <input className="input grow" required placeholder="SMTP host" value={form.smtp_host} onChange={(e) => setForm({ ...form, smtp_host: e.target.value })} />
-          <input className="input" style={{ width: 90 }} type="number" value={form.smtp_port} onChange={(e) => setForm({ ...form, smtp_port: Number(e.target.value) })} />
-          <select className="input" style={{ width: 120 }} value={form.smtp_security} onChange={(e) => setForm({ ...form, smtp_security: e.target.value as "ssl" | "starttls" })}><option value="ssl">SSL</option><option value="starttls">STARTTLS</option></select>
-        </div>
-        <button className="btn primary" disabled={busy}>{busy ? <Loader2 size={15} className="spin" /> : "Test and connect"}</button>
-      </form>
-      {toast.node}
-    </div>
-  );
-}
-
 type UsageSummary = { month_cents: number; month_tokens: number; prices: Record<string, { in: number; out: number }>;
   by_model: { model: string; tokens: number; cents: number; unpriced_calls: number }[]; by_channel: { channel: string; cents: number; tokens: number }[] };
 
@@ -316,10 +255,10 @@ export default function Settings({ onChanged }: { onChanged: () => void }) {
         <Usage />
         <LocalModels />
         <Providers />
-        <MailAccounts />
+        <ConnectMailCalendar />
         <div className="card col">
           <h2>Calendars</h2>
-          <div className="muted small">Add ICS subscriptions or CalDAV accounts from the Calendar page.</div>
+          <div className="muted small">Google and Microsoft calendars come with the account above. Add ICS subscriptions or other CalDAV calendars from the Calendar page.</div>
           <div><Link className="btn" to="/calendar">Open calendar</Link></div>
         </div>
         <div className="card col">

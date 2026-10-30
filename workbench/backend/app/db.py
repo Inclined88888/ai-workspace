@@ -102,7 +102,8 @@ CREATE TABLE IF NOT EXISTS calendars (
   color TEXT NOT NULL DEFAULT '#6366f1',
   enabled INTEGER NOT NULL DEFAULT 1,
   last_synced TEXT,
-  last_error TEXT
+  last_error TEXT,
+  linked_account_id INTEGER REFERENCES linked_accounts(id) ON DELETE CASCADE  -- kind google | microsoft
 );
 
 CREATE TABLE IF NOT EXISTS events (
@@ -130,7 +131,23 @@ CREATE TABLE IF NOT EXISTS mail_accounts (
   smtp_port INTEGER NOT NULL DEFAULT 465,
   smtp_security TEXT NOT NULL DEFAULT 'ssl',    -- ssl | starttls
   username TEXT NOT NULL,
-  password_enc TEXT NOT NULL
+  password_enc TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'imap',            -- imap | google | microsoft (connect.py)
+  linked_account_id INTEGER REFERENCES linked_accounts(id) ON DELETE CASCADE
+);
+
+-- Connect Google / Connect Microsoft (connect.py): one sign-in, tokens in the keychain or encrypted here
+CREATE TABLE IF NOT EXISTS linked_accounts (
+  id INTEGER PRIMARY KEY,
+  provider TEXT NOT NULL,                       -- google | microsoft
+  email TEXT NOT NULL,
+  name TEXT NOT NULL DEFAULT '',
+  scopes TEXT NOT NULL DEFAULT '',
+  secret_enc TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'connected',     -- connected | reauth
+  last_error TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS mail_drafts (
@@ -410,6 +427,7 @@ def migrate(c: sqlite3.Connection, path) -> None:
         with sqlite3.connect(backup) as dest:
             c.backup(dest)
     c.executescript(SCHEMA)
+    ensure_columns(c)
     steps = [(1, lambda: migrate_v1(c, [t for t in legacy if t in LEGACY_LEDGERS])), (2, lambda: migrate_v2(c, "providers" in legacy))]
     for target, step in steps:
         if version >= target:
@@ -423,6 +441,21 @@ def migrate(c: sqlite3.Connection, path) -> None:
             c.execute("ROLLBACK")
             raise
         version = target
+
+
+# Columns added after a table first shipped: added in place (idempotent), so no schema version bump is needed
+ADDED_COLUMNS = (
+    ("mail_accounts", "kind", "TEXT NOT NULL DEFAULT 'imap'"),
+    ("mail_accounts", "linked_account_id", "INTEGER REFERENCES linked_accounts(id) ON DELETE CASCADE"),
+    ("calendars", "linked_account_id", "INTEGER REFERENCES linked_accounts(id) ON DELETE CASCADE"),
+)
+
+
+def ensure_columns(c: sqlite3.Connection) -> None:
+    for table, column, decl in ADDED_COLUMNS:
+        have = {row[1] for row in c.execute(f"PRAGMA table_info({table})")}
+        if have and column not in have:
+            c.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
 
 
 def migrate_v1(c: sqlite3.Connection, legacy: list[str]) -> None:

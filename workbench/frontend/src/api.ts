@@ -137,11 +137,12 @@ export type CalEvent = {
 export type Calendar = {
   id: number;
   name: string;
-  kind: "local" | "ics" | "caldav";
+  kind: "local" | "ics" | "caldav" | "google" | "microsoft";
   url: string;
   username: string;
   color: string;
   enabled: number;
   last_synced: string | null;
   last_error: string | null;
+  linked_account_id?: number | null;
 };
