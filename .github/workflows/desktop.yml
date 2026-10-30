@@ -156,7 +156,13 @@ jobs:
           # Updater: signs update bundles (only used with --features updater)
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: cd desktop && npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} ${{ steps.signing.outputs.args }}
+        run: |
+          # Tauri treats a set-but-empty APPLE_CERTIFICATE (etc.) as "import this certificate" and fails; unset empty ones.
+          for v in APPLE_SIGNING_IDENTITY APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID \
+                   AZURE_CLIENT_ID AZURE_CLIENT_SECRET AZURE_TENANT_ID TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD; do
+            [ -n "${!v:-}" ] || unset "$v"
+          done
+          cd desktop && npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} ${{ steps.signing.outputs.args }}
 
       - name: Collect installers
         shell: bash
