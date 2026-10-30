@@ -59,6 +59,7 @@ class Tool:
     # external: acts outside Workbench or spends money. persistent: changes future behaviour (memory, skills, schedules).
     effect: str = "read"
     untrusted: bool = False            # output comes from third parties (web pages, email) and may carry injected instructions
+    always_ask: bool = False           # the user approves every call (changes on someone else's website)
 
     def spec(self) -> dict:
         return {"type": "function", "function": {
@@ -282,6 +283,9 @@ TOOLS: list[Tool] = [
          ("agent_name", "title"), when=lambda ctx: ctx.agent is not None, effect="external"),
     Tool("list_team", "List the people who report to you.", {}, lambda ctx=None: _team(ctx), when=lambda ctx: ctx.agent is not None),
 ]
+from . import work_tools  # noqa: E402 - files, analysis and work sites
+
+TOOLS += work_tools.build(Tool, S, I, B)
 TOOL_MAP = {t.name: t for t in TOOLS}
 UNTRUSTED_TOOLS = {t.name for t in TOOLS if t.untrusted}
 GATED_EFFECTS = ("external", "persistent")
@@ -295,14 +299,14 @@ def needs_approval(t: Tool, ctx: Ctx) -> bool:
 
     Prompt injection cannot be filtered reliably, so the boundary is on what the model may do after reading it.
     """
-    return ctx.tainted and t.effect in GATED_EFFECTS
+    return t.always_ask or (ctx.tainted and t.effect in GATED_EFFECTS)
 
 
 HOLD_REASON = "This conversation contains untrusted web or email content."
 
 
 def _hold_message(t: Tool, aid: int, ctx: Ctx) -> str:
-    reason = HOLD_REASON
+    reason = "It changes something on a website, which always needs the user's OK." if t.always_ask else HOLD_REASON
     if ctx.channel in UNATTENDED:
         return (f"Not run: {t.name} needs the user's approval because {reason[0].lower() + reason[1:]} "
                 "This is an unattended run, so it was refused. Report what you wanted to do instead.")
@@ -339,7 +343,8 @@ async def run_tool(name: str, raw_args: str, ctx: Ctx, approved: bool = False) -
     except ValueError as e:
         return done(False, f"Invalid arguments: {e}", "bad_args")
     if needs_approval(t, ctx) and not approved:
-        done(False, "", "denied" if ctx.channel in UNATTENDED else "held", payload=raw_args or "{}", detail=HOLD_REASON)
+        done(False, "", "denied" if ctx.channel in UNATTENDED else "held", payload=raw_args or "{}",
+             detail="Changes a website: always asks" if t.always_ask else HOLD_REASON)
         if ctx.channel not in UNATTENDED:
             from . import push
 
