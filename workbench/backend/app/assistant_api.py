@@ -219,6 +219,13 @@ def add_skill(data: SkillIn):
 
 @router.put("/skills/{sid}")
 def edit_skill(sid: int, data: SkillIn):
+    cur = db.one("SELECT source FROM skills WHERE id = ?", sid)
+    if cur and cur["source"] == "github":  # only enable/disable; text changes go through a new reviewed install
+        row = db.one("SELECT id FROM hub_skills WHERE name = (SELECT name FROM skills WHERE id = ?) AND status IN ('installed','disabled')", sid)
+        if row:
+            from . import skills_hub
+            skills_hub.set_enabled(row["id"], data.enabled)
+        return db.one("SELECT * FROM skills WHERE id = ?", sid)
     db.run("UPDATE skills SET description = ?, steps = ?, enabled = ?, updated_at = ? WHERE id = ?",
            data.description, data.steps, int(data.enabled), db.now(), sid)
     return db.one("SELECT * FROM skills WHERE id = ?", sid)

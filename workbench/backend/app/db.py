@@ -206,6 +206,46 @@ CREATE TABLE IF NOT EXISTS skills (
   updated_at TEXT NOT NULL
 );
 
+-- Skills from GitHub (skills_hub.py): reviewed candidates, installs, audit log, run-time permission requests
+CREATE TABLE IF NOT EXISTS hub_skills (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  kind TEXT NOT NULL DEFAULT 'skill',            -- skill (SKILL.md) | mcp (MCP server)
+  source_url TEXT NOT NULL,
+  owner TEXT NOT NULL,
+  repo TEXT NOT NULL,
+  path TEXT NOT NULL DEFAULT '',
+  ref TEXT NOT NULL DEFAULT '',
+  commit_sha TEXT NOT NULL,
+  status TEXT NOT NULL,                          -- reviewed | installed | disabled | rejected | superseded | uninstalled
+  risk TEXT NOT NULL DEFAULT 'low',
+  report TEXT NOT NULL DEFAULT '{}',
+  granted TEXT NOT NULL DEFAULT '{}',
+  update_of INTEGER,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  installed_at TEXT
+);
+CREATE TABLE IF NOT EXISTS skill_audit (
+  id INTEGER PRIMARY KEY,
+  hub_skill_id INTEGER,
+  skill_name TEXT NOT NULL DEFAULT '',
+  event TEXT NOT NULL,
+  detail TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS skill_permission_requests (
+  id INTEGER PRIMARY KEY,
+  hub_skill_id INTEGER NOT NULL,
+  kind TEXT NOT NULL,
+  target TEXT NOT NULL DEFAULT '',
+  what TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',        -- pending | allowed | denied
+  created_at TEXT NOT NULL,
+  decided_at TEXT
+);
+
 CREATE TABLE IF NOT EXISTS schedules (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,

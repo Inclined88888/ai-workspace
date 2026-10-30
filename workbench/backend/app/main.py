@@ -16,7 +16,7 @@ from . import egress  # noqa: E402
 
 egress.install()  # before anything connects: every outbound request is in the audit log (R8, item 75)
 
-from . import actions, api, assistant_api, bridge, browser_proxy, company, config, db, health, llm, scheduler, telegram  # noqa: E402
+from . import actions, api, assistant_api, bridge, browser_proxy, company, config, db, health, llm, scheduler, skills_hub, telegram  # noqa: E402
 from .mcp_server import mcp, mcp_app
 from .security import check_bearer
 from .tools import tools
@@ -80,6 +80,7 @@ app.include_router(api.public)
 app.include_router(api.api)
 app.include_router(assistant_api.router)
 app.include_router(browser_proxy.router)
+app.include_router(skills_hub.router)  # Skills from GitHub behind the security gate
 app.include_router(bridge.router)  # /v1: OpenAI-shaped access to every connection, for the browser agent (item 103)
 app.mount("/tools", tools)
 app.mount("/mcp", mcp_app)  # MCP clients use http://workbench:8000/mcp/
