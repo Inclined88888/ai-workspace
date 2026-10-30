@@ -7,6 +7,7 @@ API keys are never stored by Rooks: each provider names the environment variable
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 import tomllib
 from dataclasses import dataclass, field
@@ -177,6 +178,9 @@ def resolve(flags: dict, root: Path, file: dict | None = None) -> Settings:
     s.prices = dict(cfg.get("prices", {}))
     s.mcp_servers = dict(cfg.get("mcp", {}).get("servers", {}))
     s.mcp_servers.update(_project_mcp(root))
+    desk = _desk_mcp(cfg)
+    if desk and "desk" not in s.mcp_servers:
+        s.mcp_servers["desk"] = desk
     env = {"provider": os.environ.get("ROOKS_PROVIDER"), "model": os.environ.get("ROOKS_MODEL"),
            "base_url": os.environ.get("ROOKS_BASE_URL")}
     name = flags.get("provider") or env["provider"] or cfg.get("provider")
@@ -230,6 +234,16 @@ def resolve(flags: dict, root: Path, file: dict | None = None) -> Settings:
     return s
 
 
+def _desk_mcp(cfg: dict) -> dict | None:
+    """Rooks Desk, when installed, is added as the MCP server "desk" so the agent can see the screen, click and type in
+    other apps. Its tools are never trusted here, and Rooks Desk asks again for its own risky steps. Turn it off with
+    `[mcp] desk = false` or ROOKS_DESK_MCP=0."""
+    if cfg.get("mcp", {}).get("desk") is False or os.environ.get("ROOKS_DESK_MCP", "1").lower() in ("0", "false", "no", "off"):
+        return None
+    exe = shutil.which("rooks-desk")
+    return {"command": exe, "args": ["mcp"], "trusted": False} if exe else None
+
+
 def _project_mcp(root: Path) -> dict:
     """A project's .mcp.json ({"mcpServers": {...}}, the format Claude Code and Cursor use) adds servers for that folder."""
     import json
@@ -259,6 +273,9 @@ trusted_folders = []                # edits and commands inside these folders ru
 # base_url = "https://api.groq.com/openai/v1"
 # key_env = "GROQ_API_KEY"
 # model = "llama-3.3-70b-versatile"
+
+# [mcp]
+# desk = false                      # do not add Rooks Desk (computer use) as the MCP server "desk" when it is installed
 
 # [mcp.servers.filesystem]          # stdio MCP servers; tools appear as mcp__<server>__<tool>
 # command = "npx"

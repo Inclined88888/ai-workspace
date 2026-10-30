@@ -117,6 +117,31 @@ async def _browse(goal: str, max_steps: int = 15, ctx: "Ctx | None" = None) -> d
     return {"status": "still running", "job_id": jid}
 
 
+async def _use_computer(goal: str, max_steps: int = 30, dry_run: bool = False, ctx: "Ctx | None" = None) -> dict:
+    """Rooks Desk: operate the user's own desktop apps, terminal and files. Sensitive steps pause for the user's approval
+    on the Computer page; this waits for them."""
+    from . import desk_proxy
+
+    job = {"goal": goal, "max_steps": max_steps, "dry_run": bool(dry_run), "provider": "workbench",
+           "model": (ctx.model if ctx else "") or "default", "source": "assistant"}
+    jid = (await desk_proxy.call("POST", "/api/jobs", json=job)).json()["id"]
+    told = False
+    for _ in range(int(TOOL_TIMEOUT_S / 3) - 3):  # answer before the tool timeout cuts us off
+        await asyncio.sleep(3)
+        j = (await desk_proxy.call("GET", f"/api/jobs/{jid}")).json()
+        if j["status"] in ("queued", "running", "waiting"):
+            told = told or bool(j.get("pending_approvals"))
+            continue
+        res = j.get("result") or {}
+        return {"status": j["status"], "answer": res.get("final"), "agent_claims_success": res.get("success"),
+                "steps": len(j.get("steps") or []), "files": (res.get("files") or [])[-10:],
+                "commands": [c.get("command") for c in (res.get("commands") or [])][-10:],
+                "denied": res.get("denied") or [], "error": j.get("error"), "job_id": jid,
+                "receipt": "Steps, screenshots and approvals are on the Computer page."}
+    return {"status": "still running", "job_id": jid,
+            "note": "Waiting for your approval on the Computer page." if told else "Still working; watch it on the Computer page."}
+
+
 def _remember(content: str, kind: str = "fact", ctx: Ctx | None = None) -> dict:
     kind = kind if kind in ("profile", "fact", "preference") else "fact"
     mid = db.run("INSERT INTO memories(content, kind, source, conversation_id, created_at, updated_at) VALUES (?, ?, 'agent', ?, ?, ?)",
@@ -325,6 +350,11 @@ TOOLS: list[Tool] = [
     Tool("read_page", "Read the text of one public web page.", {"url": S()}, _read_page, ("url",), untrusted=True),
     Tool("browse_web", "Use a real browser to complete a multi step goal on websites (slow).", {"goal": S(), "max_steps": I()},
          _browse, ("goal",), when=lambda ctx: bool(config.BROWSER_URL and config.BROWSER_API_KEY), effect="external", untrusted=True),
+    Tool("use_computer", "Operate the user's own computer like a person: open and click apps, type, use the terminal, read and "
+         "write files in the folders they allowed (slow). Shell commands, files elsewhere, messages, purchases and logins "
+         "wait for the user to approve them on the Computer page.",
+         {"goal": S("the whole task, self contained"), "max_steps": I(), "dry_run": B("plan and describe only, change nothing")},
+         _use_computer, ("goal",), when=lambda ctx: bool(config.DESK_URL and config.DESK_API_KEY), effect="external", untrusted=True),
     # Memory
     Tool("remember", "Save a durable fact about the user. kind: profile (who they are), preference, or fact.",
          {"content": S(), "kind": S()}, lambda content, kind="fact", ctx=None: _remember(content, kind, ctx), ("content",),

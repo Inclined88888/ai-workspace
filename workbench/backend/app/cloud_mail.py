@@ -128,16 +128,22 @@ def _recipients(to: str) -> list[dict]:
     return out
 
 
-def _mime(acct: dict, to: str, subject: str, body: str, in_reply_to: str = "") -> EmailMessage:
+def _mime(acct: dict, to: str, subject: str, body: str, in_reply_to: str = "", *, cc: str = "",
+          attachments: list[tuple[str, str, bytes]] | None = None) -> EmailMessage:
     msg = EmailMessage()
     msg["From"] = f'{acct["name"]} <{acct["email"]}>' if acct.get("name") and acct["name"] != acct["email"] else acct["email"]
     msg["To"] = to
+    if cc:
+        msg["Cc"] = cc
     msg["Subject"] = subject
     msg["Message-ID"] = make_msgid(domain=acct["email"].split("@")[-1])
     if in_reply_to:
         msg["In-Reply-To"] = in_reply_to
         msg["References"] = in_reply_to
     msg.set_content(body)
+    for filename, ctype, data in attachments or []:
+        main, _, sub = (ctype or "application/octet-stream").partition("/")
+        msg.add_attachment(data, maintype=main or "application", subtype=sub or "octet-stream", filename=filename)
     return msg
 
 
@@ -211,9 +217,10 @@ def _graph_original(acct: dict, in_reply_to: str) -> str:
     return found[0]["id"] if found else ""
 
 
-def send(acct: dict, to: str, subject: str, body: str, in_reply_to: str = "") -> str:
+def send(acct: dict, to: str, subject: str, body: str, in_reply_to: str = "", *, cc: str = "",
+         attachments: list[tuple[str, str, bytes]] | None = None) -> str:
     if acct["kind"] == "google":
-        msg = _mime(acct, to, subject, body, in_reply_to)
+        msg = _mime(acct, to, subject, body, in_reply_to, cc=cc, attachments=attachments)
         payload = {"raw": base64.urlsafe_b64encode(msg.as_bytes()).decode()}
         thread = _gmail_thread(acct, in_reply_to)
         if thread:
@@ -221,13 +228,20 @@ def send(acct: dict, to: str, subject: str, body: str, in_reply_to: str = "") ->
         sent = _call(acct, "POST", f"{gmail()}/users/me/messages/send", json=payload).json()
         return msg["Message-ID"] if sent.get("id") else ""
     recipients = _recipients(to)
-    original = _graph_original(acct, in_reply_to)
+    cc_list = _recipients(cc) if cc.strip() else []
+    files = [{"@odata.type": "#microsoft.graph.fileAttachment", "name": fn, "contentType": ct or "application/octet-stream",
+              "contentBytes": base64.b64encode(data).decode()} for fn, ct, data in attachments or []]
+    original = _graph_original(acct, in_reply_to) if not files else ""
     if original:  # a real reply keeps Outlook's conversation threading
         _call(acct, "POST", f"{graph()}/me/messages/{quote(original, safe='')}/reply",
               json={"message": {"toRecipients": recipients}, "comment": body})
     else:
-        _call(acct, "POST", f"{graph()}/me/sendMail", json={"message": {
-            "subject": subject, "body": {"contentType": "Text", "content": body}, "toRecipients": recipients}, "saveToSentItems": True})
+        message = {"subject": subject, "body": {"contentType": "Text", "content": body}, "toRecipients": recipients}
+        if cc_list:
+            message["ccRecipients"] = cc_list
+        if files:
+            message["attachments"] = files
+        _call(acct, "POST", f"{graph()}/me/sendMail", json={"message": message, "saveToSentItems": True})
     return "sent"
 
 

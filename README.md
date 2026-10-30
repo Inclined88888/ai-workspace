@@ -284,6 +284,29 @@ uv tool install ./rooks-browser && rooks-browser doctor
 rooks-browser -P ollama -m qwen2.5:7b "find the opening hours of the State Library of Queensland"
 ```
 
+### Rooks Desk: computer use (no add-on needed)
+
+[Rooks Desk](rooks-desk/README.md) uses your computer the way you would, on macOS, Windows and Linux (X11). It works
+in five steps:
+
+1. It takes a screenshot of every monitor.
+2. It reads the accessibility tree (AX, UI Automation or AT-SPI).
+3. It decides the next step with your model. Screenshots go to a model that can see, and the smart router picks one.
+4. It clicks, types, presses hotkeys, opens apps, runs terminal commands with streaming output, and reads and writes
+   files in allowed folders and the clipboard.
+5. It checks the result.
+
+* **What it asks first.** Shell commands, files outside the allowed folders, deleting, email and messages, purchases
+  and logins. Folder and app allow-lists; password managers are denied by default.
+* **What you see.** A red frame and an on-screen bar while it works. The kill switch is Ctrl+Alt+Esc or the top-left
+  corner. There's a receipt with a screenshot for every step, and a dry-run mode.
+* **How you reach it:**
+  * the app's **Computer** page;
+  * the assistant's `use_computer` tool;
+  * `rooks-desk "task"`;
+  * `rooks-desk mcp` (Rooks Code adds it automatically).
+  * It can use other MCP servers too, such as an AutoCAD one ([recipe](rooks-desk/docs/AUTOCAD.md)).
+
 ## Models and providers
 
 **Cloud by default.** The first-run screen, "Choose how to think", recommends **Free cloud**: a free Gemini or Groq key in about two minutes, checked before it's saved. You can instead sign in with ChatGPT, paste API keys (OpenAI, Anthropic, xAI, Google, Groq, OpenRouter, Mistral, DeepSeek or any OpenAI-compatible URL) or use local Ollama (advanced). With any cloud provider connected, the default model is **Auto**: a smart router that sends quick jobs to a fast model and real work to a strong one, moves to the next provider on a rate limit, a spent free day or an outage, and shows under each answer who replied and how many free requests are left. The **Models** page (sidebar foot) sets the order and models. Rooks Code and Rooks Browser use it with `-P workbench -m auto`. See `docs/models-and-router.md`.
@@ -357,7 +380,8 @@ Desktop app: Tauri v2 shell in `desktop/` that runs the backend as a frozen side
 - Telegram is the only built in messaging channel. Discord, Slack, WhatsApp and Signal need the `hermes` add-on.
 - Memory extraction and skill saving cost one extra small model call after a conversation. Turn learning off if that matters.
 - Calendar: ICS feeds are read only; CalDAV supports reading and creating, not editing or deleting remote events.
-- Mail: plain text sending, no attachments. One-click Google needs a published OAuth client, and Google's restricted-scope verification before more than 100 people can use it (see [docs/connect-google-microsoft.md](docs/connect-google-microsoft.md)).
+- Mail: plain text sending. Attachments only through Rooks Desk's send-email step. One-click Google needs a published OAuth client, and Google's restricted-scope verification before more than 100 people can use it (see [docs/connect-google-microsoft.md](docs/connect-google-microsoft.md)).
+- Computer use (Rooks Desk) is tested end to end on Linux/X11; on real macOS and Windows CI machines it typed into TextEdit/Notepad and read it back. Wayland isn't supported.
 - Web search needs the `search` add-on or a Brave or Tavily key. Research quality depends on the model and the search results. Verify claims against the sources.
 - The Paperclip add-on runs in its own login. Workbench links to it but does not share a sign in.
 - Browser agent results are the agent's own report. Small local models are unreliable at browsing.
