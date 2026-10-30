@@ -1,0 +1,6 @@
+/target/
+/gen/schemas
+# Frozen sidecars are build outputs (desktop/scripts/build-sidecar.mjs)
+/binaries/*
+!/binaries/.gitkeep
+/tauri.ci.conf.json

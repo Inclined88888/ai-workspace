@@ -1,0 +1,39 @@
+[package]
+name = "ai-workspace-desktop"
+version = "0.1.0"
+description = "AI Workspace desktop app"
+authors = ["Inclined88888"]
+license = "MIT"
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "ai_workspace_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-updater = { version = "2", optional = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+getrandom = "0.2"
+log = "0.4"
+
+[features]
+# Off by default: the in-app updater needs a signing key pair first (docs/desktop-release.md).
+# CI turns it on with `--features updater` only when the TAURI_SIGNING_PRIVATE_KEY secret exists.
+updater = ["dep:tauri-plugin-updater"]
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

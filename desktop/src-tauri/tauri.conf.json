@@ -1,0 +1,63 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "AI Workspace",
+  "version": "0.1.0",
+  "identifier": "com.inclined88888.aiworkspace",
+  "build": {
+    "frontendDist": "../ui"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "AI Workspace",
+        "url": "index.html",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 900,
+        "minHeight": 600,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "publisher": "Inclined88888",
+    "copyright": "Copyright (c) 2026 Inclined88888. MIT licence.",
+    "category": "Productivity",
+    "shortDescription": "Your private AI workspace",
+    "longDescription": "A private AI workspace that runs on your computer: chat with any model, keep a receipt of everything the AI did, and approve what matters.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "externalBin": [
+      "binaries/workbench-server"
+    ],
+    "createUpdaterArtifacts": false,
+    "macOS": {
+      "minimumSystemVersion": "11.0",
+      "entitlements": "Entitlements.plist"
+    },
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      },
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    },
+    "linux": {
+      "deb": {
+        "depends": []
+      }
+    }
+  }
+}
