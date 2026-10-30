@@ -163,7 +163,7 @@ def refresh_suggestions() -> list[dict]:
             kind = items[-1]["kind"]
         else:
             kind = gid
-            title = f"I noticed you do {label(kind)} {when}. Want me to do it for you?"
+            title = f"I noticed you do this {when}: {label(kind)}. Want me to take it on?"
             detail = KINDS[kind][1] + ". Nothing is sent or changed outside the app without your OK."
             examples = [store.open_text(i["summary_enc"]) for i in items[-3:]]
             prompt = (f"{KINDS[kind][1]}. This is a routine the user accepted after doing {label(kind)} themselves; "

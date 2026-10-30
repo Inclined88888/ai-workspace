@@ -169,7 +169,7 @@ def test_show_me_once_becomes_a_parameterised_playbook_that_replays_by_meaning(c
     assert texts[0].startswith("Sign in or fill") and pb["steps"][0]["needs_user"]
     assert "In the \u201cClient\u201d search box, type {client}" in texts
     assert any(s.get("sensitive") and "Send reminder" in s["text"] for s in pb["steps"])
-    assert len(texts) == 6  # mouse noise dropped
+    assert len(texts) == 5  # mouse noise dropped; the page a click led to is not a step of its own
 
     # review: rename and edit a step
     steps = pb["steps"]

@@ -43,7 +43,7 @@ export const runFinished = (s: string) => ["done", "error", "failed", "cancelled
 
 const SOURCE: Record<string, string> = {
   chat: "from a chat", teach: "from something you showed me", file: "from a file", task: "from a task", site: "from a website",
-  feedback: "from your feedback", you: "you told me", routine: "from a routine", note: "from a note",
+  feedback: "from your feedback", you: "you told me", user: "you told me", routine: "from a routine", note: "from a note",
 };
 export const sourceLabel = (s: string) => SOURCE[s] || (s ? `from ${s}` : "");
 

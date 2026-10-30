@@ -52,8 +52,13 @@ def compile_steps(events: list[dict], narration: str = "") -> dict:
         params.append({"name": name, "label": label or name.replace("_", " "), "example": example})
         return name
 
+    prev = ""
     for e in events:
         k, t = e["kind"], e.get("target") or {}
+        if k == "navigate" and prev in ("click", "submit", "key"):
+            prev = k
+            continue  # the page a click or submit led to; replaying the click gets there again
+        prev = k
         step = {"action": k, "target": {x: t[x] for x in ("role", "name", "label", "placeholder", "text") if t.get(x)}}
         if k == "navigate":
             url = e.get("url", "")
