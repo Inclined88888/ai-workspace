@@ -21,6 +21,7 @@ from .mcp_server import mcp, mcp_app
 from .adapt import hooks as adapt_hooks, routes as adapt_routes  # adapt and learn (feat/learn-and-adapt)
 from . import auto_tools, automations, jobs, v02_api  # noqa: E402 - feat/v02-automations
 from . import v02_hooks  # feat/v02-core: projects, action history with undo, checked answers
+from .packs import mobile_routes as packs_mobile, routes as packs_routes, tools as packs_tools  # feat/v02-packs: Trade, Legal, Study packs
 from .security import check_bearer
 from .tools import tools
 
@@ -112,6 +113,9 @@ app.include_router(voice.router)
 app.include_router(voice.device)
 app.include_router(meetings.router)
 v02_hooks.install(app)  # feat/v02-core: /api/projects, /api/history (undo), /api/checked
+app.include_router(packs_routes.router)  # feat/v02-packs
+app.include_router(packs_mobile.router)  # feat/v02-packs: phone flashcards and quotes
+packs_tools.register_tools()  # feat/v02-packs: pack shortcuts, shown only once a pack is added
 app.include_router(bridge.router)  # /v1: OpenAI-shaped access to every connection, for the browser agent (item 103)
 from . import account  # noqa: E402
 account.install(app)  # Your plan: account sign-in, signed entitlements and the Pro feature gate

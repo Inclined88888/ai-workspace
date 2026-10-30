@@ -28,6 +28,11 @@ FEATURE_TIERS: dict[str, str] = {
     "action_history": "free",         # the timeline and one-tap undo are always free (undo is a safety feature)
     "action_history_export": "free",  # integration/v0.2: CSV / PDF export is FREE - exports are never gated
     "checked_answers": "pro",         # "Check this": every claim cited and re-verified
+    # feat/v02-packs
+    "packs.trade": "pro",                 # quotes, invoices, reminder drafts, ServiceM8 / Xero push
+    "packs.legal": "pro",                 # clause library, redlines, document checks, matter timeline
+    "packs.study": "free",                # flashcards, worked maths, references: free for students
+    "packs.study.lab_notebook": "pro",    # new lab notebook entries (exporting existing entries is always free)
 }
 
 # Plain-English names shown on the upgrade card and the "Your plan" page.
@@ -38,6 +43,9 @@ FEATURE_LABELS: dict[str, str] = {
     "meeting_companion": "Meeting companion",
     "projects_unlimited": "Unlimited projects",
     "checked_answers": "Checked answers",
+    "packs.trade": "Trade pack",
+    "packs.legal": "Legal pack",
+    "packs.study.lab_notebook": "Lab notebook",
 }
 LABELS = FEATURE_LABELS  # feat/v02-core name
 

@@ -3,6 +3,7 @@ import {
   Code2, FolderOpen, Globe2, GraduationCap, ListTree, Monitor, Palette as PaletteIcon, Sparkles, Puzzle, Search, Settings as SettingsIcon,
   Layers, // feat/v02-automations
   AudioLines, Users, // feat/v02-anywhere-voice
+  Package, // feat/v02-packs
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CommandPalette } from "./Palette";
@@ -47,6 +48,10 @@ import VoiceSettings from "./pages/VoiceSettings";
 import { FolderKanban, History as HistoryIcon } from "lucide-react"; // feat/v02-core
 import Projects from "./pages/Projects"; // feat/v02-core
 import HistoryPage from "./pages/History"; // feat/v02-core
+import Packs from "./pages/Packs"; // feat/v02-packs
+import PackTrade from "./pages/PackTrade"; // feat/v02-packs
+import PackLegal from "./pages/PackLegal"; // feat/v02-packs
+import PackStudy from "./pages/PackStudy"; // feat/v02-packs
 
 export type Status = {
   setup_complete: boolean;
@@ -88,6 +93,7 @@ const NAV: NavGroup[] = [
     { to: "/automations", label: "Automations", icon: CalendarClock },
     { to: "/jobs", label: "Jobs", icon: Layers }, // feat/v02-automations
     { to: "/history", label: "History", icon: HistoryIcon }, // feat/v02-core: everything done, with undo
+    { to: "/packs", label: "Packs", icon: Package }, // feat/v02-packs
   ] },
   { section: "Helpers", items: [
     { to: "/talk", label: "Talk", icon: AudioLines }, // feat/v02-anywhere-voice
@@ -268,6 +274,11 @@ export default function App() {
           <Route path="/about-you" element={<AboutYou />} />
           <Route path="/teach" element={<Teach />} />
           <Route path="/teach/:id" element={<Teach />} />
+          {/* feat/v02-packs */}
+          <Route path="/packs" element={<Packs />} />
+          <Route path="/packs/trade" element={<PackTrade />} />
+          <Route path="/packs/legal" element={<PackLegal />} />
+          <Route path="/packs/study" element={<PackStudy />} />
           <Route path="/appearance" element={<Appearance />} />
           <Route path="/appearance/motion" element={<MotionLab />} />
           <Route path="/models" element={<Models />} />
