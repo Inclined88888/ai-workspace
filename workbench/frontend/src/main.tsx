@@ -3,13 +3,10 @@ import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import App from "./App";
 import "./styles.css";
+import { readTheme } from "./theme";
 
-try {
-  const theme = localStorage.getItem("wb-theme");
-  if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
-} catch {
-  /* storage unavailable */
-}
+const theme = readTheme();
+if (theme !== "system") document.documentElement.dataset.theme = theme;
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
