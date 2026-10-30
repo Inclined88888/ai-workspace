@@ -16,3 +16,12 @@ Backend: `workbench/backend/app/teammates/`. Shared files get one tagged hook li
 | Pages | `/api/pages`, `/api/pages/{id}/export.html`, public `/p/{token}` | Safe Markdown, self-contained HTML with CSP and no scripts. Sunshine is the default palette. |
 | Channels | `GET /api/channels`, `PUT /api/channels/slack`, `PUT /api/channels/telegram` | Slack Socket Mode with a manifest and steps; allowlist; idempotent per message. Inbound messages never send: anything outbound waits for approval in the app. WhatsApp: docs only. |
 | Phone link | `/api/link`, `/api/mobile/link/keys`, `/api/mobile/link/sealed`, `/api/mobile/files/*`, handoffs | X25519 + HKDF-SHA256 + ChaCha20-Poly1305. The device token travels inside the ciphertext. Replay-protected, `/api/mobile/*` only. LAN first, relay (`link_relay_url`, https only) as fallback. |
+
+## Chat history and quick replies
+
+The chat pane is rebuilt from the server (`GET /api/teammates/{id}/conversations/{cid}`), so a reload, or opening the
+same teammate on another computer, shows the same conversation with its drafts and secure forms. The latest
+conversation opens by default; **New chat** starts another and the picker switches between earlier ones (`?c=` in the URL).
+
+Quick-reply buttons only appear when the teammate calls its `offer_choices` tool (`question`, 2–6 `options`). A numbered
+list in plain text is never turned into buttons. The choices are stored with the conversation and come back after a reload.

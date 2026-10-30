@@ -1,6 +1,6 @@
 // feat/grok-style: AI teammates. Three panes: teammates (by section), the chat, and a collapsible info pane.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, stream } from "../api";
 import { Thinking } from "../motion";
 import "./teammates.css";
@@ -12,7 +12,9 @@ type Template = { key: string; name: string; role: string; avatar: string; blurb
 type Listing = { teammates: Teammate[]; sections: Section[]; templates: Template[]; groups: { id: number; name: string; members: number[] }[] };
 export type Draft = { id: number; channel: string; recipients: string; subject: string; body: string; status: string };
 export type Form = { id: number; kind: string; label: string; reason: string; status: string; fields: { id: string; label: string; secret: boolean }[] };
-type Msg = { role: "user" | "assistant"; text: string; drafts?: Draft[]; forms?: Form[]; approvals?: { id: number; tool: string; reason: string }[] };
+export type Choices = { question: string; options: string[] };
+type Msg = { role: "user" | "assistant"; text: string; drafts?: Draft[]; forms?: Form[]; approvals?: { id: number; tool: string; reason: string }[]; choices?: Choices };
+type History = { conversation_id: number; messages: (Msg & { id: number })[]; drafts: (Draft & { conversation_id?: number })[]; forms: Form[] };
 
 export function Avatar({ t, size = 32 }: { t: Pick<Teammate, "avatar" | "name" | "color">; size?: number }) {
   return <span className={`tm-avatar c-${t.color || "sun"}`} style={{ width: size, height: size, fontSize: size * 0.5 }} aria-hidden>
@@ -77,10 +79,11 @@ export function ApprovalCard({ a }: { a: { id: number; tool: string; reason: str
       <button className="btn ghost sm" onClick={() => go(false)}>Decline</button></div>}</div>;
 }
 
-export function ChoiceCard({ text, onPick }: { text: string; onPick: (s: string) => void }) {
-  const opts = [...text.matchAll(/^\s*(?:[-*]|\d+[.)])\s+(.{2,80})$/gm)].map((m) => m[1]).slice(0, 6);
-  if (opts.length < 2 || !/\?\s*$|which|choose|pick|prefer/i.test(text)) return null;
-  return <div className="tm-choices" role="group" aria-label="Quick replies">{opts.map((o) => <button key={o} className="btn ghost sm" onClick={() => onPick(o)}>{o}</button>)}</div>;
+/** Quick-reply buttons, only when the teammate asked for them with its offer_choices tool (never guessed from text). */
+export function ChoiceCard({ c, onPick }: { c: Choices; onPick: (s: string) => void }) {
+  if (c.options.length < 2) return null;
+  return <div className="tm-choices" role="group" aria-label={c.question || "Quick replies"}>
+    {c.options.map((o) => <button key={o} className="btn sm tm-chip" onClick={() => onPick(o)}>{o}</button>)}</div>;
 }
 
 function NewTeammate({ templates, onMade }: { templates: Template[]; onMade: (t: Teammate) => void }) {
@@ -154,11 +157,31 @@ export default function Teammates() {
   const [err, setErr] = useState("");
   const end = useRef<HTMLDivElement>(null);
   const tid = id && id !== "new" ? Number(id) : null;
+  const [params, setParams] = useSearchParams();
+  const fresh = useRef(false);
+
+  // The chat is rebuilt from the server, so a reload (or another device) shows the same conversation.
+  const openConversation = useCallback(async (t: number, c: number) => {
+    try {
+      const h = await api<History>(`/teammates/${t}/conversations/${c}`);
+      const msgs: Msg[] = h.messages.map((m) => ({ role: m.role, text: m.text, choices: m.choices }));
+      const lastA = [...msgs].reverse().find((m) => m.role === "assistant");
+      if (lastA) { lastA.drafts = h.drafts; lastA.forms = h.forms.filter((f) => f.status === "pending"); }
+      setMsgs(msgs); setCid(c);
+    } catch (e) { setErr((e as Error).message); setParams({}, { replace: true }); }
+  }, [setParams]);
 
   const load = useCallback(() => api<Listing>("/teammates").then(setList).catch((e) => setErr(e.message)), []);
   const loadDetail = useCallback(() => { if (tid) api<Detail>(`/teammates/${tid}`).then(setDetail).catch((e) => setErr(e.message)); }, [tid]);
   useEffect(() => { load(); }, [load]);
-  useEffect(() => { setMsgs([]); setCid(null); setDetail(null); loadDetail(); }, [tid, loadDetail]);
+  useEffect(() => { setMsgs([]); setCid(null); setDetail(null); fresh.current = false; loadDetail(); }, [tid, loadDetail]);
+  const wanted = Number(params.get("c")) || null;
+  useEffect(() => {
+    if (!tid || !detail || detail.id !== tid || busy) return;
+    const c = wanted ?? (fresh.current ? null : detail.conversations[0]?.id ?? null);
+    if (c && c !== cid) openConversation(tid, c);
+  }, [tid, detail, wanted, cid, busy, openConversation]);
+  const newChat = () => { fresh.current = true; setMsgs([]); setCid(null); setParams({}, { replace: true }); };
   useEffect(() => { if (!id && list?.teammates.length) nav(`/teammates/${list.teammates[0].id}`, { replace: true }); }, [id, list, nav]);
   useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [msgs]);
 
@@ -169,7 +192,8 @@ export default function Teammates() {
     const patch = (f: (a: Msg) => Msg) => setMsgs((x) => [...x.slice(0, -1), f(x[x.length - 1])]);
     try {
       await stream(`/teammates/${tid}/chat`, { message: m, conversation_id: cid }, (e) => {
-        if (e.type === "start") setCid(e.conversation_id as number);
+        if (e.type === "start") { setCid(e.conversation_id as number); setParams({ c: String(e.conversation_id) }, { replace: true }); }
+        else if (e.type === "choices") patch((a) => ({ ...a, choices: { question: String(e.question ?? ""), options: (e.options as string[]) ?? [] } }));
         else if (e.type === "message" && e.content) patch((a) => ({ ...a, text: a.text ? `${a.text}\n\n${String(e.content)}` : String(e.content) }));
         else if (e.type === "draft") patch((a) => ({ ...a, drafts: [...(a.drafts ?? []).filter((d) => d.id !== e.id), e as unknown as Draft] }));
         else if (e.type === "secure_form") patch((a) => ({ ...a, forms: [...(a.forms ?? []).filter((d) => d.id !== e.id), e as unknown as Form] }));
@@ -197,6 +221,11 @@ export default function Teammates() {
       {id === "new" ? <NewTeammate templates={list?.templates ?? []} onMade={(t) => { load(); nav(`/teammates/${t.id}`); }} />
         : detail ? <>
           <header className="tm-chat-head"><Avatar t={detail} /><div><b>{detail.name}</b><small className="tm-muted">{detail.role}</small></div>
+            {detail.conversations.length > 1 && <select className="tm-conv" aria-label="Earlier chats" value={cid ?? ""}
+              onChange={(e) => { fresh.current = false; setParams(e.target.value ? { c: e.target.value } : {}); }}>
+              {!cid && <option value="">New chat</option>}
+              {detail.conversations.map((c) => <option key={c.id} value={c.id}>{c.title || `Chat ${c.id}`}</option>)}</select>}
+            <button className="btn ghost sm" onClick={newChat} disabled={!!busy}>New chat</button>
             <button className="btn ghost sm" aria-expanded={info} onClick={() => setInfo(!info)}>{info ? "Hide details" : "Details"}</button></header>
           <div className="tm-msgs" aria-live="polite">
             {!msgs.length && <p className="tm-empty">Ask {detail.name} anything. Anything it wants to send comes to you as a draft first.</p>}
@@ -205,7 +234,7 @@ export default function Teammates() {
               {m.approvals?.map((a) => <ApprovalCard key={a.id} a={a} />)}
               {m.drafts?.map((d) => <DraftCard key={d.id} d={d} />)}
               {m.forms?.map((f) => <SecureFormCard key={f.id} f={f} />)}
-              {m.role === "assistant" && i === msgs.length - 1 && !busy && <ChoiceCard text={m.text} onPick={send} />}
+              {m.role === "assistant" && i === msgs.length - 1 && !busy && m.choices && <ChoiceCard c={m.choices} onPick={send} />}
             </div>)}
             {!!busy && <Thinking since={busy} />}
             <div ref={end} />

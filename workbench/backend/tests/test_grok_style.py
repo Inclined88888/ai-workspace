@@ -327,3 +327,26 @@ def test_relay_once_registers_with_account_then_answers_sealed(client, monkeypat
     res = pl.open_(key, mb, "c2p", boxes[mb]["to-phone"][0])
     assert res["status"] == 200 and res["body"]["teammates"]
     assert all(a != "Bearer acct-session" for (_, p, a) in seen if p != "/relay/v1/mailboxes")
+
+
+def test_history_survives_reload_and_choices_come_from_a_tool(client):
+    c = client
+    t = mate(c, name="Planner")
+    SCRIPT[:] = [tool_call("offer_choices", {"question": "Which day?", "options": "Monday | Tuesday | Monday | Friday"}),
+                 {"role": "assistant", "content": "Pick a day for the site visit."}]
+    ev = events(c.post(f"/api/teammates/{t['id']}/chat", json={"message": "book a site visit"}))
+    ch = [e for e in ev if e["type"] == "choices"]
+    assert ch and ch[0]["options"] == ["Monday", "Tuesday", "Friday"] and ch[0]["question"] == "Which day?"
+    cid = next(e for e in ev if e["type"] == "start")["conversation_id"]
+    SCRIPT[:] = [{"role": "assistant", "content": "1. Tuesday\n2. Friday\nWhich one?"}]  # a list in text is NOT a choice card
+    ev2 = events(c.post(f"/api/teammates/{t['id']}/chat", json={"message": "Monday", "conversation_id": cid}))
+    assert not [e for e in ev2 if e["type"] == "choices"]
+    # a reload: the pane rebuilds the chat from the server
+    assert any(x["id"] == cid for x in c.get(f"/api/teammates/{t['id']}").json()["conversations"])
+    h = c.get(f"/api/teammates/{t['id']}/conversations/{cid}").json()
+    roles = [(m["role"], m["text"]) for m in h["messages"]]
+    assert roles == [("user", "book a site visit"), ("assistant", "Pick a day for the site visit."), ("user", "Monday"),
+                     ("assistant", "1. Tuesday\n2. Friday\nWhich one?")]
+    assert h["messages"][1]["choices"]["options"] == ["Monday", "Tuesday", "Friday"] and "choices" not in h["messages"][3]
+    other = mate(c, name="Planner two")
+    assert c.get(f"/api/teammates/{other['id']}/conversations/{cid}").status_code == 404
