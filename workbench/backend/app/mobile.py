@@ -124,7 +124,7 @@ def qr_payload(code: str, urls: list[str], name: str) -> str:
 
 
 def qr_svg(data: str) -> str:
-    return segno.make(data, error="m").svg_inline(scale=6, border=2, dark="#141311", light="#F5F1E8")
+    return segno.make(data, error="m").svg_inline(border=2, dark="#141311", light="#F5F1E8", omitsize=True)
 
 
 # Owner: pairing and devices (signed in on desktop or web)
