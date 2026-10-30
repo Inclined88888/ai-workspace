@@ -143,7 +143,7 @@ export default function Plan() {
       )}
       {err && <div className="alert err" role="alert">{err}</div>}
 
-      <div className="grid two">
+      <div className="grid two" style={{ alignItems: "start" }}>
         <div className="card col gap-lg">
           <div className="row">
             <h2 style={{ margin: 0 }}>{account.plan_name}</h2>
@@ -162,7 +162,9 @@ export default function Plan() {
             </div>
           ) : account.cloud_configured ? (
             <SignIn onSignedIn={() => reload()} />
-          ) : null}
+          ) : (
+            <p className="muted" style={{ margin: 0 }}>The whole app with your own keys or Ollama, no account needed. Every feature on the right works in this build.</p>
+          )}
           {account.signed_in && (
             <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
               {paid && <button className="btn" onClick={() => run("portal", async () => openExternal((await billingPortal()).url))}><CreditCard size={14} /> Manage billing <ExternalLink size={12} /></button>}
