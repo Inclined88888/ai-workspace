@@ -19,6 +19,7 @@ egress.install()  # before anything connects: every outbound request is in the a
 from . import actions, api, appearance, assistant_api, bridge, browser_proxy, cli_agents_api, company, config, connect, db, desk_proxy, health, llm, mobile, scheduler, sites, skills_hub, telegram, work_api  # noqa: E402
 from .mcp_server import mcp, mcp_app
 from .adapt import hooks as adapt_hooks, routes as adapt_routes  # adapt and learn (feat/learn-and-adapt)
+from . import v02_hooks  # feat/v02-core: projects, action history with undo, checked answers
 from .security import check_bearer
 from .tools import tools
 
@@ -95,6 +96,7 @@ app.include_router(skills_hub.router)  # Skills from GitHub behind the security 
 app.include_router(cli_agents_api.router)  # hand jobs to the user's own Claude Code / Codex CLI
 app.include_router(adapt_routes.router)  # /api/learn: What I know about you, Show me how, suggestions
 adapt_hooks.register_tools()
+v02_hooks.install(app)  # feat/v02-core: /api/projects, /api/history (undo), /api/checked
 app.include_router(bridge.router)  # /v1: OpenAI-shaped access to every connection, for the browser agent (item 103)
 app.mount("/tools", tools)
 app.mount("/mcp", mcp_app)  # MCP clients use http://workbench:8000/mcp/

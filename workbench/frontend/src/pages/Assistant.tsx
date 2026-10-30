@@ -3,6 +3,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, stream } from "../api";
 import { Tracer } from "../Tracer";
+import { CheckThis, CheckToggle, ProjectSwitcher } from "../v02/ChatExtras"; // feat/v02-core
 import { Empty, Markdown, ModelSelect, relTime, RouterInfo, RouterVia, SkeletonList, StreamingMarkdown, useModels, useToast } from "../util";
 
 type Conv = { id: number; title: string; channel: string; updated_at: string; model: string };
@@ -142,6 +143,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
           <button className="btn ghost sm mobile-only" onClick={() => navigate("/assistant")} aria-label="Back to chats"><ArrowLeft size={14} /></button>
           <div className="toolbar-title truncate">{convs?.find((c) => c.id === cid)?.title ?? "New chat"}</div>
           <div className="spacer" />
+          <ProjectSwitcher cid={cid} /><CheckToggle cid={cid} />{/* feat/v02-core */}
           {tabs}
         </div>
         <div className="chat-scroll" aria-live="polite">
@@ -169,6 +171,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
                       : <Markdown text={m.content} />)}
                     {m.via && <RouterVia r={m.via} />}
                     {m.content && m.id !== freshId && <MessageFeedback msg={m} />}
+                    {m.content && m.id !== freshId && <CheckThis cid={cid} content={m.content} fresh={m.id > 1e12} />}{/* feat/v02-core */}
                   </div>
                 </div>)}
             {steps.length > 0 && (
