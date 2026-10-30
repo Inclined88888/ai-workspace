@@ -1,6 +1,7 @@
 import {
   Activity, Gauge, Bot, Brain, Building2, CalendarClock, CalendarDays, ChevronRight, MessageSquare, CheckSquare, Globe, Columns3, ExternalLink, FileText, Home, LogOut, Mail, Menu, NotebookPen,
   Code2, FolderOpen, Globe2, GraduationCap, ListTree, Monitor, Palette as PaletteIcon, Puzzle, Search, Settings as SettingsIcon,
+  Layers, // feat/v02-automations
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CommandPalette } from "./Palette";
@@ -31,6 +32,8 @@ import Welcome from "./pages/Welcome";
 import Models from "./pages/Models";
 import AboutYou from "./pages/AboutYou"; // adapt and learn (feat/learn-and-adapt)
 import Teach from "./pages/Teach"; // adapt and learn (feat/learn-and-adapt)
+import JobsPage from "./v02/Jobs"; // feat/v02-automations: background jobs board
+import JobNotifier from "./v02/JobNotifier"; // feat/v02-automations: desktop notifications for jobs
 
 export type Status = {
   setup_complete: boolean;
@@ -68,6 +71,7 @@ const NAV: NavGroup[] = [
     { to: "/sites", label: "Sites", icon: Globe2 },
     { to: "/teach", label: "Show me how", icon: GraduationCap },
     { to: "/automations", label: "Automations", icon: CalendarClock },
+    { to: "/jobs", label: "Jobs", icon: Layers }, // feat/v02-automations
   ] },
   { section: "Helpers", items: [
     { to: "/research", label: "Research", icon: Search },
@@ -225,6 +229,7 @@ export default function App() {
           <Route path="/models" element={<Models />} />
           <Route path="/assistant-settings" element={<Assistant tab="settings" />} />
           <Route path="/automations" element={<Automations />} />
+          <Route path="/jobs" element={<JobsPage />} />{/* feat/v02-automations */}
           <Route path="/company" element={<Company />} />
           <Route path="/research" element={<Research />} />
           <Route path="/files" element={<FilesPage />} />
@@ -253,6 +258,7 @@ export default function App() {
         </Routes>
         </div>
       </main>
+      <JobNotifier />{/* feat/v02-automations */}
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} pages={palettePages} />
     </div>
   );

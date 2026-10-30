@@ -79,6 +79,11 @@ export default function Today() {
 
           <FadeIn delay={140}>
             <Section title="On the desk" action="All runs" onAction={() => router.navigate('/runs')} />
+            {/* feat/v02-automations: background jobs board and the Share box */}
+            <Pressable onPress={() => router.push('/jobs')} accessibilityRole="button" accessibilityLabel="Open the jobs board"
+              style={{ paddingVertical: space[3], borderBottomWidth: hairline, borderBottomColor: c.border, flexDirection: 'row', justifyContent: 'space-between' }}>
+              <T>Jobs board and Share</T><T style={{ color: c.muted }}>›</T>
+            </Pressable>
             {h?.running ? (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: space[3], borderBottomWidth: hairline, borderBottomColor: c.border }}>
                 <Pulse color={c.accent} />

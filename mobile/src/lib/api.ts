@@ -147,6 +147,10 @@ export class Client {
   setTask = (id: number, status: Task['status']) => this.req<Task>('PATCH', `/tasks/${id}`, { status });
   pushToken = (token: string) => this.req<{ ok: boolean; push_enabled_on_desktop: boolean }>('PUT', '/push-token', { token });
   unpair = () => this.req<{ ok: boolean }>('DELETE', '/me');
+  // feat/v02-automations: background jobs board and the Share box
+  jobs = () => this.req<import('./jobs').Board>('GET', '/jobs');
+  jobAction = (id: number, action: import('./jobs').JobAction) => this.req<import('./jobs').Job>('POST', `/jobs/${id}/${action}`);
+  share = (b: { text: string; url: string; title?: string }) => this.req<{ fired: number }>('POST', '/share', b);
   attach = (a: { kind: 'photo' | 'voice'; mime: string; name: string; duration_ms?: number; data: string }) =>
     this.req<{ id: string; kind: string; file: string; bytes: number }>('POST', '/attachments', a);
 

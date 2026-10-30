@@ -2,6 +2,7 @@ import { CalendarClock, Inbox as InboxIcon, Loader2, Play, Plus, Trash2 } from "
 import { FormEvent, useEffect, useState } from "react";
 import { api } from "../api";
 import { Empty, Markdown, relTime, useToast } from "../util";
+import TriggerAutomations from "../v02/TriggerAutomations"; // feat/v02-automations
 
 type Schedule = { id: number; name: string; cron: string; prompt: string; deliver: string; enabled: number; next_run: string | null; last_run: string | null; last_status: string };
 type Item = { id: number; title: string; body: string; source: string; read: number; created_at: string };
@@ -55,6 +56,8 @@ export default function Automations() {
   return (
     <div className="page" style={{ maxWidth: 1000 }}>
       <div className="page-head"><div><h1>Automations</h1><p className="muted">Scheduled tasks run by your assistant in {data.timezone || "your timezone"}. You can also just ask in chat: "every Friday at 5pm summarise my week".</p></div></div>
+      <TriggerAutomations />{/* feat/v02-automations: "when X happens, do Y" */}
+      <h2 className="trig-sub">Scheduled reports</h2>
 
       <form className="card col" onSubmit={add} style={{ marginBottom: 16 }}>
         <div className="row wrap">

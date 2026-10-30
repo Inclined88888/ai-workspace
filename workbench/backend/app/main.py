@@ -19,6 +19,7 @@ egress.install()  # before anything connects: every outbound request is in the a
 from . import actions, api, appearance, assistant_api, bridge, browser_proxy, cli_agents_api, company, config, connect, db, desk_proxy, health, llm, mobile, scheduler, sites, skills_hub, telegram, work_api  # noqa: E402
 from .mcp_server import mcp, mcp_app
 from .adapt import hooks as adapt_hooks, routes as adapt_routes  # adapt and learn (feat/learn-and-adapt)
+from . import auto_tools, automations, jobs, v02_api  # noqa: E402 - feat/v02-automations
 from .security import check_bearer
 from .tools import tools
 
@@ -33,6 +34,9 @@ async def lifespan(_: FastAPI):
     mobile.boot()
     loops = [asyncio.create_task(fn()) for fn in (api.calendar_loop, scheduler.loop, telegram.loop, company.loop, sites.loop)]
     health.LOOPS.update(zip(("Calendar sync", "Scheduler", "Telegram", "Company", "Site watches"), loops))
+    v02 = [asyncio.create_task(fn()) for fn in (automations.loop, jobs.loop)]  # feat/v02-automations
+    health.LOOPS.update(zip(("Automations", "Jobs board"), v02))
+    loops += v02
     async with mcp.session_manager.run():
         yield
     mobile.lan_stop()
@@ -95,6 +99,9 @@ app.include_router(skills_hub.router)  # Skills from GitHub behind the security 
 app.include_router(cli_agents_api.router)  # hand jobs to the user's own Claude Code / Codex CLI
 app.include_router(adapt_routes.router)  # /api/learn: What I know about you, Show me how, suggestions
 adapt_hooks.register_tools()
+app.include_router(v02_api.router)  # feat/v02-automations: automations, jobs board, live documents
+app.include_router(v02_api.phone)
+auto_tools.register_tools()
 app.include_router(bridge.router)  # /v1: OpenAI-shaped access to every connection, for the browser agent (item 103)
 app.mount("/tools", tools)
 app.mount("/mcp", mcp_app)  # MCP clients use http://workbench:8000/mcp/
