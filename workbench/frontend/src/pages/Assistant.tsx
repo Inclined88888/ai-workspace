@@ -3,6 +3,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, stream } from "../api";
 import { Tracer } from "../Tracer";
+import { DictateButton } from "../voice/DictateButton"; // feat/v02-anywhere-voice
 import { Empty, Markdown, ModelSelect, relTime, RouterInfo, RouterVia, SkeletonList, StreamingMarkdown, useModels, useToast } from "../util";
 
 type Conv = { id: number; title: string; channel: string; updated_at: string; model: string };
@@ -24,7 +25,10 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [steps, setSteps] = useState<Step[]>([]);
   const [approvals, setApprovals] = useState<Approval[]>([]);
-  const [text, setText] = useState(((useLocation().state as { draft?: string } | null)?.draft) ?? ""); // pre-filled from Files / Sites
+  const location = useLocation();
+  const [text, setText] = useState(((location.state as { draft?: string } | null)?.draft) ?? ""); // pre-filled from Files / Sites
+  // feat/v02-anywhere-voice: a draft handed over while Chat is already open (the ask bar's "Do it in Chat")
+  useEffect(() => { const d = (location.state as { draft?: string } | null)?.draft; if (d) setText(d); }, [location.state]);
   const [busy, setBusy] = useState(false);
   const [model, setModel] = useState("");
   const { models } = useModels();
@@ -212,6 +216,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
               <ModelSelect value={model} onChange={setModel} models={models} />
               <div className="spacer" />
               <span className="composer-hint">Shift + Enter for a new line</span>
+              <DictateButton onText={(t) => { setText((v) => (v ? v + " " : "") + t); composerRef.current?.focus(); }} /> {/* feat/v02-anywhere-voice */}
               <button className="btn primary send" disabled={busy || !text.trim()} aria-label="Send">{busy ? <Loader2 size={15} className="spin" /> : <ArrowUp size={16} />}</button>
             </div>
           </div>
