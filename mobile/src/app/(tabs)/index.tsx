@@ -86,6 +86,11 @@ export default function Today() {
               style={{ paddingVertical: space[3], borderBottomWidth: hairline, borderBottomColor: c.border, flexDirection: 'row', justifyContent: 'space-between' }}>
               <T>Jobs board and Share</T><T style={{ color: c.muted }}>›</T>
             </Pressable>
+            {/* feat/grok-style: teammates, drafts to send, handoff, files, linked computers */}
+            <Pressable onPress={() => router.push('/teammates')} accessibilityRole="button" accessibilityLabel="Open teammates"
+              style={{ paddingVertical: space[3], borderBottomWidth: hairline, borderBottomColor: c.border, flexDirection: 'row', justifyContent: 'space-between' }}>
+              <T>Teammates, drafts and files</T><T style={{ color: c.muted }}>›</T>
+            </Pressable>
             {h?.running ? (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: space[3], borderBottomWidth: hairline, borderBottomColor: c.border }}>
                 <Pulse color={c.accent} />

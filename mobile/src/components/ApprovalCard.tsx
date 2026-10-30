@@ -1,3 +1,4 @@
+import { confirmWithBiometrics } from '@/lib/guard'; // feat/grok-style
 /**
  * One held action, as a slip of paper: what the agent wants to do, the arguments that matter, and two square
  * buttons. Approve is ink, Deny is outlined; the decision is sent once and logged on the computer as a receipt.
@@ -21,6 +22,11 @@ export function ApprovalCard({ a, onDecided, compact }: { a: Approval; onDecided
 
   const decide = async (approve: boolean) => {
     if (!client || busy) return;
+    if (approve) {
+      // feat/grok-style: Face ID / passcode before approving from the phone
+      const g = await confirmWithBiometrics(`Approve: ${a.tool.replace(/_/g, ' ')}`);
+      if (!g.ok) { setErr(g.reason); return; }
+    }
     setBusy(approve ? 'approve' : 'deny');
     setErr('');
     try {

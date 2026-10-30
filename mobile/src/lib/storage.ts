@@ -67,3 +67,15 @@ export async function loadPrefs(): Promise<Prefs> {
 }
 
 export const savePrefs = (p: Prefs) => setItem(PREFS, JSON.stringify(p));
+
+// feat/grok-style: linked computers (encrypted link) and the offline queue, kept in the secure store.
+const COMPUTERS = 'aiworkspace.computers.v1';
+const QUEUE = 'aiworkspace.queue.v1';
+export async function loadComputers(): Promise<import('./link').Computer[]> {
+  try { return JSON.parse((await getItem(COMPUTERS)) || '[]'); } catch { return []; }
+}
+export const saveComputers = (l: import('./link').Computer[]) => setItem(COMPUTERS, JSON.stringify(l));
+export async function loadQueue(): Promise<import('./link').Queued[]> {
+  try { return JSON.parse((await getItem(QUEUE)) || '[]'); } catch { return []; }
+}
+export const saveQueue = (q: import('./link').Queued[]) => setItem(QUEUE, JSON.stringify(q));
