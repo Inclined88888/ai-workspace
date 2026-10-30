@@ -1,6 +1,6 @@
 import {
   Activity, Gauge, Bot, Brain, Building2, CalendarClock, CalendarDays, ChevronRight, MessageSquare, CheckSquare, Globe, Columns3, ExternalLink, FileText, Home, LogOut, Mail, Menu, NotebookPen,
-  ListTree, Palette as PaletteIcon, Puzzle, Search, Settings as SettingsIcon,
+  ListTree, Monitor, Palette as PaletteIcon, Puzzle, Search, Settings as SettingsIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CommandPalette } from "./Palette";
@@ -12,6 +12,7 @@ import Appearance from "./pages/Appearance";
 import Automations from "./pages/Automations";
 import Company from "./pages/Company";
 import Browser from "./pages/Browser";
+import Computer from "./pages/Computer";
 import CalendarPage from "./pages/Calendar";
 import Compare from "./pages/Compare";
 import Dashboard from "./pages/Dashboard";
@@ -35,6 +36,8 @@ export type Status = {
   paperclip_url: string;
   hermes_url: string;
   browser_enabled: boolean;
+  /** Rooks Desk (computer use) is running on this machine. */
+  desk_enabled?: boolean;
   local_models_enabled: boolean;
   /** Running inside the native desktop app (desktop/), which signs the window in itself. */
   desktop?: boolean;
@@ -42,7 +45,7 @@ export type Status = {
   needs_models?: boolean;
 };
 
-type NavItem = { to: string; label: string; icon: typeof Home; addon?: "browser" };
+type NavItem = { to: string; label: string; icon: typeof Home; addon?: "browser" | "desk" };
 type NavGroup = { section?: string; collapsible?: boolean; items: NavItem[] };
 
 /** Six everyday places first, the agent tools second, everything else folded under More. */
@@ -60,6 +63,7 @@ const NAV: NavGroup[] = [
     { to: "/skills", label: "Skills", icon: Puzzle },
     { to: "/research", label: "Research", icon: Search },
     { to: "/browser", label: "Browser agent", icon: Globe, addon: "browser" },
+    { to: "/computer", label: "Computer", icon: Monitor, addon: "desk" },
   ] },
   { section: "More", collapsible: true, items: [
     { to: "/documents", label: "Documents", icon: FileText },
@@ -115,8 +119,8 @@ export default function App() {
   }, []);
   const [moreOpen, setMoreOpen] = useState(() => localStorage.getItem("wb-nav-more") === "1");
   const nav = useMemo(
-    () => NAV.map((g) => ({ ...g, items: g.items.filter((i) => !i.addon || (i.addon === "browser" && status?.browser_enabled)) })),
-    [status?.browser_enabled],
+    () => NAV.map((g) => ({ ...g, items: g.items.filter((i) => !i.addon || (i.addon === "browser" && status?.browser_enabled) || (i.addon === "desk" && status?.desk_enabled)) })),
+    [status?.browser_enabled, status?.desk_enabled],
   );
   const palettePages = useMemo(
     () => [...nav.flatMap((g) => g.items.map((i) => ({ to: i.to, label: i.label, icon: i.icon }))),
@@ -212,6 +216,8 @@ export default function App() {
           <Route path="/research/:id" element={<Research />} />
           <Route path="/browser" element={<Browser />} />
           <Route path="/browser/:id" element={<Browser />} />
+          <Route path="/computer" element={<Computer />} />
+          <Route path="/computer/:id" element={<Computer />} />
           <Route path="/compare" element={<Compare />} />
           <Route path="/runs" element={<Runs />} />
           <Route path="/runs/:id" element={<Runs />} />

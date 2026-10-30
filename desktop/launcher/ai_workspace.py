@@ -260,7 +260,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"data: {data_dir()}")
         print(f"logs: {logs_dir()}  (ai-workspace --logs)")
         print(f"native app: {' '.join(native_app() or ['not installed (uses an app window in Chrome/Edge)'])}")
-        for tool in ("rooks", "rooks-browser"):
+        for tool in ("rooks", "rooks-browser", "rooks-desk"):
             print(f"{tool}: {shutil.which(tool) or 'not on PATH'}")
         return 0
     if a.stop:

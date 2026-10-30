@@ -11,6 +11,8 @@
 #   ai-workspace    the app (native app when a published release has one, else its own Edge/Chrome app window)
 #   rooks           Rooks Code, the terminal coding agent
 #   rooks-browser   Rooks Browser, the AI browser agent (uses Edge, which every Windows has, or Chrome)
+#   rooks-desk      Rooks Desk, computer use: your apps, terminal and files, asking before anything risky
+#                   (no admin rights; it cannot drive windows running as administrator unless it is elevated too)
 # Python 3.12 is fetched by uv (astral.sh) into your user folder.
 #
 # Options (env vars, because `irm | iex` cannot take arguments):

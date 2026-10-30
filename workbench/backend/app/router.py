@@ -8,6 +8,9 @@
   UTC), reads the limit headers providers send (Groq: requests per day; OpenAI, Anthropic, OpenRouter: per minute),
   and parks a provider until its reset after a daily-limit 429.
 * Every answer says which provider and model answered, what was skipped and why, and what is left where known.
+* Vision aware: a request with screenshots (Rooks Desk, Rooks Browser) goes to a model that can see. Free ones: Gemini
+  Flash, Groq's Llama 4 and Qwen 3.8 vision models, OpenRouter's free Gemma 3 / Llama 4 / Qwen-VL. When no connected
+  model can see, the images are taken out and the model is told so, and callers fall back to the accessibility text.
 
 Model refs stay "<connection_id>/<model>" everywhere else; "auto" is resolved here, call by call.
 """
@@ -29,7 +32,7 @@ from .adapters import CAPTURE, ProviderError
 
 AUTO = {"auto": None, "auto:fast": "fast", "auto:strong": "strong"}
 AUTO_LABELS = {"auto": "Auto (picks per task)", "auto:fast": "Auto · fast", "auto:strong": "Auto · strong"}
-STRONG_CHANNELS = {"research", "browser", "rooks-code", "rooks-browser", "agent", "company"}
+STRONG_CHANNELS = {"research", "browser", "rooks-code", "rooks-browser", "rooks-desk", "agent", "company"}
 LONG_PROMPT_CHARS = 12_000
 
 # What the router knows about each provider. Model lists are preferences matched as exact names or prefixes against what
@@ -39,16 +42,19 @@ PROFILES: list[tuple[str, dict]] = [
         "label": "Google Gemini", "free": True, "reset_tz": "America/Los_Angeles",
         "note": "Google doesn't report what's left. Free limits are per project, per model; see AI Studio.",
         "fast": ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-2.5-flash-lite", "gemini-2.0-flash-lite"],
-        "strong": ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash"]}),
+        "strong": ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash"],
+        "vision": ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash"]}),
     ("api.groq.com", {
         "label": "Groq", "free": True, "reset_tz": "UTC", "header_window": "day",
         "fast": ["openai/gpt-oss-20b", "llama-3.1-8b-instant"],
-        "strong": ["openai/gpt-oss-120b", "moonshotai/kimi-k2-instruct", "llama-3.3-70b-versatile"]}),
+        "strong": ["openai/gpt-oss-120b", "moonshotai/kimi-k2-instruct", "llama-3.3-70b-versatile"],
+        "vision": ["qwen/qwen3.8", "meta-llama/llama-4-maverick", "meta-llama/llama-4-scout", "meta-models/muse-spark"]}),
     ("openrouter.ai", {
         "label": "OpenRouter", "free": True, "reset_tz": "UTC", "only_free": True, "daily_cap": 50,
         "note": "Free models: 50 requests a day (1,000 once you've bought $10 of credits).",
         "fast": ["openai/gpt-oss-20b:free", "google/gemma-3-27b-it:free", "meta-llama/llama-3.3-70b-instruct:free"],
-        "strong": ["openai/gpt-oss-120b:free", "qwen/qwen3-coder:free", "deepseek/deepseek-chat-v3.1:free", "z-ai/glm-4.5-air:free"]}),
+        "strong": ["openai/gpt-oss-120b:free", "qwen/qwen3-coder:free", "deepseek/deepseek-chat-v3.1:free", "z-ai/glm-4.5-air:free"],
+        "vision": ["google/gemma-3-27b-it:free", "meta-llama/llama-4-maverick:free", "qwen/qwen2.5-vl-72b-instruct:free"]}),
     ("api.openai.com", {
         "label": "OpenAI", "reset_tz": "UTC",
         "fast": ["gpt-6-mini", "gpt-5-mini", "gpt-4.1-mini", "gpt-4o-mini"],
@@ -60,6 +66,11 @@ PROFILES: list[tuple[str, dict]] = [
     ("api.deepseek.com", {"label": "DeepSeek", "reset_tz": "UTC", "fast": ["deepseek-chat"], "strong": ["deepseek-chat"]}),
 ]
 _SMALL = re.compile(r"(mini|nano|lite|small|haiku|instant|fast|flash|tiny|\b[0-9](\.[0-9])?b\b|[:-][0-9](\.[0-9])?b\b|-[0-9]{1,2}b\b)", re.I)
+# Model names that take images. Matched loosely; text-only exceptions first.
+_BLIND = re.compile(r"(gpt-oss|coder|codestral|deepseek-(chat|reasoner|r1|v3)|kimi|glm-4\.5|qwq|llama-3\.[0-3]-|mixtral|"
+                    r"embed|whisper|tts|instant)", re.I)
+_SEES = re.compile(r"(gemini|gemma-3|gpt-4o|gpt-4\.1|gpt-5|gpt-6|\bo[34]\b|claude|grok-4|grok-2-vision|llama-4|llama3\.2-vision|"
+                   r"-vl|vl[:-]|qwen3\.[5-9]|llava|pixtral|mistral-(medium|large|small)|muse-spark|minicpm-v|moondream)", re.I)
 _SKIP = re.compile(r"(embed|whisper|tts|guard|moderation|rerank|vision-preview|image|audio|transcribe|realtime|search)", re.I)
 
 
@@ -147,6 +158,47 @@ def choose_model(conn: dict, models: list[str], tier: str) -> str | None:
     big = [m for m in usable if not _SMALL.search(m)]
     pool = (small or big) if tier == "fast" else (big or small)
     return sorted(pool)[-1]
+
+
+def sees(model: str) -> bool:
+    """Whether a model takes images, by name (providers do not list it)."""
+    return bool(_SEES.search(model)) and not _BLIND.search(model)
+
+
+def has_images(messages: list[dict]) -> bool:
+    return any(isinstance(m.get("content"), list) and any(isinstance(p, dict) and p.get("type") in ("image_url", "input_image", "image")
+                                                          for p in m["content"]) for m in messages)
+
+
+def strip_images(messages: list[dict]) -> list[dict]:
+    """The same conversation with every image replaced by a short note, for a model that cannot see."""
+    out = []
+    for m in messages:
+        c = m.get("content")
+        if isinstance(c, list):
+            parts, dropped = [], 0
+            for p in c:
+                if isinstance(p, dict) and p.get("type") in ("image_url", "input_image", "image"):
+                    dropped += 1
+                else:
+                    parts.append(p)
+            if dropped:
+                parts.append({"type": "text", "text": f"[{dropped} image(s) left out: the model answering cannot see images. "
+                                                      "Work from the text, e.g. the accessibility element list.]"})
+            m = {**m, "content": parts}
+        out.append(m)
+    return out
+
+
+def choose_vision_model(conn: dict, models: list[str], tier: str) -> str | None:
+    """A model on this connection that can see: the user's choice if it sees, the profile's picks, then any by name."""
+    first = choose_model(conn, models, tier)
+    if first and sees(first):
+        return first
+    prof = profile(conn)
+    if prof.get("only_free"):
+        models = [m for m in models if m.endswith(":free")]
+    return _match(models, prof.get("vision") or []) or next((m for m in sorted(models, reverse=True) if sees(m) and not _SKIP.search(m)), None)
 
 
 def pick_tier(ref: str, tools: list | None, messages: list[dict], channel: str) -> str:
@@ -280,9 +332,9 @@ def _cooling(conn: dict) -> tuple[bool, str]:
     return row["cooldown_until"] > time.time(), row["cooldown_reason"]
 
 
-def candidates(tier: str) -> list[tuple[dict, str]]:
+def candidates(tier: str, vision: bool = False) -> list[tuple[dict, str]]:
     """(connection, model) to try in order. Parked providers are left out, unless nothing else is left and the park
-    was for a short, transient reason."""
+    was for a short, transient reason. vision: only models that can see."""
     from . import llm
 
     ready, parked = [], []
@@ -291,7 +343,7 @@ def candidates(tier: str) -> list[tuple[dict, str]]:
             models = [m["model"] for m in llm.list_models_for(c["id"])]
         except HTTPException:
             models = []
-        model = choose_model(c, models, tier)
+        model = choose_vision_model(c, models, tier) if vision else choose_model(c, models, tier)
         if not model:
             continue
         cooling, reason = _cooling(c)
@@ -339,17 +391,25 @@ async def chat(ref: str, messages: list[dict], tools: list[dict] | None = None, 
 
     tier = pick_tier(ref, tools, messages, _channel(trace))
     tried: list[dict] = []
-    for conn, model in candidates(tier):
+    vision = has_images(messages)
+    plan = [(c, m, messages) for c, m in candidates(tier, vision=True)] if vision else []
+    # then text only: no images, nobody can see them, or every model that can see is out of quota
+    text = strip_images(messages) if vision else messages
+    seen = {(c["id"], m) for c, m, _ in plan}
+    plan += [(c, m, text) for c, m in candidates(tier) if (c["id"], m) not in seen]
+    for conn, model, msgs in plan:
         box: dict = {}
         token = CAPTURE.set(box)
         try:
-            res = await llm.chat_one(f"{conn['id']}/{model}", messages, tools, trace, schema)
+            res = await llm.chat_one(f"{conn['id']}/{model}", msgs, tools, trace, schema)
         except (ProviderError, HTTPException) as e:
             tried.append({"provider": conn["name"], "model": model, "reason": note_fail(conn, e)})
             continue
         finally:
             CAPTURE.reset(token)
         res["router"] = {**_meta(conn, model, tier, tried), "quota": note_ok(conn, box.get("headers", {}), res.get("usage") or {})}
+        if vision:
+            res["router"]["vision"] = msgs is messages  # False: the images were left out
         return res
     raise _all_failed(tried)
 
