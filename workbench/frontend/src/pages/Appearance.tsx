@@ -1,6 +1,7 @@
 import { RotateCcw } from "lucide-react";
 import { useEffect, useState } from "react";
-import { ACCENTS, DEFAULTS, FONTS, SIZES, THEMES, useAppearance } from "../appearance";
+import { ACCENTS, DEFAULTS, FONTS, SIZES, resolveTheme, useAppearance } from "../appearance";
+import { ThemeGrid } from "../ThemePicker";
 import { Tracer } from "../Tracer";
 
 /** One panel, six choices, all live. Nothing here needs explaining twice. */
@@ -31,15 +32,7 @@ export default function Appearance() {
         <div>
           <section className="ap-section" aria-labelledby="ap-theme">
             <h3 id="ap-theme">Theme</h3>
-            <div className="ap-options" role="radiogroup" aria-labelledby="ap-theme">
-              {THEMES.map((t) => (
-                <button key={t.id} type="button" role="radio" aria-checked={a.theme === t.id} className="ap-option" onClick={() => set({ theme: t.id })}>
-                  <span className="ap-chip" style={{ background: t.swatch[0], color: t.swatch[1] }}>Aa</span>
-                  <span className="name">{t.label}</span>
-                  <span className="note">{t.note}</span>
-                </button>
-              ))}
-            </div>
+            <ThemeGrid />
           </section>
 
           <section className="ap-section" aria-labelledby="ap-font">
@@ -84,6 +77,7 @@ export default function Appearance() {
 
           <section className="ap-section" aria-labelledby="ap-accent" style={{ borderBottom: "none" }}>
             <h3 id="ap-accent">Accent</h3>
+            {["neon", "contrast"].includes(resolveTheme(a.theme)) && <p className="small muted" style={{ margin: "0 0 10px" }}>This theme keeps its own accent so everything stays easy to read.</p>}
             <div className="ap-swatches" role="radiogroup" aria-labelledby="ap-accent">
               {ACCENTS.map((c) => (
                 <button key={c.id} type="button" role="radio" aria-checked={a.accent === c.id} aria-label={c.label} title={c.label}

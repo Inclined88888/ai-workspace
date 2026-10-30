@@ -2,27 +2,56 @@ import { useEffect, useState } from "react";
 
 /**
  * Appearance: theme, type, size, density, motion and accent. One object in localStorage, applied to <html> as data
- * attributes and CSS variables, so every page restyles live without a reload. Sunshine (bright, warm, minimal) is the
- * default; Paper, Linen and Gallery stay as options, and Night is an explicit opt-in that never follows the OS.
- * Anyone who already saved their own choices keeps them.
+ * attributes and CSS variables, so every page restyles live without a reload. Six curated themes: Sunshine (the
+ * default), Paper, Cherry & Ink, Neon, Dark and High contrast, plus "Match my system" (Sunshine or Dark from the OS).
+ * The choice is also saved to the backend so the desktop window, Rooks Code, Rooks Browser and the phone follow it.
+ * Anyone who already saved their own choices keeps them (Linen and Gallery still work, they are just not offered).
  */
-export type ThemeId = "sunshine" | "paper" | "linen" | "gallery" | "night";
+export type ThemeId = "sunshine" | "paper" | "cherry" | "neon" | "night" | "contrast" | "auto" | "linen" | "gallery";
 export type FontId = "editorial" | "modern" | "classic" | "system";
 export type MotionId = "full" | "subtle" | "off";
-export type AccentId = "sun" | "cherry" | "ink" | "cobalt" | "forest" | "ochre";
+export type AccentId = "theme" | "sun" | "cherry" | "ink" | "cobalt" | "forest" | "ochre";
 export type Appearance = { theme: ThemeId; font: FontId; size: number; density: "comfortable" | "compact"; motion: MotionId; accent: AccentId };
 
-export const DEFAULTS: Appearance = { theme: "sunshine", font: "modern", size: 14, density: "comfortable", motion: "full", accent: "sun" };
+/** "theme" accent = each theme's own designed accent (Sunshine's sun, Cherry's red, Neon's lime...). */
+export const DEFAULTS: Appearance = { theme: "sunshine", font: "modern", size: 14, density: "comfortable", motion: "full", accent: "theme" };
 const KEY = "wb-appearance";
 const LEGACY = "wb-theme";
 
-export const THEMES: { id: ThemeId; label: string; note: string; swatch: [string, string] }[] = [
-  { id: "sunshine", label: "Sunshine", note: "Bright, warm and airy, the default", swatch: ["#fffdf8", "#ffc83d"] },
-  { id: "paper", label: "Paper", note: "Warm newsprint, editorial", swatch: ["#f5f1e8", "#141311"] },
-  { id: "linen", label: "Linen", note: "Deeper, softer cream", swatch: ["#ebe3d2", "#1d1a16"] },
-  { id: "gallery", label: "Gallery", note: "Clean white walls", swatch: ["#ffffff", "#111111"] },
-  { id: "night", label: "Night", note: "Ink paper, bone type", swatch: ["#121110", "#efeae0"] },
+export type ThemeInfo = { id: ThemeId; label: string; note: string; mode: "light" | "dark" | "auto";
+  /** paper, panel, text, muted, accent, on-accent: used to draw the mini preview on picker cards */
+  swatch: { paper: string; panel: string; text: string; muted: string; accent: string; onAccent: string; border: string } };
+
+/** The curated six, plus "Match my system". Linen and Gallery stay valid for anyone who saved them, just not offered. */
+export const THEMES: ThemeInfo[] = [
+  { id: "sunshine", label: "Sunshine", note: "Bright, warm and airy. The default.", mode: "light",
+    swatch: { paper: "#fffdf8", panel: "#ffffff", text: "#2a2620", muted: "#615a4e", accent: "#ffc83d", onAccent: "#2a2000", border: "#f0e9da" } },
+  { id: "paper", label: "Paper", note: "Soft newsprint, quiet ink.", mode: "light",
+    swatch: { paper: "#f5f1e8", panel: "#fbf9f4", text: "#141311", muted: "#5a554c", accent: "#141311", onAccent: "#f5f1e8", border: "#dcd5c6" } },
+  { id: "cherry", label: "Cherry & Ink", note: "Crisp white, black ink, one red.", mode: "light",
+    swatch: { paper: "#fbf8f3", panel: "#ffffff", text: "#141311", muted: "#57524a", accent: "#c8102e", onAccent: "#ffffff", border: "#e2dace" } },
+  { id: "neon", label: "Neon", note: "Ink black with one electric lime.", mode: "dark",
+    swatch: { paper: "#0b0d10", panel: "#12151a", text: "#e9eef2", muted: "#a3adb8", accent: "#d4ff3a", onAccent: "#0b0d10", border: "#262b33" } },
+  { id: "night", label: "Dark", note: "Calm ink, bone type. Easy at night.", mode: "dark",
+    swatch: { paper: "#121110", panel: "#191816", text: "#efeae0", muted: "#aca598", accent: "#ff4d5e", onAccent: "#121110", border: "#33302b" } },
+  { id: "contrast", label: "High contrast", note: "Pure black on white, bold edges.", mode: "light",
+    swatch: { paper: "#ffffff", panel: "#ffffff", text: "#000000", muted: "#1f1f1f", accent: "#0033aa", onAccent: "#ffffff", border: "#000000" } },
+  { id: "auto", label: "Match my system", note: "Sunshine by day, Dark when your computer is dark.", mode: "auto",
+    swatch: { paper: "#fffdf8", panel: "#121110", text: "#2a2620", muted: "#aca598", accent: "#ffc83d", onAccent: "#2a2000", border: "#f0e9da" } },
 ];
+const HIDDEN_THEMES: ThemeId[] = ["linen", "gallery"];
+/** Themes with a hand-tuned palette whose accent never changes (an accent picked elsewhere would break contrast). */
+const FIXED_ACCENT: ThemeId[] = ["neon", "contrast"];
+export const DARK_THEMES: ThemeId[] = ["night", "neon"];
+
+/** "auto" resolves to Sunshine or Dark from the OS setting. */
+export function resolveTheme(t: ThemeId): Exclude<ThemeId, "auto"> {
+  if (t !== "auto") return t;
+  const dark = typeof window !== "undefined" && !!window.matchMedia?.("(prefers-color-scheme: dark)").matches;
+  return dark ? "night" : "sunshine";
+}
+export const isDark = (t: ThemeId) => DARK_THEMES.includes(resolveTheme(t));
+
 export const FONTS: { id: FontId; label: string; note: string; display: string; body: string }[] = [
   { id: "editorial", label: "Editorial", note: "Bodoni Moda + Hanken Grotesk", display: '"Bodoni Moda Variable", Didot, serif', body: '"Hanken Grotesk Variable", Helvetica, sans-serif' },
   { id: "modern", label: "Clean", note: "Hanken Grotesk throughout, the default", display: '"Hanken Grotesk Variable", Helvetica, sans-serif', body: '"Hanken Grotesk Variable", Helvetica, sans-serif' },
@@ -30,6 +59,7 @@ export const FONTS: { id: FontId; label: string; note: string; display: string; 
   { id: "system", label: "System", note: "Your computer's own fonts", display: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif', body: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif' },
 ];
 export const ACCENTS: { id: AccentId; label: string; color: string }[] = [
+  { id: "theme", label: "Theme's own", color: "conic-gradient(#ffc83d 0 25%, #c8102e 0 50%, #d4ff3a 0 75%, #141311 0)" },
   { id: "sun", label: "Sun", color: "#ffc83d" },
   { id: "cherry", label: "Cherry", color: "#d21f3c" },
   { id: "ink", label: "Ink", color: "#141311" },
@@ -58,7 +88,7 @@ function sanitize(v: Partial<Appearance>): Appearance {
   const pick = <T extends string>(x: unknown, ok: readonly T[], d: T): T => (ok.includes(x as T) ? (x as T) : d);
   const size = Number(v.size);
   return {
-    theme: pick(v.theme, THEMES.map((t) => t.id), DEFAULTS.theme),
+    theme: pick(v.theme, [...THEMES.map((t) => t.id), ...HIDDEN_THEMES], DEFAULTS.theme),
     font: pick(v.font, FONTS.map((f) => f.id), DEFAULTS.font),
     size: Number.isFinite(size) ? Math.min(SIZES.max, Math.max(SIZES.min, Math.round(size))) : DEFAULTS.size,
     density: v.density === "compact" ? "compact" : "comfortable",
@@ -69,13 +99,13 @@ function sanitize(v: Partial<Appearance>): Appearance {
 
 /** Apply to a root element (the document, or a preview box). */
 export function applyTo(el: HTMLElement, a: Appearance) {
-  if (a.theme === "night") el.dataset.theme = "dark";
-  else if (a.theme === "paper") delete el.dataset.theme;
-  else el.dataset.theme = a.theme;
+  const theme = resolveTheme(a.theme);
+  el.dataset.theme = theme === "night" ? "dark" : theme; // Night keeps the original [data-theme="dark"] tokens
+  el.dataset.mode = DARK_THEMES.includes(theme) ? "dark" : "light";
   el.dataset.font = a.font;
   el.dataset.density = a.density;
   el.dataset.motion = a.motion;
-  el.dataset.accent = a.accent;
+  el.dataset.accent = FIXED_ACCENT.includes(theme) ? "theme" : a.accent;
   const scale = a.size / 14;
   for (const [name, base] of TEXT_TOKENS) {
     if (scale === 1) el.style.removeProperty(name);
@@ -93,6 +123,28 @@ export function setAppearance(next: Partial<Appearance>) {
     /* storage unavailable */
   }
   window.dispatchEvent(new CustomEvent("wb:appearance", { detail: a }));
+  for (const fn of listeners) fn(a);
+}
+
+/** Other surfaces (the desktop window chrome, the backend copy that Rooks and the phone read) subscribe here. */
+const listeners = new Set<(a: Appearance) => void>();
+export function onAppearance(fn: (a: Appearance) => void): () => void {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
+}
+
+/** Choosing a theme also returns the accent to the theme's own, so every palette shows as designed. */
+export function pickTheme(theme: ThemeId) {
+  setAppearance({ theme, accent: "theme" });
+}
+
+/** Keep "Match my system" live when the OS flips between light and dark. */
+export function followSystem(): () => void {
+  const mq = typeof window !== "undefined" ? window.matchMedia?.("(prefers-color-scheme: dark)") : undefined;
+  if (!mq) return () => undefined;
+  const on = () => { const a = readAppearance(); if (a.theme === "auto") setAppearance({}); };
+  mq.addEventListener?.("change", on);
+  return () => mq.removeEventListener?.("change", on);
 }
 
 export function useAppearance(): [Appearance, (p: Partial<Appearance>) => void] {

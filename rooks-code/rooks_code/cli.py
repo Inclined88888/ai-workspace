@@ -24,21 +24,27 @@ import time
 from pathlib import Path
 
 from . import __version__, config, receipts
+from . import theme as term_theme
 from .undo import ChangeSets
 
 SUBCOMMANDS = ("undo", "receipts", "doctor", "init", "mcp", "version")
 
 
 class UI:
-    def __init__(self, out=sys.stdout, err=sys.stderr, color: bool | None = None):
+    def __init__(self, out=sys.stdout, err=sys.stderr, color: bool | None = None, theme: str | None = None):
         self.out, self.err = out, err
         self.color = (out.isatty() and not os.environ.get("NO_COLOR")) if color is None else color
+        self.theme = term_theme.load(theme)  # follows the look chosen in AI Workspace; see theme.py
         self._spin: threading.Event | None = None
         if self.color and sys.platform == "win32":
             os.system("")  # enables ANSI escape handling in the Windows console
 
     def c(self, code: str, text: str) -> str:
-        return f"\033[{code}m{text}\033[0m" if self.color else text
+        """Colour text by role ('accent', 'ok', 'error', 'warn', 'dim', 'prompt', 'bold'); old ANSI codes map onto roles."""
+        if not self.color:
+            return text
+        role = term_theme.LEGACY_CODES.get(code, code)
+        return f"\033[{self.theme.sgr(role)}m{text}\033[0m"
 
     def p(self, text: str = "", err: bool = False) -> None:
         print(text, file=self.err if err else self.out, flush=True)
@@ -56,7 +62,7 @@ class UI:
         self.p(self.c("2", f"  {'→' if read else '·'} {text}"))
 
     def show_plan(self, plan) -> None:
-        self.p(self.c("1", f"  ● {plan.summary}"))
+        self.p(self.c("accent", f"  ● {plan.summary}"))
         if plan.preview:
             for line in plan.preview.rstrip("\n").splitlines()[:400]:
                 code = "32" if line.startswith("+") and not line.startswith("+++") else (
@@ -133,6 +139,7 @@ def parser() -> argparse.ArgumentParser:
     ap.add_argument("--max-steps", type=int, help="model calls per prompt before stopping (default 40)")
     ap.add_argument("--no-mcp", action="store_true", help="do not start MCP servers")
     ap.add_argument("--no-color", action="store_true")
+    ap.add_argument("--theme", choices=term_theme.THEMES, help="terminal colours (default: the theme chosen in AI Workspace, or $ROOKS_THEME)")
     ap.add_argument("--version", action="version", version=f"rooks {__version__}")
     return ap
 
@@ -155,7 +162,7 @@ def main(argv: list[str] | None = None) -> int:
                         "max_steps": args.max_steps}, root)
     if args.no_mcp:
         s.mcp_servers = {}
-    ui = UI(color=False if args.no_color else None)
+    ui = UI(color=False if args.no_color else None, theme=getattr(args, "theme", None))
     if s.kind == "delegate":
         from . import delegate
         return delegate.main(s.provider, s, ui, " ".join(args.prompt) if args.prompt else None)

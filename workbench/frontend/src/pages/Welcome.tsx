@@ -3,6 +3,10 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, stream } from "../api";
 import { AgentSetup, type CliAgent } from "./Code";
+import { ThemeGrid, TypeChoices } from "../ThemePicker";
+import { Tracer } from "../Tracer";
+import { saveAppearanceRemote } from "../themeSync";
+import { readAppearance } from "../appearance";
 
 /** First run: "Choose how to think". Cloud is the default (nothing heavy runs on this computer); the smart router
  * then uses whatever was connected and falls back when a free tier runs out. */
@@ -465,7 +469,7 @@ function OllamaStep({ preset, onBack, onDone }: { preset: Preset; onBack: () => 
 }
 
 export default function Welcome({ onDone }: { onDone: () => void }) {
-  const [step, setStep] = useState<"choose" | "free" | "subscription" | "key" | "ollama">("choose");
+  const [step, setStep] = useState<"look" | "choose" | "free" | "subscription" | "key" | "ollama">("look");
   const [keyPreset, setKeyPreset] = useState<string>();
   const [presets, setPresets] = useState<Record<string, Preset> | null>(null);
   const [info, setInfo] = useState<Record<string, KeyInfo>>({});
@@ -475,15 +479,36 @@ export default function Welcome({ onDone }: { onDone: () => void }) {
       .catch(() => setPresets({}));
   }, []);
   const back = () => setStep("choose");
+  const welcomeWide = step === "look";
 
   return (
     <div className="auth welcome">
-      <div className="card auth-card welcome-card" key={step}>
-        <div className="steps">{[0, 1].map((i) => <span key={i} className={i <= (step === "choose" ? 0 : 1) ? "on" : ""} />)}</div>
+      <div className={`card auth-card welcome-card${welcomeWide ? " wide" : ""}`} key={step}>
+        <div className="steps">{[0, 1, 2].map((i) => <span key={i} className={i <= (step === "look" ? 0 : step === "choose" ? 1 : 2) ? "on" : ""} />)}</div>
+        {step === "look" && (
+          <div className="col gap-lg">
+            <div className="welcome-hero">
+              <div className="kicker">First run · 1 of 3</div>
+              <div className="wordmark xl">AI Workspace</div>
+              <h1 className="welcome-title">Pick your look</h1>
+              <p className="muted">Tap a theme and everything changes straight away, including the browser, the terminal and your phone. You can change it any time in Appearance.</p>
+            </div>
+            <ThemeGrid />
+            <TypeChoices />
+            <div className="composer has-tracer look-sample">
+              <div className="fake-input">This is how it looks while I'm working…</div>
+              <Tracer active />
+            </div>
+            <div className="look-actions">
+              <span className="small muted">Sunshine is the default.</span>
+              <button className="btn primary" onClick={() => { saveAppearanceRemote(readAppearance()); setStep("choose"); }}>Continue <ArrowRight size={14} /></button>
+            </div>
+          </div>
+        )}
         {step === "choose" && (
           <div className="col gap-lg">
             <div className="welcome-hero">
-              <div className="kicker">First run · 1 of 2</div>
+              <div className="kicker">First run · 2 of 3</div>
               <div className="wordmark xl">AI Workspace</div>
               <h1 className="welcome-title">Choose how to think</h1>
               <p className="muted">The thinking happens in the cloud, so your computer stays cool and quiet. You can add more ways later.</p>
