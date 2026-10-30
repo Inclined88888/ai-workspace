@@ -1,0 +1,17 @@
+{
+  "id": "trade",
+  "name": "Trade pack",
+  "tagline": "Site photo or voice note to quote, invoice and reminders.",
+  "for": "Tradies, builders, cleaners, landscapers and any service business",
+  "tier": "pro",
+  "version": "1.0.0",
+  "page": "/packs/trade",
+  "includes": [
+    "Quote from a site photo, a voice note or a few typed lines",
+    "Labour and materials lines, markup and GST worked out for you",
+    "Your logo and ABN on every PDF",
+    "One click from quote to invoice",
+    "Friendly, firm and final payment reminder drafts that you send yourself",
+    "Optional push to ServiceM8 or Xero with your own key, after you approve"
+  ]
+}

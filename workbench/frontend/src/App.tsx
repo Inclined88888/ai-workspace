@@ -1,6 +1,6 @@
 import {
   Activity, Gauge, Bot, Brain, Building2, CalendarClock, CalendarDays, ChevronRight, MessageSquare, CheckSquare, Globe, Columns3, ExternalLink, FileText, Home, LogOut, Mail, Menu, NotebookPen,
-  Code2, FolderOpen, Globe2, GraduationCap, ListTree, Monitor, Palette as PaletteIcon, Puzzle, Search, Settings as SettingsIcon,
+  Code2, FolderOpen, Globe2, GraduationCap, ListTree, Monitor, Package, Palette as PaletteIcon, Puzzle, Search, Settings as SettingsIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CommandPalette } from "./Palette";
@@ -31,6 +31,10 @@ import Welcome from "./pages/Welcome";
 import Models from "./pages/Models";
 import AboutYou from "./pages/AboutYou"; // adapt and learn (feat/learn-and-adapt)
 import Teach from "./pages/Teach"; // adapt and learn (feat/learn-and-adapt)
+import Packs from "./pages/Packs"; // feat/v02-packs
+import PackTrade from "./pages/PackTrade"; // feat/v02-packs
+import PackLegal from "./pages/PackLegal"; // feat/v02-packs
+import PackStudy from "./pages/PackStudy"; // feat/v02-packs
 
 export type Status = {
   setup_complete: boolean;
@@ -68,6 +72,7 @@ const NAV: NavGroup[] = [
     { to: "/sites", label: "Sites", icon: Globe2 },
     { to: "/teach", label: "Show me how", icon: GraduationCap },
     { to: "/automations", label: "Automations", icon: CalendarClock },
+    { to: "/packs", label: "Packs", icon: Package }, // feat/v02-packs
   ] },
   { section: "Helpers", items: [
     { to: "/research", label: "Research", icon: Search },
@@ -221,6 +226,11 @@ export default function App() {
           <Route path="/about-you" element={<AboutYou />} />
           <Route path="/teach" element={<Teach />} />
           <Route path="/teach/:id" element={<Teach />} />
+          {/* feat/v02-packs */}
+          <Route path="/packs" element={<Packs />} />
+          <Route path="/packs/trade" element={<PackTrade />} />
+          <Route path="/packs/legal" element={<PackLegal />} />
+          <Route path="/packs/study" element={<PackStudy />} />
           <Route path="/appearance" element={<Appearance />} />
           <Route path="/models" element={<Models />} />
           <Route path="/assistant-settings" element={<Assistant tab="settings" />} />
