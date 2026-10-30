@@ -4,6 +4,22 @@ Every user-visible change that needs action, or changes data on upgrade, gets an
 migration steps, rollback steps. Workbench has no release numbers yet (BACKLOG). Entries are identified by schema
 version and the merge commit on `main`.
 
+## 2026-10-30 · Desktop app for macOS and Windows (preview) · branch feat/desktop-app
+
+* New `desktop/`: a Tauri v2 app that runs Workbench natively, without Docker. The backend is frozen with PyInstaller
+  and started as a sidecar on `127.0.0.1` with a per-user data folder; the window signs itself in with a one-time
+  launch token (no password).
+* First-run welcome: paste an API key for any key-based provider, or use local Ollama, then land in chat.
+* Provider keys, `APP_SECRET` and the tools key live in the OS keychain in the desktop app.
+* `.github/workflows/desktop.yml` builds `.dmg` (Apple silicon + Intel), `.msi` + `.exe`, `.deb` + `.AppImage` on manual
+  dispatch and on tags. Signing, notarisation and the updater activate when their secrets exist
+  ([docs/desktop-release.md](docs/desktop-release.md)). Builds are unsigned until then.
+* MIT `LICENSE` added (owner to confirm).
+
+Docker installs: no action needed and no schema change. The new backend behaviour only switches on with
+`WORKBENCH_DESKTOP=1`, which only the desktop app sets; Docker keeps Fernet-encrypted keys under `APP_SECRET`.
+Rollback: revert the merge; desktop-app data lives in its own per-user folder and does not touch Docker volumes.
+
 ## 2026-10-29 · Fix upgrades from the original ROOKS database
 
 Older ROOKS installations used `tool_runs(at, ok, actor, mission_id, ...)` before
