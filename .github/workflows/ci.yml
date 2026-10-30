@@ -37,6 +37,34 @@ jobs:
       - name: Terminal CLI contract
         run: python -m pytest -q ../../cli/tests
 
+  rooks-code:
+    name: Terminal coding agent (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14, windows-2022]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: rooks-code
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: "3.11"  # the minimum supported version (tomllib)
+      - run: python -m pip install pytest
+      - name: Tests, including the fake-model end-to-end run
+        run: python -m pytest -q
+      - name: Installs as a command and runs
+        run: |
+          python -m pip install .
+          rooks --version
+          rooks --help
+      - name: Single-file build
+        run: |
+          python scripts/build_pyz.py
+          python dist/rooks.pyz --version
+
   frontend:
     name: Frontend type check and build
     runs-on: ubuntu-24.04

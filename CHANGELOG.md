@@ -4,6 +4,21 @@ Every user-visible change that needs action, or changes data on upgrade, gets an
 migration steps, rollback steps. Workbench has no release numbers yet (BACKLOG). Entries are identified by schema
 version and the merge commit on `main`.
 
+## 2026-10-30 · Terminal coding agent (Rooks Code) · Phase 2
+
+**New:** `rooks-code/`, a model-agnostic coding agent for the terminal (OpenAI, Anthropic, OpenRouter, any
+OpenAI-compatible server, Ollama, LM Studio). Interactive and one-shot modes; read, search, diff-based edits and shell
+commands in a loop; approval by default, trusted folders, `--dry-run`, undo of the last prompt's change set, hard
+per-session token and dollar caps, a stdio MCP client, and receipts in Workbench's run-log format
+(`rooks receipts import --db workbench.db`). Standard library only, Python 3.11+. CI tests it on macOS, Windows and Linux.
+
+**Migration steps:** none. It is a separate, optional tool: install with
+`uv tool install "git+https://github.com/Inclined88888/ai-workspace#subdirectory=rooks-code"`. Workbench, its database
+and `cli/ws` are unchanged.
+
+**Rollback steps:** `uv tool uninstall rooks-code` (or `pip uninstall rooks-code`). Per-project `.rooks/` folders hold
+only receipts and undo snapshots and can be deleted.
+
 ## 2026-10-29 · Fix upgrades from the original ROOKS database
 
 Older ROOKS installations used `tool_runs(at, ok, actor, mission_id, ...)` before
