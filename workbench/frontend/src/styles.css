@@ -167,6 +167,8 @@ svg.lucide { stroke-width: 1.5; }
 .grow { flex: 1; min-width: 0; }
 .spacer { flex: 1; }
 .gap-lg { gap: var(--space-4); }
+.gap { gap: var(--space-2); }
+.danger-text { color: var(--danger-text); }
 .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 kbd, .kbd {
@@ -662,3 +664,9 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--text); width: 
   .skeleton, .boot .wordmark, .typing span { animation: none !important; }
   .streaming > :last-child::after { animation: none !important; }
 }
+
+/* Settings → Phone: pairing QR */
+.phone-pair { display: flex; gap: var(--space-5); align-items: flex-start; flex-wrap: wrap; }
+.phone-qr { width: 196px; height: 196px; border: 1px solid var(--border); background: #F5F1E8; padding: 6px; flex: none; }
+.phone-qr svg { width: 100%; height: 100%; display: block; }
+.phone-code { font-size: 28px; letter-spacing: 0.18em; color: var(--text); }
