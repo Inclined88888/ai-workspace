@@ -1,8 +1,8 @@
-import { Brain, Check, Copy, KeyRound, Loader2, MessageSquare, Plus, Search, Send, ShieldAlert, Sparkles, Trash2, Wrench } from "lucide-react";
+import { ArrowLeft, ArrowUp, Brain, Check, Copy, KeyRound, Loader2, MessageSquare, Plus, Search, ShieldAlert, Sparkles, Trash2, Wrench, X } from "lucide-react";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, stream } from "../api";
-import { Empty, Markdown, ModelSelect, relTime, useModels, useToast } from "../util";
+import { Empty, Markdown, ModelSelect, relTime, SkeletonList, StreamingMarkdown, useModels, useToast } from "../util";
 
 type Conv = { id: number; title: string; channel: string; updated_at: string; model: string };
 type Msg = { id: number; role: string; content: string; tool_calls: string[]; name: string };
@@ -16,7 +16,9 @@ const CHANNEL: Record<string, string> = { web: "Web", cli: "Terminal", telegram:
 function Chat({ tabs }: { tabs: React.ReactNode }) {
   const { id } = useParams();
   const navigate = useNavigate();
-  const [convs, setConvs] = useState<Conv[]>([]);
+  const [convs, setConvs] = useState<Conv[] | null>(null);
+  const [freshId, setFreshId] = useState<number | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
   const [q, setQ] = useState("");
   const [messages, setMessages] = useState<Msg[]>([]);
   const [steps, setSteps] = useState<Step[]>([]);
@@ -57,6 +59,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
     const msg = text.trim();
     if (!msg || busy) return;
     setText("");
+    if (composerRef.current) composerRef.current.style.height = "auto";
     setBusy(true);
     setSteps([]);
     setMessages((m) => [...m, { id: Date.now(), role: "user", content: msg, tool_calls: [], name: "" }]);
@@ -74,7 +77,11 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
       if (t === "claim_check") setSteps((s) => [...s, { kind: "check", name: "", ok: false,
         text: ev.retrying ? `Answer said "${ev.claim}" but nothing confirms it. Asking the model to act or correct it.` : `Still unconfirmed: "${ev.claim}"` }]);
       if (t === "approval_required") setApprovals((a) => [...a, { id: Number(ev.id), tool: String(ev.tool), args: String(ev.args), effect: String(ev.effect), reason: String(ev.reason) }]);
-      if (t === "message") setMessages((m) => [...m, { id: Date.now() + 1, role: "assistant", content: String(ev.content), tool_calls: [], name: "" }]);
+      if (t === "message") {
+        const mid = Date.now() + 1;
+        setFreshId(mid);
+        setMessages((m) => [...m, { id: mid, role: "assistant", content: String(ev.content), tool_calls: [], name: "" }]);
+      }
       if (t === "error" || (!t && ev.error)) toast.err(String(ev.error));
     });
     setBusy(false);
@@ -90,61 +97,83 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   };
 
   const visible = messages.filter((m) => (m.role === "user" && m.name !== "claim_check") || (m.role === "assistant" && (m.content || m.tool_calls.length)));
+  const suggestions = [
+    { title: "Plan my week", hint: "from my tasks and calendar", text: "Plan my week from my tasks and calendar" },
+    { title: "Research a topic", hint: "with sources I can check", text: "Research the best free local AI models for a laptop, with sources" },
+    { title: "Draft an email", hint: "in my usual tone", text: "Draft a friendly follow-up email to a beta tester" },
+    { title: "Automate something", hint: "like a daily summary", text: "Every weekday at 8am, send me a summary of what's due" },
+  ];
   return (
-    <div className={`split ${cid !== null ? "has-selection" : ""}`} style={{ height: "calc(100vh - 0px)" }}>
+    <div className={`split ${cid !== null ? "has-selection" : ""}`}>
       <div className="split-list">
-        <div className="col" style={{ padding: 14, borderBottom: "1px solid var(--border)" }}>
-          <div className="row"><h2 className="grow">Assistant</h2><button className="btn primary sm" onClick={() => navigate("/assistant")}><Plus size={14} /> New</button></div>
+        <div className="col" style={{ padding: "14px 12px 10px", gap: 10 }}>
+          <div className="row"><h2 className="grow">Chats</h2><button className="btn primary sm" onClick={() => navigate("/assistant")}><Plus size={14} /> New</button></div>
           <div className="row" style={{ position: "relative" }}>
-            <Search size={14} className="faint" style={{ position: "absolute", left: 10 }} />
-            <input className="input" style={{ paddingLeft: 30 }} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search all conversations" />
+            <Search size={14} className="faint" style={{ position: "absolute", left: 10 }} aria-hidden="true" />
+            <input className="input" style={{ paddingLeft: 30, height: 32 }} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search conversations" aria-label="Search conversations" />
           </div>
         </div>
         <div className="scroll">
-          {convs.length === 0 && <Empty icon={<MessageSquare size={22} />} title={q ? "No matches" : "No conversations yet"} />}
-          {convs.map((c) => (
-            <div key={c.id} className={`list-item ${c.id === cid ? "active" : ""}`} onClick={() => navigate(`/assistant/${c.id}`)}>
+          {convs === null && <SkeletonList rows={5} />}
+          {convs?.length === 0 && <Empty icon={<MessageSquare size={22} />} title={q ? "No matches" : "No conversations yet"} hint={q ? undefined : "Start one on the right."} />}
+          {convs?.map((c) => (
+            <div key={c.id} className={`list-item ${c.id === cid ? "active" : ""}`} role="link" tabIndex={0} aria-current={c.id === cid ? "page" : undefined}
+              onClick={() => navigate(`/assistant/${c.id}`)} onKeyDown={(e) => { if (e.key === "Enter") navigate(`/assistant/${c.id}`); }}>
               <div className="grow">
-                <div className="truncate">{c.title}</div>
+                <div className="truncate" style={{ fontWeight: c.id === cid ? 550 : 450 }}>{c.title}</div>
                 <div className="faint small">{CHANNEL[c.channel] ?? c.channel} · {relTime(c.updated_at)}</div>
               </div>
-              <button className="btn ghost sm icon" onClick={(e) => { e.stopPropagation(); remove(c); }}><Trash2 size={13} /></button>
+              <button className="btn ghost sm icon" aria-label={`Delete ${c.title}`} onClick={(e) => { e.stopPropagation(); remove(c); }}><Trash2 size={13} /></button>
             </div>
           ))}
         </div>
       </div>
-      <div className="split-main" style={{ display: "flex", flexDirection: "column" }}>
+      <div className="split-main">
         <div className="toolbar">
-          <div style={{ width: 240 }}><ModelSelect value={model} onChange={setModel} models={models} /></div>
+          <button className="btn ghost sm mobile-only" onClick={() => navigate("/assistant")} aria-label="Back to chats"><ArrowLeft size={14} /></button>
+          <div className="truncate" style={{ fontWeight: 550 }}>{convs?.find((c) => c.id === cid)?.title ?? "New chat"}</div>
           <div className="spacer" />
           {tabs}
         </div>
-        <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
-          <div style={{ maxWidth: 820, margin: "0 auto" }} className="col gap-lg">
+        <div className="chat-scroll" aria-live="polite">
+          <div className="chat-thread">
             {visible.length === 0 && !busy && (
-              <Empty icon={<Sparkles size={26} />} title="What can I do for you?"
-                hint="I remember what matters across conversations, use your notes, tasks, calendar and mail, search the web, and can schedule things like a daily report." />
+              <Empty hero icon={<Sparkles size={24} />} title="What can I do for you?"
+                hint="I remember what matters across conversations, use your notes, tasks, calendar and mail, search the web, and can schedule things like a daily report.">
+                <div className="chat-suggestions">
+                  {suggestions.map((sg) => (
+                    <button key={sg.title} type="button" className="chat-suggestion" onClick={() => { setText(sg.text); composerRef.current?.focus(); }}>
+                      {sg.title}<span>{sg.hint}</span>
+                    </button>
+                  ))}
+                </div>
+              </Empty>
             )}
             {visible.map((m) => m.role === "user"
-              ? <div key={m.id} className="bubble-user" style={{ alignSelf: "flex-end", maxWidth: "85%" }}>{m.content}</div>
-              : <div key={m.id} className="col" style={{ gap: 4 }}>
-                  {m.tool_calls.length > 0 && <div className="small mono faint row"><Wrench size={12} /> {m.tool_calls.join(", ")}</div>}
-                  {m.content && <Markdown text={m.content} />}
+              ? <div key={m.id} className="msg user"><div className="bubble-user">{m.content}</div></div>
+              : <div key={m.id} className="msg">
+                  <div className="msg-avatar" aria-hidden="true"><Sparkles size={14} /></div>
+                  <div className="msg-body">
+                    {m.tool_calls.length > 0 && <div className="msg-tools"><Wrench size={11} /> {m.tool_calls.join(", ")}</div>}
+                    {m.content && (m.id === freshId
+                      ? <StreamingMarkdown text={m.content} onDone={() => setFreshId(null)} />
+                      : <Markdown text={m.content} />)}
+                  </div>
                 </div>)}
             {steps.length > 0 && (
-              <div className="col" style={{ gap: 4 }}>
+              <div className="steps-list" aria-label="Tool activity">
                 {steps.map((s, i) => (
-                  <div key={i} className="small mono faint row" style={{ alignItems: "flex-start" }}>
-                    {s.kind === "call" ? <Wrench size={12} style={{ marginTop: 3 }} /> : s.kind === "check" ? <ShieldAlert size={12} style={{ marginTop: 3 }} />
-                      : s.ok ? <Check size={12} style={{ marginTop: 3 }} /> : <span style={{ color: "var(--danger)" }}>✕</span>}
+                  <div key={i} className={`step ${s.kind === "result" ? (s.ok ? "ok" : "bad") : ""}`}>
+                    {s.kind === "call" ? <Wrench size={12} /> : s.kind === "check" ? <ShieldAlert size={12} />
+                      : s.ok ? <Check size={12} /> : <X size={12} />}
                     <span className="truncate">{s.kind === "call" ? `${s.name} ${s.text}` : s.text}</span>
                   </div>
                 ))}
               </div>
             )}
             {approvals.map((a) => (
-              <div key={a.id} className="card col" style={{ gap: 8 }}>
-                <div className="row"><ShieldAlert size={16} /> <b>Approve {a.tool}?</b></div>
+              <div key={a.id} className="card col approval-card" style={{ gap: 10 }} role="alertdialog" aria-label={`Approve ${a.tool}?`}>
+                <div className="row"><ShieldAlert size={16} style={{ color: "var(--warn-text)" }} /> <b>Approve {a.tool}?</b></div>
                 <div className="small muted">{a.reason} {a.effect === "persistent" ? "This would change how the assistant behaves from now on." : "This acts outside the workspace."}</div>
                 <pre className="small mono" style={{ whiteSpace: "pre-wrap", margin: 0 }}>{a.args}</pre>
                 <div className="row">
@@ -153,14 +182,28 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
                 </div>
               </div>
             ))}
-            {busy && <div className="row muted"><Loader2 size={15} className="spin" /> Working…</div>}
+            {busy && (
+              <div className="msg" role="status" aria-label="Assistant is working">
+                <div className="msg-avatar" aria-hidden="true"><Sparkles size={14} /></div>
+                <div className="typing"><span /><span /><span /><span className="typing-label">{steps.length ? "Working…" : "Thinking…"}</span></div>
+              </div>
+            )}
             <div ref={endRef} />
           </div>
         </div>
-        <form className="row" onSubmit={send} style={{ padding: "12px 24px 20px", borderTop: "1px solid var(--border)", background: "var(--panel)" }}>
-          <textarea className="input grow" rows={2} value={text} onChange={(e) => setText(e.target.value)} placeholder="Message your assistant (Enter to send, Shift+Enter for a new line)"
-            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} />
-          <button className="btn primary" disabled={busy || !text.trim()}><Send size={15} /></button>
+        <form className="composer-wrap" onSubmit={send}>
+          <div className="composer">
+            <textarea ref={composerRef} rows={1} value={text} aria-label="Message"
+              onChange={(e) => { setText(e.target.value); const t = e.target; t.style.height = "auto"; t.style.height = `${Math.min(240, t.scrollHeight)}px`; }}
+              placeholder="Ask anything, or describe a job to do…"
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} />
+            <div className="composer-bar">
+              <ModelSelect value={model} onChange={setModel} models={models} />
+              <div className="spacer" />
+              <span className="composer-hint">Shift + Enter for a new line</span>
+              <button className="btn primary send" disabled={busy || !text.trim()} aria-label="Send">{busy ? <Loader2 size={15} className="spin" /> : <ArrowUp size={16} />}</button>
+            </div>
+          </div>
         </form>
       </div>
       {toast.node}
