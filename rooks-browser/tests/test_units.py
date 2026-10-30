@@ -93,6 +93,7 @@ def test_parse_action_rejects_prose():
 
 
 def test_resolve_and_vision(monkeypatch):
+    monkeypatch.setattr(llm, "_ollama_up", lambda: True)
     assert llm.resolve(None) == "ollama"
     monkeypatch.setenv("OPENAI_API_KEY", "x")
     assert llm.resolve("auto") == "openai"

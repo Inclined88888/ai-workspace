@@ -37,6 +37,7 @@ def test_app_link_provider(tmp_path, monkeypatch):
             monkeypatch.delenv(k, raising=False)
         link = tmp_path / "app.json"
         monkeypatch.setenv("AI_WORKSPACE_APP_FILE", str(link))
+        monkeypatch.setattr(llm, "_ollama_up", lambda: True)
         assert llm.resolve(None) in ("ollama",)  # no app yet
         link.write_text(json.dumps({"url": f"http://127.0.0.1:{srv.server_address[1]}", "key": "s" * 32}))
         assert llm.resolve(None) == "workbench"

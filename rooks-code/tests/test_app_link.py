@@ -65,12 +65,14 @@ def test_open_app_is_the_default_provider(fake_app, tmp_path, monkeypatch):
 
 def test_no_app_falls_back_to_ollama(tmp_path, monkeypatch):
     _isolate(monkeypatch, tmp_path)
+    monkeypatch.setattr(config, "_ollama_up", lambda: True)
     assert config.resolve({}, tmp_path, {}).provider == "ollama"
 
 
 def test_stale_app_file_is_ignored(tmp_path, monkeypatch):
     link = _isolate(monkeypatch, tmp_path)
     link.write_text(json.dumps({"url": "http://127.0.0.1:9", "key": "x"}))  # nothing listens on port 9
+    monkeypatch.setattr(config, "_ollama_up", lambda: True)
     assert config.resolve({}, tmp_path, {}).provider == "ollama"
     with pytest.raises(SystemExit):
         config.resolve({"provider": "workbench"}, tmp_path, {})
