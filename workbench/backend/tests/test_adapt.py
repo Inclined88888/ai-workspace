@@ -319,3 +319,26 @@ def test_forget_everything(client):
     client.post("/api/learn/facts", json={"content": "Temporary fact to forget"})
     n = client.post("/api/learn/facts/forget-all").json()["deleted"]
     assert n >= 1 and client.get("/api/learn/facts").json()["facts"] == []
+
+
+def test_old_memories_move_into_the_encrypted_store_and_remember_forget_use_it(client):
+    from app import assistant, db
+    from app.adapt import knowledge
+
+    db.run("INSERT INTO memories(content, kind, source, created_at, updated_at) VALUES (?, 'profile', 'user', ?, ?)",
+           "Is a quantity surveyor in Brisbane", db.now(), db.now())
+    db.run("INSERT INTO memories(content, kind, source, created_at, updated_at) VALUES (?, 'fact', 'auto', ?, ?)",
+           "My password is hunter2", db.now(), db.now())
+    knowledge.migrate_legacy()
+    assert not db.all("SELECT * FROM memories")  # nothing left in plaintext
+    moved = [f for f in knowledge.all_facts() if "quantity surveyor" in f["content"]]
+    assert moved and moved[0]["pinned"] and moved[0]["category"] == "about"
+    assert not [f for f in knowledge.all_facts() if "hunter2" in f["content"]]
+    raw = db.one("SELECT content_enc FROM adapt_facts WHERE id = ?", moved[0]["id"])["content_enc"]
+    assert "surveyor" not in raw  # sealed at rest
+
+    saved = assistant._remember("Prefers invoices as PDF", "preference")
+    assert saved["saved"] and knowledge.get(saved["saved"])["content"] == "Prefers invoices as PDF"
+    assert any(m["id"] == saved["saved"] for m in client.get("/api/memories").json())  # the Memory tab shows the same facts
+    assistant._forget(saved["saved"])
+    assert not [f for f in knowledge.all_facts() if f["id"] == saved["saved"]]

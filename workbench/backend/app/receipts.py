@@ -71,12 +71,14 @@ def _draft(args: dict, r: Any) -> Check:
 
 
 def _memory(args: dict, r: Any) -> Check:
-    m = db.one("SELECT * FROM memories WHERE id = ?", (r or {}).get("saved"))
-    return (True, f"memory #{m['id']} saved") if m else (False, "no memory was saved")
+    if (r or {}).get("saved") is None and (r or {}).get("note"):
+        return True, "already known, nothing new saved"
+    m = db.one("SELECT * FROM adapt_facts WHERE id = ?", (r or {}).get("saved"))
+    return (True, f"memory #{m['id']} saved (encrypted)") if m else (False, "no memory was saved")
 
 
 def _forget(args: dict, r: Any) -> Check:
-    gone = not db.one("SELECT id FROM memories WHERE id = ?", args.get("memory_id"))
+    gone = not db.one("SELECT id FROM adapt_facts WHERE id = ?", args.get("memory_id"))
     return (True, f"memory #{args.get('memory_id')} deleted") if gone else (False, "the memory still exists")
 
 

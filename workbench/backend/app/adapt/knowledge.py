@@ -152,6 +152,26 @@ def delete(fid: int) -> dict:
     return {"deleted": fid}
 
 
+def migrate_legacy() -> int:
+    """Move the old plaintext `memories` rows (remember tool, Memory tab, older mining) into the encrypted store, once.
+    Each row is sealed into adapt_facts, then deleted from the plaintext table (and its search index)."""
+    store.ensure()
+    try:
+        rows = db.all("SELECT * FROM memories ORDER BY id")
+    except Exception:  # noqa: BLE001 - no legacy table
+        return 0
+    moved = 0
+    for r in rows:
+        content = " ".join((r["content"] or "").split())
+        if len(content) >= 4 and not SECRETISH.search(content):
+            kind = r.get("kind") or "fact"
+            add(content, _category(kind), "migrated" if r.get("source") != "user" else "user", confidence=1.0 if r.get("source") == "user" else 0.8,
+                pinned=kind == "profile", conversation_id=r.get("conversation_id"))
+            moved += 1
+        db.run("DELETE FROM memories WHERE id = ?", r["id"])
+    return moved
+
+
 def forget_everything() -> dict:
     store.ensure()
     n = db.one("SELECT COUNT(*) AS n FROM adapt_facts")["n"]
@@ -212,9 +232,9 @@ def context_block(user_text: str, limit: int = 8) -> str:
             chosen.append(d)
     if chosen:
         db.run(f"UPDATE adapt_facts SET uses = uses + 1 WHERE id IN ({','.join('?' * len(chosen))})", *[d["id"] for d in chosen])
-    lines = [f"- ({d['category_label']}) {d['content']}" for d in chosen]
+    lines = [f"- [{d['id']}] ({d['category_label']}) {d['content']}" for d in chosen]
     return ("What you have learned about this person and their work (adapt to it: their field, clients, tone and "
-            "formats; never mention this list unless asked):\n" + "\n".join(lines))
+            "formats; never mention this list unless asked; ids in brackets are for forget):\n" + "\n".join(lines))
 
 
 # Learning ------------------------------------------------------------------------------------------------------------

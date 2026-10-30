@@ -144,14 +144,23 @@ async def _use_computer(goal: str, max_steps: int = 30, dry_run: bool = False, c
 
 
 def _remember(content: str, kind: str = "fact", ctx: Ctx | None = None) -> dict:
+    """Saved in the encrypted learn store (adapt.knowledge), shown on "What I know about you"."""
+    from .adapt import knowledge
+
+    knowledge.migrate_legacy()
     kind = kind if kind in ("profile", "fact", "preference") else "fact"
-    mid = db.run("INSERT INTO memories(content, kind, source, conversation_id, created_at, updated_at) VALUES (?, ?, 'agent', ?, ?, ?)",
-                 content.strip()[:1000], kind, ctx.conversation_id if ctx else None, db.now(), db.now())
-    return {"saved": mid}
+    f = knowledge.add(content, kind, "assistant", confidence=0.9, pinned=kind == "profile",
+                      conversation_id=ctx.conversation_id if ctx else None)
+    if not f:
+        return {"saved": None, "note": "Already known; nothing new saved."}
+    return {"saved": f["id"]}
 
 
 def _forget(memory_id: int) -> dict:
-    db.run("DELETE FROM memories WHERE id = ?", memory_id)
+    from .adapt import knowledge
+
+    knowledge.migrate_legacy()
+    knowledge.delete(memory_id)
     return {"deleted": memory_id}
 
 
@@ -162,11 +171,11 @@ def _any_words(text: str) -> str:
 
 
 def search_memories(query: str, limit: int = 8) -> list[dict]:
-    q = _any_words(query)
-    if not q:
-        return []
-    return db.all("SELECT m.id, m.content, m.kind, m.updated_at FROM memories m JOIN memories_fts f ON f.rowid = m.id "
-                  "WHERE memories_fts MATCH ? ORDER BY bm25(memories_fts) LIMIT ?", q, limit)
+    from .adapt import knowledge
+
+    knowledge.migrate_legacy()
+    return [{"id": f["id"], "content": f["content"], "kind": f["category"], "updated_at": f["updated_at"]}
+            for f in knowledge.search(query, limit)]
 
 
 def search_history(query: str, limit: int = 8) -> list[dict]:
@@ -531,16 +540,12 @@ def system_prompt(ctx: Ctx, user_text: str) -> str:
         "When you learn something lasting about the user, call remember. Before a task that matches a skill, call load_skill. "
         "After finishing a complex multi step task that will recur, consider save_skill.",
     ]
-    profile = db.all("SELECT id, content FROM memories WHERE kind = 'profile' ORDER BY updated_at DESC LIMIT 20")
-    relevant = search_memories(user_text, 8) if user_text else []
-    recent = db.all("SELECT id, content FROM memories WHERE kind != 'profile' ORDER BY updated_at DESC LIMIT 5")
-    seen, mem_lines = set(), []
-    for m in [*profile, *relevant, *recent]:
-        if m["id"] not in seen:
-            seen.add(m["id"])
-            mem_lines.append(f"- [{m['id']}] {m['content']}")
-    if mem_lines:
-        parts.append("What you know about the user (memory ids in brackets):\n" + "\n".join(mem_lines))
+    from .adapt import knowledge  # what the assistant knows lives in the encrypted learn store (old rows moved once)
+
+    try:
+        knowledge.migrate_legacy()
+    except Exception:  # noqa: BLE001 - never break a chat turn
+        pass
     from .adapt import hooks as adapt_hooks  # adapt and learn: what the assistant has learned about this person
 
     parts.extend(adapt_hooks.context(user_text))
