@@ -136,7 +136,7 @@ A self hosted AI workspace in one light container. Start with the [README](../RE
 ## Install and ops
 
 90. Install is one `curl | bash`.
-91. `install.sh` wraps everything in `main()`, so a cut-off download runs nothing.
+91. `install-server.sh` (the Docker server installer) wraps everything in `main()`, so a cut-off download runs nothing.
 92. OS and Docker checks with helpful prompts instead of silent failures.
 93. Tarball fallback when git is missing or is only the macOS stub.
 94. `setup.sh` is bash 3.2 compatible, so stock macOS works.

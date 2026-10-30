@@ -28,7 +28,7 @@ Everything heavier (SearXNG, a browser agent, Ollama-in-Docker, Open WebUI, …)
 Install is one command:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/main/install-server.sh | bash
 ```
 
 There's also a company of agents with real controls: per-agent monthly budgets in cents, checked before every model call, delegation depth capped at 3, and a Kanban board. A mission-control dashboard is on the roadmap (Phase 3).
