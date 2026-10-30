@@ -179,6 +179,9 @@ def run(skill_dir: Path, script: str, args: list[str] | None = None, grants: dic
         if line.startswith(tag):
             try:
                 v = json.loads(line[len(tag):])
+                # Report paths as the user would recognise them: the sandbox's fake home is shown as ~
+                for k in ("what", "target"):
+                    v[k] = str(v.get(k, "")).replace(str(work), "<skill>").replace(str(tmp), "~")
                 if v not in violations:
                     violations.append(v)
             except ValueError:

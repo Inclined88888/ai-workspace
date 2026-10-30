@@ -111,6 +111,8 @@ INJECTION_RULES = [
 HIDDEN_COMMENT = re.compile(r"<!--([\s\S]*?)-->")
 IMPERATIVE = re.compile(r"\b(ignore|run|execute|send|upload|delete|curl|wget|assistant|you must|do not tell|always)\b", re.I)
 URL = re.compile(r"https?://([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})(?::\d+)?")
+# XML namespace URIs (xmlns:w="http://schemas.microsoft.com/...") are names, not network calls
+XMLNS_URL = re.compile(r"""xmlns(?::[\w.-]+)?\s*=\s*["']https?://[^"']*["']""")
 ENV_READ = re.compile(r"os\.environ(?:\.get)?\(\s*['\"]([A-Z0-9_]+)|os\.environ\[\s*['\"]([A-Z0-9_]+)|os\.getenv\(\s*['\"]([A-Z0-9_]+)|process\.env\.([A-Z0-9_]+)|\$\{?([A-Z][A-Z0-9_]{2,})\}?")
 ABS_PATH = re.compile(r"['\"`](~/[^'\"`\s]+|/(?:etc|usr|var|opt|Users|home|Library|tmp)/[^'\"`\s]*|[A-Z]:\\\\[^'\"`]+)['\"`]")
 HARMLESS_DOMAINS = {"example.com", "example.org", "localhost", "schemas.openxmlformats.org", "www.w3.org", "json-schema.org",
@@ -312,7 +314,7 @@ def permissions(root: Path, meta: dict, mcp: dict | None = None) -> dict:
         if is_code and p.suffix.lower() in {".py", ".sh", ".bash", ".js", ".mjs", ".cjs", ".ts", ".ps1", ""}:
             scripts.append(rel)
         if is_code:
-            domains |= {d.lower() for d in URL.findall(text)}
+            domains |= {d.lower() for d in URL.findall(XMLNS_URL.sub("", text))}
             paths |= {m for m in ABS_PATH.findall(text)}
             for groups in ENV_READ.findall(text):
                 name = next((g for g in groups if g), "")

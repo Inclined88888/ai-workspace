@@ -134,3 +134,14 @@ def test_extract_refuses_links_and_escapes(tmp_path):
     skills_hub.extract(data, "skills/a", tmp_path / "a")
     assert sorted(p.name for p in (tmp_path / "a").rglob("*")) == ["SKILL.md"]
     assert not (tmp_path / "evil.txt").exists()
+
+
+def test_xml_namespaces_are_not_network(tmp_path):
+    from app import skill_scan
+
+    (tmp_path / "SKILL.md").write_text("---\nname: x\ndescription: d\n---\nUse the script.\n")
+    (tmp_path / "make.py").write_text(
+        'DOC = \'<w:document xmlns:w="http://schemas.microsoft.com/office/word/2006/main">\'\n'
+        'import httpx\nhttpx.get("https://api.example.net/upload")\n')
+    perms = skill_scan.permissions(tmp_path, {})
+    assert perms["network"] == ["api.example.net"]

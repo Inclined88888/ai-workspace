@@ -49,6 +49,13 @@ def installed_dir(name: str) -> Path:
     return root() / "installed" / name
 
 
+def _grant_words(g: dict) -> str:
+    parts = [*g.get("network", []), *g.get("files", []), *(f"${v}" for v in g.get("env", [])), *g.get("tools", [])]
+    if g.get("shell"):
+        parts.append("shell")
+    return ", ".join(parts) or "nothing extra"
+
+
 def audit(sid: int | None, name: str, event: str, detail: str = "") -> None:
     db.run("INSERT INTO skill_audit (hub_skill_id, skill_name, event, detail, created_at) VALUES (?, ?, ?, ?, ?)",
            sid, name, event, detail[:2000], db.now())
@@ -290,7 +297,9 @@ async def pipeline(url: str, update_of: int | None = None):
         yield ev("fetch", "done", f"Pinned to commit {src['sha'][:12]} on {src['ref']} · {len(files)} files", sha=src["sha"], files=files[:200])
         man = read_manifest(folder)
         name = skill_name(man["meta"], src)
-        desc = str(man["meta"].get("description") or src.get("repo_description") or "")[:300]
+        desc = str(man["meta"].get("description") or src.get("repo_description") or "").strip()
+        if len(desc) > 300:
+            desc = desc[:297].rsplit(" ", 1)[0].rstrip(",;:") + "…"
         db.run("UPDATE hub_skills SET name = ?, description = ?, kind = ? WHERE id = ?", name, desc, man["kind"], sid)
 
         yield ev("static", "running", "Scanning code for risky patterns")
@@ -333,7 +342,7 @@ async def pipeline(url: str, update_of: int | None = None):
             if old:
                 report["diff"] = diff(installed_dir(old["name"]), folder, json.loads(old["report"]).get("permissions") or {}, perms)
         db.run("UPDATE hub_skills SET status = 'reviewed', risk = ?, report = ?, updated_at = ? WHERE id = ?", rk["level"], json.dumps(report), db.now(), sid)
-        audit(sid, name, "checked", f"{src['owner']}/{src['repo']}/{src['path']}@{src['sha'][:12]} risk={rk['level']}")
+        audit(sid, name, "checked", f"{src['owner']}/{src['repo']}/{src['path']}@{src['sha'][:12]} · {rk['level']} risk")
         yield {"done": True, "skill": public(db.one("SELECT * FROM hub_skills WHERE id = ?", sid))}
     except BaseException as e:
         db.run("UPDATE hub_skills SET status = 'failed', updated_at = ? WHERE id = ?", db.now(), sid)
@@ -422,7 +431,8 @@ def install(sid: int, grants: dict, confirm: str = "") -> dict:
            json.dumps(clean), db.now(), db.now(), sid)
     _sync_assistant_skill(sid)
     audit(sid, name, "updated" if prev else "installed",
-          f"commit {row['commit_sha'][:12]} risk={row['risk']} grants={json.dumps(clean)}" + (" (high-risk override typed)" if row["risk"] == "high" else ""))
+          f"commit {row['commit_sha'][:12]} · {row['risk']} risk · allowed: {_grant_words(clean)}"
+          + (" · high-risk override typed" if row["risk"] == "high" else ""))
     return public(db.one("SELECT * FROM hub_skills WHERE id = ?", sid))
 
 
@@ -598,7 +608,7 @@ def reject_route(sid: int):
         raise HTTPException(404, "Nothing to reject")
     shutil.rmtree(staged_dir(sid), ignore_errors=True)
     db.run("UPDATE hub_skills SET status = 'rejected', updated_at = ? WHERE id = ?", db.now(), sid)
-    audit(sid, row["name"], "rejected", f"risk={row['risk']}")
+    audit(sid, row["name"], "rejected", f"{row['risk']} risk · not installed")
     return {"ok": True}
 
 
