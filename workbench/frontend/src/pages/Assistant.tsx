@@ -1,6 +1,6 @@
 import { ArrowLeft, ArrowUp, BookOpen, Brain, Check, Copy, KeyRound, Loader2, MessageSquare, Plus, Search, ShieldAlert, Trash2, Wrench, X } from "lucide-react";
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, stream } from "../api";
 import { Tracer } from "../Tracer";
 import { Empty, Markdown, ModelSelect, relTime, RouterInfo, RouterVia, SkeletonList, StreamingMarkdown, useModels, useToast } from "../util";
@@ -24,7 +24,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [steps, setSteps] = useState<Step[]>([]);
   const [approvals, setApprovals] = useState<Approval[]>([]);
-  const [text, setText] = useState("");
+  const [text, setText] = useState(((useLocation().state as { draft?: string } | null)?.draft) ?? ""); // pre-filled from Files / Sites
   const [busy, setBusy] = useState(false);
   const [model, setModel] = useState("");
   const { models } = useModels();
