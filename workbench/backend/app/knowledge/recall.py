@@ -120,7 +120,8 @@ def _tokens(text: str) -> int:
     return max(1, math.ceil(len(text) / 4))
 
 
-def context_for(query: str, *, budget_tokens: int = 600, scopes: list[str] | None = None, project_id: int | None = None) -> dict:
+def context_for(query: str, *, budget_tokens: int = 600, scopes: list[str] | None = None, project_id: int | None = None,
+                allow_sensitive: bool = False, skip_adapt_mirrors: bool = False) -> dict:
     """Context budgeter: pinned profile facts first (capped at a third of the budget), then recalled memories by
     score per token, skipping near-duplicates, until the budget is spent. Returns the prompt block and the ids used."""
     scopes = scopes or visible_scopes()
@@ -128,6 +129,10 @@ def context_for(query: str, *, budget_tokens: int = 600, scopes: list[str] | Non
     pinned = [m for m in memory.list_(scopes=scopes) if m["pinned"]]
     pool = [(m, 10.0) for m in pinned] + [(m, m["score"]) for m in recall(query, scopes=scopes, project_id=project_id, k=40)]
     for m, _ in pool:
+        if m["privacy"] == "sensitive" and not allow_sensitive:
+            continue  # sensitive memories never go to a cloud model
+        if skip_adapt_mirrors and m["source_ref"].startswith("adapt_fact:"):
+            continue  # already in the "What I know about you" block (adapt.hooks.context)
         if any(m["id"] == c["id"] for c in chosen):
             continue
         line = f"- [{m['id']}] {m['content']}"

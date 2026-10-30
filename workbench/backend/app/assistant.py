@@ -565,6 +565,9 @@ def system_prompt(ctx: Ctx, user_text: str) -> str:
     from . import v02_hooks  # feat/v02-core: project context and check mode
 
     parts.extend(v02_hooks.context(ctx, user_text))  # feat/v02-core
+    from .knowledge import live as knowledge_live  # feat/memory-core: budgeted memories (sensitive ones only for local models)
+
+    parts.extend(knowledge_live.context(ctx, user_text))  # feat/memory-core
     skills = db.all("SELECT name, description FROM skills WHERE enabled = 1 ORDER BY uses DESC, updated_at DESC LIMIT 30")
     if skills:
         parts.append("Your saved skills (load_skill before using):\n" + "\n".join(f"- {s['name']}: {s['description']}" for s in skills))
@@ -766,6 +769,9 @@ async def _run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> Async
     from .learn import after_turn
 
     after_turn(ctx)
+    from .knowledge import live as knowledge_live  # feat/memory-core: index the chat, file it under its project
+
+    knowledge_live.after_turn(ctx.conversation_id)  # feat/memory-core
 
 
 async def decide(action_id: int, approve: bool, channel: str = "web") -> dict:

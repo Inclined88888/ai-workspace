@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from ..security import require_user
-from . import crypto, export_all, graph, memory, schema
+from . import crypto, export_all, graph, live, memory, schema
 from .recall import recall as _recall_fn, search_all
 
 router = APIRouter(prefix="/api/knowledge", dependencies=[Depends(require_user)])
@@ -133,3 +133,33 @@ def export():
 @router.get("/status")
 def status():
     return {"encryption": crypto.status(), "integrity": schema.integrity()}
+
+
+class RefileIn(BaseModel):
+    project_id: int | None = None
+
+
+@router.get("/filings")
+def filings():
+    return live.recent_filings()
+
+
+@router.get("/filings/{item_kind}/{item_ref}")
+def filing(item_kind: str, item_ref: str):
+    return live.filing_for(item_kind, item_ref)
+
+
+@router.post("/filings/{fid}/change")
+def refile(fid: int, body: RefileIn):
+    return live.refile_item(fid, body.project_id)
+
+
+@router.post("/filings/{fid}/ok")
+def ok(fid: int):
+    live.confirm_filing(fid)
+    return {"ok": True}
+
+
+@router.post("/sync")
+def sync():
+    return live.sync_once()

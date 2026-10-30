@@ -39,6 +39,11 @@ async def lifespan(_: FastAPI):
     v02 = [asyncio.create_task(fn()) for fn in (automations.loop, jobs.loop)]  # feat/v02-automations
     health.LOOPS.update(zip(("Automations", "Jobs board"), v02))
     loops += v02
+    from .knowledge import live as knowledge_live  # feat/memory-core: keep the graph and search index in step
+
+    kn = asyncio.create_task(knowledge_live.loop())  # feat/memory-core
+    health.LOOPS["Memory index"] = kn  # feat/memory-core
+    loops.append(kn)  # feat/memory-core
     async with mcp.session_manager.run():
         yield
     mobile.lan_stop()
