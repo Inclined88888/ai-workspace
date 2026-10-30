@@ -171,7 +171,27 @@ def open_window(url: str, profile: Path) -> subprocess.Popen | None:
     return None
 
 
+def window_pid(profile: Path) -> int | None:
+    """The pid of a Chrome/Edge app window still running on our profile (POSIX: its SingletonLock is host-pid)."""
+    try:
+        pid = int(os.readlink(profile / "SingletonLock").rsplit("-", 1)[1])
+        os.kill(pid, 0)
+        return pid
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def close_window(profile: Path) -> None:
+    pid = None if sys.platform == "win32" else window_pid(profile)
+    if pid:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
+
+
 def stop(state: dict) -> bool:
+    close_window(data_dir() / "window")
     pid = state.get("pid")
     if not pid:
         return False
@@ -231,6 +251,7 @@ def main(argv: list[str] | None = None) -> int:
 
     dd = data_dir()
     dd.mkdir(parents=True, exist_ok=True)
+    close_window(dd / "window")  # a window left over from a backend that is gone would swallow the new one
     logs = dd / "logs"
     logs.mkdir(exist_ok=True)
     port = a.port or free_port()
@@ -264,10 +285,14 @@ def main(argv: list[str] | None = None) -> int:
             print("Press Ctrl+C to stop.")
             proc.wait()
         else:
+            started = time.monotonic()
             win = open_window(session, dd / "window")
             if win:
                 print("Close the window (or press Ctrl+C) to quit.")
                 win.wait()
+                if time.monotonic() - started < 5:  # handed off to a browser already running on this profile
+                    print("Opened in the existing app window. Press Ctrl+C here to quit.")
+                    proc.wait()
             else:
                 print("Opened in your browser. Press Ctrl+C here to quit.")
                 proc.wait()
