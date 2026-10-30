@@ -1,0 +1,15 @@
+{
+  "id": "study",
+  "name": "Study & research pack",
+  "tagline": "Flashcards, worked maths, references and a lab notebook.",
+  "for": "Students, teachers, researchers and scientists",
+  "tier": "free",
+  "version": "1.0.0",
+  "page": "/packs/study",
+  "includes": [
+    "Flashcards from any file, with spaced-repetition review",
+    "Step-by-step maths shown properly and checked with real calculations",
+    "Reference list with BibTeX and RIS export, and Zotero on this computer",
+    "Lab notebook with dated entries, attachments and exports (Pro)"
+  ]
+}

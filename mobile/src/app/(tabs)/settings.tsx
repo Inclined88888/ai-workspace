@@ -109,6 +109,10 @@ export default function Settings() {
           <Row k="This phone" v={me.data?.name || '—'} />
           <Row k="Status" v={status === 'online' ? 'Connected' : status === 'connecting' ? 'Connecting' : 'Not reachable'} />
 
+          {/* feat/v02-packs */}
+          <Section title="Packs" />
+          <Row k="Flashcards, quotes and invoices" v="Open ›" onPress={() => router.push('/packs' as never)} />
+
           <Section title="Model" />
           {models.data === null && !models.loading ? (
             <T style={{ color: c.muted, paddingVertical: space[3] }}>Your computer chooses the model. Update AI Workspace on the computer to pick one here.</T>

@@ -1,0 +1,70 @@
+/* Packs (feat/v02-packs): theme variables only; motion follows the app's motion system and prefers-reduced-motion. */
+.pk-gallery { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; border-top: 1px solid var(--rule); border-left: 1px solid var(--border); }
+.pk-tile { position: relative; display: flex; flex-direction: column; gap: 14px; padding: 28px 24px 24px; background: var(--panel); border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); min-height: 360px; transition: background var(--dur) var(--ease-out); }
+.pk-tile:hover { background: var(--panel-2); }
+.pk-num { font-family: var(--serif); font-size: var(--text-4xl); line-height: 1; color: var(--accent); font-style: italic; }
+.pk-serif { font-family: var(--serif); font-weight: 500; font-size: var(--text-2xl); line-height: 1.1; margin: 0; letter-spacing: -0.01em; }
+.pk-tile ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; font-size: var(--text-sm); }
+.pk-tile li::before { content: "— "; color: var(--faint); }
+.pk-tile .pk-foot { margin-top: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.pk-gate-result { font-size: var(--text-xs); color: var(--muted); display: grid; gap: 4px; }
+.pk-gate-result .ok { color: var(--ok-text); }
+.pk-gate { max-width: 560px; display: grid; gap: 12px; }
+.pk-err { color: var(--danger-text); font-size: var(--text-xs); }
+.pk-notice { border-left: 2px solid var(--accent); padding: 8px 12px; margin: 0 0 16px; background: var(--panel-2); font-size: var(--text-xs); color: var(--muted); }
+.pk-filepick { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.pk-filepick select { min-width: 220px; flex: 1; }
+.pk-two { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: var(--space-5); align-items: start; }
+.pk-two.open { grid-template-columns: minmax(0, 1fr); }
+.pk-two.open > :last-child { order: -1; } /* the open quote or invoice gets the full width, above the lists */
+.pk-stack { display: grid; gap: 12px; }
+.pk-lines { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
+.pk-lines th { text-align: left; font-size: var(--text-2xs); letter-spacing: var(--track); text-transform: uppercase; color: var(--muted); font-weight: 650; padding: 6px 6px; border-bottom: 1px solid var(--rule); }
+.pk-lines td { padding: 4px 6px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.pk-lines td .input { height: 30px; }
+.pk-lines .num { text-align: right; font-variant-numeric: tabular-nums; }
+.pk-totals { display: grid; grid-template-columns: 1fr auto; gap: 4px 24px; justify-content: end; font-variant-numeric: tabular-nums; font-size: var(--text-sm); }
+.pk-totals .grand { font-family: var(--serif); font-size: var(--text-xl); border-top: 1px solid var(--rule); padding-top: 6px; }
+.pk-list { display: grid; gap: 0; border-top: 1px solid var(--border); }
+.pk-item { display: flex; gap: 12px; align-items: center; padding: 10px 4px; border-bottom: 1px solid var(--border); background: none; border-left: 0; border-right: 0; border-top: 0; text-align: left; color: var(--text); cursor: pointer; font: inherit; width: 100%; }
+.pk-item:hover, .pk-item.active { background: var(--panel-2); }
+.pk-item .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pk-draft { border: 1px solid var(--border); padding: 12px 14px; display: grid; gap: 8px; background: var(--panel); }
+.pk-draft pre { white-space: pre-wrap; font-family: var(--font); font-size: var(--text-sm); margin: 0; }
+.pk-code { font-family: var(--mono); font-size: 11px; background: var(--code-bg); padding: 10px; max-height: 260px; overflow: auto; white-space: pre-wrap; margin: 0; }
+.pk-find { padding: 10px 0; border-bottom: 1px solid var(--border); display: grid; gap: 4px; font-size: var(--text-sm); }
+.pk-find .where { font-size: var(--text-2xs); color: var(--muted); letter-spacing: var(--track); text-transform: uppercase; }
+.pk-timeline { list-style: none; margin: 0; padding: 0 0 0 18px; border-left: 1px solid var(--rule); display: grid; gap: 14px; }
+.pk-timeline li { position: relative; }
+.pk-timeline li::before { content: ""; position: absolute; left: -22px; top: 6px; width: 7px; height: 7px; background: var(--accent); }
+.pk-timeline .d { font-family: var(--serif); font-size: var(--text-lg); }
+/* Flashcard review */
+.pk-card { perspective: 1200px; width: 100%; max-width: 640px; margin: 0 auto; }
+.pk-card-inner { position: relative; min-height: 280px; transform-style: preserve-3d; transition: transform var(--dur-slow) var(--ease-out); }
+.pk-card.flipped .pk-card-inner { transform: rotateY(180deg); }
+.pk-face { position: absolute; inset: 0; backface-visibility: hidden; display: grid; place-items: center; text-align: center; padding: 32px; background: var(--panel); border: 1px solid var(--rule); }
+.pk-face.back { transform: rotateY(180deg); }
+.pk-face .q { font-family: var(--serif); font-size: var(--text-2xl); line-height: 1.2; }
+.pk-face .src { position: absolute; bottom: 10px; left: 0; right: 0; font-size: var(--text-2xs); color: var(--faint); }
+.pk-grades { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; max-width: 640px; margin: 16px auto 0; }
+.pk-grades .btn { height: auto; padding: 10px 6px; flex-direction: column; display: flex; gap: 2px; }
+.pk-grades .btn small { font-size: 10px; color: var(--muted); text-transform: none; letter-spacing: 0; }
+.pk-step { padding: 10px 0; border-bottom: 1px solid var(--border); display: grid; grid-template-columns: 28px 1fr; gap: 8px; }
+.pk-step .n { font-family: var(--serif); color: var(--accent); font-size: var(--text-lg); }
+.pk-check { display: inline-flex; gap: 6px; align-items: center; font-size: var(--text-xs); }
+.pk-check.ok { color: var(--ok-text); }
+.pk-check.bad { color: var(--danger-text); }
+.pk-rec { color: var(--danger-text); }
+:root[data-motion="full"] .pk-tile { animation: page-turn 300ms var(--ease-out) both; }
+:root[data-motion="full"] .pk-tile:nth-child(2) { animation-delay: 60ms; }
+:root[data-motion="full"] .pk-tile:nth-child(3) { animation-delay: 120ms; }
+:root[data-motion="off"] .pk-card-inner { transition: none; }
+@media (prefers-reduced-motion: reduce) {
+  .pk-tile, .pk-card-inner { animation: none !important; transition: none !important; }
+  .pk-card.flipped .pk-face.front { visibility: hidden; }
+}
+@media (max-width: 900px) {
+  .pk-gallery { grid-template-columns: 1fr; }
+  .pk-two, .pk-two.open { grid-template-columns: 1fr; }
+  .pk-tile { min-height: 0; }
+}
