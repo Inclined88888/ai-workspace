@@ -71,7 +71,9 @@ Run the same command again to upgrade. Your chats, keys and settings are kept.
 2. **Choose how to think**:
    * **Free cloud** (recommended): paste a free Gemini or Groq key. It takes two minutes and needs no card. The screen
      links to the key pages.
-   * **Sign in with your subscription**: use your ChatGPT plan.
+   * **Sign in with your subscription**: use your ChatGPT plan, or your Claude plan through Claude Code for coding jobs
+     (install it with `npm i -g @anthropic-ai/claude-code`, run `claude` to sign in; see
+     [docs/CLAUDE-CODE.md](docs/CLAUDE-CODE.md)).
    * **Paste API keys**: OpenAI, Anthropic, xAI, Google, Groq, OpenRouter, Mistral, DeepSeek or any OpenAI-compatible URL.
    * **Local Ollama**: private and offline. If [Ollama](https://ollama.com/download) is running, the app finds it and
      its models.
@@ -104,6 +106,8 @@ rooks-browser doctor                                                 # browsers 
   `provider: workbench`. When the app is closed, they use local Ollama, or a provider you choose (`rooks init` writes
   an example config; `rooks-browser run --help` lists its provider options).
 * The app's **Browser agent** page drives the same Rooks Browser. The app starts it for you.
+* The app's **Coding agent** page and `rooks -P claude-code` / `rooks -P codex` hand a job to your own signed-in Claude
+  Code or Codex, so it runs on your Claude or ChatGPT plan. You approve each step and see the diff.
 
 ## 4. Commands
 

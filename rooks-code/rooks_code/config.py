@@ -36,6 +36,10 @@ PROVIDERS: dict[str, dict] = {
     "xai": {"kind": "openai", "base_url": "https://api.x.ai/v1", "key_env": "XAI_API_KEY", "model": "grok-4-fast"},
     "deepseek": {"kind": "openai", "base_url": "https://api.deepseek.com/v1", "key_env": "DEEPSEEK_API_KEY", "model": "deepseek-chat"},
     "mistral": {"kind": "openai", "base_url": "https://api.mistral.ai/v1", "key_env": "MISTRAL_API_KEY", "model": "mistral-large-latest"},
+    # Delegates: hand the job to the user's own signed-in Claude Code or Codex CLI (their Claude or ChatGPT plan).
+    # Rooks never sees a key or token for these; see rooks_code/delegate.py.
+    "claude-code": {"kind": "delegate", "base_url": "", "key_env": "", "model": "default", "key_optional": True},
+    "codex": {"kind": "delegate", "base_url": "", "key_env": "", "model": "default", "key_optional": True},
     # any other OpenAI-compatible server: set base_url (and key_env if it needs a key)
     "openai-compatible": {"kind": "openai", "base_url": "", "key_env": "ROOKS_API_KEY", "model": "",
                           "key_optional": True},
@@ -243,6 +247,7 @@ EXAMPLE = '''# Rooks Code settings. API keys are read from the environment varia
 # provider = "workbench"            # default: the open AI Workspace app, else ollama
 #                                   # workbench | openai | anthropic | openrouter | groq | gemini | xai | deepseek | mistral
 #                                   # | ollama | lmstudio | openai-compatible | your own
+#                                   # | claude-code | codex  (delegate to your own signed-in CLI and its plan)
 # model = "qwen2.5:7b"
 max_usd = 1.0                       # hard cap per session, in US dollars (0 = no cap)
 max_tokens = 200000                 # hard cap per session (0 = no cap)

@@ -107,9 +107,12 @@ export default function Browser() {
 
       <form className="card col" onSubmit={start} style={{ marginBottom: 16 }}>
         <textarea className="input" rows={3} value={form.goal} onChange={(e) => setForm({ ...form, goal: e.target.value })} placeholder="e.g. Find three remote software engineer roles on weworkremotely.com" />
-        <div className="row wrap">
-          {EXAMPLES.map((ex) => <button type="button" key={ex} className="btn sm ghost" onClick={() => setForm({ ...form, goal: ex })}>{ex.slice(0, 48)}…</button>)}
-        </div>
+        {!form.goal && (
+          <div className="row wrap example-chips">
+            <span className="small faint">Try</span>
+            {EXAMPLES.map((ex) => <button type="button" key={ex} className="example-chip" title={ex} onClick={() => setForm({ ...form, goal: ex })}>{ex.length > 44 ? ex.slice(0, 42) + "…" : ex}</button>)}
+          </div>
+        )}
         <div className="row wrap">
           <div style={{ width: 260 }}><ModelSelect value={form.model} onChange={(model) => setForm({ ...form, model })} models={models} /></div>
           <label className="row small muted">Max steps
@@ -118,13 +121,15 @@ export default function Browser() {
           <input className="input grow" style={{ minWidth: 200 }} value={form.domains} onChange={(e) => setForm({ ...form, domains: e.target.value })} placeholder="Only these sites (optional): *.pcpartpicker.com, …" />
           <button className="btn primary" disabled={form.goal.trim().length < 3}><Play size={15} /> Run</button>
         </div>
-        <div className="muted small">Runs on any model connected in Settings, through Workbench, so its spend shows in Usage. Vision models read screenshots; small local models are unreliable at browsing. Max steps caps the cost of a run.</div>
-        {usage && <div className="muted small">This month: {usage.used} of {usage.limit || "unlimited"} browser steps used (all callers, including Chat and Paperclip).</div>}
+        <div className="faint small" title="Runs on any model connected in Settings, through Workbench, so its spend shows in Usage. Vision models read screenshots; small local models are unreliable at browsing. Max steps caps the cost of a run.">
+          Uses a model from Settings; spend shows in Usage. Vision models work best.
+          {usage && <> {usage.used} of {usage.limit || "unlimited"} browser steps used this month.</>}
+        </div>
       </form>
 
-      <div style={{ display: "grid", gridTemplateColumns: "300px minmax(0,1fr)", gap: 16 }} className="research-layout">
+      {jobs.length === 0 && !job && <div className="card"><Empty icon={<Globe size={26} />} title="No runs yet" hint="Start one above. Agents in Chat and Paperclip can use this browser too." /></div>}
+      <div style={{ display: jobs.length === 0 && !job ? "none" : "grid", gridTemplateColumns: "300px minmax(0,1fr)", gap: 16 }} className="research-layout">
         <div className="card flush" style={{ alignSelf: "start" }}>
-          {jobs.length === 0 && <Empty icon={<Globe size={22} />} title="No runs yet" />}
           {jobs.map((j) => (
             <div key={j.id} className={`list-item has-tracer ${job?.id === j.id ? "active" : ""}`} onClick={() => navigate(`/browser/${j.id}`)}>
               <Tracer active={active(j.status)} />

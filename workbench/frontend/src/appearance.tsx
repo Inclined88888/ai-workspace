@@ -2,32 +2,35 @@ import { useEffect, useState } from "react";
 
 /**
  * Appearance: theme, type, size, density, motion and accent. One object in localStorage, applied to <html> as data
- * attributes and CSS variables, so every page restyles live without a reload. Paper (light) is the default; Night is
- * an explicit opt-in and never follows the OS.
+ * attributes and CSS variables, so every page restyles live without a reload. Sunshine (bright, warm, minimal) is the
+ * default; Paper, Linen and Gallery stay as options, and Night is an explicit opt-in that never follows the OS.
+ * Anyone who already saved their own choices keeps them.
  */
-export type ThemeId = "paper" | "linen" | "gallery" | "night";
+export type ThemeId = "sunshine" | "paper" | "linen" | "gallery" | "night";
 export type FontId = "editorial" | "modern" | "classic" | "system";
 export type MotionId = "full" | "subtle" | "off";
-export type AccentId = "cherry" | "ink" | "cobalt" | "forest" | "ochre";
+export type AccentId = "sun" | "cherry" | "ink" | "cobalt" | "forest" | "ochre";
 export type Appearance = { theme: ThemeId; font: FontId; size: number; density: "comfortable" | "compact"; motion: MotionId; accent: AccentId };
 
-export const DEFAULTS: Appearance = { theme: "paper", font: "editorial", size: 14, density: "comfortable", motion: "full", accent: "cherry" };
+export const DEFAULTS: Appearance = { theme: "sunshine", font: "modern", size: 14, density: "comfortable", motion: "full", accent: "sun" };
 const KEY = "wb-appearance";
 const LEGACY = "wb-theme";
 
 export const THEMES: { id: ThemeId; label: string; note: string; swatch: [string, string] }[] = [
-  { id: "paper", label: "Paper", note: "Warm newsprint, the default", swatch: ["#f5f1e8", "#141311"] },
+  { id: "sunshine", label: "Sunshine", note: "Bright, warm and airy, the default", swatch: ["#fffdf8", "#ffc83d"] },
+  { id: "paper", label: "Paper", note: "Warm newsprint, editorial", swatch: ["#f5f1e8", "#141311"] },
   { id: "linen", label: "Linen", note: "Deeper, softer cream", swatch: ["#ebe3d2", "#1d1a16"] },
   { id: "gallery", label: "Gallery", note: "Clean white walls", swatch: ["#ffffff", "#111111"] },
   { id: "night", label: "Night", note: "Ink paper, bone type", swatch: ["#121110", "#efeae0"] },
 ];
 export const FONTS: { id: FontId; label: string; note: string; display: string; body: string }[] = [
   { id: "editorial", label: "Editorial", note: "Bodoni Moda + Hanken Grotesk", display: '"Bodoni Moda Variable", Didot, serif', body: '"Hanken Grotesk Variable", Helvetica, sans-serif' },
-  { id: "modern", label: "Modern", note: "Hanken Grotesk throughout", display: '"Hanken Grotesk Variable", Helvetica, sans-serif', body: '"Hanken Grotesk Variable", Helvetica, sans-serif' },
+  { id: "modern", label: "Clean", note: "Hanken Grotesk throughout, the default", display: '"Hanken Grotesk Variable", Helvetica, sans-serif', body: '"Hanken Grotesk Variable", Helvetica, sans-serif' },
   { id: "classic", label: "Classic", note: "Bodoni Moda + a book serif", display: '"Bodoni Moda Variable", Didot, serif', body: 'Charter, "Iowan Old Style", Georgia, serif' },
   { id: "system", label: "System", note: "Your computer's own fonts", display: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif', body: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif' },
 ];
 export const ACCENTS: { id: AccentId; label: string; color: string }[] = [
+  { id: "sun", label: "Sun", color: "#ffc83d" },
   { id: "cherry", label: "Cherry", color: "#d21f3c" },
   { id: "ink", label: "Ink", color: "#141311" },
   { id: "cobalt", label: "Cobalt", color: "#2343b8" },

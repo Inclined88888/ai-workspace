@@ -1,6 +1,8 @@
 import { ArrowLeft, ArrowRight, Check, ClipboardPaste, Cloud, Cpu, Download, ExternalLink, KeyRound, Loader2, ListChecks, ShieldCheck, Sparkles, UserRound } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api, stream } from "../api";
+import { AgentSetup, type CliAgent } from "./Code";
 
 /** First run: "Choose how to think". Cloud is the default (nothing heavy runs on this computer); the smart router
  * then uses whatever was connected and falls back when a free tier runs out. */
@@ -9,7 +11,7 @@ type Preset = { name: string; auth_kind: string; protocol: string; base_url: str
 type KeyInfo = { url: string; prefix: string; free?: boolean; limits?: string };
 type Model = { ref: string; model: string };
 type Validation = { ok: boolean; preset: string; name: string; detail: string; health: string };
-type Sub = { id: string; name: string; plans: string; available: boolean; detail: string; source: string };
+type Sub = { id: string; name: string; plans: string; available: boolean; detail: string; source: string; via?: string };
 
 const STARTER_MODEL = "qwen3:4b";
 const KEY_ORDER = ["openai", "anthropic", "xai", "gemini", "groq", "openrouter", "mistral", "deepseek", "compatible"];
@@ -164,6 +166,37 @@ function FreeStep({ info, onBack, onDone }: { info: Record<string, KeyInfo>; onB
   );
 }
 
+/** Claude plans work through Anthropic's own Claude Code app: we detect it, never sign in for it, and hand it coding jobs. */
+function ClaudeCodeCard({ sub, onDone }: { sub: Sub; onDone: () => void }) {
+  const navigate = useNavigate();
+  const [agent, setAgent] = useState<CliAgent | null>(null);
+  const [checking, setChecking] = useState(false);
+  const check = (fresh: boolean) => {
+    setChecking(true);
+    api<{ agents: CliAgent[] }>(`/cli-agents${fresh ? "?fresh=true" : ""}`)
+      .then((r) => setAgent(r.agents.find((a) => a.id === "claude") ?? null)).catch(() => setAgent(null)).finally(() => setChecking(false));
+  };
+  useEffect(() => check(false), []);
+  const go = async () => {
+    await api("/desktop/welcome-done", { method: "POST" });
+    onDone();
+    navigate("/code");
+  };
+  return (
+    <div className="sub-card on">
+      <strong className="sub-name">Use your Claude plan through Claude Code</strong>
+      <p className="small muted">For Claude {sub.plans}. {sub.detail} <a href={sub.source} target="_blank" rel="noreferrer">Anthropic's terms</a></p>
+      {agent ? <AgentSetup agent={agent} onRecheck={() => check(true)} checking={checking} /> : <Loader2 size={14} className="spin" />}
+      {agent?.ready && (
+        <div className="row">
+          <span className="small muted grow">Coding jobs run on your plan. Chat still uses a model you connect.</span>
+          <button className="btn primary" onClick={go}>Open the coding agent <ArrowRight size={16} /></button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SubscriptionStep({ onBack, onDone, onKey }: { onBack: () => void; onDone: () => void; onKey: (preset: string) => void }) {
   const [subs, setSubs] = useState<Sub[] | null>(null);
   const [state, setState] = useState<{ state: string; url: string } | null>(null);
@@ -201,6 +234,7 @@ function SubscriptionStep({ onBack, onDone, onKey }: { onBack: () => void; onDon
     setStatus(s);
   };
   const chatgpt = subs?.find((s) => s.id === "chatgpt");
+  const claude = subs?.find((s) => s.id === "claude" && s.available && s.via === "claude_code");
 
   return (
     <div className="col gap-lg">
@@ -212,6 +246,7 @@ function SubscriptionStep({ onBack, onDone, onKey }: { onBack: () => void; onDon
       {error && <div className="alert err">{error}</div>}
       {status?.status === "failed" && <div className="alert err">{status.error}</div>}
       {subs === null && <Loader2 size={16} className="spin" />}
+      {claude && <ClaudeCodeCard sub={claude} onDone={onDone} />}
       {chatgpt && (
         <div className="sub-card on">
           <div className="row">
@@ -244,20 +279,25 @@ function SubscriptionStep({ onBack, onDone, onKey }: { onBack: () => void; onDon
           )}
         </div>
       )}
-      <div className="col" style={{ gap: 0 }}>
-        {subs?.filter((s) => !s.available).map((s) => (
-          <div key={s.id} className="sub-card off">
-            <div className="row">
-              <strong className="sub-name">{s.name}</strong>
-              <span className="badge">Not available yet</span>
-              <div className="spacer" />
-              <span className="tiny muted">{s.plans}</span>
-            </div>
-            <p className="small muted">{s.detail} <a href={s.source} target="_blank" rel="noreferrer">Why</a></p>
-            <div><button className="btn sm ghost" onClick={() => onKey(s.id === "claude" ? "anthropic" : s.id === "grok" ? "xai" : "gemini")}>Use a {s.name === "Gemini" ? "free Gemini" : s.name} key instead <ArrowRight size={13} /></button></div>
+      {!!subs?.some((s) => !s.available) && (
+        <details className="other-plans">
+          <summary>Other plans: not available yet</summary>
+          <div className="col" style={{ gap: 0 }}>
+            {subs?.filter((s) => !s.available).map((s) => (
+              <div key={s.id} className="sub-card off">
+                <div className="row">
+                  <strong className="sub-name">{s.name}</strong>
+                  <span className="badge">Not available yet</span>
+                  <div className="spacer" />
+                  <span className="tiny muted">{s.plans}</span>
+                </div>
+                <p className="small muted">{s.detail} <a href={s.source} target="_blank" rel="noreferrer">Why</a></p>
+                <div><button className="btn sm ghost" onClick={() => onKey(s.id === "claude" ? "anthropic" : s.id === "grok" ? "xai" : "gemini")}>Use a {s.name === "Gemini" ? "free Gemini" : s.name} key instead <ArrowRight size={13} /></button></div>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </details>
+      )}
       <div className="row"><Back onBack={onBack} /></div>
     </div>
   );
@@ -459,7 +499,7 @@ export default function Welcome({ onDone }: { onDone: () => void }) {
               </button>
               <button className="welcome-option" onClick={() => setStep("subscription")} disabled={!presets}>
                 <Sparkles size={20} />
-                <span className="grow"><strong>Sign in with your subscription</strong><span className="muted small">Use your ChatGPT plan. No key needed.</span></span>
+                <span className="grow"><strong>Sign in with your subscription</strong><span className="muted small">Your ChatGPT plan, or your Claude plan through Claude Code. No key needed.</span></span>
                 <ArrowRight size={16} />
               </button>
               <button className="welcome-option" onClick={() => { setKeyPreset(undefined); setStep("key"); }} disabled={!presets}>
