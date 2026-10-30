@@ -1,4 +1,4 @@
-import { decisionFor } from '../lockActions';
+import { decisionFor, handleLockAction } from '../lockActions';
 import { b64d, b64e, Computer, derive, enqueue, flush, newKeyPair, OfflineError, open, seal, send, unwrap, upsertComputer, wrap } from '../link';
 
 // Produced by workbench/backend/app/teammates/phonelink.py (Python cryptography) with fixed keys.
@@ -93,5 +93,28 @@ describe('lock-screen approval actions', () => {
     expect(decisionFor('approve', { kind: 'run', id: 7 })).toBeNull();
     expect(decisionFor('approve', { kind: 'approval', id: 'x' })).toBeNull();
     expect(decisionFor('com.apple.UNNotificationDefaultActionIdentifier', { kind: 'approval', id: 3 })).toEqual({ kind: 'open', path: '/approvals' });
+  });
+});
+
+describe('lock-screen handler', () => {
+  const deps = (ok: boolean, fail = false) => {
+    const log: string[] = [];
+    return { log, d: { confirm: async () => ({ ok }), decide: async (id: number, a: boolean) => { if (fail) throw new Error('x'); log.push(`decide ${id} ${a}`); },
+      open: (p: string) => log.push(`open ${p}`), notify: (t: string) => { log.push(`notify ${t}`); } } };
+  };
+  it('approves only after Face ID', async () => {
+    const a = deps(true);
+    expect(await handleLockAction('approve', { kind: 'approval', id: 4, tool: 'send_email' }, a.d)).toBe('approved');
+    expect(a.log).toEqual(['decide 4 true', 'notify Approved']);
+    const b = deps(false);
+    expect(await handleLockAction('approve', { kind: 'approval', id: 4 }, b.d)).toBe('not-confirmed');
+    expect(b.log).toEqual(['open /approvals']);
+  });
+  it('declines with the check too, and falls back to the app on errors', async () => {
+    const a = deps(true);
+    expect(await handleLockAction('decline', { kind: 'approval', id: 5 }, a.d)).toBe('declined');
+    const b = deps(true, true);
+    expect(await handleLockAction('approve', { kind: 'approval', id: 5 }, b.d)).toBe('failed');
+    expect(b.log).toEqual(['open /approvals']);
   });
 });

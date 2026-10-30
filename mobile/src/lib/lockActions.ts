@@ -25,3 +25,29 @@ export function decisionFor(actionIdentifier: string, data: Record<string, unkno
 export async function registerApprovalCategory(n: { setNotificationCategoryAsync: (id: string, actions: any[]) => Promise<unknown> }) {
   await n.setNotificationCategoryAsync(APPROVAL_CATEGORY, approvalActions);
 }
+
+export type LockDeps = {
+  confirm: (what: string) => Promise<{ ok: boolean; reason?: string }>;
+  decide: (id: number, approve: boolean) => Promise<unknown>;
+  open: (path: string) => void;
+  notify: (title: string, body: string) => Promise<unknown> | void;
+};
+
+/** Run a lock-screen action: Face ID / passcode first (again, in the app), then tell the computer. Any failure opens
+ *  Approvals so nothing is lost; declining also needs the check, so a stranger can't silently reject things either. */
+export async function handleLockAction(actionIdentifier: string, data: Record<string, unknown> | undefined, deps: LockDeps): Promise<string> {
+  const d = decisionFor(actionIdentifier, data);
+  if (!d) return 'ignored';
+  if (d.kind === 'open') { deps.open(d.path); return 'opened'; }
+  const what = String(data?.tool ?? 'this action').replace(/_/g, ' ');
+  const g = await deps.confirm(`${d.approve ? 'Approve' : 'Decline'}: ${what}`);
+  if (!g.ok) { deps.open('/approvals'); return 'not-confirmed'; }
+  try {
+    await deps.decide(d.id, d.approve);
+    await deps.notify(d.approve ? 'Approved' : 'Declined', what);
+    return d.approve ? 'approved' : 'declined';
+  } catch {
+    deps.open('/approvals');
+    return 'failed';
+  }
+}
