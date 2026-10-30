@@ -90,13 +90,24 @@ jobs:
           AZURE_SIGNING_ACCOUNT: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
           AZURE_SIGNING_PROFILE: ${{ secrets.AZURE_SIGNING_PROFILE }}
           WINDOWS_SIGN_COMMAND: ${{ secrets.WINDOWS_SIGN_COMMAND }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
           set -euo pipefail
           echo '{}' > desktop/src-tauri/tauri.ci.conf.json
           args="--config src-tauri/tauri.ci.conf.json"
           mac_identity="-"; mac_signed=false; notarise=false
           if [ "$RUNNER_OS" = macOS ]; then
-            if [ "$HAS_APPLE_CERT" = true ]; then
+            cert_ok=false
+            if [ "$HAS_APPLE_CERT" = true ]; then  # the same import Tauri does, into a throwaway keychain
+              kc="$RUNNER_TEMP/check.keychain-db"; p12="$RUNNER_TEMP/check.p12"
+              printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$p12" 2>/dev/null || true
+              security create-keychain -p check "$kc" >/dev/null
+              if security import "$p12" -k "$kc" -f pkcs12 -P "$APPLE_CERTIFICATE_PASSWORD" >/dev/null 2>&1; then cert_ok=true
+              else echo "::warning::APPLE_CERTIFICATE could not be imported (not a base64 .p12, or APPLE_CERTIFICATE_PASSWORD does not match). Building ad-hoc signed instead; fix the secret to get a Developer ID build."; fi
+              security delete-keychain "$kc" >/dev/null 2>&1 || true; rm -f "$p12"
+            fi
+            if [ "$cert_ok" = true ]; then
               mac_signed=true; mac_identity=""
               if [ "$HAS_APPLE_NOTARY" = true ]; then notarise=true; echo "macOS: Developer ID signing + notarisation"
               else echo "::warning::APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID missing: signed but NOT notarised"; fi
