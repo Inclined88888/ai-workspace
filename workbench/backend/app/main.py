@@ -16,8 +16,12 @@ from . import egress  # noqa: E402
 
 egress.install()  # before anything connects: every outbound request is in the audit log (R8, item 75)
 
-from . import actions, api, assistant_api, bridge, browser_proxy, company, config, db, health, llm, mobile, scheduler, skills_hub, telegram  # noqa: E402
+from . import actions, api, appearance, assistant_api, bridge, browser_proxy, cli_agents_api, company, config, connect, db, desk_proxy, health, llm, mobile, scheduler, sites, skills_hub, telegram, work_api  # noqa: E402
 from .mcp_server import mcp, mcp_app
+from .adapt import hooks as adapt_hooks, routes as adapt_routes  # adapt and learn (feat/learn-and-adapt)
+from . import auto_tools, automations, jobs, v02_api  # noqa: E402 - feat/v02-automations
+from . import v02_hooks  # feat/v02-core: projects, action history with undo, checked answers
+from .packs import mobile_routes as packs_mobile, routes as packs_routes, tools as packs_tools  # feat/v02-packs: Trade, Legal, Study packs
 from .security import check_bearer
 from .tools import tools
 
@@ -30,8 +34,11 @@ async def lifespan(_: FastAPI):
     actions.recover()
     company.recover()
     mobile.boot()
-    loops = [asyncio.create_task(fn()) for fn in (api.calendar_loop, scheduler.loop, telegram.loop, company.loop)]
-    health.LOOPS.update(zip(("Calendar sync", "Scheduler", "Telegram", "Company"), loops))
+    loops = [asyncio.create_task(fn()) for fn in (api.calendar_loop, scheduler.loop, telegram.loop, company.loop, sites.loop)]
+    health.LOOPS.update(zip(("Calendar sync", "Scheduler", "Telegram", "Company", "Site watches"), loops))
+    v02 = [asyncio.create_task(fn()) for fn in (automations.loop, jobs.loop)]  # feat/v02-automations
+    health.LOOPS.update(zip(("Automations", "Jobs board"), v02))
+    loops += v02
     async with mcp.session_manager.run():
         yield
     mobile.lan_stop()
@@ -81,12 +88,37 @@ from . import openapi  # registers authenticated schema before including the rou
 app.include_router(api.public)
 app.include_router(api.api)
 app.include_router(assistant_api.router)
+app.include_router(connect.router)  # Connect Google / Connect Microsoft: one sign-in for mail and calendar
 app.include_router(mobile.public)  # phone companion app: pairing, then device-token routes (mobile/)
 app.include_router(mobile.owner)
 app.include_router(mobile.device)
+app.include_router(appearance.owner)  # the chosen look, shared with the phone and the terminal tools
+app.include_router(appearance.device)
 app.include_router(browser_proxy.router)
+app.include_router(desk_proxy.router)
+app.include_router(work_api.router)  # Files (any file, analysis, sandboxed Python) and Sites (any website the user works in)
 app.include_router(skills_hub.router)  # Skills from GitHub behind the security gate
+app.include_router(cli_agents_api.router)  # hand jobs to the user's own Claude Code / Codex CLI
+app.include_router(adapt_routes.router)  # /api/learn: What I know about you, Show me how, suggestions
+adapt_hooks.register_tools()
+app.include_router(v02_api.router)  # feat/v02-automations: automations, jobs board, live documents
+app.include_router(v02_api.phone)
+auto_tools.register_tools()
+# feat/v02-anywhere-voice: Ask from anywhere, voice, meeting companion
+from . import anywhere, meetings, voice  # noqa: E402
+
+app.include_router(anywhere.native)
+app.include_router(anywhere.router)
+app.include_router(voice.router)
+app.include_router(voice.device)
+app.include_router(meetings.router)
+v02_hooks.install(app)  # feat/v02-core: /api/projects, /api/history (undo), /api/checked
+app.include_router(packs_routes.router)  # feat/v02-packs
+app.include_router(packs_mobile.router)  # feat/v02-packs: phone flashcards and quotes
+packs_tools.register_tools()  # feat/v02-packs: pack shortcuts, shown only once a pack is added
 app.include_router(bridge.router)  # /v1: OpenAI-shaped access to every connection, for the browser agent (item 103)
+from . import account  # noqa: E402
+account.install(app)  # Your plan: account sign-in, signed entitlements and the Pro feature gate
 app.mount("/tools", tools)
 app.mount("/mcp", mcp_app)  # MCP clients use http://workbench:8000/mcp/
 

@@ -16,6 +16,7 @@ hiddenimports = collect_submodules("app") + collect_submodules("uvicorn")
 # mcp.cli needs the optional typer extra and exits on import; the server side is all Workbench uses.
 hiddenimports += collect_submodules("mcp", filter=lambda n: not n.startswith("mcp.cli"))
 datas += collect_data_files("mcp")
+datas += [(str(BACKEND / "app" / "packs" / "bundles"), "app/packs/bundles")]  # feat/v02-packs: pack skills and templates
 for pkg in ("trafilatura", "justext", "htmldate", "courlan", "tzdata", "keyring", "icalendar",
             "recurring_ical_events", "caldav", "croniter", "certifi", "dateutil", "lxml"):
     d, b, h = collect_all(pkg)

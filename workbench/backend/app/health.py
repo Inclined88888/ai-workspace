@@ -108,6 +108,8 @@ async def addons() -> list[dict]:
         out.append(await _http("Browser agent", "add-on", f"{config.BROWSER_URL}/healthz"))
     else:
         out.append(_result("Browser agent", "add-on", "off", "add-on not enabled"))
+    if config.DESK_URL and config.DESK_API_KEY:
+        out.append(await _http("Computer use (Rooks Desk)", "add-on", f"{config.DESK_URL}/healthz"))
     p = search.provider()
     if p == "searxng":
         out.append(await _http("Web search (SearXNG)", "add-on", f"{config.SEARXNG_URL}/healthz"))

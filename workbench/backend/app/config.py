@@ -23,6 +23,8 @@ CLAUDE_CODE_URL = os.getenv("CLAUDE_CODE_URL", "").rstrip("/")  # optional offic
 CLAUDE_CODE_API_KEY = os.getenv("CLAUDE_CODE_API_KEY", "")
 BROWSER_URL = os.getenv("BROWSER_URL", "").rstrip("/")  # optional add-on
 BROWSER_API_KEY = os.getenv("BROWSER_API_KEY", "")
+DESK_URL = os.getenv("DESK_URL", "").rstrip("/")  # optional add-on: Rooks Desk, computer use on this machine
+DESK_API_KEY = os.getenv("DESK_API_KEY", "")
 PAPERCLIP_URL = os.getenv("PAPERCLIP_URL", "")
 HERMES_URL = os.getenv("HERMES_URL", "")
 # Desktop app (desktop/): the native shell runs this backend as a sidecar on 127.0.0.1 for one local user.

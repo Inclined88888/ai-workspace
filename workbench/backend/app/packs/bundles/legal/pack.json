@@ -1,0 +1,17 @@
+{
+  "id": "legal",
+  "name": "Legal pack",
+  "tagline": "Clause library, redlines and document checks, with sources.",
+  "for": "Lawyers, paralegals, contract managers, property and HR teams",
+  "tier": "pro",
+  "version": "1.0.0",
+  "page": "/packs/legal",
+  "includes": [
+    "Save and reuse clauses in your own clause library",
+    "Compare two versions with a tracked-changes redline",
+    "Find defined terms that are used but never defined, or defined but never used",
+    "Check clause cross-references and the format of case and legislation citations",
+    "Build a matter timeline from dates in your documents",
+    "Every result cites where it came from, and none of it is legal advice"
+  ]
+}

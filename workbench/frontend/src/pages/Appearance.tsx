@@ -1,6 +1,8 @@
 import { RotateCcw } from "lucide-react";
+import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { ACCENTS, DEFAULTS, FONTS, SIZES, THEMES, useAppearance } from "../appearance";
+import { ACCENTS, DEFAULTS, FONTS, SIZES, resolveTheme, useAppearance } from "../appearance";
+import { ThemeGrid } from "../ThemePicker";
 import { Tracer } from "../Tracer";
 
 /** One panel, six choices, all live. Nothing here needs explaining twice. */
@@ -31,15 +33,7 @@ export default function Appearance() {
         <div>
           <section className="ap-section" aria-labelledby="ap-theme">
             <h3 id="ap-theme">Theme</h3>
-            <div className="ap-options" role="radiogroup" aria-labelledby="ap-theme">
-              {THEMES.map((t) => (
-                <button key={t.id} type="button" role="radio" aria-checked={a.theme === t.id} className="ap-option" onClick={() => set({ theme: t.id })}>
-                  <span className="ap-chip" style={{ background: t.swatch[0], color: t.swatch[1] }}>Aa</span>
-                  <span className="name">{t.label}</span>
-                  <span className="note">{t.note}</span>
-                </button>
-              ))}
-            </div>
+            <ThemeGrid />
           </section>
 
           <section className="ap-section" aria-labelledby="ap-font">
@@ -73,17 +67,19 @@ export default function Appearance() {
 
           <section className="ap-section" aria-labelledby="ap-motion">
             <h3 id="ap-motion">Motion</h3>
-            <Seg label="Motion" value={a.motion} onChange={(v) => set({ motion: v })} options={[["full", "Full"], ["subtle", "Subtle"], ["off", "Off"]]} />
+            <Seg label="Motion" value={a.motion} onChange={(v) => set({ motion: v })} options={[["full", "Full"], ["subtle", "Calm"], ["off", "Off"]]} />
             <p className="small muted" style={{ margin: "10px 0 0" }}>
               {osReduced ? "Your computer asks for reduced motion, so nothing moves whatever you pick here."
-                : a.motion === "full" ? "Page turns, hover lifts and the moving border while work is happening."
-                : a.motion === "subtle" ? "Gentle fades and a slow border. No sliding."
+                : a.motion === "full" ? "Pages glide into each other, replies arrive word by word, cards settle on a spring and the window's edge lights up while I use your computer."
+                : a.motion === "subtle" ? "Calm motion: the same moments as gentle fades. Nothing slides, bounces or spins."
                 : "Nothing moves. Work in progress shows a still red outline."}
             </p>
+            <Link to="/appearance/motion" className="btn sm" style={{ marginTop: 10 }}>See every animation</Link>
           </section>
 
           <section className="ap-section" aria-labelledby="ap-accent" style={{ borderBottom: "none" }}>
             <h3 id="ap-accent">Accent</h3>
+            {["neon", "contrast"].includes(resolveTheme(a.theme)) && <p className="small muted" style={{ margin: "0 0 10px" }}>This theme keeps its own accent so everything stays easy to read.</p>}
             <div className="ap-swatches" role="radiogroup" aria-labelledby="ap-accent">
               {ACCENTS.map((c) => (
                 <button key={c.id} type="button" role="radio" aria-checked={a.accent === c.id} aria-label={c.label} title={c.label}

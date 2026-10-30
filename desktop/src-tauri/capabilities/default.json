@@ -1,18 +1,30 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "What the splash and the Workbench page (served by the local backend on 127.0.0.1) may call.",
-  "windows": ["main"],
+  "description": "What the splash and the Workbench page (served by the local backend on 127.0.0.1) may call. The page may also set the window's light/dark title bar and background colour to match the chosen theme. The ask bar (feat/v02-anywhere-voice) is the same page in a small floating window.",
+  "windows": [
+    "main",
+    "askbar"
+  ],
   "local": true,
   "remote": {
-    "urls": ["http://127.0.0.1:*"]
+    "urls": [
+      "http://127.0.0.1:*"
+    ]
   },
   "permissions": [
     "core:default",
+    "core:window:allow-set-theme",
+    "core:window:allow-set-background-color",
+    "core:window:allow-start-dragging",
     "allow-app-info",
     "allow-list-sidecars",
     "allow-request-approval",
     "allow-open-data-dir",
-    "allow-open-logs"
+    "allow-open-logs",
+    "allow-get-ask-shortcut",
+    "allow-set-ask-shortcut",
+    "allow-hide-ask-bar",
+    "allow-show-main-window"
   ]
 }

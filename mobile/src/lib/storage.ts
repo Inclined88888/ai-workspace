@@ -4,14 +4,18 @@
  */
 import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
+import type { MotionPref } from './motion';
 
 export type Pairing = { token: string; urls: string[]; active: string; name: string; deviceId: number };
 
 const KEY = 'aiworkspace.pairing.v1';
 const PREFS = 'aiworkspace.prefs.v1';
 
-export type Prefs = { theme: 'light' | 'dark' | 'system'; model: string; haptics: boolean };
-export const DEFAULT_PREFS: Prefs = { theme: 'light', model: '', haptics: true };
+/** theme: 'computer' follows the paired computer's choice; 'system' follows the phone; or one of the six themes.
+ * 'light' and 'dark' are the older choices, read as Paper and Dark. */
+export type ThemePref = 'computer' | 'system' | 'sunshine' | 'paper' | 'cherry' | 'neon' | 'night' | 'contrast' | 'light' | 'dark';
+export type Prefs = { theme: ThemePref; model: string; haptics: boolean; desktopTheme?: string; motion?: MotionPref };
+export const DEFAULT_PREFS: Prefs = { theme: 'computer', model: '', haptics: true, motion: 'full' };
 
 const web = {
   get: (k: string) => (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(k) : null),

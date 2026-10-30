@@ -7,6 +7,8 @@ One command installs everything for your user account, with no admin rights, Doc
 * **`rooks`**, the terminal coding agent (Rooks Code).
 * **`rooks-browser`**, the AI browser agent (Rooks Browser), plus a browser for it. It uses your Chrome or Edge if you
   have one, and otherwise downloads Chromium.
+* **`rooks-desk`**, computer use (Rooks Desk). It sees your screen, clicks, types, opens apps, runs terminal commands
+  and works with files in folders you allow, and asks before anything risky. Skip it with `--no-desk`.
 * **`ai-workspace`**, the one command that opens the app. It also adds a Start-menu / Applications / app-menu shortcut.
 
 All three use **the same models**. When the app is open, `rooks` and `rooks-browser` route through its smart router, so
@@ -71,7 +73,9 @@ Run the same command again to upgrade. Your chats, keys and settings are kept.
 2. **Choose how to think**:
    * **Free cloud** (recommended): paste a free Gemini or Groq key. It takes two minutes and needs no card. The screen
      links to the key pages.
-   * **Sign in with your subscription**: use your ChatGPT plan.
+   * **Sign in with your subscription**: use your ChatGPT plan, or your Claude plan through Claude Code for coding jobs
+     (install it with `npm i -g @anthropic-ai/claude-code`, run `claude` to sign in; see
+     [docs/CLAUDE-CODE.md](docs/CLAUDE-CODE.md)).
    * **Paste API keys**: OpenAI, Anthropic, xAI, Google, Groq, OpenRouter, Mistral, DeepSeek or any OpenAI-compatible URL.
    * **Local Ollama**: private and offline. If [Ollama](https://ollama.com/download) is running, the app finds it and
      its models.
@@ -104,6 +108,31 @@ rooks-browser doctor                                                 # browsers 
   `provider: workbench`. When the app is closed, they use local Ollama, or a provider you choose (`rooks init` writes
   an example config; `rooks-browser run --help` lists its provider options).
 * The app's **Browser agent** page drives the same Rooks Browser. The app starts it for you.
+* The app's **Coding agent** page and `rooks -P claude-code` / `rooks -P codex` hand a job to your own signed-in Claude
+  Code or Codex, so it runs on your Claude or ChatGPT plan. You approve each step and see the diff.
+
+### Computer use (Rooks Desk)
+
+```bash
+rooks-desk setup     # macOS: switch on Screen Recording and Accessibility (System Settings opens at the right place)
+rooks-desk doctor    # what works on this computer
+rooks-desk "open TextEdit, write a haiku and save it as ~/Documents/haiku.txt"
+rooks-desk run --dry-run "rename every .jpeg in ~/Pictures/trip to .jpg"   # show the plan, touch nothing
+```
+
+* The app's **Computer** page shows it working: a live screen, its thinking, every action and Allow / Deny for paused
+  steps. The assistant can hand it a task (`use_computer`), and Rooks Code gets it as the MCP server `desk`.
+* **It asks before** shell commands, typing into a terminal, files outside the allowed folders, deleting, sending
+  email or messages, buying, and signing in. Pre-approve categories for one run with `--approve shell,file_write,message`.
+  Logins and dangerous commands always ask.
+* **While it works**, a red frame and a bar stay on screen. **Ctrl+Alt+Esc**, moving the mouse to the top-left corner,
+  `rooks-desk stop` or **Stop everything** stops it at once. Every step is saved with a screenshot
+  (`~/.rooks-desk/runs`).
+* **It works best with a model that can see**: a free Gemini key, or Groq's Llama 4 or Qwen 3.8. Text-only models
+  work from the accessibility tree and are much weaker at it.
+* **Windows**: it can't click into "Run as administrator" windows or UAC prompts, which Windows blocks on purpose.
+  Approve those yourself. **Linux**: use an X11 session, since Wayland isn't supported.
+* AutoCAD and 3D rendering: see [rooks-desk/docs/AUTOCAD.md](rooks-desk/docs/AUTOCAD.md).
 
 ## 4. Commands
 
@@ -143,7 +172,7 @@ The native app and the `ai-workspace` window share the same data folder.
 **Uninstall**:
 
 1. Run `ai-workspace --stop`.
-2. Run `uv tool uninstall rooks-code rooks-browser`.
+2. Run `uv tool uninstall rooks-code rooks-browser rooks-desk`.
 3. Delete `~/.ai-workspace` and `~/.local/bin/ai-workspace` (Windows: `ai-workspace.cmd`), and the shortcut.
 4. Delete the data folder above only if you also want to remove your chats and settings.
 
@@ -157,6 +186,9 @@ The native app and the `ai-workspace` window share the same data folder.
 * **Small local models are weak agents.** With Ollama 7B models on a CPU, chat answers take 30–120 s. They sometimes
   call tools they don't need, and `rooks` sometimes describes a change instead of making it, so retry the task or use a
   coder model (`rooks -m 1/qwen2.5-coder:7b`). A free Gemini/Groq key is much faster and more reliable.
+* **Computer use is tested end to end on Linux (X11) only.** The macOS and Windows backends pass CI, but nobody has
+  run them by hand on a real Mac or PC yet. Small local models over-claim at GUI tasks, so Rooks Desk checks that the
+  files a task names really exist before it reports success.
 * **Web search** needs a Brave Search or Tavily key (Settings → Search). Until then the assistant doesn't offer it.
 * **Claude Pro/Max subscriptions can't be connected** (Anthropic's terms). Use a Claude API key.
 * The mobile app (Expo) pairs with a running desktop app. See [docs/mobile-pairing.md](docs/mobile-pairing.md). It isn't

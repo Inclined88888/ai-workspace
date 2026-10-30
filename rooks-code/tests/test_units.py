@@ -106,3 +106,16 @@ def test_text_tool_calls_repeated_by_the_model_run_once():
     one = '```json\n{"name": "run_command", "arguments": {"command": "python3 t.py"}}\n```\n'
     calls, _ = providers.parse_text_tool_calls("Run it.\n" + one * 20, {"run_command"})
     assert len(calls) == 1
+
+
+def test_rooks_desk_is_added_as_an_untrusted_mcp_server_when_installed(tmp_path, monkeypatch):
+    monkeypatch.delenv("ROOKS_DESK_MCP", raising=False)
+    monkeypatch.setattr(config.shutil, "which", lambda name: "/opt/bin/rooks-desk" if name == "rooks-desk" else None)
+    s = config.resolve({"provider": "ollama"}, tmp_path, {})
+    assert s.mcp_servers["desk"] == {"command": "/opt/bin/rooks-desk", "args": ["mcp"], "trusted": False}
+    assert "desk" not in config.resolve({"provider": "ollama"}, tmp_path, {"mcp": {"desk": False}}).mcp_servers
+    monkeypatch.setenv("ROOKS_DESK_MCP", "0")
+    assert "desk" not in config.resolve({"provider": "ollama"}, tmp_path, {}).mcp_servers
+    monkeypatch.setattr(config.shutil, "which", lambda name: None)
+    monkeypatch.delenv("ROOKS_DESK_MCP")
+    assert "desk" not in config.resolve({"provider": "ollama"}, tmp_path, {}).mcp_servers

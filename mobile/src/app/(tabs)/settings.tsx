@@ -9,10 +9,13 @@ import { modelName } from '@/lib/format';
 import { useSession } from '@/lib/session';
 import { Prefs } from '@/lib/storage';
 import { registerForPush } from '@/lib/push';
-import { fonts, hairline, space, type } from '@/lib/theme';
+import { fonts, hairline, Palette, palettes, space, themeLabels, type } from '@/lib/theme';
 import { success, tap, warning } from '@/lib/haptics';
 import { ConnectionMark } from '@/components/Connection';
 import { Btn, Label, Masthead, Notice, Screen, Section, T } from '@/components/ui';
+
+const MOTION_LABEL = { full: 'Full', calm: 'Calm', off: 'Off' } as const;
+const MOTION_NEXT = { full: 'calm', calm: 'off', off: 'full' } as const;
 
 function Row({ k, v, onPress, mono }: { k: string; v: string; onPress?: () => void; mono?: boolean }) {
   const { colors: c } = useSession();
@@ -24,24 +27,27 @@ function Row({ k, v, onPress, mono }: { k: string; v: string; onPress?: () => vo
   );
 }
 
-function Choice<T extends string>({ value, options, onChange }: { value: T; options: [T, string][]; onChange: (v: T) => void }) {
+/** The same six themes as the computer, each drawn in its own colours, plus "Same as computer" and "Phone setting". */
+function ThemeList({ value, onChange }: { value: Prefs['theme']; onChange: (v: Prefs['theme']) => void }) {
   const { colors: c } = useSession();
+  const current = value === 'light' ? 'paper' : value === 'dark' ? 'night' : value;
+  const rows: [Prefs['theme'], string, Palette | null][] = [
+    ['computer', 'Same as computer', null],
+    ...themeLabels.map(([id, label]) => [id, label, palettes[id]] as [Prefs['theme'], string, Palette]),
+    ['system', 'Match this phone (Sunshine or Dark)', null],
+  ];
   return (
-    <View style={{ flexDirection: 'row', borderWidth: 1, borderColor: c.rule, marginTop: space[3] }}>
-      {options.map(([v, label], i) => {
-        const on = v === value;
+    <View style={{ marginTop: space[3] }} accessibilityRole="radiogroup">
+      {rows.map(([id, label, p]) => {
+        const on = id === current;
         return (
-          <Pressable
-            key={v}
-            accessibilityRole="radio"
-            accessibilityState={{ selected: on }}
-            onPress={() => {
-              tap();
-              onChange(v);
-            }}
-            style={{ flex: 1, paddingVertical: 11, alignItems: 'center', backgroundColor: on ? c.ink : 'transparent', borderLeftWidth: i ? 1 : 0, borderLeftColor: c.rule }}
-          >
-            <Text style={[type.label, { color: on ? c.onInk : c.text }]}>{label}</Text>
+          <Pressable key={id} accessibilityRole="radio" accessibilityState={{ selected: on }} onPress={() => { tap(); onChange(id); }}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: space[3], paddingVertical: 11, borderBottomWidth: hairline, borderBottomColor: c.border }}>
+            <View style={{ width: 34, height: 22, borderWidth: 1, borderColor: p ? p.border : c.rule, backgroundColor: p ? p.paper : c.panel2, flexDirection: 'row', alignItems: 'flex-end', padding: 3 }}>
+              {p ? <View style={{ width: 12, height: 6, backgroundColor: p.accent }} /> : null}
+            </View>
+            <Text style={[type.body, { flex: 1, color: c.text }]}>{label}</Text>
+            <View style={{ width: 12, height: 12, borderWidth: 1, borderColor: c.rule, backgroundColor: on ? c.accent : 'transparent' }} />
           </Pressable>
         );
       })}
@@ -106,6 +112,10 @@ export default function Settings() {
           <Row k="This phone" v={me.data?.name || '—'} />
           <Row k="Status" v={status === 'online' ? 'Connected' : status === 'connecting' ? 'Connecting' : 'Not reachable'} />
 
+          {/* feat/v02-packs */}
+          <Section title="Packs" />
+          <Row k="Flashcards, quotes and invoices" v="Open ›" onPress={() => router.push('/packs' as never)} />
+
           <Section title="Model" />
           {models.data === null && !models.loading ? (
             <T style={{ color: c.muted, paddingVertical: space[3] }}>Your computer chooses the model. Update AI Workspace on the computer to pick one here.</T>
@@ -136,7 +146,7 @@ export default function Settings() {
           )}
 
           <Section title="Appearance" />
-          <Choice<Prefs['theme']> value={prefs.theme} options={[['light', 'Paper'], ['dark', 'Ink'], ['system', 'System']]} onChange={(theme) => setPrefs({ theme })} />
+          <ThemeList value={prefs.theme} onChange={(theme) => setPrefs({ theme })} />
           <Pressable
             accessibilityRole="switch"
             accessibilityState={{ checked: prefs.haptics }}
@@ -145,6 +155,23 @@ export default function Settings() {
           >
             <T>Haptics</T>
             <Label color={prefs.haptics ? c.text : c.muted}>{prefs.haptics ? 'On' : 'Off'}</Label>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Motion: ${MOTION_LABEL[prefs.motion ?? 'full']}. Tap to change.`}
+            onPress={() => {
+              tap();
+              setPrefs({ motion: MOTION_NEXT[prefs.motion ?? 'full'] });
+            }}
+            style={{ paddingVertical: 14, borderBottomWidth: hairline, borderBottomColor: c.border }}
+          >
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <T>Motion</T>
+              <Label color={c.text}>{MOTION_LABEL[prefs.motion ?? 'full']}</Label>
+            </View>
+            <T style={{ color: c.muted, fontSize: 13, marginTop: 4 }}>
+              {prefs.motion === 'calm' ? 'Calm: gentle fades, nothing bounces or slides.' : prefs.motion === 'off' ? 'Nothing moves.' : 'Cards settle on a spring, the orb follows your voice.'}{" Your phone’s Reduce Motion setting always wins."}
+            </T>
           </Pressable>
 
           <Section title="Notifications" />

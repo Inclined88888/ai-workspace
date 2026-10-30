@@ -41,7 +41,13 @@ rooks -P openai -m gpt-4.1-mini        # needs OPENAI_API_KEY
 rooks -P openrouter -m deepseek/deepseek-chat   # needs OPENROUTER_API_KEY
 rooks -P openai-compatible --base-url http://localhost:8000/v1 -m my-model
 rooks --dry-run "rename foo to bar everywhere"  # show every diff and command, change nothing
+rooks -P claude-code "fix the build"   # delegate to your own signed-in Claude Code (your Claude plan)
+rooks -P codex "fix the build"         # delegate to your own signed-in Codex (your ChatGPT plan)
 ```
+
+`-P claude-code` and `-P codex` run the official CLI you installed and signed in to yourself, in this folder, and print
+what it does. Edits and commands are still asked about first (`--yes` = accept edits, `--dry-run` = plan only); Rooks
+never handles a key or token for them. See [../docs/CLAUDE-CODE.md](../docs/CLAUDE-CODE.md).
 
 Inside a session: `/undo`, `/cost`, `/dry-run`, `/yes`, `/model NAME`, `/receipt`, `/clear`, `/exit`.
 

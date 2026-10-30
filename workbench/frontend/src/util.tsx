@@ -1,4 +1,6 @@
 import DOMPurify from "dompurify";
+import katex from "katex";
+import "katex/dist/katex.min.css";
 import { marked } from "marked";
 import { Check, X } from "lucide-react";
 import { MouseEvent, useEffect, useRef, useState } from "react";
@@ -16,6 +18,38 @@ marked.use({
       return `<div class="code-block"><div class="code-head"><span>${esc(language || "code")}</span><button type="button" class="code-copy" aria-label="Copy code">Copy</button></div><pre><code>${esc(text)}</code></pre></div>`;
     },
   },
+});
+
+// Maths: $$...$$ blocks and $...$ inline, rendered with KaTeX. "$5 and $10" stays text (no space inside the dollars,
+// no digit right after the closing one).
+const tex = (src: string, displayMode: boolean) => {
+  try {
+    return katex.renderToString(src, { displayMode, throwOnError: false, output: "htmlAndMathml", strict: "ignore" });
+  } catch {
+    return `<code>${esc(src)}</code>`;
+  }
+};
+marked.use({
+  extensions: [
+    {
+      name: "mathBlock", level: "block",
+      start: (src: string) => src.match(/\$\$|\\\[/)?.index,
+      tokenizer(src: string) {
+        const m = /^\$\$([\s\S]+?)\$\$|^\\\[([\s\S]+?)\\\]/.exec(src);
+        return m ? { type: "mathBlock", raw: m[0], text: (m[1] ?? m[2]).trim() } : undefined;
+      },
+      renderer: (t) => `<div class="math-block">${tex((t as unknown as { text: string }).text, true)}</div>`,
+    },
+    {
+      name: "mathInline", level: "inline",
+      start: (src: string) => src.match(/\$|\\\(/)?.index,
+      tokenizer(src: string) {
+        const m = /^\$(?!\s)((?:\\.|[^$\\\n])+?)(?<!\s)\$(?!\d)|^\\\((.+?)\\\)/.exec(src);
+        return m ? { type: "mathInline", raw: m[0], text: m[1] ?? m[2] } : undefined;
+      },
+      renderer: (t) => tex((t as unknown as { text: string }).text, false),
+    },
+  ],
 });
 
 function onCopyClick(e: MouseEvent<HTMLDivElement>) {

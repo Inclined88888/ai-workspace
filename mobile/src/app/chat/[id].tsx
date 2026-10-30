@@ -9,15 +9,20 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Message, newKey } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { revealSteps } from '@/lib/reveal';
-import { decisionNote, initialTurn, phaseLabel, reduceTurn, splitAttachmentNotes, Turn } from '@/lib/turn';
+import { decisionNote, initialTurn, phaseLabel, reduceTurn, splitAttachmentNotes, HeldAction, Turn } from '@/lib/turn';
 import { toolName } from '@/lib/format';
 import { pickFile, pickPhoto, Pending } from '@/lib/attach';
 import { startDictation, VoiceSession } from '@/lib/voice';
+import { approvalPrompt, canSpeak, say, stopSaying } from '@/lib/voiceMode'; // feat/v02-anywhere-voice
 import { fonts, hairline, space, type } from '@/lib/theme';
 import { error as hError, success, tap } from '@/lib/haptics';
 import { Markdown } from '@/components/Markdown';
+import { ChatProjectBar, CheckThis } from '@/components/V02'; // feat/v02-core
 import { ApprovalCard } from '@/components/ApprovalCard';
 import { FadeIn, Label, Notice, Pulse, Rule, Screen, T } from '@/components/ui';
+import { DoneTick, Node, SpringIn, Thinking, VoiceOrb } from '@/components/motion';
+import { useSharedValue } from 'react-native-reanimated';
+import { volumeLevel } from '@/lib/motion';
 
 type Conv = { id: number; title: string; messages: Message[] };
 
@@ -36,10 +41,16 @@ export default function Chat() {
   const [shown, setShown] = useState('');
   const [note, setNote] = useState('');
   const [listening, setListening] = useState(false);
+  const level = useSharedValue(0);
   const [attachOpen, setAttachOpen] = useState(false);
   const scroll = useRef<ScrollViewInstance>(null);
   const voice = useRef<VoiceSession | null>(null);
   const stream = useRef<{ abort: () => void } | null>(null);
+  // feat/v02-anywhere-voice: voice mode (Pro) — talk, hear the answer, answer approvals out loud
+  const [talk, setTalk] = useState(false);
+  const talkRef = useRef(false);
+  const [asking, setAsking] = useState<HeldAction | null>(null);
+  const askingRef = useRef<number | null>(null); // cleared when the card's buttons answer it first
 
   const load = useCallback(
     async (convId: number | null) => {
@@ -65,6 +76,8 @@ export default function Chat() {
   useEffect(() => () => {
     stream.current?.abort();
     voice.current?.cancel();
+    talkRef.current = false;
+    stopSaying();
   }, []);
 
   // Reveal the answer at reading pace once it arrives.
@@ -97,9 +110,9 @@ export default function Chat() {
     setPendingText('');
   };
 
-  const send = async () => {
-    const text = draft.trim();
-    if (!client || (!text && !files.length) || (turn && !['done', 'error'].includes(turn.phase))) return;
+  const send = async (spoken?: string): Promise<Turn | null> => {
+    const text = (spoken ?? draft).trim();
+    if (!client || (!text && !files.length) || (turn && !['done', 'error'].includes(turn.phase))) return null;
     voice.current?.stop();
     tap();
     setNote('');
@@ -119,7 +132,7 @@ export default function Chat() {
       setTurn({ ...t, phase: 'error', error: `Attachment upload failed: ${e instanceof Error ? e.message : e}` });
       setFiles(sending);
       setDraft(text);
-      return;
+      return null;
     }
     const h = client.chat(
       { message: text, conversation_id: cid, model: prefs.model || null, attachments: ids },
@@ -148,6 +161,107 @@ export default function Chat() {
     } finally {
       stream.current = null;
     }
+    return t;
+  };
+
+  // ---- feat/v02-anywhere-voice: voice mode --------------------------------------------------------------------------
+  const hearOnce = () =>
+    new Promise<string>((resolve) => {
+      let last = '';
+      let ended = false;
+      startDictation(
+        'en-AU',
+        (text) => {
+          last = text;
+          setDraft(text);
+        },
+        (err) => {
+          ended = true;
+          setListening(false);
+          voice.current = null;
+          if (err) setNote(err);
+          resolve(err ? '' : last.trim());
+        },
+      ).then((v) => {
+        voice.current = v;
+        setListening(!!v && !ended);
+        if (!v) resolve('');
+      });
+    });
+
+  /** A held action: the card is on screen, the request is read out, and only a clear spoken yes approves it. */
+  const confirmAloud = async (h: HeldAction) => {
+    if (!client) return;
+    setAsking(h);
+    askingRef.current = h.id;
+    let prompt = approvalPrompt(h.tool);
+    for (let tries = 0; tries < 3 && talkRef.current; tries++) {
+      await say(prompt);
+      const heard = await hearOnce();
+      setDraft('');
+      if (!talkRef.current || askingRef.current !== h.id) return;
+      if (!heard) {
+        prompt = "I didn't catch that. Say yes, send it, or no.";
+        continue;
+      }
+      try {
+        const r = await client.voiceDecide(h.id, heard);
+        if (r.decision === 'unclear') {
+          prompt = r.say || 'Sorry, I need a clear yes or no.';
+          continue;
+        }
+        setAsking(null);
+        if (r.decision === 'approve') success();
+        await say(r.decision === 'approve' ? (r.status === 'failed' ? "That didn't work. The details are on screen." : 'Done.') : "OK, I won't do that.");
+        load(cid);
+        return;
+      } catch (e) {
+        setNote(e instanceof Error ? e.message : String(e)); // e.g. already answered with the buttons
+        setAsking(null);
+        return;
+      }
+    }
+    if (talkRef.current) await say("I'll leave it on screen. Tap Approve or Deny when you're ready.");
+  };
+
+  const talkLoop = async () => {
+    while (talkRef.current) {
+      const heard = await hearOnce();
+      if (!talkRef.current) break;
+      if (!heard) continue;
+      if (/^(stop|stop listening|goodbye|bye|that's all)\.?$/i.test(heard)) break;
+      const t = await send(heard);
+      if (!t || !talkRef.current) continue;
+      if (t.text) await say(t.text);
+      for (const h of t.held.filter((x) => !x.denied)) await confirmAloud(h);
+    }
+    talkRef.current = false;
+    setTalk(false);
+  };
+
+  const toggleTalk = async () => {
+    if (talk) {
+      talkRef.current = false;
+      setTalk(false);
+      voice.current?.stop(); // ends the listening promise; the loop sees voice mode is off
+      stopSaying();
+      return;
+    }
+    if (!client) return;
+    try {
+      const st = await client.voiceStatus();
+      if (!st.features.voice_conversation?.allowed) {
+        setNote('Voice mode is part of Pro. Dictation (the Voice button) stays free.');
+        return;
+      }
+    } catch {
+      /* an older computer without voice: dictation and reading out still work */
+    }
+    if (!canSpeak()) setNote('Answers will show on screen; reading them out needs the latest app build.');
+    tap();
+    talkRef.current = true;
+    setTalk(true);
+    talkLoop();
   };
 
   const dictate = async () => {
@@ -163,8 +277,12 @@ export default function Chat() {
       (text) => setDraft(before + text),
       (err) => {
         setListening(false);
+        level.value = 0;
         voice.current = null;
         if (err) setNote(err);
+      },
+      (v) => {
+        level.value = volumeLevel(v);
       },
     );
     setListening(!!voice.current);
@@ -193,11 +311,19 @@ export default function Chat() {
           <Pressable onPress={() => (router.canGoBack() ? router.back() : router.replace('/chats'))} hitSlop={12} accessibilityRole="button" accessibilityLabel="Back">
             <Label color={c.text}>‹  Chats</Label>
           </Pressable>
-          <Label style={{ fontSize: 9.5 }}>{prefs.model ? prefs.model.split('/').pop() : 'Default model'}</Label>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[3] }}>
+            {/* feat/v02-anywhere-voice */}
+            <Pressable onPress={toggleTalk} hitSlop={10} accessibilityRole="button" accessibilityState={{ selected: talk }} accessibilityLabel={talk ? 'Stop voice mode' : 'Voice mode: talk and hear answers'} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              {talk ? <Pulse color={c.accent} size={7} /> : null}
+              <Label color={talk ? c.accentText : c.text}>{talk ? 'Talking' : 'Talk'}</Label>
+            </Pressable>
+            <Label style={{ fontSize: 9.5 }}>{prefs.model ? prefs.model.split('/').pop() : 'Default model'}</Label>
+          </View>
         </View>
         <Text numberOfLines={2} style={[type.title, { color: c.text, marginTop: space[2], fontSize: 24, lineHeight: 30 }]}>
           {conv?.title || firstLine || (cid ? ' ' : 'New chat')}
         </Text>
+        <ChatProjectBar key={cid ?? 'new'} cid={cid} />{/* feat/v02-core */}
       </View>
       <Rule strong style={{ marginHorizontal: space[5] }} />
 
@@ -212,10 +338,25 @@ export default function Chat() {
           {loadErr ? <Notice text={loadErr} action="Retry" onAction={() => load(cid)} /> : null}
           {!cid && !turn ? <Opening onPick={(s) => setDraft(s)} /> : null}
           {messages.map((m) => (
-            <MessageView key={m.id} m={m} />
+            <MessageView key={m.id} m={m} cid={cid} />
           ))}
           {turn && pendingText ? <UserBlock text={pendingText} tags={[]} /> : null}
           {turn ? <LiveTurn turn={turn} shown={shown} onDecided={() => load(turn.conversationId)} /> : null}
+          {asking && !turn ? (
+            /* feat/v02-anywhere-voice: the request stays on screen while it's asked out loud */
+            <View style={{ marginTop: space[4], borderTopWidth: hairline, borderTopColor: c.border }}>
+              <Label style={{ fontSize: 9.5, marginTop: space[2] }} color={c.accentText}>Say “yes, send it” or “no”, or tap</Label>
+              <ApprovalCard
+                a={{ id: asking.id, conversation_id: cid, tool: asking.tool, args: asking.args, effect: asking.effect, reason: asking.reason, status: 'pending', result: '', created_at: new Date().toISOString(), decided_at: null }}
+                onDecided={() => {
+                  setAsking(null);
+                  askingRef.current = null;
+                  voice.current?.stop();
+                  load(cid);
+                }}
+              />
+            </View>
+          ) : null}
         </ScrollView>
 
         {/* Composer */}
@@ -255,11 +396,11 @@ export default function Chat() {
               style={[type.body, { flex: 1, color: c.text, maxHeight: 140, paddingVertical: 10, paddingHorizontal: 0, fontSize: 16 }]}
             />
             <Pressable onPress={dictate} accessibilityRole="button" accessibilityLabel={listening ? 'Stop dictation' : 'Dictate'} hitSlop={8} style={{ paddingVertical: 12, paddingHorizontal: 6, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              {listening ? <Pulse color={c.accent} size={7} /> : null}
+              <VoiceOrb on={listening} level={level} size={24} />
               <Label color={listening ? c.accentText : c.text}>{listening ? 'Stop' : 'Voice'}</Label>
             </Pressable>
             <Pressable
-              onPress={send}
+              onPress={() => send()}
               disabled={!canSend}
               accessibilityRole="button"
               accessibilityLabel="Send"
@@ -322,18 +463,18 @@ function UserBlock({ text, tags }: { text: string; tags: string[] }) {
   );
 }
 
-function Receipt({ text, tone }: { text: string; tone: 'ok' | 'bad' | 'quiet' }) {
+function Receipt({ text, tone, live }: { text: string; tone: 'ok' | 'bad' | 'quiet'; live?: boolean }) {
   const { colors: c } = useSession();
   const dot = tone === 'ok' ? c.ok : tone === 'bad' ? c.danger : c.borderStrong;
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: space[2] }}>
-      <View style={{ width: 5, height: 5, backgroundColor: dot }} />
+      {live ? <Node tone={tone} /> : <View style={{ width: 5, height: 5, backgroundColor: dot }} />}
       <Text style={[type.small, { color: c.muted, flex: 1 }]} numberOfLines={1}>{text}</Text>
     </View>
   );
 }
 
-function MessageView({ m }: { m: Message }) {
+function MessageView({ m, cid }: { m: Message; cid: number | null }) {
   const { colors: c } = useSession();
   if (m.role === 'tool') return <Receipt text={`Used ${toolName(m.name)}`} tone="quiet" />;
   if (m.role === 'user') {
@@ -347,6 +488,7 @@ function MessageView({ m }: { m: Message }) {
     <FadeIn style={{ marginTop: space[5] }}>
       <Label style={{ fontSize: 9.5, marginBottom: 4 }} color={c.accentText}>Workspace</Label>
       <Markdown text={m.content} />
+      <CheckThis cid={cid} content={m.content} />{/* feat/v02-core */}
     </FadeIn>
   );
 }
@@ -358,29 +500,34 @@ function LiveTurn({ turn, shown, onDecided }: { turn: Turn; shown: string; onDec
     <View style={{ marginTop: space[5] }}>
       <Label style={{ fontSize: 9.5, marginBottom: 4 }} color={c.accentText}>Workspace</Label>
       {turn.steps.map((s, i) => (
-        <Receipt key={i} text={`${s.ok === null ? 'Using' : 'Used'} ${toolName(s.tool)}${s.ok === false ? ' · failed' : ''}`} tone={s.ok === null ? 'quiet' : s.ok ? 'ok' : 'bad'} />
+        <Receipt key={i} live text={`${s.ok === null ? 'Using' : 'Used'} ${toolName(s.tool)}${s.ok === false ? ' · failed' : ''}`} tone={s.ok === null ? 'quiet' : s.ok ? 'ok' : 'bad'} />
       ))}
       {turn.held.map((h) =>
         h.denied ? (
           <Receipt key={h.id} text={`${toolName(h.tool)} was refused by your rules`} tone="bad" />
         ) : (
-          <View key={h.id} style={{ marginTop: space[2], borderTopWidth: hairline, borderTopColor: c.border }}>
+          <SpringIn key={h.id} style={{ marginTop: space[2], borderTopWidth: hairline, borderTopColor: c.border }}>
             <ApprovalCard
               a={{ id: h.id, conversation_id: turn.conversationId, tool: h.tool, args: h.args, effect: h.effect, reason: h.reason, status: 'pending', result: '', created_at: new Date().toISOString(), decided_at: null }}
               onDecided={onDecided}
             />
-          </View>
+          </SpringIn>
         ),
       )}
       {working ? (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: space[3] }}>
-          <Pulse color={c.accent} />
-          <Text style={{ fontFamily: fonts.displayItalic, fontSize: 16, color: c.muted }}>{phaseLabel(turn)}…</Text>
+        <View style={{ marginTop: space[3] }}>
+          <Thinking label={phaseLabel(turn)} />
         </View>
       ) : null}
       {shown ? (
-        <View style={{ marginTop: space[2] }}>
+        <SpringIn style={{ marginTop: space[2] }}>
           <Markdown text={shown} />
+        </SpringIn>
+      ) : null}
+      {turn.phase === 'done' && shown && shown === turn.text ? (
+        <View style={{ marginTop: space[2], flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <DoneTick size={16} haptic={false} />
+          <Label style={{ fontSize: 9.5 }}>Done</Label>
         </View>
       ) : null}
       {turn.phase === 'error' ? (

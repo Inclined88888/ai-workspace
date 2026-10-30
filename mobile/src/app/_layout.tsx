@@ -57,6 +57,7 @@ function Shell() {
         <Stack.Screen name="scan" options={{ presentation: 'fullScreenModal', animation: 'fade' }} />
         <Stack.Screen name="chat/[id]" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="run/[id]" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="jobs" options={{ animation: 'slide_from_right' }} />{/* feat/v02-automations */}
       </Stack>
     </>
   );

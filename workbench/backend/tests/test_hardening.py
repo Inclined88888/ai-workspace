@@ -1,5 +1,6 @@
 """Security boundary, local model tool calling and context handling."""
 
+import memfacts
 import asyncio
 import json
 
@@ -34,7 +35,7 @@ def test_injected_page_cannot_make_lasting_changes_without_approval(client, monk
     assert page["ok"] and page["preview"].startswith("[Untrusted content from read_page")
     held = [e for e in ev if e["type"] == "approval_required"]
     assert [h["tool"] for h in held] == ["remember", "schedule_task"]
-    assert not db.all("SELECT * FROM memories WHERE content LIKE '%attacker%'")
+    assert not memfacts.like('attacker')
     assert not db.all("SELECT * FROM schedules WHERE name = 'exfil'")
     cid = ev[0]["conversation_id"]
     assert len(client.get("/api/approvals", params={"conversation_id": cid}).json()) == 2
@@ -43,11 +44,11 @@ def test_injected_page_cannot_make_lasting_changes_without_approval(client, monk
     deny = client.post(f"/api/approvals/{held[1]['id']}", json={"approve": False}).json()
     assert deny["status"] == "denied" and not db.all("SELECT * FROM schedules WHERE name = 'exfil'")
     ok = client.post(f"/api/approvals/{held[0]['id']}", json={"approve": True}).json()
-    assert ok["status"] == "done" and db.all("SELECT * FROM memories WHERE content LIKE '%attacker%'")
+    assert ok["status"] == "done" and memfacts.like('attacker')
     assert client.post(f"/api/approvals/{held[0]['id']}", json={"approve": True}).status_code == 409
     msgs = client.get(f"/api/conversations/{cid}").json()["messages"]
     assert any("I denied request" in m["content"] for m in msgs) and any("I approved request" in m["content"] for m in msgs)
-    db.run("DELETE FROM memories WHERE content LIKE '%attacker%'")
+    memfacts.drop('attacker')
 
 
 def test_taint_carries_over_to_the_next_turn(client, monkeypatch):
@@ -66,7 +67,7 @@ def test_clean_conversations_are_not_interrupted(client):
     SCRIPT[:] = [tool_call("remember", {"content": "Prefers metric units", "kind": "preference"}), {"role": "assistant", "content": "Noted."}]
     ev = events(client.post("/api/assistant/chat", json={"message": "I prefer metric units, remember that"}))
     assert not [e for e in ev if e["type"] == "approval_required"]
-    assert db.all("SELECT * FROM memories WHERE content = 'Prefers metric units'")
+    assert memfacts.exact('Prefers metric units')
 
 
 def test_unattended_runs_refuse_gated_actions(client, monkeypatch):
@@ -79,7 +80,7 @@ def test_unattended_runs_refuse_gated_actions(client, monkeypatch):
     text, ev = asyncio.run(assistant.ask(assistant.Ctx(channel="schedule", conversation_id=cid), "daily digest"))
     denied = [e for e in ev if e["type"] == "approval_denied"]
     assert denied and denied[0]["tool"] == "remember"
-    assert not db.all("SELECT * FROM memories WHERE content = 'attacker fact'")
+    assert not memfacts.exact('attacker fact')
     assert db.one("SELECT outcome FROM actions WHERE id = ?", denied[0]["id"])["outcome"] == "denied"
 
 
@@ -174,4 +175,4 @@ def test_a_decision_is_taken_once(client):
 
     results = aio.run(both())
     assert sum(1 for r in results if isinstance(r, dict)) == 1
-    assert len(db.all("SELECT * FROM memories WHERE content = 'once only'")) == 1
+    assert len(memfacts.exact('once only')) == 1

@@ -248,3 +248,53 @@ def test_local_default_uses_an_installed_model(monkeypatch):
         raise RuntimeError("refused")
     monkeypatch.setattr(llm, "list_models_for", down)
     assert llm._local_default(1) == "qwen3:4b"
+
+
+# Vision: screenshots from Rooks Desk / Rooks Browser go to a model that can see; otherwise they are taken out.
+PIXEL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+SHOT = [{"role": "user", "content": [{"type": "text", "text": "What is on screen?"}, {"type": "image_url", "image_url": {"url": PIXEL}}]}]
+
+
+def test_which_models_can_see():
+    from app.router import sees
+
+    for m in ("gemini-2.5-flash", "meta-llama/llama-4-scout-17b-16e-instruct", "qwen/qwen3.8-27b", "gpt-4o-mini", "claude-sonnet-4",
+              "google/gemma-3-27b-it:free", "qwen2.5vl:7b", "llava:13b", "o3-mini"):
+        assert sees(m), m
+    for m in ("openai/gpt-oss-120b", "qwen2.5:7b", "llama-3.3-70b-versatile", "qwen/qwen3-coder:free", "deepseek-chat", "llama-3.1-8b-instant"):
+        assert not sees(m), m
+
+
+@pytest.mark.anyio
+async def test_screenshots_go_to_a_model_that_can_see(routed, monkeypatch):
+    monkeypatch.setitem(MODELS, "groq", MODELS["groq"] + ["meta-llama/llama-4-scout-17b-16e-instruct"])
+    from app import llm
+    llm._model_cache.clear()
+    res = await _chat(SHOT, channel="rooks-desk")
+    assert HITS == [("groq", "meta-llama/llama-4-scout-17b-16e-instruct")]  # Groq first, but its vision model, not gpt-oss
+    assert res["router"]["vision"] is True and res["router"]["tier"] == "strong"
+    HITS.clear()
+    MODE["groq"] = {"status": 429, "body": "Too many requests"}
+    res = await _chat(SHOT, channel="rooks-desk")
+    assert HITS[-1] == ("gemini", "gemini-2.5-flash") and res["router"]["vision"] is True
+
+
+@pytest.mark.anyio
+async def test_when_nothing_can_see_the_images_are_left_out(routed, monkeypatch):
+    monkeypatch.setitem(MODELS, "gemini", ["gemma-2-9b-text"])
+    monkeypatch.setitem(MODELS, "paid", ["big-model"])
+    from app import llm
+    llm._model_cache.clear()
+    seen = []
+    real = llm.chat_one
+
+    async def spy(ref, messages, *a, **k):
+        seen.append(messages)
+        return await real(ref, messages, *a, **k)
+
+    monkeypatch.setattr(llm, "chat_one", spy)
+    res = await _chat(SHOT, channel="rooks-desk")
+    assert HITS == [("groq", "openai/gpt-oss-120b")] and res["router"]["vision"] is False
+    parts = seen[0][0]["content"]
+    assert not any(p.get("type") == "image_url" for p in parts)
+    assert "cannot see images" in parts[-1]["text"] and parts[0]["text"] == "What is on screen?"

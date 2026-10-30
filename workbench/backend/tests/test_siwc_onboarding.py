@@ -136,9 +136,12 @@ def test_validation_checks_the_key_before_saving(client, fake_url):
 def test_only_permitted_subscription_sign_ins_are_offered(client):
     opts = {o["id"]: o for o in client.get("/api/auth/subscriptions").json()["options"]}
     assert opts["chatgpt"]["available"]
-    for blocked in ("claude", "grok", "gemini"):
+    for blocked in ("grok", "gemini"):
         assert not opts[blocked]["available"] and opts[blocked]["source"].startswith("https://")
-    assert "API key" in opts["claude"]["detail"] and "terms" in opts["claude"]["detail"]
+    # Claude is never an in-app sign-in (Anthropic's terms): it is offered only as a hand-off to the user's own Claude Code.
+    claude = opts["claude"]
+    assert claude["via"] == "claude_code" and claude["source"].startswith("https://code.claude.com/")
+    assert "never passes through this app" in claude["detail"]
 
 
 def test_onboarding_free_cloud_then_auto_is_the_default(client, fake_url):

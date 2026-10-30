@@ -1,4 +1,4 @@
-/** Back-compat shim: the old Light/Dark API now maps onto Appearance (Paper / Night). */
+/** Back-compat shim: the old Light/Dark API now maps onto Appearance (light = Sunshine unless you picked another light theme; dark = Night). */
 import { readAppearance, setAppearance, useAppearance } from "./appearance";
 
 export type ThemePref = "light" | "dark";
@@ -9,7 +9,7 @@ export function readTheme(): ThemePref {
 
 export function applyTheme(pref: ThemePref) {
   const cur = readAppearance().theme;
-  setAppearance({ theme: pref === "dark" ? "night" : cur === "night" ? "paper" : cur });
+  setAppearance({ theme: pref === "dark" ? "night" : cur === "night" ? "sunshine" : cur });
 }
 
 export function useTheme(): [ThemePref, (p: ThemePref) => void] {
