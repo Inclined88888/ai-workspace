@@ -25,6 +25,10 @@ BROWSER_URL = os.getenv("BROWSER_URL", "").rstrip("/")  # optional add-on
 BROWSER_API_KEY = os.getenv("BROWSER_API_KEY", "")
 PAPERCLIP_URL = os.getenv("PAPERCLIP_URL", "")
 HERMES_URL = os.getenv("HERMES_URL", "")
+# Desktop app (desktop/): the native shell runs this backend as a sidecar on 127.0.0.1 for one local user.
+DESKTOP = _bool("WORKBENCH_DESKTOP")
+DESKTOP_TOKEN = os.getenv("WORKBENCH_DESKTOP_TOKEN", "")  # one-time per launch; the shell opens /api/desktop/session with it
+SECRET_BACKEND = os.getenv("WORKBENCH_SECRET_BACKEND", "fernet")  # "keychain": provider keys live in the OS keychain
 SESSION_DAYS = int(os.getenv("SESSION_DAYS", "30"))
 CALENDAR_SYNC_MINUTES = int(os.getenv("CALENDAR_SYNC_MINUTES", "15"))
 

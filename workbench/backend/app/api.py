@@ -13,7 +13,8 @@ from .adapters import ALLOWED, validate
 from .db import OFFICIAL_HOSTS
 from .redact import redact, redact_obj
 from .security import (
-    COOKIE, check_session, decrypt, encrypt, hash_password, make_session, require_user, throttle, verify_password,
+    COOKIE, check_session, decrypt, encrypt, forget_connection_secret, hash_password, make_session, require_user,
+    store_connection_secret, throttle, verify_password,
 )
 
 public = APIRouter(prefix="/api")
@@ -57,6 +58,8 @@ def status(request: Request):
         "hermes_url": config.HERMES_URL,
         "browser_enabled": bool(config.BROWSER_URL and config.BROWSER_API_KEY),
         "local_models_enabled": bool(config.OLLAMA_URL),
+        "desktop": config.DESKTOP,
+        "welcome_done": db.get_setting("desktop_welcome_done") == "1",
     }
 
 
@@ -80,6 +83,25 @@ def setup(data: SetupIn, request: Request, response: Response):
     services.local_calendar_id()
     _login(response)
     return {"ok": True}
+
+
+# Desktop app: the native shell owns the machine and the window, so there is no password. On each launch it starts
+# this backend with a fresh random WORKBENCH_DESKTOP_TOKEN and opens /api/desktop/session?token=... in its own window.
+@public.get("/desktop/session")
+def desktop_session(token: str, request: Request):
+    from fastapi.responses import RedirectResponse
+
+    if not config.DESKTOP or not config.DESKTOP_TOKEN or not secrets.compare_digest(token, config.DESKTOP_TOKEN):
+        throttle(request.client.host if request.client else "?")
+        raise HTTPException(403, "Desktop session is only available inside the desktop app")
+    if db.get_setting("setup_complete") != "1":
+        db.set_setting("password_hash", hash_password(secrets.token_urlsafe(32)))  # never typed: the window is the login
+        db.set_setting("setup_complete", "1")
+        services.local_calendar_id()
+    target = "/" if db.get_setting("desktop_welcome_done") == "1" else "/welcome"
+    response = RedirectResponse(target, status_code=303)
+    _login(response)
+    return response
 
 
 class LoginIn(BaseModel):
@@ -115,6 +137,19 @@ def change_password(data: PasswordIn, response: Response):
     db.set_setting("session_generation", secrets.token_hex(8))
     _login(response)
     return {"ok": True}
+
+
+@api.post("/desktop/welcome-done")
+def desktop_welcome_done():
+    db.set_setting("desktop_welcome_done", "1")
+    return {"ok": True}
+
+
+@api.get("/desktop/info")
+def desktop_info():
+    from . import keychain
+
+    return {"desktop": config.DESKTOP, "data_dir": str(config.DATA_DIR), "secret_backend": keychain.backend_name()}
 
 
 # Settings and providers
@@ -189,9 +224,10 @@ def add_provider(data: ProviderIn):
     cid = db.run(
         "INSERT INTO connections(name, auth_kind, protocol, base_url, secret_enc, models, enabled, residency, created_at) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        data.name, auth, proto, data.base_url.rstrip("/"), encrypt(data.api_key or ""), data.models, int(data.enabled),
+        data.name, auth, proto, data.base_url.rstrip("/"), "", data.models, int(data.enabled),
         "local" if auth == "local_ollama" else "cloud", db.now(),
     )
+    store_connection_secret(cid, data.api_key or "")
     return _provider_out(db.one("SELECT * FROM connections WHERE id = ?", cid))
 
 
@@ -205,13 +241,16 @@ def edit_provider(pid: int, data: ProviderIn):
            data.name, auth, proto, data.base_url.rstrip("/"), data.models, int(data.enabled),
            "local" if auth == "local_ollama" else "cloud", pid)
     if data.api_key is not None and auth != "oauth_subscription":
-        db.run("UPDATE connections SET secret_enc = ? WHERE id = ?", encrypt(data.api_key), pid)
+        store_connection_secret(pid, data.api_key)
     llm._model_cache.pop(pid, None)
     return _provider_out(db.one("SELECT * FROM connections WHERE id = ?", pid))
 
 
 @api.delete("/providers/{pid}")
 def delete_provider(pid: int):
+    old = db.one("SELECT secret_enc FROM connections WHERE id = ?", pid)
+    if old:
+        forget_connection_secret(old["secret_enc"])
     db.run("DELETE FROM connections WHERE id = ?", pid)
     llm._model_cache.pop(pid, None)
     return {"ok": True}
