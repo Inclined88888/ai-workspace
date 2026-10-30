@@ -126,7 +126,7 @@ nor Docker.
 
 ```sh
 uv tool install "git+https://github.com/Inclined88888/ai-workspace#subdirectory=rooks-code"
-cd your-project && rooks -P ollama -m qwen2.5-coder:7b
+cd your-project && rooks -P ollama -m qwen2.5:7b
 ```
 
 Install on macOS, Windows and Linux, configuration, MCP servers and limits: [rooks-code/README.md](rooks-code/README.md).

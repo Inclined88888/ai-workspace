@@ -35,7 +35,7 @@ is the no-installer fallback. CI tests and installs it on macOS, Windows and Lin
 cd your-project
 rooks                                  # interactive session
 rooks "make the failing test pass"     # one prompt, prints the answer, exits 1 if it did not finish
-rooks -P ollama -m qwen2.5-coder:7b    # local and offline (ollama pull qwen2.5-coder:7b first)
+rooks -P ollama -m qwen2.5:7b    # local and offline (ollama pull qwen2.5:7b first)
 rooks -P anthropic -m claude-sonnet-4-5   # needs ANTHROPIC_API_KEY
 rooks -P openai -m gpt-4.1-mini        # needs OPENAI_API_KEY
 rooks -P openrouter -m deepseek/deepseek-chat   # needs OPENROUTER_API_KEY
@@ -47,6 +47,9 @@ Inside a session: `/undo`, `/cost`, `/dry-run`, `/yes`, `/model NAME`, `/receipt
 
 Other commands: `rooks undo`, `rooks receipts [list|show|import --db workbench.db]`, `rooks doctor` (checks the provider,
 key and MCP servers with one real call), `rooks mcp` (lists MCP tools), `rooks init` (writes an example config).
+
+A real, unedited session with a local 7B model (bug fixed, test run, receipts, dry run, undo, import into Workbench) is
+in [docs/demo-session.txt](docs/demo-session.txt), including the model's mistakes.
 
 ## Trust controls
 
@@ -62,6 +65,9 @@ key and MCP servers with one real call), `rooks mcp` (lists MCP tools), `rooks i
   estimates its input and stops rather than cross either cap. Local models cost $0. If a model's price is unknown the
   dollar cap cannot be enforced; Rooks says so at start and the token cap still applies (add the price under `[prices]`).
 * **Project boundary.** File tools cannot read or write outside the project folder, nor write into `.git` or `.rooks`.
+* **Small-model help.** Tool calls a local model prints as text (`<tool_call>` tags or a JSON block) are recovered with
+  Workbench's rule (only well-formed calls to offered tools; receipt column `from_text`), and a reply that announces a
+  step without calling a tool gets up to two nudges (`nudge = false` turns this off).
 * **Receipts.** Each session writes `.rooks/runs/<session>.jsonl` (git-ignored automatically): one row per prompt, model
   call, tool call, approval decision and outbound connection, using the columns and outcome words of Workbench's `actions`
   table (`turn`, `model_call`, `tool_call`, `decision`, `egress`; `verified`, `denied`, `budget_paused`, ...). File edits
@@ -99,7 +105,10 @@ calls are asked about like commands. Only stdio servers are supported so far; HT
 
 ## Limits (honest)
 
-* Small local models (under ~7B) follow tool instructions unreliably; `qwen2.5-coder:7b` or larger is the practical floor.
+* Small local models follow tool instructions unreliably. On a CPU-only test machine `qwen2.5:7b` (Q4_K_M) fixed a bug,
+  ran the test and stopped correctly; `qwen2.5:3b` and `qwen2.5-coder:7b` described steps without calling tools, even
+  with Rooks' recovery of tool calls printed as text and its "you announced a step, call the tool" nudge. Use a 7B+
+  general instruct model, or a hosted model, for real work.
 * Replies are not streamed token by token yet (a spinner shows while the model works).
 * No sandbox: approved commands run with your user's permissions. Approval, dry run and trusted folders are the controls.
 * MCP over HTTP/SSE, prompt caching, and resuming a past session are not implemented yet.
