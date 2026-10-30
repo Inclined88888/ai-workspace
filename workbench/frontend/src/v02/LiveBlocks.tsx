@@ -241,7 +241,8 @@ function ChartView({ chart, editing, onChange, svgRef }: { chart: Chart; editing
   const ink = style.getPropertyValue("--text").trim() || "#141311";
   const rule = style.getPropertyValue("--border").trim() || "#dddddd";
   const font = style.getPropertyValue("--font").trim() || "sans-serif";
-  const W = 560, H = 280, L = 44, B = 36, T = 16, R = 12;
+  const W = 560, H = 290, L = 44, T = 16, R = 12;
+  const B = chart.series.length > 1 ? 52 : 34; // room for the legend under the labels
   const max = Math.max(0, ...chart.series.flatMap((s) => s.values));
   const ticks = niceScale(max);
   const top = ticks[ticks.length - 1] || 1;

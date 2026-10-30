@@ -89,8 +89,10 @@ def describe_trigger(kind: str, t: dict) -> str:
         what = {"added": "something new appears", "changed": "something changes", "any": "anything changes"}.get(t.get("only", "any"), "anything changes")
         return f"When {what} on {t.get('site_name') or 'your work site'}"
     if kind == "folder":
-        pat = t.get("pattern") or "*"
-        return f"When a {'file' if pat == '*' else pat + ' file'} appears or changes in {t.get('path') or 'a folder'}"
+        pat = (t.get("pattern") or "*").lower()
+        words = {"*": "file", "*.pdf": "PDF", "*.xlsx,*.xls,*.csv": "spreadsheet", "*.docx,*.doc": "Word document",
+                 "*.jpg,*.jpeg,*.png,*.heic": "photo"}.get(pat) or (pat.replace("*.", "").upper().replace(",", " or ") + " file")
+        return f"When a{'n' if words[0] in 'AEIOU' else ''} {words} appears or changes in {t.get('path') or 'a folder'}"
     if kind == "schedule":
         from .sites import describe_cron
 

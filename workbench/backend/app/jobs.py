@@ -237,7 +237,8 @@ def _pending(conversation_id: int | None) -> list[dict]:
         return []
     from . import actions
 
-    return actions.pending(conversation_id)
+    # the owner's approval card shows the real arguments (who it goes to, what it says), like the chat card does
+    return [{**a, "args": actions.approval(a["id"])["args"]} for a in actions.pending(conversation_id)]
 
 
 def _deny_pending(conversation_id: int | None) -> None:

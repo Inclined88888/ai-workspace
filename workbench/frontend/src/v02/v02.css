@@ -9,7 +9,7 @@
 .live-edited { font-size: var(--text-2xs); padding: 1px 6px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-text); }
 .live-body { padding: 12px; }
 .live-foot { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 8px 12px; border-top: 1px solid var(--border); background: var(--panel-2); }
-.live-foot .small { display: inline-flex; align-items: center; gap: 4px; }
+.live-foot .small { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 .live-fmt { font-family: var(--mono); font-size: var(--text-2xs); }
 .live-err { color: var(--danger-text); }
 .live-ask { display: flex; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--panel-2); }
@@ -105,3 +105,5 @@
 :root[data-motion="off"] .job-pill { animation: none; }
 :root[data-motion="off"] .job-card, :root[data-motion="off"] .trig-example { transition: none; }
 .trig-sub { font-family: var(--serif); font-size: var(--text-xl); margin: 8px 0 10px; }
+.job-new .seg { flex-wrap: wrap; max-width: 100%; }
+.job-new .seg-btn { white-space: nowrap; }
