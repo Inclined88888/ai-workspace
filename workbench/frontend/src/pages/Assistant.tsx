@@ -3,7 +3,8 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, stream } from "../api";
 import { Tracer } from "../Tracer";
-import { Empty, Markdown, ModelSelect, relTime, RouterInfo, RouterVia, SkeletonList, StreamingMarkdown, useModels, useToast } from "../util";
+import { Empty, Markdown, ModelSelect, relTime, RouterInfo, RouterVia, SkeletonList, useModels, useToast } from "../util";
+import { LiveMarkdown } from "../v02/LiveBlocks"; // feat/v02-automations: live docs, sheets and charts in replies
 
 type Conv = { id: number; title: string; channel: string; updated_at: string; model: string };
 type Msg = { id: number; role: string; content: string; tool_calls: string[]; name: string; via?: RouterInfo };
@@ -165,8 +166,8 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
                     <div className="msg-byline" aria-hidden="true">Workspace</div>
                     {m.tool_calls.length > 0 && <div className="msg-tools"><Wrench size={11} /> {m.tool_calls.join(", ")}</div>}
                     {m.content && (m.id === freshId
-                      ? <StreamingMarkdown text={m.content} onDone={() => setFreshId(null)} />
-                      : <Markdown text={m.content} />)}
+                      ? <LiveMarkdown text={m.content} messageId={m.id} streaming onDone={() => setFreshId(null)} />
+                      : <LiveMarkdown text={m.content} messageId={m.id} />)}
                     {m.via && <RouterVia r={m.via} />}
                     {m.content && m.id !== freshId && <MessageFeedback msg={m} />}
                   </div>
