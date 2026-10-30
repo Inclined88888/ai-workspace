@@ -342,3 +342,32 @@ def test_history_event_times_read_like_people_say_them(client):
     assert history._when("2026-11-02T23:00:00+00:00") == "Tue 3 Nov, 9:00 am"
     assert history._when("2026-11-03") == "Tue 3 Nov"
     assert history._when("not a date") == "not a date"
+
+
+def test_phone_gets_projects_history_and_check_with_the_same_rules(client, clean, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from app import db, features_v02, history, main
+
+    phone = TestClient(main.app, headers={"X-Workbench": "1"})
+    start = client.post("/api/mobile/pair/start").json()
+    token = phone.post("/api/mobile/pair/claim", json={"code": start["code"], "name": "v02 phone", "platform": "ios"}).json()["device_token"]
+    h = {"Authorization": f"Bearer {token}"}
+    assert phone.get("/api/mobile/projects").status_code == 401  # needs the device token
+    p = client.post("/api/projects", json={"name": "Phone job", "kind": "job", "keywords": "phone job"}).json()
+    lst = phone.get("/api/mobile/projects", headers=h).json()
+    assert [x["name"] for x in lst["projects"]] == ["Phone job"]
+    assert phone.put("/api/mobile/projects/active", json={"project_id": p["id"]}, headers=h).json()["active_id"] == p["id"]
+    assert phone.get(f"/api/mobile/projects/{p['id']}", headers=h).json()["name"] == "Phone job"
+    # undo from the phone; remote changes still need the extra yes
+    tid = db.run("INSERT INTO tasks(title, status, priority, created_at, updated_at) VALUES ('phone undo', 'todo', 0, ?, ?)", db.now(), db.now())
+    hid = history.record("tasks", "Added task “phone undo”", tool="create_task", undo_kind="delete_task", undo={"task_id": tid})
+    assert any(e["id"] == f"h{hid}" for e in phone.get("/api/mobile/history", headers=h).json()["entries"])
+    assert phone.post(f"/api/mobile/history/h{hid}/undo", json={}, headers=h).status_code == 200
+    assert not db.one("SELECT 1 FROM tasks WHERE id = ?", tid)
+    hid2 = history.record("calendar", "Added event", undo_kind="delete_events", undo={"event_ids": []}, confirm="This also cancels it in Google Calendar.")
+    assert phone.post(f"/api/mobile/history/h{hid2}/undo", json={}, headers=h).status_code == 409
+    # Pro gate for checked answers holds on the phone too
+    monkeypatch.setattr(features_v02, "_account_allowed", lambda f: False)
+    assert phone.get("/api/mobile/checked/mode", headers=h).json()["allowed"] is False
+    assert phone.put("/api/mobile/checked/mode", json={"conversation_id": None, "on": True, "default": True}, headers=h).status_code == 402

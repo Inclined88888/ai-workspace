@@ -12,6 +12,7 @@ import { ApprovalCard } from '@/components/ApprovalCard';
 import { RunRow } from '@/components/RunRow';
 import { ConnectionMark, OfflineNotice } from '@/components/Connection';
 import { FadeIn, Label, Notice, Pulse, Rule, Screen, Section, T } from '@/components/ui';
+import { HomeLinks } from '@/components/V02'; // feat/v02-core
 
 export default function Today() {
   const { colors: c, pairing } = useSession();
@@ -58,6 +59,7 @@ export default function Today() {
               <T style={{ color: c.muted, fontSize: 16 }}>Ask your computer…</T>
               <Text style={{ fontFamily: fonts.display, fontSize: 20, color: c.accent }}>→</Text>
             </Pressable>
+            <HomeLinks />{/* feat/v02-core: Projects and History */}
           </FadeIn>
         </View>
         <OfflineNotice />

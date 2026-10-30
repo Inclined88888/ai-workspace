@@ -66,9 +66,10 @@ def register_tools() -> None:
 
 
 def install(app) -> None:
-    from . import checked, history, projects
+    from . import checked, history, projects, v02_mobile
 
     app.include_router(projects.router)
+    app.include_router(v02_mobile.device)  # the phone's device-token routes for the same three features
     app.include_router(history.router)
     app.include_router(checked.router)
     history.install()

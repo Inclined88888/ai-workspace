@@ -255,7 +255,8 @@ def _plain_check(claim: str, src: dict | None, quote: str, verdict: str) -> tupl
         return "unsupported", "The quoted passage isn't in the source."
     missing = [n for n in _numbers(claim) if n not in body.replace(",", "")]
     if missing and verdict == "supported":
-        return "partly", f"The source doesn't show {', '.join(missing[:3])}."
+        shown = [m.group(0) for m in NUM_RE.finditer(claim) if m.group(0).replace(",", "") in missing]  # as the answer wrote them
+        return "partly", f"The source doesn't show {', '.join(dict.fromkeys(shown or missing))[:80]}."
     return verdict, ""
 
 
