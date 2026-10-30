@@ -3,7 +3,7 @@ import {
   ListTree, Search, Settings as SettingsIcon, Sun, Sparkles,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { api } from "./api";
 import Assistant from "./pages/Assistant";
 import Auth from "./pages/Auth";
@@ -20,6 +20,7 @@ import Runs from "./pages/Runs";
 import Status from "./pages/Status";
 import Settings from "./pages/Settings";
 import Tasks from "./pages/Tasks";
+import Welcome from "./pages/Welcome";
 
 export type Status = {
   setup_complete: boolean;
@@ -31,6 +32,9 @@ export type Status = {
   hermes_url: string;
   browser_enabled: boolean;
   local_models_enabled: boolean;
+  /** Running inside the native desktop app (desktop/), which signs the window in itself. */
+  desktop?: boolean;
+  welcome_done?: boolean;
 };
 
 const NAV = [
@@ -80,6 +84,7 @@ export default function App() {
   const [error, setError] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
 
   const refresh = useCallback(() => {
     api<Status>("/status")
@@ -101,7 +106,15 @@ export default function App() {
 
   if (error) return <div className="auth"><div className="alert err">Cannot reach Workbench: {error}</div></div>;
   if (!status) return null;
-  if (!status.setup_complete || !status.signed_in) return <Auth status={status} onDone={refresh} />;
+  if (!status.setup_complete || !status.signed_in) {
+    if (status.desktop) {
+      return <div className="auth"><div className="alert">Your session ended. Close and reopen AI Workspace to sign back in.</div></div>;
+    }
+    return <Auth status={status} onDone={refresh} />;
+  }
+  if (status.desktop && !status.welcome_done) {
+    return <Welcome onDone={() => { refresh(); navigate("/assistant", { replace: true }); }} />;
+  }
 
   const logout = async () => {
     await api("/logout", { method: "POST" });
@@ -144,7 +157,7 @@ export default function App() {
         <div className="row" style={{ padding: "6px 4px 0" }}>
           <ThemeToggle />
           <div className="spacer" />
-          <button className="btn ghost sm" onClick={logout}><LogOut size={14} /> Sign out</button>
+          {!status.desktop && <button className="btn ghost sm" onClick={logout}><LogOut size={14} /> Sign out</button>}
         </div>
       </aside>
       {menuOpen && <div className="modal-back" style={{ zIndex: 35 }} onClick={() => setMenuOpen(false)} />}
@@ -178,6 +191,7 @@ export default function App() {
           <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/mail" element={<MailPage />} />
           <Route path="/settings" element={<Settings onChanged={refresh} />} />
+          <Route path="/welcome" element={<Navigate to="/assistant" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

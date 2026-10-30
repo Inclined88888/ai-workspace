@@ -302,3 +302,23 @@ label.field .hint { font-weight: 400; color: var(--muted); font-size: 12px; }
   .run-item .grow { flex-basis: calc(100% - 80px); }
   .run-meta { width: 100%; text-align: left; padding-left: 2px; }
 }
+
+/* Desktop app first-run welcome (pages/Welcome.tsx) */
+.welcome-card { width: min(560px, 100%); animation: welcome-in 0.28s ease-out; }
+.welcome-option {
+  display: flex; align-items: center; gap: 14px; width: 100%; text-align: left; padding: 14px 16px; cursor: pointer;
+  background: var(--panel-2); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius); font: inherit;
+  transition: border-color 0.15s, transform 0.15s, background 0.15s;
+}
+.welcome-option .grow { display: flex; flex-direction: column; gap: 2px; }
+.welcome-option:hover:not(:disabled) { border-color: var(--accent); transform: translateY(-1px); }
+.welcome-option:active:not(:disabled) { transform: translateY(0); }
+.welcome-option:disabled { opacity: 0.5; cursor: default; }
+.welcome-providers { display: flex; flex-wrap: wrap; gap: 6px; }
+.welcome-choice {
+  padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--panel-2); color: var(--muted);
+  cursor: pointer; font: inherit; font-size: 13px; transition: all 0.15s;
+}
+.welcome-choice.on { border-color: var(--accent); color: var(--text); background: var(--accent-soft); }
+@keyframes welcome-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .welcome-card, .welcome-option, .welcome-choice { animation: none; transition: none; } }
