@@ -357,9 +357,18 @@ def upload(data: AttachmentIn, _: dict = Depends(require_device)):
     return {"id": aid, "kind": data.kind, "file": path.name, "bytes": len(raw), "duration_ms": data.duration_ms}
 
 
+@device.get("/models")
+def models(_: dict = Depends(require_device)):
+    """The model picker on the phone: same shape as /api/models, from the cached list (no provider calls)."""
+    from .api import models as all_models
+
+    return all_models(False)
+
+
 class MobileChatIn(BaseModel):
     message: str = Field("", max_length=50_000)
     conversation_id: int | None = None
+    model: str | None = Field(None, max_length=200)
     attachments: list[str] = Field(default_factory=list, max_length=6)
 
 
@@ -386,7 +395,7 @@ def chat(data: MobileChatIn, request: Request, _: dict = Depends(require_device)
     text = "\n\n".join(x for x in (data.message.strip(), describe_attachments(data.attachments)) if x)
     if not text:
         raise HTTPException(400, "Say something or attach a photo or voice note")
-    return run_chat(ChatIn(message=text, conversation_id=data.conversation_id, channel="mobile"),
+    return run_chat(ChatIn(message=text, conversation_id=data.conversation_id, model=data.model or None, channel="mobile"),
                     request.headers.get("idempotency-key"))
 
 

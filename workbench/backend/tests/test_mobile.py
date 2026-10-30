@@ -158,6 +158,15 @@ def test_phone_chat_streams_and_appears_in_runs(client, phone):
     assert phone.get(f"/api/mobile/runs/{turn['id']}", headers=_auth(token)).json()["id"] == turn["id"]
 
 
+def test_phone_model_picker(client, phone):
+    token, _ = _pair(client, phone)
+    m = phone.get("/api/mobile/models", headers=_auth(token)).json()
+    assert m["default"] and any(x["ref"] == m["default"] for x in m["models"])
+    SCRIPT[:] = [{"role": "assistant", "content": "picked"}]
+    ev = events(phone.post("/api/mobile/chat", json={"message": "use this model", "model": m["default"]}, headers=_auth(token)))
+    assert any(e.get("content") == "picked" for e in ev)
+
+
 def test_photo_and_voice_attachments(client, phone):
     token, _ = _pair(client, phone)
     jpg = base64.b64encode(b"\xff\xd8\xff\xe0fakejpeg").decode()
