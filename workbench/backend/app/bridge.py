@@ -56,6 +56,8 @@ async def chat_completions(data: CompletionIn, request: Request):
     # Rooks Code sends X-Workbench-Channel: rooks-code; the router picks a strong model for both clients either way
     channel = request.headers.get("x-workbench-channel", "browser")
     channel = channel if channel in ("browser", "rooks-code", "rooks-browser") else "browser"
+    if ref is None and channel == "rooks-code":
+        ref = llm.local_coder_ref()
     res = await llm.chat(ref, data.messages, data.tools, trace={"channel": channel}, schema=_schema(data.response_format))
     msg = res["message"]
     out = {"role": "assistant", "content": msg.get("content") or None}

@@ -161,6 +161,20 @@ def _local_default(cid: int) -> str:
     return (chat or names)[0]
 
 
+def local_coder_ref() -> str | None:
+    """Ollama only (no cloud, so no smart router) and a coding model is installed: the coding agent gets that one, since
+    small general models often describe edits instead of making them. Otherwise None (the user's default)."""
+    try:
+        ref = default_model_ref()
+        cid, _, model = ref.partition("/")
+        if not cid.isdigit() or "coder" in model or _connection(int(cid))["auth_kind"] != "local_ollama":
+            return None
+        coders = [m["ref"] for m in list_models_for(int(cid)) if "coder" in m["model"]]
+        return coders[0] if coders else None
+    except Exception:
+        return None
+
+
 _model_cache: dict[int, tuple[float, list[dict]]] = {}
 
 

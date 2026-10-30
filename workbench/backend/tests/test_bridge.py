@@ -96,3 +96,18 @@ def test_browse_tool_runs_the_browser_on_the_conversations_model(client, fake_ur
     ev = events(client.post("/api/assistant/chat", json={"message": "check the hours", "model": f"{client.pid}/fake-model"}))
     assert next(e for e in ev if e["type"] == "tool_result")["ok"]
     assert BROWSER_JOBS == [{"goal": "find the opening hours", "max_steps": 5, "provider": "workbench", "model": f"{client.pid}/fake-model"}]
+
+
+def test_rooks_code_gets_a_local_coder_model_when_ollama_only(monkeypatch):
+    from app import llm
+
+    monkeypatch.setattr(llm, "default_model_ref", lambda: "1/qwen2.5:7b")
+    monkeypatch.setattr(llm, "_connection", lambda cid: {"id": cid, "auth_kind": "local_ollama"})
+    monkeypatch.setattr(llm, "list_models_for", lambda cid, fresh=False: [
+        {"ref": "1/qwen2.5:7b", "model": "qwen2.5:7b"}, {"ref": "1/qwen2.5-coder:7b", "model": "qwen2.5-coder:7b"}])
+    assert llm.local_coder_ref() == "1/qwen2.5-coder:7b"
+    monkeypatch.setattr(llm, "default_model_ref", lambda: "auto")
+    assert llm.local_coder_ref() is None
+    monkeypatch.setattr(llm, "default_model_ref", lambda: "1/qwen2.5:7b")
+    monkeypatch.setattr(llm, "_connection", lambda cid: {"id": cid, "auth_kind": "api_key"})
+    assert llm.local_coder_ref() is None
