@@ -43,6 +43,8 @@ TIMEOUT = httpx.Timeout(connect=10, read=300, write=30, pool=10)
 # Ollama's OpenAI endpoint (/v1) ignores num_ctx and runs at the server default (4096 tokens), silently cutting the
 # start of long prompts. Ollama is therefore spoken to natively, with an explicit window.
 OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "16384"))
+# A cap on one answer: small local models sometimes repeat themselves until the timeout (seen with qwen2.5 7B)
+OLLAMA_NUM_PREDICT = int(os.getenv("OLLAMA_NUM_PREDICT", "4096"))
 # Local models on a CPU need minutes per answer (qwen3:4b on 4 cores ran past 300 s)
 OLLAMA_TIMEOUT = httpx.Timeout(connect=10, read=float(os.getenv("OLLAMA_TIMEOUT_S", "900")), write=30, pool=10)
 ANTHROPIC_VERSION = "2023-06-01"  # the version in Anthropic's own Messages API example
@@ -331,7 +333,7 @@ class OllamaNative(Protocol):
         return out
 
     def _body(self, model, messages, stream, tools=None, schema=None):
-        body: dict = {"model": model, "messages": self.convert(messages), "stream": stream, "options": {"num_ctx": OLLAMA_NUM_CTX}}
+        body: dict = {"model": model, "messages": self.convert(messages), "stream": stream, "options": {"num_ctx": OLLAMA_NUM_CTX, "num_predict": OLLAMA_NUM_PREDICT}}
         if tools:
             body["tools"] = tools
         if schema:

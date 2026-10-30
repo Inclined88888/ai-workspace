@@ -123,6 +123,7 @@ def test_ollama_uses_native_api_with_a_real_context_window(client, fake_url):
     ev = events(client.post("/api/assistant/chat", json={"message": "add Local task", "model": f"{pid}/qwen3:4b"}))
     assert next(e for e in ev if e["type"] == "message")["content"] == "ok"
     assert all(c["options"]["num_ctx"] == llm.OLLAMA_NUM_CTX for c in OLLAMA_CALLS)
+    assert all(c["options"]["num_predict"] > 0 for c in OLLAMA_CALLS)
     assert isinstance(OLLAMA_CALLS[1]["messages"][-2]["tool_calls"][0]["function"]["arguments"], dict)
     assert any(t["title"] == "Local task" for t in client.get("/api/tasks").json())
 
