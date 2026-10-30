@@ -76,7 +76,7 @@ export async function send(c: Computer, req: SealedRequest, f: FetchLike, save: 
   await save({ ...c, seq });
   for (const url of [c.active, ...c.urls.filter((u) => u !== c.active)].filter(Boolean)) {
     try {
-      const r = await f(`${url}/api/mobile/link/sealed`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(env) });
+      const r = await f(`${url}/api/mobile/link/sealed`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Workbench': '1' }, body: JSON.stringify(env) });
       if (r.ok) return unwrap(c, await r.json());
       if (r.status === 409 || r.status === 400) throw new Error(r.status === 409 ? 'Refused as a replay' : 'The computer could not open it. Pair again.');
     } catch (e) {
@@ -135,4 +135,21 @@ export async function flush(q: Queued[], run: (item: Queued) => Promise<SealedRe
 /* Several computers ------------------------------------------------------------------------------------------------ */
 export function upsertComputer(list: Computer[], c: Computer): Computer[] {
   return [...list.filter((x) => x.id !== c.id), c].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/* Key exchange ------------------------------------------------------------------------------------------------------
+   Right after pairing (and from "Link securely" for phones paired before this existed), the phone makes a key pair,
+   sends only the public half with its device token, and keeps the private half in the secure store. */
+export async function linkKeys(base: string, token: string, name: string, f: FetchLike, rand: (n: number) => Uint8Array = randomBytes): Promise<Computer> {
+  const kp = newKeyPair(rand);
+  const r = await f(`${base}/api/mobile/link/keys`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Workbench': '1', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ phone_pub: kp.pub }),
+  });
+  if (!r.ok) throw new Error(`Couldn't set up the encrypted link (HTTP ${r.status})`);
+  const j = await r.json();
+  const urls = Array.from(new Set([base, ...((j.lan as string[]) ?? [])]));
+  return { id: j.computer_id, name: j.computer_name || name || 'My computer', token, urls, active: base, phonePriv: kp.priv,
+    computerPub: j.computer_pub, mailbox: j.mailbox, relayUrl: j.relay_url || '', relayToken: j.relay_token, seq: 0 };
 }
