@@ -16,6 +16,16 @@ Workbench side (pairing, API, push hook). The app itself is in `mobile/`; its li
 - **New tables** `devices` and `pairing_codes` (created automatically; no data migration, schema version unchanged). New dependency `segno` (QR codes, pure Python). Rollback: run the previous build; the two tables are ignored.
 - Screenshots: `screenshots/mobile/settings-phone-*.png`.
 
+The app (`mobile/`, Expo SDK 58, React Native, TypeScript, Expo Router; see `mobile/README.md`):
+
+- **Screens.** Today (what needs you, an ask box, jobs on the desk, tasks, notes), Chats, Chat (streaming-style reveal, Markdown and code blocks with copy, tool receipts, inline approvals), Approvals (one-tap Approve/Deny, tab badge), Runs (live status, "Needs a look", receipt with trace), Settings (paired computer, model, Paper/Ink/System, haptics, notifications, unpair) and Pair (QR scan, typed address and code, `aiworkspace://pair` deep link).
+- **Compose from the phone.** On-device dictation (development build), photo from camera or library, image/audio files (10 MB); attachments go to the computer and are referred to in the message.
+- **Security.** Device token in SecureStore (Keychain/Keystore, this device only); tokens revocable from either side; every chat and decision from the phone is logged as a receipt with channel `mobile`; chat sends an Idempotency-Key; no secrets or credentials in the repo.
+- **Push.** Expo push for "Approval needed" and "Run finished"; tapping opens the approval or run. Needs an EAS project id plus APNs/FCM V1 credentials (documented).
+- **Look.** The editorial redesign on the phone: warm paper `#F5F1E8` and ink, Bodoni Moda and Hanken Grotesk, cherry red `#D21F3C`, baby-blue fills, hairline rules, square corners, fade/lift page turns and haptics. Optional dark (Ink).
+- **Builds.** `eas.json` profiles for a development client, an Android preview APK and store builds; README covers Expo Go, TestFlight, Play internal testing and store release (Apple US$99/year, Google Play US$25 once).
+- **Checks.** 37 jest tests (pairing links, SSE parsing, Markdown, reveal, turn reducer, API client), typecheck, lint, `expo-doctor` 20/20, web export. Phone screenshots: `screenshots/phone-*.png`.
+
 ## 2026-10-30 · Editorial UI redesign (light-first) · branch feat/premium-ui (builds on feat/desktop-app)
 
 Replaces the dark, gradient "premium" look with a quiet 90s fashion-editorial style. The structural work from the premium pass is kept: command palette, code blocks, skeletons, streaming and accessibility.
