@@ -20,6 +20,7 @@ def project(tmp_path, monkeypatch):
     cfg.write_text("")
     monkeypatch.setenv("ROOKS_CONFIG", str(cfg))
     monkeypatch.setenv("AI_WORKSPACE_APP_FILE", str(tmp_path / "no-app.json"))  # never pick up a real running app
+    monkeypatch.setenv("ROOKS_DESK_MCP", "0")  # an installed Rooks Desk must not add an MCP server to every test
     for k in ("ROOKS_PROVIDER", "ROOKS_MODEL", "ROOKS_BASE_URL", "WORKBENCH_URL", "WORKBENCH_API_KEY"):
         monkeypatch.delenv(k, raising=False)
     return p

@@ -10,9 +10,12 @@
 #   ai-workspace    the app (native app when a published release has one, else its own Chrome/Edge app window)
 #   rooks           Rooks Code, the terminal coding agent
 #   rooks-browser   Rooks Browser, the AI browser agent (uses your Chrome or Edge; else downloads Chromium)
+#   rooks-desk      Rooks Desk, computer use: your apps, terminal and files, asking before anything risky
+#                   (macOS: run `rooks-desk setup` once to grant Screen Recording + Accessibility)
 # Only prerequisite: curl (preinstalled on macOS). Python 3.12 is fetched by uv (astral.sh) into your home folder.
 #
 # Options:  --no-start (don't open the app at the end)  --no-browser (skip the Chromium download)
+#           --no-desk (don't install rooks-desk, computer use)
 #           --native auto|yes|no (native installer from GitHub releases; default auto)
 # Settings: AI_WORKSPACE_REF (branch/tag when downloading, default main)  AI_WORKSPACE_REPO (owner/repo)
 #           AI_WORKSPACE_HOME (default ~/.ai-workspace)  AI_WORKSPACE_BIN (default ~/.local/bin)
@@ -30,9 +33,10 @@ main() {
     case "$1" in
       --no-start) start=false ;;
       --no-browser) helper_args+=(--no-browser) ;;
+      --no-desk) helper_args+=(--no-desk) ;;
       --native) shift; helper_args+=(--native "${1:-auto}") ;;
       --native=*) helper_args+=(--native "${1#--native=}") ;;
-      -h|--help) sed -n '2,22p' "${BASH_SOURCE[0]:-/dev/null}" 2>/dev/null || true; return 0 ;;
+      -h|--help) sed -n '2,25p' "${BASH_SOURCE[0]:-/dev/null}" 2>/dev/null || true; return 0 ;;
       *) printf 'Unknown option %s\n' "$1" >&2; return 2 ;;
     esac
     shift
