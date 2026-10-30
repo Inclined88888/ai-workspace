@@ -99,7 +99,7 @@ def test_pro_gate_uses_account_when_present(client, monkeypatch):
     add_pack(client, "trade")
     monkeypatch.setattr(registry, "allowed", lambda f: f != "packs.trade")
     r = client.get("/api/packs/trade/settings")
-    assert r.status_code == 402 and "Pro" in r.json()["detail"]
+    assert r.status_code == 402 and r.json()["detail"]["error"] == "upgrade_required" and "Pro" in r.json()["detail"]["message"]
 
 
 # --- trade -----------------------------------------------------------------------------------------------------------------
@@ -373,7 +373,9 @@ def test_lab_notebook_dated_amended_and_exported(client, monkeypatch):
     md = open(analysis.get(client.post("/api/packs/study/lab/export", json={"format": "md"}).json()["id"])["path"]).read()
     assert "PCR run 1" in md and "amended 1 time" in md
     monkeypatch.setattr(registry, "allowed", lambda f: f != "packs.study.lab_notebook")
-    assert client.get("/api/packs/study/lab").status_code == 402
+    assert client.post("/api/packs/study/lab", json={"title": "New"}).status_code == 402  # new entries are Pro
+    assert client.get("/api/packs/study/lab").status_code == 200  # reading your own notebook is never gated
+    assert client.post("/api/packs/study/lab/export", json={"format": "md"}).status_code == 200  # nor is exporting it
     assert client.get("/api/packs/study/decks").status_code == 200  # the rest of Study stays free
 
 

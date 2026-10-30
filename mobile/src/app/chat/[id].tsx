@@ -19,7 +19,7 @@ import { error as hError, success, tap } from '@/lib/haptics';
 import { Markdown } from '@/components/Markdown';
 import { ChatProjectBar, CheckThis } from '@/components/V02'; // feat/v02-core
 import { ApprovalCard } from '@/components/ApprovalCard';
-import { FadeIn, Label, Notice, Rule, Screen, T } from '@/components/ui';
+import { FadeIn, Label, Notice, Pulse, Rule, Screen, T } from '@/components/ui';
 import { DoneTick, Node, SpringIn, Thinking, VoiceOrb } from '@/components/motion';
 import { useSharedValue } from 'react-native-reanimated';
 import { volumeLevel } from '@/lib/motion';

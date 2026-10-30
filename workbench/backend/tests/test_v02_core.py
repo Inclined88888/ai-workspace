@@ -239,9 +239,10 @@ def test_history_search_held_calls_and_export_gate(clean, monkeypatch):
     assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF") and b"%%EOF" in pdf.content
     from app import features_v02
 
-    monkeypatch.setattr(features_v02, "_account_allowed", lambda f: False)
-    assert c.get("/api/history/export.csv").status_code == 402
-    assert c.get("/api/history").json()["export_allowed"] is False
+    monkeypatch.setattr(features_v02, "_account_allowed", lambda f: False)  # Free plan with billing live
+    assert c.get("/api/history/export.csv").status_code == 200  # integration/v0.2: exports are never gated
+    assert c.get("/api/history/export.pdf").status_code == 200
+    assert c.get("/api/history").json()["export_allowed"] is True
     assert c.get("/api/history").status_code == 200  # the timeline and undo stay free
 
 

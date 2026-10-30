@@ -11,7 +11,7 @@ runs and settings changes. Each change the assistant makes gets a history entry 
 
 Snapshots (the note body before an append, the task before an edit, the memory before forget...) are encrypted at rest.
 The run log (`actions`) stays the source of truth for what ran; this adds the undo side. Read-only lookups are listed on
-request. Export (CSV / PDF) is Pro (features_v02).
+request. Export (CSV / PDF) is free on every plan: exports are never gated (integration/v0.2).
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel
 
-from . import config, db, features_v02
+from . import config, db
 from .security import decrypt, encrypt, require_user
 
 log = logging.getLogger("history")
@@ -319,15 +319,15 @@ def _setting_title(key: str, value: str) -> str:
 
 def install() -> None:
     """Track user-facing settings (one line in main.py). Idempotent."""
-    global _original_set_setting
-    current = db.set_setting
-    if current is _tracked_set_setting or getattr(current, "_aiw_history_tracked", False):
-        return
-    _original_set_setting = current
+    global _original_set_setting, _installed
+    if _installed or db.set_setting is _tracked_set_setting:
+        return  # once only: a wrapper added after us calls through us, and we never wrap ourselves twice
+    _original_set_setting = db.set_setting
     db.set_setting = _tracked_set_setting
+    _installed = True
 
 
-_tracked_set_setting._aiw_history_tracked = True  # type: ignore[attr-defined]
+_installed = False
 
 
 # Undo ---------------------------------------------------------------------------------------------------------------
@@ -716,7 +716,8 @@ class UndoIn(BaseModel):
 def api_timeline(limit: int = Query(100, ge=1, le=500), before: str | None = None, category: str = "", q: str = "",
                  lookups: bool = False, project_id: int | None = None):
     rows = timeline(limit, before, category, q, lookups, project_id)
-    return {"entries": rows, "categories": CATEGORIES, "export_allowed": features_v02.allowed("action_history_export"),
+    return {"entries": rows, "categories": CATEGORIES, "export_allowed": True,  # integration/v0.2: exports are never gated
+           
             "next_before": rows[-1]["at"] if len(rows) >= limit else None}
 
 
@@ -729,7 +730,7 @@ def api_undo(entry_id: str, data: UndoIn):
 
 @router.get("/export.csv")
 def api_csv(category: str = "", q: str = "", lookups: bool = False, project_id: int | None = None):
-    features_v02.require("action_history_export")
+    # integration/v0.2: exports are never gated (data portability), on any plan
     body = to_csv(timeline(500, None, category, q, lookups, project_id))
     return Response("\ufeff" + body, media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": 'attachment; filename="action-history.csv"'})
@@ -737,7 +738,7 @@ def api_csv(category: str = "", q: str = "", lookups: bool = False, project_id: 
 
 @router.get("/export.pdf")
 def api_pdf(category: str = "", q: str = "", lookups: bool = False, project_id: int | None = None):
-    features_v02.require("action_history_export")
+    # integration/v0.2: exports are never gated (data portability), on any plan
     data = to_pdf(timeline(500, None, category, q, lookups, project_id))
     return Response(data, media_type="application/pdf", headers={"Content-Disposition": 'attachment; filename="action-history.pdf"'})
 

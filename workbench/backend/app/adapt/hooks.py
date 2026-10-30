@@ -28,6 +28,10 @@ def memory_replaces_legacy() -> bool:
 
 async def after_turn(conv_id: int, channel: str) -> None:
     """Run by learn._after (inside its one-at-a-time lock): learn facts, log the work, look for routines to suggest."""
+    from .. import account
+
+    if not account.allowed("learning"):  # integration/v0.2: background learning is Pro (unlocked while billing is off)
+        return
     try:
         await knowledge.mine_conversation(conv_id)
     except Exception as e:  # noqa: BLE001

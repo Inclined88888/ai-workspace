@@ -74,38 +74,50 @@ export type Status = {
 type NavItem = { to: string; label: string; icon: typeof Home; addon?: "browser" | "desk" };
 type NavGroup = { section?: string; collapsible?: boolean; items: NavItem[] };
 
-/** Six everyday places first, then the person's own work, then the helpers that act for them; the rest folded under More. */
+/**
+ * integration/v0.2 navigation, grouped so a non-technical person sees a short list:
+ * the four places you live in, your day, your work, the helpers that act for you, then More and Advanced folded away.
+ */
 const NAV: NavGroup[] = [
   { items: [
     { to: "/", label: "Home", icon: Home },
     { to: "/assistant", label: "Chat", icon: MessageSquare },
+    { to: "/projects", label: "Projects", icon: FolderKanban }, // feat/v02-core
+    { to: "/jobs", label: "Jobs", icon: Layers }, // feat/v02-automations
+  ] },
+  { section: "Your day", items: [
+    { to: "/mail", label: "Mail", icon: Mail },
+    { to: "/calendar", label: "Calendar", icon: CalendarDays },
     { to: "/tasks", label: "Tasks", icon: CheckSquare },
     { to: "/notes", label: "Notes", icon: NotebookPen },
-    { to: "/calendar", label: "Calendar", icon: CalendarDays },
-    { to: "/mail", label: "Mail", icon: Mail },
   ] },
   { section: "Your work", items: [
-    { to: "/projects", label: "Projects", icon: FolderKanban }, // feat/v02-core
     { to: "/files", label: "Files", icon: FolderOpen },
     { to: "/sites", label: "Sites", icon: Globe2 },
-    { to: "/teach", label: "Show me how", icon: GraduationCap },
-    { to: "/meetings", label: "Meetings", icon: Users }, // feat/v02-anywhere-voice
     { to: "/automations", label: "Automations", icon: CalendarClock },
-    { to: "/jobs", label: "Jobs", icon: Layers }, // feat/v02-automations
-    { to: "/history", label: "History", icon: HistoryIcon }, // feat/v02-core: everything done, with undo
+    { to: "/teach", label: "Show me how", icon: GraduationCap },
     { to: "/packs", label: "Packs", icon: Package }, // feat/v02-packs
+    { to: "/meetings", label: "Meetings", icon: Users }, // feat/v02-anywhere-voice
   ] },
   { section: "Helpers", items: [
     { to: "/talk", label: "Talk", icon: AudioLines }, // feat/v02-anywhere-voice
     { to: "/research", label: "Research", icon: Search },
-    { to: "/code", label: "Coding agent", icon: Code2 },
-    { to: "/browser", label: "Browser agent", icon: Globe, addon: "browser" },
+    { to: "/code", label: "Coding", icon: Code2 },
+    { to: "/browser", label: "Browser", icon: Globe, addon: "browser" },
     { to: "/computer", label: "Computer", icon: Monitor, addon: "desk" },
   ] },
   { section: "More", collapsible: true, items: [
-    { to: "/documents", label: "Documents", icon: FileText },
-    { to: "/about-you", label: "What I know", icon: Brain },
     { to: "/skills", label: "Skills", icon: Puzzle },
+    { to: "/history", label: "History", icon: HistoryIcon }, // feat/v02-core: everything done, with undo
+    { to: "/about-you", label: "About you", icon: Brain },
+    { to: "/plan", label: "Your plan", icon: Sparkles },
+    { to: "/settings", label: "Settings", icon: SettingsIcon },
+    { to: "/appearance", label: "Appearance", icon: PaletteIcon },
+    { to: "/models", label: "Models", icon: Gauge },
+    { to: "/voice", label: "Ask anywhere & voice", icon: AudioLines }, // feat/v02-anywhere-voice
+  ] },
+  { section: "Advanced", collapsible: true, items: [
+    { to: "/documents", label: "Documents", icon: FileText },
     { to: "/company", label: "Company", icon: Building2 },
     { to: "/compare", label: "Compare models", icon: Columns3 },
     { to: "/runs", label: "Run log", icon: ListTree },
@@ -177,21 +189,23 @@ export default function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-  const [moreOpen, setMoreOpen] = useState(() => localStorage.getItem("wb-nav-more") === "1");
+  // Folded groups (More, Advanced): remembered per group, and always open while you're on one of their pages
+  const [folds, setFolds] = useState<Record<string, boolean>>(() => ({
+    More: localStorage.getItem("wb-nav-more") === "1", Advanced: localStorage.getItem("wb-nav-advanced") === "1" }));
   const nav = useMemo(
     () => NAV.map((g) => ({ ...g, items: g.items.filter((i) => !i.addon || (i.addon === "browser" && status?.browser_enabled) || (i.addon === "desk" && status?.desk_enabled)) })),
     [status?.browser_enabled, status?.desk_enabled],
   );
   const palettePages = useMemo(
-    () => [...nav.flatMap((g) => g.items.map((i) => ({ to: i.to, label: i.label, icon: i.icon }))),
-      { to: "/appearance", label: "Appearance", icon: PaletteIcon }, { to: "/settings", label: "Settings", icon: SettingsIcon },
-      { to: "/plan", label: "Your plan", icon: Sparkles },
-      { to: "/voice", label: "Ask from anywhere & voice", icon: AudioLines }], // feat/v02-anywhere-voice
+    () => [...nav.flatMap((g) => g.items.map((i) => ({ to: i.to, label: i.label, icon: i.icon })))],
     [nav],
   );
-  // Keep More open while you're on one of its pages
-  const inMore = (NAV.find((g) => g.collapsible)?.items ?? []).some((i) => location.pathname === i.to || location.pathname.startsWith(i.to + "/"));
-  const toggleMore = () => setMoreOpen((o) => { localStorage.setItem("wb-nav-more", o ? "0" : "1"); return !o; });
+  const inGroup = (g: NavGroup) => g.items.some((i) => location.pathname === i.to || location.pathname.startsWith(i.to + "/"));
+  const toggleFold = (name: string) => setFolds((f) => {
+    const open = !f[name];
+    localStorage.setItem(name === "More" ? "wb-nav-more" : "wb-nav-advanced", open ? "1" : "0");
+    return { ...f, [name]: open };
+  });
   // Route transition key: top-level section only, so switching conversations or notes doesn't remount the page
   const section = "/" + (location.pathname.split("/")[1] ?? "");
 
@@ -223,11 +237,11 @@ export default function App() {
           <Search size={14} /> <span>Search</span> <span className="kbd">{MOD_KEY} K</span>
         </button>
         {nav.map((g, gi) => {
-          const open = !g.collapsible || moreOpen || inMore;
+          const open = !g.collapsible || !!folds[g.section ?? ""] || inGroup(g);
           return (
             <div key={gi} className="nav-group">
               {g.section && (g.collapsible ? (
-                <button type="button" className="nav-section nav-toggle" aria-expanded={open} onClick={toggleMore}>
+                <button type="button" className="nav-section nav-toggle" aria-expanded={open} onClick={() => toggleFold(g.section ?? "")}>
                   <span className="grow">{g.section}</span><ChevronRight size={12} className="chev" />
                 </button>
               ) : <div className="nav-section">{g.section}</div>)}
@@ -236,7 +250,7 @@ export default function App() {
                   {({ isActive }) => <>{isActive && <span className="nav-ind" aria-hidden="true" />}<item.icon size={16} /> <span className="truncate">{item.label}</span></>}
                 </NavLink>
               ))}
-              {open && g.collapsible && (
+              {open && g.section === "Advanced" && (
                 <>
                   {status.chat_url && <a className="nav-link" href={status.chat_url} target="_blank" rel="noreferrer"><MessageSquare size={16} /> Open WebUI <ExternalLink size={12} style={{ marginLeft: "auto" }} /></a>}
                   {status.paperclip_url && <a className="nav-link" href={status.paperclip_url} target="_blank" rel="noreferrer"><Building2 size={16} /> Paperclip <ExternalLink size={12} style={{ marginLeft: "auto" }} /></a>}
@@ -247,10 +261,6 @@ export default function App() {
           );
         })}
         <div className="spacer" />
-        <NavLink to="/models" className="nav-link" onClick={transitionClick(() => navigate("/models"))}>{({ isActive }) => <>{isActive && <span className="nav-ind" aria-hidden="true" />}<Gauge size={16} /> Models</>}</NavLink>
-        <NavLink to="/appearance" className="nav-link" onClick={transitionClick(() => navigate("/appearance"))}>{({ isActive }) => <>{isActive && <span className="nav-ind" aria-hidden="true" />}<PaletteIcon size={16} /> Appearance</>}</NavLink>
-        <NavLink to="/settings" className="nav-link" onClick={transitionClick(() => navigate("/settings"))}>{({ isActive }) => <>{isActive && <span className="nav-ind" aria-hidden="true" />}<SettingsIcon size={16} /> Settings</>}</NavLink>
-        <NavLink to="/plan" className="nav-link" onClick={transitionClick(() => navigate("/plan"))}>{({ isActive }) => <>{isActive && <span className="nav-ind" aria-hidden="true" />}<Sparkles size={16} /> Your plan</>}</NavLink>
         <div className="sidebar-foot">
           <div className="spacer" />
           {!status.desktop && <button className="btn ghost sm" onClick={logout}><LogOut size={14} /> Sign out</button>}

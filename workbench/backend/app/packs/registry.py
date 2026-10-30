@@ -23,20 +23,17 @@ PACK_IDS = ("trade", "legal", "study")
 
 
 def allowed(feature: str) -> bool:
-    """Pro gating hook. Uses account.allowed(feature) when the accounts branch (feat/accounts-and-pro) is merged."""
-    try:
-        from .. import account  # type: ignore[attr-defined]
-    except ImportError:
-        return True
-    try:
-        return bool(account.allowed(feature))
-    except Exception:  # noqa: BLE001 - a broken licence check must not lock people out of their own data
-        return True
+    """Pro gating hook (integration/v0.2): features_v02.allowed -> account.allowed, unlocked while billing isn't live."""
+    from .. import features_v02
+
+    return features_v02.allowed(feature)
 
 
 def require_feature(feature: str) -> None:
     if not allowed(feature):
-        raise HTTPException(402, f"This is part of Pro. Upgrade on the Account page to use it. ({feature})")
+        from .. import features_v02
+
+        raise HTTPException(402, features_v02.upgrade_detail(feature))  # the app-wide upgrade card reads this shape
 
 
 def manifest(pack_id: str) -> dict:

@@ -5,7 +5,6 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ApiError } from "../api";
 import { Empty, relTime, SkeletonList, useToast } from "../util";
-import { UpgradeCard } from "../v02/shared";
 import "../v02/v02.css";
 
 export type Entry = { id: string; at: string; category: string; who: string; title: string; detail: string; tool: string; conversation_id: number | null;
@@ -32,7 +31,6 @@ export default function History() {
   const [q, setQ] = useState("");
   const [lookups, setLookups] = useState(false);
   const [busy, setBusy] = useState("");
-  const [upgrade, setUpgrade] = useState(false);
   const [asking, setAsking] = useState<Entry | null>(null);
 
   const params = useCallback((extra: Record<string, string> = {}) => new URLSearchParams({ ...(cat ? { category: cat } : {}), ...(q ? { q } : {}), ...(lookups ? { lookups: "true" } : {}), ...extra }).toString(), [cat, q, lookups]);
@@ -58,7 +56,7 @@ export default function History() {
   };
 
   const exportAs = (fmt: "csv" | "pdf") => {
-    if (!page?.export_allowed) return setUpgrade(true);
+    // integration/v0.2: export is free on every plan (exports are never gated)
     window.location.href = `/api/history/export.${fmt}?${params()}`;
   };
 
@@ -82,7 +80,6 @@ export default function History() {
           <button className="btn sm" onClick={() => exportAs("pdf")}><Download size={14} /> PDF</button>
         </div>
       </div>
-      {upgrade && <UpgradeCard feature="action_history_export" onClose={() => setUpgrade(false)} />}
 
       <div className="row wrap v02-filters">
         <div className="input-icon v02-search">

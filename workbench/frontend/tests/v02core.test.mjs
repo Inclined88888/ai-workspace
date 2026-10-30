@@ -28,5 +28,7 @@ test("chat has the project switcher, the check toggle and Check this", () => {
 
 test("Pro features show the upgrade card on 402 instead of an error", () => {
   const files = ["../src/pages/Projects.tsx", "../src/pages/History.tsx", "../src/v02/ChatExtras.tsx"].map(read).join("\n");
-  for (const f of ["projects_unlimited", "action_history_export", "checked_answers"]) assert.ok(files.includes(`feature="${f}"`), f);
+  for (const f of ["projects_unlimited", "checked_answers"]) assert.ok(files.includes(`feature="${f}"`), f);
+  // integration/v0.2: exports are never gated, so History has no upgrade card for its CSV / PDF export
+  assert.ok(!files.includes(`feature="action_history_export"`), "history export is free");
 });

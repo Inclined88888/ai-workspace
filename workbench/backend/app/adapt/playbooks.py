@@ -303,6 +303,10 @@ def last_values(pid: int) -> dict:
 
 
 async def run(pid: int, values: dict | None = None, trigger: str = "user") -> dict:
+    from .. import account
+
+    if not account.allowed("learning"):  # integration/v0.2: routines, automations and jobs replay steps only on Pro
+        raise HTTPException(402, account.upgrade_detail("learning"))
     pb = get(pid)
     values = {**last_values(pid), **{k: v for k, v in (values or {}).items()}}  # unchanged values carry over
     goal = render_goal(pb, values)

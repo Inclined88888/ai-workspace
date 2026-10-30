@@ -1015,9 +1015,13 @@ def answer(site_id: int, rule: dict, changes: dict) -> str:
 
 
 async def run_watch(w: dict) -> str:
-    from . import scheduler
+    from . import account, scheduler
 
     db.run("UPDATE site_watches SET next_run = ? WHERE id = ?", scheduler.next_run(w["cron"]), w["id"])
+    if not account.allowed("site_watchers"):  # integration/v0.2: scheduled watcher runs are Pro (once billing is live)
+        text = "Paused: " + account.upgrade_detail("site_watchers")["message"]
+        db.run("UPDATE site_watches SET last_run = ?, last_result = ? WHERE id = ?", db.now(), text, w["id"])
+        return text
     rule = json.loads(w["rule"] or "{}")
     try:
         res = await check(w["site_id"])

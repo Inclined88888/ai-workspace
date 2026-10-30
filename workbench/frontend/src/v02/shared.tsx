@@ -4,7 +4,6 @@ import { ApiError } from "../api";
 
 export const UPGRADE_TEXT: Record<string, string> = {
   projects_unlimited: "The free plan keeps one project going at a time. Archive one, or upgrade to Pro for unlimited projects.",
-  action_history_export: "Exporting your history to a spreadsheet or PDF is part of Pro.",
   checked_answers: "Checked answers is part of Pro: every claim gets a source and a second check.",
 };
 

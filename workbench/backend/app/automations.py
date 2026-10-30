@@ -594,6 +594,10 @@ async def check(a: dict, force: bool = False) -> list[dict]:
         elif kind == "calendar":
             evs = _calendar_events(a, st)
         elif kind == "site":
+            from . import account
+
+            if not account.allowed("site_watchers"):  # integration/v0.2: scheduled site checks are Pro
+                raise HTTPException(402, account.upgrade_detail("site_watchers")["message"])
             evs = await _site_events(a, st)
         elif kind == "folder":
             evs = _folder_events(a, st)
@@ -614,10 +618,16 @@ async def check(a: dict, force: bool = False) -> list[dict]:
     return fired
 
 
+def _within_plan(rows: list) -> list:
+    """integration/v0.2: on Free (once billing is live) only the first FREE_LIMITS["automations"] automations run."""
+    lim = limit()
+    return list(rows) if lim is None else list(rows)[:lim]
+
+
 async def check_all(force: bool = False) -> list[dict]:
     ensure()
     fired = []
-    for r in db.all("SELECT * FROM automations WHERE enabled = 1 AND trigger_kind != 'share' ORDER BY id"):
+    for r in _within_plan(db.all("SELECT * FROM automations WHERE enabled = 1 AND trigger_kind != 'share' ORDER BY id")):
         try:
             fired += await check(_out(r) | {"last_checked": r["last_checked"]}, force)
         except Exception as e:  # noqa: BLE001 - one broken automation never stops the others
@@ -631,7 +641,7 @@ def share(text: str = "", url: str = "", title: str = "", file_id: int | None = 
     ensure()
     hay = f"{title} {text} {url}".lower()
     fired = []
-    for r in db.all("SELECT * FROM automations WHERE enabled = 1 AND trigger_kind = 'share' ORDER BY id"):
+    for r in _within_plan(db.all("SELECT * FROM automations WHERE enabled = 1 AND trigger_kind = 'share' ORDER BY id")):
         a = _out(r)
         w = (a["trigger"].get("words") or "").lower()
         if w and w not in hay:

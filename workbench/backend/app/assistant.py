@@ -121,8 +121,10 @@ async def _browse(goal: str, max_steps: int = 15, ctx: "Ctx | None" = None) -> d
 async def _use_computer(goal: str, max_steps: int = 30, dry_run: bool = False, ctx: "Ctx | None" = None) -> dict:
     """Rooks Desk: operate the user's own desktop apps, terminal and files. Sensitive steps pause for the user's approval
     on the Computer page; this waits for them."""
-    from . import desk_proxy
+    from . import account, desk_proxy
 
+    if not account.allowed("computer_use"):  # integration/v0.2: Pro gate for chat, jobs and automations alike
+        return {"error": account.upgrade_detail("computer_use")["message"], "upgrade_required": "computer_use"}
     job = {"goal": goal, "max_steps": max_steps, "dry_run": bool(dry_run), "provider": "workbench",
            "model": (ctx.model if ctx else "") or "default", "source": "assistant"}
     jid = (await desk_proxy.call("POST", "/api/jobs", json=job)).json()["id"]

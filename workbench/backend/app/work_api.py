@@ -261,6 +261,7 @@ def add_watch(body: WatchIn):
 
 @router.post("/sites/watches/{wid}/run")
 async def run_watch(wid: int):
+    sites.ensure()  # integration/v0.2: a fresh install has no watches table yet
     w = sites.db.one("SELECT * FROM site_watches WHERE id = ?", wid)
     if not w:
         raise HTTPException(404, "No such watch.")
@@ -269,6 +270,7 @@ async def run_watch(wid: int):
 
 @router.delete("/sites/watches/{wid}")
 def delete_watch(wid: int):
+    sites.ensure()  # integration/v0.2: deleting before any watch exists answered 500
     sites.db.run("DELETE FROM site_watches WHERE id = ?", wid)
     return {"ok": True}
 

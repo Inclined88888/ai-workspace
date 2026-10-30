@@ -46,7 +46,18 @@ LABELS = {
     "team_shared_skills": "Shared team skills",
     "team_admin": "Team admin controls",
 }
-PREMIUM_THEMES = {"neon", "cherry", "linen", "gallery"}  # the default, Paper, Sunshine, Dark, High contrast and Auto stay free
+PREMIUM_THEMES = {"cherry", "linen", "gallery"}  # the default, Paper, Sunshine, Neon, Dark, High contrast and Auto stay free
+# integration/v0.2: Neon is free (the owner wants neon everywhere); only Cherry & Ink and the hidden themes are premium.
+# integration/v0.2: every Pro id declared by the v0.2 features (features_v02.FEATURE_TIERS) is a Pro feature here too, so
+# account.allowed() gates them (only once billing is live) and "Your plan" lists them.
+from . import features_v02  # noqa: E402
+
+V02_PRO_FEATURES = sorted(features_v02.pro_features())
+PRO_FEATURES += [f for f in V02_PRO_FEATURES if f not in PRO_FEATURES]
+for _f in V02_PRO_FEATURES:
+    LABELS.setdefault(_f, features_v02.FEATURE_LABELS.get(_f, _f))
+# Paid plans whose signed token predates the v0.2 ids still get them (the token's plan is signed too).
+PAID_PLANS = {"pro", "team", "business"}
 REFRESH_AFTER_S = 12 * 3600
 CLOUD_CONNECTION_NAME = "AI Workspace Cloud"
 
@@ -164,7 +175,12 @@ def billing_live() -> bool:
 
 def features() -> set[str]:
     p = _payload()
-    return FREE_FEATURES | set(p["features"]) if p else set(FREE_FEATURES)
+    if not p:
+        return set(FREE_FEATURES)
+    feats = FREE_FEATURES | set(p["features"])
+    if p.get("plan") in PAID_PLANS:  # integration/v0.2
+        feats |= set(V02_PRO_FEATURES)
+    return feats
 
 
 def allowed(feature: str) -> bool:

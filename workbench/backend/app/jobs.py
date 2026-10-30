@@ -275,6 +275,14 @@ async def run_job(jid: int) -> dict:
     from . import assistant
 
     j = get(jid)
+    from . import account
+
+    gate = {"computer": "computer_use", "playbook": "learning"}.get(j["kind"])
+    if gate and not account.allowed(gate):  # integration/v0.2: Pro gates apply to unattended jobs too
+        msg = account.upgrade_detail(gate)["message"]
+        _touch(jid, status="failed", detail=msg, finished_at=db.now())
+        notice(jid, "failed", f"“{j['title']}” needs Pro", msg)
+        return get(jid)
     first = not j["conversation_id"]
     _touch(jid, status="running", needs="", detail="Working on it", started_at=j["started_at"] or db.now(), turns=j["turns"] + 1)
     try:

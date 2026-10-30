@@ -573,8 +573,7 @@ def _exists(fid: int) -> bool:
 
 
 def lab_entries(q: str = "") -> list[dict]:
-    registry.require(PACK)
-    registry.require_feature(LAB)
+    registry.require(PACK)  # integration/v0.2: reading your own entries is never gated; new entries are Pro
     store.ensure()
     rows = db.all("SELECT * FROM lab_entries ORDER BY entry_date DESC, id DESC LIMIT 1000")
     words = [w.lower() for w in re.findall(r"\w+", q or "")]

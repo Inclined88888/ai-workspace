@@ -60,19 +60,22 @@ def pro_features() -> set[str]:
     return {k for k, v in FEATURE_TIERS.items() if v == "pro"}
 
 
+def _account_allowed(feature: str) -> bool:
+    """account.allowed (PR #32): True for everything while billing isn't live, else the signed plan decides."""
+    try:
+        from . import account
+    except ImportError:
+        return True  # no accounts module in this build: nothing is gated
+    fn = getattr(account, "allowed", None)
+    return bool(fn(feature)) if callable(fn) else True
+
+
 def allowed(feature: str) -> bool:
     """True when the user's plan includes the feature. Free features are always allowed."""
     if tier(feature) == "free":
         return True
     try:
-        from . import account
-    except ImportError:
-        return True
-    fn = getattr(account, "allowed", None)
-    if not callable(fn):
-        return True
-    try:
-        return bool(fn(feature))
+        return _account_allowed(feature)
     except Exception:  # noqa: BLE001 - a licence check problem never locks the user out of their own app
         return True
 

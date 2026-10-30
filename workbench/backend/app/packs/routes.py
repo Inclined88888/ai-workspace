@@ -371,6 +371,5 @@ def study_lab_edit(eid: int, data: dict):
 
 @router.post("/study/lab/export")
 def study_lab_export(data: dict):
-    registry.require("study")
-    registry.require_feature(study.LAB)
+    registry.require("study")  # integration/v0.2: exporting your own notebook is never gated
     return study.lab_export(str(data.get("format") or "md"), [int(i) for i in data.get("ids") or []])
