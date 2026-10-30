@@ -86,7 +86,7 @@ function KeyStep({ presets, onBack, onDone }: { presets: Record<string, Preset>;
           <a className="small" href={KEY_LINKS[kind]} target="_blank" rel="noreferrer">Get a {preset.name} key <ExternalLink size={11} /></a>
         )}
       </label>
-      <div className="row muted small"><ShieldCheck size={14} /> Your key is stored in this computer's keychain and only sent to {preset?.name}.</div>
+      <div className="row muted small"><ShieldCheck size={14} /> Your key stays on this computer (in the system keychain where available) and is only sent to {preset?.name}.</div>
       <div className="row">
         <button type="button" className="btn ghost" onClick={onBack}><ArrowLeft size={16} /> Back</button>
         <div className="spacer" />
