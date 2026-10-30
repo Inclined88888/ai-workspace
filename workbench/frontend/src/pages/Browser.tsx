@@ -2,6 +2,7 @@ import { CheckCircle2, CircleStop, Globe, Loader2, Play, Trash2, XCircle } from 
 import { FormEvent, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
+import { Tracer } from "../Tracer";
 import { Empty, Markdown, ModelSelect, useModels, useToast } from "../util";
 
 type JobSummary = { id: string; goal: string; provider: string; model: string; status: string; source: string; created_at: number };
@@ -113,7 +114,8 @@ export default function Browser() {
         <div className="card flush" style={{ alignSelf: "start" }}>
           {jobs.length === 0 && <Empty icon={<Globe size={22} />} title="No runs yet" />}
           {jobs.map((j) => (
-            <div key={j.id} className={`list-item ${job?.id === j.id ? "active" : ""}`} onClick={() => navigate(`/browser/${j.id}`)}>
+            <div key={j.id} className={`list-item has-tracer ${job?.id === j.id ? "active" : ""}`} onClick={() => navigate(`/browser/${j.id}`)}>
+              <Tracer active={active(j.status)} />
               <div className="grow">
                 <div className="truncate">{j.goal}</div>
                 <div className="row small faint">{active(j.status) && <Loader2 size={11} className="spin" />}{j.status} · {j.source} · {ago(j.created_at)}</div>
@@ -126,7 +128,8 @@ export default function Browser() {
           {!job && <div className="card"><Empty icon={<Globe size={26} />} title="Pick a run or start one" hint="Agents in Chat and Paperclip can use this browser too." /></div>}
           {job && (
             <div className="col gap-lg">
-              <div className="card col">
+              <div className="card col has-tracer">
+                <Tracer active={active(job.status)} label="Browser agent is working" />
                 <div className="row" style={{ alignItems: "flex-start" }}>
                   <h2 className="grow">{job.goal}</h2>
                   {active(job.status) && <button className="btn sm" onClick={cancel}><CircleStop size={14} /> Stop</button>}

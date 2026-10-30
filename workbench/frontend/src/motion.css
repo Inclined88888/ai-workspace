@@ -13,10 +13,12 @@
 .tracer svg { display: block; overflow: visible; }
 .tracer rect { fill: none; shape-rendering: geometricPrecision; }
 .tracer-base { stroke: var(--rule); stroke-width: 1; opacity: 0.14; }
-.tracer-dash { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 18 82; animation: tracer-run var(--tracer-speed) linear infinite; }
-.tracer-tip { stroke: var(--rule); stroke-width: 1.5; stroke-dasharray: 2.5 97.5; animation: tracer-tip var(--tracer-speed) linear infinite; }
+.tracer-dash { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 18 82; animation: tracer-run var(--tracer-speed) linear infinite; }
+.tracer-tip { stroke: var(--rule); stroke-width: 3; stroke-dasharray: 1.2 98.8; animation: tracer-tip var(--tracer-speed) linear infinite; }
 @keyframes tracer-run { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -100; } }
-@keyframes tracer-tip { from { stroke-dashoffset: -18; } to { stroke-dashoffset: -118; } }
+@keyframes tracer-tip { from { stroke-dashoffset: -17; } to { stroke-dashoffset: -117; } }
+/* While the tracer runs, the element's own frame steps back to a hairline so the moving line reads */
+.has-tracer:has(> .tracer), .has-tracer:has(> .tracer):focus-within { border-color: var(--border); box-shadow: none; }
 :root[data-motion="subtle"] .tracer-dash { stroke-dasharray: 12 88; opacity: 0.8; }
 :root[data-motion="subtle"] .tracer-tip { display: none; }
 /* Off: a still cherry keyline says "working" without moving */
@@ -54,3 +56,6 @@
   .tracer-dash { animation: none !important; stroke-dasharray: none; stroke-width: 1; }
   .tracer-tip, .tracer-base { display: none; }
 }
+
+/* Inside clipped lists the tracer sits on the row's own edge */
+.list-item > .tracer, .card.flush .tracer { inset: 0; }

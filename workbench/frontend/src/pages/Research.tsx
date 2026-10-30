@@ -2,6 +2,7 @@ import { ExternalLink, FileText, Loader2, Search, Trash2 } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
+import { Tracer } from "../Tracer";
 import { Empty, Markdown, ModelSelect, relTime, useModels, useToast } from "../util";
 
 type Item = { id: number; question: string; model: string; status: "running" | "done" | "error"; progress: string; created_at: string };
@@ -88,7 +89,8 @@ export default function Research() {
         <div className="card flush" style={{ alignSelf: "start" }}>
           {items.length === 0 && <Empty icon={<Search size={22} />} title="No research yet" />}
           {items.map((r) => (
-            <div key={r.id} className={`list-item ${current?.id === r.id ? "active" : ""}`} onClick={() => navigate(`/research/${r.id}`)}>
+            <div key={r.id} className={`list-item has-tracer ${current?.id === r.id ? "active" : ""}`} onClick={() => navigate(`/research/${r.id}`)}>
+              <Tracer active={r.status === "running"} />
               <div className="grow">
                 <div className="truncate">{r.question}</div>
                 <div className="row small faint">{r.status === "running" ? <Loader2 size={11} className="spin" /> : null}{r.status} · {relTime(r.created_at)}</div>
@@ -100,7 +102,8 @@ export default function Research() {
         <div>
           {!current && <div className="card"><Empty icon={<FileText size={24} />} title="Pick a report or start a new one" /></div>}
           {current && (
-            <div className="card col gap-lg">
+            <div className="card col gap-lg has-tracer">
+              <Tracer active={current.status === "running"} label="Research in progress" />
               <div className="row" style={{ alignItems: "flex-start" }}>
                 <h2 className="grow">{current.question}</h2>
                 {current.status === "done" && <button className="btn sm" onClick={save}><FileText size={14} /> Save to documents</button>}

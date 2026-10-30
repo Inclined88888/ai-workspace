@@ -285,7 +285,7 @@ function HubSettingsCard({ settings, onSaved }: { settings: HubSettings; onSaved
       <summary><span className="grow">How checking works</span><span className="faint small">{settings.has_token ? "GitHub token set" : "No GitHub token"}</span></summary>
       <div className="col" style={{ marginTop: 12 }}>
         <p className="small muted" style={{ margin: 0 }}>
-          Scanners: built-in rules{settings.scanners.length ? ` + ${settings.scanners.join(", ")}` : " (install semgrep, bandit, gitleaks or osv-scanner to add theirs)"}.
+          Scanners: {settings.scanners.length > 1 ? settings.scanners.join(", ") : "built-in rules only (install semgrep, bandit, gitleaks or osv-scanner and they're used too)"}.
           Sandbox: {settings.isolation.join(", ")}.
         </p>
         <label className="label" htmlFor="sk-token" style={{ marginBottom: 0 }}>GitHub token (optional)</label>
@@ -327,14 +327,16 @@ function Review({ skill, onDone }: { skill: HubSkill; onDone: (installed: boolea
   const r = skill.report;
   const p = r.permissions;
   const phrase = skill.confirm_phrase || `install ${skill.name} anyway`;
+  // Access an update newly asks for is never pre-ticked: you opt in to it, like High risk.
+  const isNew = (v: string) => !!r.diff?.permissions.some((x) => x.endsWith(`: ${v}`) || (v === "shell" && /shell|program/i.test(x)));
   const [grant, setGrant] = useState<Record<string, boolean>>(() => {
     const g: Record<string, boolean> = {};
-    const on = skill.risk !== "high";
-    p.network.forEach((d) => (g[`network:${d}`] = on));
-    p.files.forEach((f) => (g[`files:${f}`] = on));
-    p.env.forEach((v) => (g[`env:${v}`] = on));
-    p.tools.forEach((t) => (g[`tools:${t}`] = on));
-    if (p.shell) g["shell"] = on;
+    const on = (v: string) => skill.risk !== "high" && !isNew(v);
+    p.network.forEach((d) => (g[`network:${d}`] = on(d)));
+    p.files.forEach((f) => (g[`files:${f}`] = on(f)));
+    p.env.forEach((v) => (g[`env:${v}`] = on(v)));
+    p.tools.forEach((t) => (g[`tools:${t}`] = on(t)));
+    if (p.shell) g["shell"] = on("shell");
     return g;
   });
   const [typed, setTyped] = useState("");
@@ -357,11 +359,12 @@ function Review({ skill, onDone }: { skill: HubSkill; onDone: (installed: boolea
     onDone(false);
   };
   const items = useMemo(() => [
-    ...p.network.map((d) => ({ key: `network:${d}`, text: `Connect to ${d}` })),
-    ...p.files.map((f) => ({ key: `files:${f}`, text: `Read or write ${f}` })),
-    ...p.env.map((v) => ({ key: `env:${v}`, text: `Read the setting ${v}` })),
-    ...p.tools.map((t) => ({ key: `tools:${t}`, text: `Use the ${t} tool` })),
-    ...(p.shell ? [{ key: "shell", text: "Run programs and shell commands" }] : []),
+    ...p.network.map((d) => ({ key: `network:${d}`, text: `Connect to ${d}`, isNew: isNew(d) })),
+    ...p.files.map((f) => ({ key: `files:${f}`, text: `Read or write ${f}`, isNew: isNew(f) })),
+    ...p.env.map((v) => ({ key: `env:${v}`, text: `Read the setting ${v}`, isNew: isNew(v) })),
+    ...p.tools.map((t) => ({ key: `tools:${t}`, text: `Use the ${t} tool`, isNew: isNew(t) })),
+    ...(p.shell ? [{ key: "shell", text: "Run programs and shell commands", isNew: isNew("shell") }] : []),
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [p]);
 
   return (
@@ -376,11 +379,13 @@ function Review({ skill, onDone }: { skill: HubSkill; onDone: (installed: boolea
           <Github size={13} /> {r.source.sha.slice(0, 10)}
         </a>
       </div>
-      {skill.description && <p className="muted" style={{ margin: "0 0 14px" }}>{skill.description}</p>}
-      <ul className="sk-reasons">{r.risk.reasons.map((x) => <li key={x}>{x}</li>)}</ul>
-
-      {r.diff && <DiffView d={r.diff} />}
-      <ReportView r={r} />
+      <div className="sk-body">
+        {skill.description && <p className="muted" style={{ margin: "0 0 14px" }}>{skill.description}</p>}
+        <p className="label">Why {RISK_COPY[skill.risk].split(" ·")[0].toLowerCase()}</p>
+        <ul className="sk-reasons">{r.risk.reasons.map((x) => <li key={x}>{x}</li>)}</ul>
+        {r.diff && <DiffView d={r.diff} />}
+        <ReportView r={r} />
+      </div>
 
       <div className="sk-approve">
         {items.length > 0 ? (
@@ -388,17 +393,19 @@ function Review({ skill, onDone }: { skill: HubSkill; onDone: (installed: boolea
             <legend className="label">Allow it to</legend>
             {items.map((it) => (
               <label key={it.key} className="check">
-                <input type="checkbox" checked={!!grant[it.key]} onChange={(e) => setGrant({ ...grant, [it.key]: e.target.checked })} /> {it.text}
+                <input type="checkbox" checked={!!grant[it.key]} onChange={(e) => setGrant({ ...grant, [it.key]: e.target.checked })} /> {it.text}{it.isNew && <span className="badge risk medium" style={{ marginLeft: 8 }}>New in this update</span>}
               </label>
             ))}
             <p className="faint small" style={{ margin: 0 }}>Anything you leave unticked, or anything it tries that isn't listed, is blocked and asks you first.</p>
           </fieldset>
+        ) : r.trial.violations.length ? (
+          <p className="small" style={{ margin: 0 }}><Lock size={12} /> Declares no extra access, but its trial run tried more. Those attempts stay blocked; if they happen after install, you'll be asked.</p>
         ) : <p className="small" style={{ margin: 0 }}><Lock size={12} /> Needs no extra access: no internet, no files outside its folder, no programs.</p>}
 
         {high && (
           <div className="sk-block" role="alert">
-            <strong>Blocked by default.</strong> This skill did something dangerous in the checks above. If you wrote it or fully trust it, type
-            <code className="mono"> {phrase} </code> to override.
+            <p style={{ margin: 0 }}><strong>Blocked by default.</strong> This skill did something dangerous in the checks above.
+              If you wrote it or fully trust it, type <code className="mono">{phrase}</code> to override.</p>
             <input className="input mono" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={phrase} aria-label="Type the override phrase" spellCheck={false} />
           </div>
         )}
@@ -407,7 +414,7 @@ function Review({ skill, onDone }: { skill: HubSkill; onDone: (installed: boolea
           <button className={`btn ${high ? "danger-solid" : "primary"}`} disabled={busy || !unlocked} onClick={install}>
             {busy ? "Installing…" : high ? "Install anyway" : skill.update_of ? "Approve update" : "Approve and install"}
           </button>
-          <button className="btn ghost" onClick={reject}><X size={14} /> {high ? "Discard" : "Don't install"}</button>
+          <button className="btn ghost" onClick={reject}><X size={14} /> {skill.update_of ? "Keep current version" : high ? "Discard" : "Don't install"}</button>
         </div>
       </div>
     </div>
@@ -436,7 +443,7 @@ function ReportView({ r }: { r: Report }) {
           {r.trial.runs.length === 0 && !r.trial.note && <p className="small muted" style={{ marginTop: 0 }}>Instructions only. Nothing to run.</p>}
           {r.trial.runs.map((run, i) => (
             <div key={i} className="sk-run">
-              <div className="row small"><span className="mono grow">{run.script}</span><span className="faint">{run.status}{run.exit != null ? ` · exit ${run.exit}` : ""}</span></div>
+              <div className="row small"><span className="mono grow">{run.script}</span><span className="faint">{run.status === "failed" && !run.violations?.length ? "ran" : run.status}{run.exit != null ? ` · exit ${run.exit}` : ""}</span></div>
               {run.violations.map((v, j) => <div key={j} className="sk-violation small"><X size={11} strokeWidth={3} /> Blocked {v.kind.replace("-", " ")}: <span className="mono">{v.target || v.what}</span></div>)}
               {run.stdout.trim() && <pre className="sk-pre">{run.stdout.trim().slice(0, 400)}</pre>}
             </div>
@@ -460,7 +467,7 @@ function ReportView({ r }: { r: Report }) {
           </tbody>
         </table>
       )}
-      <p className="faint small" style={{ marginBottom: 0 }}>Checked {r.files.length} files at {r.source.owner}/{r.source.repo}@{r.source.sha.slice(0, 12)} with built-in rules{r.scanners.length ? `, ${r.scanners.join(", ")}` : ""}.</p>
+      <p className="faint small" style={{ marginBottom: 0 }}>Checked {r.files.length} files at {r.source.owner}/{r.source.repo}@{r.source.sha.slice(0, 12)} with {[...new Set(["built-in rules", ...r.scanners])].join(", ")}.</p>
     </div>
   );
 }
@@ -526,7 +533,7 @@ function ActivityTab({ onChange }: { onChange: (n: number) => void }) {
           <table className="sk-audit">
             <tbody>
               {log.map((a) => (
-                <tr key={a.id}><td className="faint small mono">{new Date(a.created_at.endsWith("Z") || a.created_at.includes("+") ? a.created_at : a.created_at + "Z").toLocaleString()}</td><td className="mono">{a.skill_name}</td><td><span className="badge">{a.event}</span></td><td className="small muted">{a.detail}</td></tr>
+                <tr key={a.id}><td className="faint small mono nowrap">{new Date(a.created_at.endsWith("Z") || a.created_at.includes("+") ? a.created_at : a.created_at + "Z").toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</td><td className="mono nowrap">{a.skill_name}</td><td><span className="badge">{a.event}</span></td><td className="small muted">{a.detail}</td></tr>
               ))}
             </tbody>
           </table>

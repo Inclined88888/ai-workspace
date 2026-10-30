@@ -2,6 +2,7 @@ import { ArrowLeft, ChevronDown, ChevronRight, ListTree, Loader2 } from "lucide-
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
+import { Tracer } from "../Tracer";
 import { Empty, relTime, SkeletonList } from "../util";
 
 // One row of the run log (backend actions.py). Text fields are already redacted on the server.
@@ -80,7 +81,8 @@ function RunList() {
       {runs.length > 0 && (
         <div className="card flush">
           {runs.map((r) => (
-            <a key={r.id} className="list-item run-item" href={`/runs/${r.id}`} onClick={(e) => { e.preventDefault(); navigate(`/runs/${r.id}`); }}>
+            <a key={r.id} className="list-item run-item has-tracer" href={`/runs/${r.id}`} onClick={(e) => { e.preventDefault(); navigate(`/runs/${r.id}`); }}>
+              <Tracer active={r.outcome === "running"} />
               <span className={`badge ${tone(r.outcome)}`}>{r.outcome}</span>
               <div className="grow">
                 <div className="truncate">{title(r)}</div>
