@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { api, stream } from "../api";
 import { AppInfo, Sidecar, appInfo, inDesktopShell, listSidecars, openDataDir, openLogs, requestApproval } from "../desktop";
 import { ModelSelect, useModels, useToast } from "../util";
+import { PhoneCard } from "./Phone";
 
 type DesktopInfo = { desktop: boolean; data_dir: string; secret_backend: string };
 
@@ -311,6 +312,7 @@ export default function Settings({ onChanged }: { onChanged: () => void }) {
           <div><button className="btn primary" onClick={save}>Save</button></div>
         </div>
         {desktop?.desktop && <DesktopApp info={desktop} />}
+        <PhoneCard />
         <Usage />
         <LocalModels />
         <Providers />

@@ -315,6 +315,24 @@ CREATE TABLE IF NOT EXISTS agent_tasks (
   updated_at TEXT NOT NULL
 );
 
+-- Paired phones (mobile.py): one row per device. Only a hash of the device token is stored.
+CREATE TABLE IF NOT EXISTS devices (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL DEFAULT 'Phone',
+  platform TEXT NOT NULL DEFAULT '',            -- ios | android | web
+  token_hash TEXT NOT NULL UNIQUE,              -- sha256 of the device token
+  push_token TEXT NOT NULL DEFAULT '',          -- Expo push token; empty until the phone allows notifications
+  created_at TEXT NOT NULL,
+  last_seen TEXT
+);
+
+-- Short-lived pairing codes shown as a QR code in Settings; each is exchanged once for a device token.
+CREATE TABLE IF NOT EXISTS pairing_codes (
+  code_hash TEXT PRIMARY KEY,
+  expires_at REAL NOT NULL,                     -- unix seconds
+  used INTEGER NOT NULL DEFAULT 0
+);
+
 -- The run log (actions.py): every agent action is one row. Replaced usage, tool_runs, turn_checks and
 -- pending_actions in schema version 1 (see migrate_v1).
 CREATE TABLE IF NOT EXISTS actions (
