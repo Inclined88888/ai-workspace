@@ -5,13 +5,14 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { Empty, relTime, useToast } from "../util";
 import { FiledChip } from "./FiledChip";
+import { YourData } from "./YourData";
 import { Conflict, Entity, EntityDetail, Filing, Mem, SCOPE_LABEL, TIER_LABEL, Tidy, Why } from "./types";
 import "./memory.css";
 
-type Tab = "people" | "projects" | "memories" | "decide" | "tidy";
+type Tab = "people" | "projects" | "memories" | "decide" | "tidy" | "data";
 const TABS: { id: Tab; label: string }[] = [
   { id: "memories", label: "What I know" }, { id: "people", label: "People" }, { id: "projects", label: "Projects" },
-  { id: "decide", label: "Needs your call" }, { id: "tidy", label: "Tidy up" },
+  { id: "decide", label: "Needs your call" }, { id: "tidy", label: "Tidy up" }, { id: "data", label: "Your data" },
 ];
 
 export default function Knowledge() {
@@ -44,6 +45,7 @@ export default function Knowledge() {
         {tab === "projects" && <Entities type="project" icon={<FolderKanban size={16} />} empty="No projects yet. Make one on the Projects page and I'll gather what belongs to it." />}
         {tab === "decide" && <Decide items={tidy?.conflicts ?? []} onDone={loadTidy} />}
         {tab === "tidy" && <TidyUp tidy={tidy} onDone={loadTidy} toast={toast} />}
+        {tab === "data" && <YourData toast={toast} />}
       </>}
     </div>
   );

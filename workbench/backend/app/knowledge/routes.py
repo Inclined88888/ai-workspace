@@ -1,12 +1,12 @@
 """/api/knowledge: memory, people, projects, search, conflicts, tidy-up, export, data safety."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, Response, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from ..security import require_user
-from . import crypto, export_all, graph, improve, live, memory, schema
+from . import backup, crypto, export_all, graph, importers, improve, live, memory, schema
 from .recall import recall as _recall_fn, search_all
 
 router = APIRouter(prefix="/api/knowledge", dependencies=[Depends(require_user)])
@@ -188,3 +188,35 @@ def improvements_run():
 @router.post("/improvements/{pid}/{choice}")
 def improvements_decide(pid: int, choice: str):
     return improve.decide(pid, choice == "approve")
+
+
+@router.get("/backups")
+def backups():
+    return {"auto": db_setting("kn_backup_auto", "1") == "1", "backups": backup.list_()}
+
+
+@router.post("/backups")
+def backup_now():
+    return backup.create("manual")
+
+
+@router.post("/backups/{name}/restore")
+def backup_restore(name: str):
+    return backup.restore(name)
+
+
+@router.get("/export.zip")
+def export_zip():
+    return Response(backup.export_zip(), media_type="application/zip",
+                    headers={"Content-Disposition": "attachment; filename=ai-workspace-export.zip"})
+
+
+@router.post("/import/{source}")
+async def import_from(source: str, file: UploadFile = File(...)):
+    return importers.run(source, await file.read())
+
+
+def db_setting(key: str, default: str) -> str:
+    from .. import db
+
+    return db.get_setting(key, default) or default
