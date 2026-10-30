@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "ai-workspace's AI browser agent: any model (OpenAI, Anthropic, OpenRouter, Ollama), your own Chrome or Edge, approvals before anything sensitive, every visited URL in a receipt"
 readme = "README.md"
 requires-python = ">=3.11"
-license = "MIT"
+license = "LicenseRef-Proprietary"
 # One dependency. Playwright drives the Chrome or Edge you already have (or its own Chromium if you have neither).
 # Model calls, search, the HTTP API and the MCP server are standard library.
 dependencies = ["playwright>=1.48"]

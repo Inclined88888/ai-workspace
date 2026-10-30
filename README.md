@@ -391,4 +391,4 @@ API clients: [authenticated OpenAPI discovery](docs/API.md). Releases: [signatur
 
 ## License
 
-[MIT](LICENSE).
+Proprietary, all rights reserved; see [LICENSE](LICENSE). Third-party components keep their own licences.

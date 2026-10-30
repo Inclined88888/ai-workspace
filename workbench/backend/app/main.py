@@ -96,6 +96,8 @@ app.include_router(cli_agents_api.router)  # hand jobs to the user's own Claude 
 app.include_router(adapt_routes.router)  # /api/learn: What I know about you, Show me how, suggestions
 adapt_hooks.register_tools()
 app.include_router(bridge.router)  # /v1: OpenAI-shaped access to every connection, for the browser agent (item 103)
+from . import account  # noqa: E402
+account.install(app)  # Your plan: account sign-in, signed entitlements and the Pro feature gate
 app.mount("/tools", tools)
 app.mount("/mcp", mcp_app)  # MCP clients use http://workbench:8000/mcp/
 

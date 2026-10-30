@@ -321,3 +321,23 @@ def parse_json(text: str):
             except ValueError:
                 continue
     return None
+
+
+def managed_connection(name: str, base_url: str, secret: str, enabled: bool, models: str = "") -> int | None:
+    """A connection the app manages itself (the AI Workspace Cloud hosted models): OpenAI compatible chat completions,
+    found by name. Disabling keeps the row so no history or default model reference is lost."""
+    row = db.one("SELECT id FROM connections WHERE name = ? AND auth_kind = 'api_key' AND protocol = 'chat_completions'", name)
+    if not enabled:
+        if row:
+            db.run("UPDATE connections SET enabled = 0 WHERE id = ?", row["id"])
+            _model_cache.pop(row["id"], None)
+        return row["id"] if row else None
+    if row is None:
+        cid = db.run("INSERT INTO connections(name, auth_kind, protocol, base_url, secret_enc, models, enabled, residency, created_at) "
+                     "VALUES (?, 'api_key', 'chat_completions', ?, '', ?, 1, 'cloud', ?)", name, base_url, models, db.now())
+    else:
+        cid = row["id"]
+        db.run("UPDATE connections SET enabled = 1, base_url = ? WHERE id = ?", base_url, cid)
+    store_connection_secret(cid, secret)
+    _model_cache.pop(cid, None)
+    return cid

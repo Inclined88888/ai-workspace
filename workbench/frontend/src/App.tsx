@@ -1,6 +1,6 @@
 import {
   Activity, Gauge, Bot, Brain, Building2, CalendarClock, CalendarDays, ChevronRight, MessageSquare, CheckSquare, Globe, Columns3, ExternalLink, FileText, Home, LogOut, Mail, Menu, NotebookPen,
-  Code2, FolderOpen, Globe2, GraduationCap, ListTree, Monitor, Palette as PaletteIcon, Puzzle, Search, Settings as SettingsIcon,
+  Code2, FolderOpen, Globe2, GraduationCap, ListTree, Monitor, Palette as PaletteIcon, Sparkles, Puzzle, Search, Settings as SettingsIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CommandPalette } from "./Palette";
@@ -33,6 +33,8 @@ import Welcome from "./pages/Welcome";
 import Models from "./pages/Models";
 import AboutYou from "./pages/AboutYou"; // adapt and learn (feat/learn-and-adapt)
 import Teach from "./pages/Teach"; // adapt and learn (feat/learn-and-adapt)
+import Plan from "./pages/Plan";
+import { AccountLayer } from "./ProGate";
 
 export type Status = {
   setup_complete: boolean;
@@ -155,7 +157,8 @@ export default function App() {
   );
   const palettePages = useMemo(
     () => [...nav.flatMap((g) => g.items.map((i) => ({ to: i.to, label: i.label, icon: i.icon }))),
-      { to: "/appearance", label: "Appearance", icon: PaletteIcon }, { to: "/settings", label: "Settings", icon: SettingsIcon }],
+      { to: "/appearance", label: "Appearance", icon: PaletteIcon }, { to: "/settings", label: "Settings", icon: SettingsIcon },
+      { to: "/plan", label: "Your plan", icon: Sparkles }],
     [nav],
   );
   // Keep More open while you're on one of its pages
@@ -218,6 +221,7 @@ export default function App() {
         <NavLink to="/models" className="nav-link" onClick={transitionClick(() => navigate("/models"))}>{({ isActive }) => <>{isActive && <span className="nav-ind" aria-hidden="true" />}<Gauge size={16} /> Models</>}</NavLink>
         <NavLink to="/appearance" className="nav-link" onClick={transitionClick(() => navigate("/appearance"))}>{({ isActive }) => <>{isActive && <span className="nav-ind" aria-hidden="true" />}<PaletteIcon size={16} /> Appearance</>}</NavLink>
         <NavLink to="/settings" className="nav-link" onClick={transitionClick(() => navigate("/settings"))}>{({ isActive }) => <>{isActive && <span className="nav-ind" aria-hidden="true" />}<SettingsIcon size={16} /> Settings</>}</NavLink>
+        <NavLink to="/plan" className="nav-link" onClick={transitionClick(() => navigate("/plan"))}>{({ isActive }) => <>{isActive && <span className="nav-ind" aria-hidden="true" />}<Sparkles size={16} /> Your plan</>}</NavLink>
         <div className="sidebar-foot">
           <div className="spacer" />
           {!status.desktop && <button className="btn ghost sm" onClick={logout}><LogOut size={14} /> Sign out</button>}
@@ -269,6 +273,7 @@ export default function App() {
           <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/mail" element={<MailPage />} />
           <Route path="/settings" element={<Settings onChanged={refresh} />} />
+          <Route path="/plan" element={<Plan />} />
           <Route path="/welcome" element={<Navigate to="/assistant" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
@@ -276,6 +281,7 @@ export default function App() {
       </main>
       <DeskGlow enabled={!!status.desk_enabled} />
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} pages={palettePages} />
+      <AccountLayer />
     </div>
   );
 }
