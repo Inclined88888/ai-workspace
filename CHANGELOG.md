@@ -4,6 +4,22 @@ Every user-visible change that needs action, or changes data on upgrade, gets an
 migration steps, rollback steps. Workbench has no release numbers yet (BACKLOG). Entries are identified by schema
 version and the merge commit on `main`.
 
+## 2026-10-30 · Release candidate v0.1 · branch release/v0.1-rc (all feature branches combined)
+
+- **One-command install without Docker**: `install.sh` (macOS, Linux) and `install.ps1` (Windows) install `ai-workspace`,
+  `rooks` and `rooks-browser` for the current user. uv brings Python 3.12. When the source has no prebuilt web UI and the
+  computer has no Node.js, the installer downloads Node.js 22 from nodejs.org, checks its SHA-256, builds, and removes it.
+  See [QUICKSTART.md](QUICKSTART.md).
+- **Launcher**: the sign-in token is no longer on the browser's command line (a private, short-lived redirect file is
+  used instead); a leftover app window is closed on start and by `--stop`.
+- **Local models**: the first chat works with whichever Ollama model is installed; Rooks Code prefers an installed
+  coder model when Ollama is the only provider; one answer is capped at `OLLAMA_NUM_PREDICT` (4096) tokens; the assistant
+  only offers `web_search` when a search provider is set up.
+- **Rooks Code**: more robust parsing of tool calls written as text by small models (several JSON objects in one block,
+  duplicates run once, mixed native and text calls).
+- **CI**: new `mobile` job and an `installer` job that runs the one-command install on Ubuntu, macOS and Windows.
+- **Data / migration**: none. **Rollback**: reinstall from `main`.
+
 ## 2026-10-30 · Cloud by default: "Choose how to think", Sign in with ChatGPT, smart router · branch feat/cloud-models (builds on feat/skills-and-motion)
 
 - **First run is now "Choose how to think"**, shown on the desktop app's first start and in Docker whenever no model is connected. It offers four options:

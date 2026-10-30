@@ -19,6 +19,24 @@ Everything heavier is an **optional add-on, off by default**:
 
 You don't need any of them for the assistant, memory, skills, schedules, Telegram or the company of agents. Those are built into Workbench.
 
+## Install on your computer (one command, no Docker)
+
+**[QUICKSTART.md](QUICKSTART.md)** has the full walk-through. In short:
+
+```bash
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/main/install.sh | bash
+```
+
+```powershell
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/Inclined88888/ai-workspace/main/install.ps1 | iex
+```
+
+This installs three commands for your user only (no admin password): `ai-workspace` (the app, in its own window),
+`rooks` (terminal coding agent) and `rooks-browser` (AI browser agent). The only prerequisite is `curl` (built into macOS
+and Windows 10/11). Run it again to upgrade; your chats, keys and settings are kept.
+
 ## Download for Mac / Windows
 
 **Desktop app (preview).** Double-click to install. No Docker, no terminal: it runs Workbench on your own computer,
@@ -32,6 +50,9 @@ and you land in chat.
 | **macOS** (Intel) | `AI Workspace_<version>_x64.dmg` from [Releases](https://github.com/Inclined88888/ai-workspace/releases) |
 | **Windows** 10/11 | `AI Workspace_<version>_x64-setup.exe` (or `.msi`) from [Releases](https://github.com/Inclined88888/ai-workspace/releases) |
 | Linux | `.AppImage` or `.deb` from [Releases](https://github.com/Inclined88888/ai-workspace/releases) |
+
+No release has been published yet: until one is, use the one-command install above (same app, same data), or build
+the installers with the `desktop` workflow in GitHub Actions.
 
 Preview builds are **not code-signed yet**. On macOS, right-click the app → **Open** the first time; on Windows, click
 **More info → Run anyway**. Signing, notarisation and auto-updates switch on once the keys exist
