@@ -199,6 +199,16 @@ def _team(ctx: Ctx) -> list[dict]:
     return team_for(ctx.agent)
 
 
+def _search_ready() -> bool:
+    """Offer web_search only when a search provider is set up; small local models otherwise call it and stall."""
+    from .search import provider
+
+    try:
+        return bool(provider())
+    except Exception:
+        return False
+
+
 TOOLS: list[Tool] = [
     # Notes and documents
     Tool("search_notes", "Search the user's notes and documents by keywords.", {"query": S(), "kind": S("note, document or empty")},
@@ -235,7 +245,7 @@ TOOLS: list[Tool] = [
          effect="write"),
     # Web
     Tool("web_search", "Search the web. Returns titles, URLs and snippets.", {"query": S()},
-         lambda query: research.web_search(query, 6), ("query",), untrusted=True),
+         lambda query: research.web_search(query, 6), ("query",), untrusted=True, when=lambda ctx: _search_ready()),
     Tool("read_page", "Read the text of one public web page.", {"url": S()}, _read_page, ("url",), untrusted=True),
     Tool("browse_web", "Use a real browser to complete a multi step goal on websites (slow).", {"goal": S(), "max_steps": I()},
          _browse, ("goal",), when=lambda ctx: bool(config.BROWSER_URL and config.BROWSER_API_KEY), effect="external", untrusted=True),
