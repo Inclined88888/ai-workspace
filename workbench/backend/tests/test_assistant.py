@@ -34,8 +34,9 @@ def test_chat_runs_tools_and_answers(client):
 
 
 def test_memory_is_learned_and_used_next_time(client):
-    mems = wait_for(lambda: [m for m in client.get("/api/memories").json() if "nurse" in m["content"]])
-    assert mems and mems[0]["kind"] == "profile"
+    # learned into the encrypted "What I know about you" store (adapt/knowledge.py), profile facts are pinned
+    mems = wait_for(lambda: [m for m in client.get("/api/learn/facts").json()["facts"] if "nurse" in m["content"]])
+    assert mems and mems[0]["category"] == "about" and mems[0]["pinned"]
     CALLS.clear()
     SCRIPT[:] = [{"role": "assistant", "content": "hello"}]
     events(client.post("/api/assistant/chat", json={"message": "hi"}))
