@@ -1,14 +1,14 @@
 import {
-  Activity, Bot, Brain, Building2, CalendarClock, CalendarDays, MessageSquare, CheckSquare, Globe, Columns3, ExternalLink, FileText, Home, LogOut, Mail, Menu, NotebookPen,
-  ListTree, Search, Settings as SettingsIcon,
+  Activity, Bot, Brain, Building2, CalendarClock, CalendarDays, ChevronRight, MessageSquare, CheckSquare, Globe, Columns3, ExternalLink, FileText, Home, LogOut, Mail, Menu, NotebookPen,
+  ListTree, Palette as PaletteIcon, Puzzle, Search, Settings as SettingsIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CommandPalette } from "./Palette";
-import { ThemeSwitch } from "./theme";
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { api } from "./api";
 import Assistant from "./pages/Assistant";
 import Auth from "./pages/Auth";
+import Appearance from "./pages/Appearance";
 import Automations from "./pages/Automations";
 import Company from "./pages/Company";
 import Browser from "./pages/Browser";
@@ -21,6 +21,7 @@ import Research from "./pages/Research";
 import Runs from "./pages/Runs";
 import Status from "./pages/Status";
 import Settings from "./pages/Settings";
+import Skills from "./pages/Skills";
 import Tasks from "./pages/Tasks";
 import Welcome from "./pages/Welcome";
 
@@ -39,25 +40,34 @@ export type Status = {
   welcome_done?: boolean;
 };
 
-const NAV = [
-  { section: "Workspace" },
-  { to: "/", label: "Home", icon: Home },
-  { to: "/assistant", label: "Assistant", icon: MessageSquare },
-  { to: "/assistant-memory", label: "Memory & skills", icon: Brain },
-  { to: "/automations", label: "Automations", icon: CalendarClock },
-  { to: "/company", label: "Company", icon: Building2 },
-  { to: "/research", label: "Research", icon: Search },
-  { to: "/browser", label: "Browser agent", icon: Globe, addon: "browser" },
-  { to: "/compare", label: "Compare models", icon: Columns3 },
-  { to: "/runs", label: "Run log", icon: ListTree },
-  { to: "/status", label: "System status", icon: Activity },
-  { section: "Your stuff" },
-  { to: "/notes", label: "Notes", icon: NotebookPen },
-  { to: "/documents", label: "Documents", icon: FileText },
-  { to: "/tasks", label: "Tasks", icon: CheckSquare },
-  { to: "/calendar", label: "Calendar", icon: CalendarDays },
-  { to: "/mail", label: "Mail", icon: Mail },
-] as const;
+type NavItem = { to: string; label: string; icon: typeof Home; addon?: "browser" };
+type NavGroup = { section?: string; collapsible?: boolean; items: NavItem[] };
+
+/** Six everyday places first, the agent tools second, everything else folded under More. */
+const NAV: NavGroup[] = [
+  { items: [
+    { to: "/", label: "Home", icon: Home },
+    { to: "/assistant", label: "Chat", icon: MessageSquare },
+    { to: "/tasks", label: "Tasks", icon: CheckSquare },
+    { to: "/notes", label: "Notes", icon: NotebookPen },
+    { to: "/calendar", label: "Calendar", icon: CalendarDays },
+    { to: "/mail", label: "Mail", icon: Mail },
+  ] },
+  { section: "Agents", items: [
+    { to: "/automations", label: "Automations", icon: CalendarClock },
+    { to: "/skills", label: "Skills", icon: Puzzle },
+    { to: "/research", label: "Research", icon: Search },
+    { to: "/browser", label: "Browser agent", icon: Globe, addon: "browser" },
+  ] },
+  { section: "More", collapsible: true, items: [
+    { to: "/documents", label: "Documents", icon: FileText },
+    { to: "/assistant-memory", label: "Memory", icon: Brain },
+    { to: "/company", label: "Company", icon: Building2 },
+    { to: "/compare", label: "Compare models", icon: Columns3 },
+    { to: "/runs", label: "Run log", icon: ListTree },
+    { to: "/status", label: "System status", icon: Activity },
+  ] },
+];
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 export const MOD_KEY = isMac ? "⌘" : "Ctrl";
@@ -101,14 +111,19 @@ export default function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-  const navItems = useMemo(
-    () => NAV.filter((item) => !("addon" in item) || (item.addon === "browser" && status?.browser_enabled)),
+  const [moreOpen, setMoreOpen] = useState(() => localStorage.getItem("wb-nav-more") === "1");
+  const nav = useMemo(
+    () => NAV.map((g) => ({ ...g, items: g.items.filter((i) => !i.addon || (i.addon === "browser" && status?.browser_enabled)) })),
     [status?.browser_enabled],
   );
   const palettePages = useMemo(
-    () => [...navItems.flatMap((i) => ("to" in i ? [{ to: i.to, label: i.label, icon: i.icon }] : [])), { to: "/settings", label: "Settings", icon: SettingsIcon }],
-    [navItems],
+    () => [...nav.flatMap((g) => g.items.map((i) => ({ to: i.to, label: i.label, icon: i.icon }))),
+      { to: "/appearance", label: "Appearance", icon: PaletteIcon }, { to: "/settings", label: "Settings", icon: SettingsIcon }],
+    [nav],
   );
+  // Keep More open while you're on one of its pages
+  const inMore = NAV[2].items.some((i) => location.pathname === i.to || location.pathname.startsWith(i.to + "/"));
+  const toggleMore = () => setMoreOpen((o) => { localStorage.setItem("wb-nav-more", o ? "0" : "1"); return !o; });
   // Route transition key: top-level section only, so switching conversations or notes doesn't remount the page
   const section = "/" + (location.pathname.split("/")[1] ?? "");
 
@@ -138,34 +153,34 @@ export default function App() {
         <button type="button" className="sidebar-search" onClick={() => setPaletteOpen(true)} aria-keyshortcuts="Meta+K Control+K">
           <Search size={14} /> <span>Search</span> <span className="kbd">{MOD_KEY} K</span>
         </button>
-        {status.chat_url && (
-          <a className="nav-link" href={status.chat_url} target="_blank" rel="noreferrer">
-            <MessageSquare size={16} /> Open WebUI <ExternalLink size={12} style={{ marginLeft: "auto" }} />
-          </a>
-        )}
-        {status.paperclip_url && (
-          <a className="nav-link" href={status.paperclip_url} target="_blank" rel="noreferrer">
-            <Building2 size={16} /> Company (Paperclip) <ExternalLink size={12} style={{ marginLeft: "auto" }} />
-          </a>
-        )}
-        {status.hermes_url && (
-          <a className="nav-link" href={status.hermes_url} target="_blank" rel="noreferrer">
-            <Bot size={16} /> Hermes agent <ExternalLink size={12} style={{ marginLeft: "auto" }} />
-          </a>
-        )}
-        {navItems.map((item, i) =>
-          "section" in item ? (
-            <div key={i} className="nav-section">{item.section}</div>
-          ) : (
-            <NavLink key={item.to} to={item.to} end={item.to === "/"} className="nav-link">
-              <item.icon size={16} /> <span className="truncate">{item.label}</span>
-            </NavLink>
-          ),
-        )}
+        {nav.map((g, gi) => {
+          const open = !g.collapsible || moreOpen || inMore;
+          return (
+            <div key={gi} className="nav-group">
+              {g.section && (g.collapsible ? (
+                <button type="button" className="nav-section nav-toggle" aria-expanded={open} onClick={toggleMore}>
+                  <span className="grow">{g.section}</span><ChevronRight size={12} className="chev" />
+                </button>
+              ) : <div className="nav-section">{g.section}</div>)}
+              {open && g.items.map((item) => (
+                <NavLink key={item.to} to={item.to} end={item.to === "/"} className="nav-link">
+                  <item.icon size={16} /> <span className="truncate">{item.label}</span>
+                </NavLink>
+              ))}
+              {open && g.collapsible && (
+                <>
+                  {status.chat_url && <a className="nav-link" href={status.chat_url} target="_blank" rel="noreferrer"><MessageSquare size={16} /> Open WebUI <ExternalLink size={12} style={{ marginLeft: "auto" }} /></a>}
+                  {status.paperclip_url && <a className="nav-link" href={status.paperclip_url} target="_blank" rel="noreferrer"><Building2 size={16} /> Paperclip <ExternalLink size={12} style={{ marginLeft: "auto" }} /></a>}
+                  {status.hermes_url && <a className="nav-link" href={status.hermes_url} target="_blank" rel="noreferrer"><Bot size={16} /> Hermes agent <ExternalLink size={12} style={{ marginLeft: "auto" }} /></a>}
+                </>
+              )}
+            </div>
+          );
+        })}
         <div className="spacer" />
+        <NavLink to="/appearance" className="nav-link"><PaletteIcon size={16} /> Appearance</NavLink>
         <NavLink to="/settings" className="nav-link"><SettingsIcon size={16} /> Settings</NavLink>
         <div className="sidebar-foot">
-          <ThemeSwitch />
           <div className="spacer" />
           {!status.desktop && <button className="btn ghost sm" onClick={logout}><LogOut size={14} /> Sign out</button>}
         </div>
@@ -183,7 +198,9 @@ export default function App() {
           <Route path="/assistant" element={<Assistant tab="chat" />} />
           <Route path="/assistant/:id" element={<Assistant tab="chat" />} />
           <Route path="/assistant-memory" element={<Assistant tab="memory" />} />
-          <Route path="/assistant-skills" element={<Assistant tab="skills" />} />
+          <Route path="/assistant-skills" element={<Navigate to="/skills" replace />} />
+          <Route path="/skills" element={<Skills />} />
+          <Route path="/appearance" element={<Appearance />} />
           <Route path="/assistant-settings" element={<Assistant tab="settings" />} />
           <Route path="/automations" element={<Automations />} />
           <Route path="/company" element={<Company />} />
