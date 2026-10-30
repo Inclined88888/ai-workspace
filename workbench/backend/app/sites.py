@@ -727,6 +727,9 @@ async def check(sid: int, f=None) -> dict:
     db.run("UPDATE sites SET status = 'ok', status_detail = '', structure = ?, last_checked = ? WHERE id = ?", json.dumps(structure), db.now(), sid)
     cid = db.run("INSERT INTO site_checks(site_id, at, status, pages, records, changes, digest) VALUES (?, ?, 'ok', ?, ?, ?, ?)",
                  sid, db.now(), len(pages), n, json.dumps(changes, default=str), digest)
+    from . import learn_hook
+
+    learn_hook.observe("site", f"Checked {s['name']}: {digest.splitlines()[0] if digest else ''}", f"site:{sid}")
     return {"check_id": cid, "status": "ok", "pages": len(pages), "records": n, "collections": [c["name"] for c in st["collections"]],
             "changes": changes, "digest": digest}
 
@@ -753,8 +756,9 @@ def _store(sid: int, collections: list[dict]) -> dict:
             diffs = {k: [old[k], r[k]] for k in TRACKED if (old[k] or "") != (r[k] or "")}
             fo = json.loads(old["fields"] or "{}")
             for k, v in r["fields"].items():
-                if k not in [*TRACKED] and fo.get(k, "") != v and k in fo:
-                    diffs.setdefault(k, [fo.get(k, ""), v])
+                pair = [fo.get(k, ""), v]
+                if k not in TRACKED and k in fo and pair[0] != v and pair not in diffs.values() and parse_date(pair[1] or "") not in [d[1] for d in diffs.values()]:
+                    diffs.setdefault(k, pair)
             if diffs or old["removed_at"]:
                 changed.append({"collection": c["name"], "entity": c["entity"], "key": r["key"], "title": r["title"], "changes": diffs,
                                 "returned": bool(old["removed_at"])})

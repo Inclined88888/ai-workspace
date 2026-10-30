@@ -193,3 +193,23 @@ def test_servicem8_recipe_uses_the_official_api(client, monkeypatch):
     assert job["title"] == "Fix pump" and job["status"] == "Work Order" and job["location"] == "1 Main St"
     raw = sites.db.one("SELECT secret_enc FROM sites WHERE id = ?", s["id"])["secret_enc"]
     assert "smk-test-123456" not in raw
+
+
+def test_learn_hook_reports_when_present_and_is_silent_when_absent(client, portal, monkeypatch, tmp_path):
+    import sys
+    import types
+
+    from app import analysis, learn_hook
+
+    learn_hook.observe("file", "nothing installed")  # no adapt module here: must not raise
+    seen = []
+    fake = types.ModuleType("app.adapt.hooks")
+    fake.observe = lambda source, summary, kind=None, ref="": seen.append((source, summary, ref))
+    monkeypatch.setitem(sys.modules, "app.adapt", types.ModuleType("app.adapt"))
+    monkeypatch.setitem(sys.modules, "app.adapt.hooks", fake)
+    p = tmp_path / "n.txt"
+    p.write_text("hello")
+    analysis.add("n.txt", src=p)
+    sid = _site(client, f"{portal}/lab", "Hooked")
+    client.post(f"/api/sites/{sid}/check")
+    assert [s[0] for s in seen] == ["file", "site"] and seen[1][2] == f"site:{sid}"

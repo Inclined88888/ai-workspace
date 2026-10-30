@@ -76,6 +76,10 @@ def add(name: str, data: bytes | None = None, src: Path | None = None, source: s
     (folder / "extract.json").write_text(json.dumps(d, default=str))
     fid = db.run("INSERT INTO work_files(name, path, kind, size, sha256, source, summary, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                  name[:300], str(dest), d["kind"], d["size"], sha, source, files.summary(d), json.dumps(d["notes"]), db.now())
+    if source != "output":
+        from . import learn_hook
+
+        learn_hook.observe("file", f"Read {name}: {files.summary(d)}", f"file:{fid}")
     return get(fid)
 
 
