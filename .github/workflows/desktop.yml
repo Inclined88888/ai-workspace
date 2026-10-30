@@ -1,12 +1,15 @@
 # Desktop app installers (desktop/): macOS .dmg (Apple silicon and Intel), Windows .msi + .exe, Linux .deb + .AppImage.
 #
-# Runs on manual dispatch (artifacts only) and on version tags (also attaches the installers to the GitHub release).
+# Runs on manual dispatch and on pull requests that touch the app (artifacts only), and on version tags (also attaches
+# the installers to the GitHub release).
 # Unsigned by default. Signing, notarisation and the in-app updater switch on by themselves when their repository
 # secrets exist; every secret, what it costs and how to get it: docs/desktop-release.md.
 name: Desktop app
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths: ['desktop/**', 'workbench/**', '.github/workflows/desktop.yml']
   push:
     tags: ['v*.*.*', 'desktop-v*.*.*']
 
