@@ -433,6 +433,8 @@ def hold_reason(t: Tool, ctx: Ctx, args: dict) -> str:
             return why
     if ctx.tainted and t.effect in GATED_EFFECTS:
         return HOLD_REASON
+    if ctx.channel == "automation" and t.effect in GATED_EFFECTS:  # feat/v02-automations: triggered jobs always ask first
+        return AUTOMATION_REASON
     from .adapt import hooks as adapt_hooks  # routines created from a suggestion never act outside on their own
 
     if adapt_hooks.guard(t.effect, ctx.channel, ctx.conversation_id):
@@ -440,6 +442,7 @@ def hold_reason(t: Tool, ctx: Ctx, args: dict) -> str:
     return ""
 
 
+AUTOMATION_REASON = "An automation started this, so anything that sends or changes something outside the app waits for the user's OK."  # feat/v02-automations
 ALWAYS_ASK_REASON = "It changes something on a website, which always needs the user's OK."
 LEARNED_ROUTINE_REASON = "This routine was set up from a suggestion, so it never sends or changes anything outside on its own."
 
@@ -549,6 +552,9 @@ def system_prompt(ctx: Ctx, user_text: str) -> str:
     from .adapt import hooks as adapt_hooks  # adapt and learn: what the assistant has learned about this person
 
     parts.extend(adapt_hooks.context(user_text))
+    from .auto_tools import LIVE_DOCS_PROMPT  # feat/v02-automations: editable docs, sheets and charts in replies
+
+    parts.append(LIVE_DOCS_PROMPT)
     skills = db.all("SELECT name, description FROM skills WHERE enabled = 1 ORDER BY uses DESC, updated_at DESC LIMIT 30")
     if skills:
         parts.append("Your saved skills (load_skill before using):\n" + "\n".join(f"- {s['name']}: {s['description']}" for s in skills))
