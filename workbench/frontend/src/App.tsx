@@ -1,6 +1,7 @@
 import {
   Activity, Gauge, Bot, Brain, Building2, CalendarClock, CalendarDays, ChevronRight, MessageSquare, CheckSquare, Globe, Columns3, ExternalLink, FileText, Home, LogOut, Mail, Menu, NotebookPen,
   Code2, FolderOpen, Globe2, GraduationCap, ListTree, Monitor, Palette as PaletteIcon, Puzzle, Search, Settings as SettingsIcon,
+  AudioLines, Users, // feat/v02-anywhere-voice
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CommandPalette } from "./Palette";
@@ -31,6 +32,11 @@ import Welcome from "./pages/Welcome";
 import Models from "./pages/Models";
 import AboutYou from "./pages/AboutYou"; // adapt and learn (feat/learn-and-adapt)
 import Teach from "./pages/Teach"; // adapt and learn (feat/learn-and-adapt)
+// feat/v02-anywhere-voice: ask bar, Talk, Meetings, their settings
+import AskBar from "./pages/AskBar";
+import Meetings from "./pages/Meetings";
+import Talk from "./pages/Talk";
+import VoiceSettings from "./pages/VoiceSettings";
 
 export type Status = {
   setup_complete: boolean;
@@ -67,9 +73,11 @@ const NAV: NavGroup[] = [
     { to: "/files", label: "Files", icon: FolderOpen },
     { to: "/sites", label: "Sites", icon: Globe2 },
     { to: "/teach", label: "Show me how", icon: GraduationCap },
+    { to: "/meetings", label: "Meetings", icon: Users }, // feat/v02-anywhere-voice
     { to: "/automations", label: "Automations", icon: CalendarClock },
   ] },
   { section: "Helpers", items: [
+    { to: "/talk", label: "Talk", icon: AudioLines }, // feat/v02-anywhere-voice
     { to: "/research", label: "Research", icon: Search },
     { to: "/code", label: "Coding agent", icon: Code2 },
     { to: "/browser", label: "Browser agent", icon: Globe, addon: "browser" },
@@ -117,6 +125,10 @@ export default function App() {
     window.addEventListener("wb:unauthorized", onUnauthorized);
     return () => window.removeEventListener("wb:unauthorized", onUnauthorized);
   }, []);
+  // feat/v02-anywhere-voice: "Do it in Chat" from the ask bar (the desktop shell calls this in the main window)
+  useEffect(() => {
+    (window as unknown as { __wbHandoff?: (d: string) => void }).__wbHandoff = (draft) => navigate("/assistant", { state: { draft, at: Date.now() } });
+  }, [navigate]);
   useEffect(() => setMenuOpen(false), [location.pathname]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -135,7 +147,8 @@ export default function App() {
   );
   const palettePages = useMemo(
     () => [...nav.flatMap((g) => g.items.map((i) => ({ to: i.to, label: i.label, icon: i.icon }))),
-      { to: "/appearance", label: "Appearance", icon: PaletteIcon }, { to: "/settings", label: "Settings", icon: SettingsIcon }],
+      { to: "/appearance", label: "Appearance", icon: PaletteIcon }, { to: "/settings", label: "Settings", icon: SettingsIcon },
+      { to: "/voice", label: "Ask from anywhere & voice", icon: AudioLines }], // feat/v02-anywhere-voice
     [nav],
   );
   // Keep More open while you're on one of its pages
@@ -152,6 +165,7 @@ export default function App() {
     }
     return <Auth status={status} onDone={refresh} />;
   }
+  if (location.pathname === "/ask-bar") return <AskBar />; // feat/v02-anywhere-voice: the floating window, no sidebar
   if ((status.desktop || status.needs_models) && !status.welcome_done) {
     return <Welcome onDone={() => { refresh(); navigate("/assistant", { replace: true }); }} />;
   }
@@ -248,6 +262,11 @@ export default function App() {
           <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/mail" element={<MailPage />} />
           <Route path="/settings" element={<Settings onChanged={refresh} />} />
+          {/* feat/v02-anywhere-voice */}
+          <Route path="/talk" element={<Talk />} />
+          <Route path="/meetings" element={<Meetings />} />
+          <Route path="/meetings/:id" element={<Meetings />} />
+          <Route path="/voice" element={<VoiceSettings />} />
           <Route path="/welcome" element={<Navigate to="/assistant" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

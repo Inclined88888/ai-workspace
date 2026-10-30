@@ -95,6 +95,14 @@ app.include_router(skills_hub.router)  # Skills from GitHub behind the security 
 app.include_router(cli_agents_api.router)  # hand jobs to the user's own Claude Code / Codex CLI
 app.include_router(adapt_routes.router)  # /api/learn: What I know about you, Show me how, suggestions
 adapt_hooks.register_tools()
+# feat/v02-anywhere-voice: Ask from anywhere, voice, meeting companion
+from . import anywhere, meetings, voice  # noqa: E402
+
+app.include_router(anywhere.native)
+app.include_router(anywhere.router)
+app.include_router(voice.router)
+app.include_router(voice.device)
+app.include_router(meetings.router)
 app.include_router(bridge.router)  # /v1: OpenAI-shaped access to every connection, for the browser agent (item 103)
 app.mount("/tools", tools)
 app.mount("/mcp", mcp_app)  # MCP clients use http://workbench:8000/mcp/

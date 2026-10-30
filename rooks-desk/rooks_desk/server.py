@@ -324,6 +324,14 @@ def make_handler(jobs: Jobs, token: str):
                     if img.width > 1280:
                         img = img.resize((1280, round(img.height * 1280 / img.width)))
                     return self._send(200, to_png(img), "image/png")
+                if parts == ["api", "grab"] and method == "POST":  # Ask from anywhere (feat/v02-anywhere-voice)
+                    from . import grab
+                    b = self._body()
+                    return self._send(200, grab.grab(jobs.backend(), bool(b.get("copy", True)), bool(b.get("screenshot"))))
+                if parts == ["api", "paste"] and method == "POST":  # Ask from anywhere: the Paste button
+                    from . import grab
+                    b = self._body()
+                    return self._send(200, grab.paste(jobs.backend(), str(b.get("text") or ""), b.get("window") or None))
                 if parts[:2] == ["api", "recordings"]:  # Workbench "Show me how" (recording.py): apps and windows only
                     from .recording import Recordings
                     if not hasattr(jobs, "recordings"):

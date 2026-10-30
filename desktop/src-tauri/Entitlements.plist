@@ -15,5 +15,8 @@
   <true/>
   <key>com.apple.security.network.server</key>
   <true/>
+  <!-- feat/v02-anywhere-voice: the microphone for voice mode and the meeting companion -->
+  <key>com.apple.security.device.audio-input</key>
+  <true/>
 </dict>
 </plist>
