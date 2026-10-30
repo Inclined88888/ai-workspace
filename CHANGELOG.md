@@ -4,6 +4,19 @@ Every user-visible change that needs action, or changes data on upgrade, gets an
 migration steps, rollback steps. Workbench has no release numbers yet (BACKLOG). Entries are identified by schema
 version and the merge commit on `main`.
 
+## 2026-10-30 · Editorial UI redesign (light-first) · branch feat/premium-ui (builds on feat/desktop-app)
+
+Replaces the dark, gradient "premium" look with a quiet 90s fashion-editorial style. The structural work from the premium pass is kept: command palette, code blocks, skeletons, streaming and accessibility.
+
+- **Light by default.** Warm paper (#F5F1E8) and near-black ink (#141311). Dark mode is an opt-in toggle (Light / Dark in the sidebar or the palette). It is stored in `wb-theme` and no longer follows the OS setting.
+- **Type.** Bodoni Moda (Didone, optical sizes) for headings and the wordmark, Hanken Grotesk for the UI and JetBrains Mono for code. All three are bundled locally (OFL 1.1). Inter has been removed.
+- **Colour.** One accent, cherry red (#D21F3C; #B5122B for text), and a baby-blue secondary (#D5E5F4) used only for fills. Every text pair meets WCAG AA.
+- **No gradients, glow, blur or sparkle icons.** The logo mark is now a typographic wordmark. Surfaces are flat with hairline rules and square corners, and nav items are text only.
+- **Motion** is limited to fades and small page turns, and is fully disabled under reduced motion.
+- **Desktop splash and welcome screen** were restyled to match. The splash bundles its own Bodoni subset (116 KB).
+- **Bundle:** JS 410.07 kB (122.45 gzip), CSS 37.41 kB (8.13 gzip).
+- Screenshots are in `screenshots/editorial/`.
+
 ## 2026-10-30 · Premium UI redesign + animations · branch feat/premium-ui (builds on feat/desktop-app)
 
 * New design system in `workbench/frontend/src/styles.css`: tokens for colour, type, spacing, radius, elevation and
