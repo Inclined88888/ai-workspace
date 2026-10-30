@@ -67,6 +67,8 @@ struct State {
     children: HashMap<String, CommandChild>,
     status: HashMap<String, String>,
     workbench_url: Option<String>,
+    /// Per-launch token the shell shares with the backend (feat/v02-anywhere-voice: the ask shortcut's grab).
+    workbench_token: Option<String>,
 }
 
 #[derive(Default)]
@@ -85,6 +87,10 @@ impl Supervisor {
 
     pub fn workbench_url(&self) -> Option<String> {
         self.state.lock().unwrap().workbench_url.clone()
+    }
+
+    pub fn workbench_token(&self) -> Option<String> {
+        self.state.lock().unwrap().workbench_token.clone()
     }
 
     pub fn stop_all(&self) {
@@ -287,7 +293,11 @@ async fn boot(app: &AppHandle) -> Result<(), String> {
         tokio_sleep(Duration::from_millis(250)).await;
     }
     let base = format!("http://127.0.0.1:{port}");
-    sup.state.lock().unwrap().workbench_url = Some(base.clone());
+    {
+        let mut st = sup.state.lock().unwrap();
+        st.workbench_url = Some(base.clone());
+        st.workbench_token = Some(token.clone());
+    }
     sup.set_status("workbench", "running");
     let url = format!("{base}/api/desktop/session?token={token}");
     if let Some(w) = app.get_webview_window("main") {

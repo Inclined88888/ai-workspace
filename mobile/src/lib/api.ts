@@ -137,6 +137,10 @@ export class Client {
   home = () => this.req<Home>('GET', '/home');
   approvals = () => this.req<Approval[]>('GET', '/approvals');
   decide = (id: number, approve: boolean) => this.req<Approval>('POST', `/approvals/${id}`, { approve });
+  /** feat/v02-anywhere-voice: answer a held action out loud. The computer checks the words; only a clear yes approves. */
+  voiceDecide = (id: number, utterance: string) =>
+    this.req<{ decision: 'approve' | 'deny' | 'unclear'; status?: string; result?: string; say?: string; heard: string }>('POST', `/voice/approvals/${id}`, { utterance });
+  voiceStatus = () => this.req<{ engine: string; features: Record<string, { tier: string; allowed: boolean }> }>('GET', '/voice/status');
   runs = (before?: number, failed = false) =>
     this.req<{ runs: RunCard[] }>('GET', `/runs?limit=30${before ? `&before=${before}` : ''}${failed ? '&failed=true' : ''}`);
   trace = (id: number) => this.req<TraceNode>('GET', `/runs/${id}`);

@@ -102,6 +102,14 @@ adapt_hooks.register_tools()
 app.include_router(v02_api.router)  # feat/v02-automations: automations, jobs board, live documents
 app.include_router(v02_api.phone)
 auto_tools.register_tools()
+# feat/v02-anywhere-voice: Ask from anywhere, voice, meeting companion
+from . import anywhere, meetings, voice  # noqa: E402
+
+app.include_router(anywhere.native)
+app.include_router(anywhere.router)
+app.include_router(voice.router)
+app.include_router(voice.device)
+app.include_router(meetings.router)
 app.include_router(bridge.router)  # /v1: OpenAI-shaped access to every connection, for the browser agent (item 103)
 from . import account  # noqa: E402
 account.install(app)  # Your plan: account sign-in, signed entitlements and the Pro feature gate

@@ -9,10 +9,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Message, newKey } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { revealSteps } from '@/lib/reveal';
-import { decisionNote, initialTurn, phaseLabel, reduceTurn, splitAttachmentNotes, Turn } from '@/lib/turn';
+import { decisionNote, initialTurn, phaseLabel, reduceTurn, splitAttachmentNotes, HeldAction, Turn } from '@/lib/turn';
 import { toolName } from '@/lib/format';
 import { pickFile, pickPhoto, Pending } from '@/lib/attach';
 import { startDictation, VoiceSession } from '@/lib/voice';
+import { approvalPrompt, canSpeak, say, stopSaying } from '@/lib/voiceMode'; // feat/v02-anywhere-voice
 import { fonts, hairline, space, type } from '@/lib/theme';
 import { error as hError, success, tap } from '@/lib/haptics';
 import { Markdown } from '@/components/Markdown';
@@ -44,6 +45,11 @@ export default function Chat() {
   const scroll = useRef<ScrollViewInstance>(null);
   const voice = useRef<VoiceSession | null>(null);
   const stream = useRef<{ abort: () => void } | null>(null);
+  // feat/v02-anywhere-voice: voice mode (Pro) — talk, hear the answer, answer approvals out loud
+  const [talk, setTalk] = useState(false);
+  const talkRef = useRef(false);
+  const [asking, setAsking] = useState<HeldAction | null>(null);
+  const askingRef = useRef<number | null>(null); // cleared when the card's buttons answer it first
 
   const load = useCallback(
     async (convId: number | null) => {
@@ -69,6 +75,8 @@ export default function Chat() {
   useEffect(() => () => {
     stream.current?.abort();
     voice.current?.cancel();
+    talkRef.current = false;
+    stopSaying();
   }, []);
 
   // Reveal the answer at reading pace once it arrives.
@@ -101,9 +109,9 @@ export default function Chat() {
     setPendingText('');
   };
 
-  const send = async () => {
-    const text = draft.trim();
-    if (!client || (!text && !files.length) || (turn && !['done', 'error'].includes(turn.phase))) return;
+  const send = async (spoken?: string): Promise<Turn | null> => {
+    const text = (spoken ?? draft).trim();
+    if (!client || (!text && !files.length) || (turn && !['done', 'error'].includes(turn.phase))) return null;
     voice.current?.stop();
     tap();
     setNote('');
@@ -123,7 +131,7 @@ export default function Chat() {
       setTurn({ ...t, phase: 'error', error: `Attachment upload failed: ${e instanceof Error ? e.message : e}` });
       setFiles(sending);
       setDraft(text);
-      return;
+      return null;
     }
     const h = client.chat(
       { message: text, conversation_id: cid, model: prefs.model || null, attachments: ids },
@@ -152,6 +160,107 @@ export default function Chat() {
     } finally {
       stream.current = null;
     }
+    return t;
+  };
+
+  // ---- feat/v02-anywhere-voice: voice mode --------------------------------------------------------------------------
+  const hearOnce = () =>
+    new Promise<string>((resolve) => {
+      let last = '';
+      let ended = false;
+      startDictation(
+        'en-AU',
+        (text) => {
+          last = text;
+          setDraft(text);
+        },
+        (err) => {
+          ended = true;
+          setListening(false);
+          voice.current = null;
+          if (err) setNote(err);
+          resolve(err ? '' : last.trim());
+        },
+      ).then((v) => {
+        voice.current = v;
+        setListening(!!v && !ended);
+        if (!v) resolve('');
+      });
+    });
+
+  /** A held action: the card is on screen, the request is read out, and only a clear spoken yes approves it. */
+  const confirmAloud = async (h: HeldAction) => {
+    if (!client) return;
+    setAsking(h);
+    askingRef.current = h.id;
+    let prompt = approvalPrompt(h.tool);
+    for (let tries = 0; tries < 3 && talkRef.current; tries++) {
+      await say(prompt);
+      const heard = await hearOnce();
+      setDraft('');
+      if (!talkRef.current || askingRef.current !== h.id) return;
+      if (!heard) {
+        prompt = "I didn't catch that. Say yes, send it, or no.";
+        continue;
+      }
+      try {
+        const r = await client.voiceDecide(h.id, heard);
+        if (r.decision === 'unclear') {
+          prompt = r.say || 'Sorry, I need a clear yes or no.';
+          continue;
+        }
+        setAsking(null);
+        if (r.decision === 'approve') success();
+        await say(r.decision === 'approve' ? (r.status === 'failed' ? "That didn't work. The details are on screen." : 'Done.') : "OK, I won't do that.");
+        load(cid);
+        return;
+      } catch (e) {
+        setNote(e instanceof Error ? e.message : String(e)); // e.g. already answered with the buttons
+        setAsking(null);
+        return;
+      }
+    }
+    if (talkRef.current) await say("I'll leave it on screen. Tap Approve or Deny when you're ready.");
+  };
+
+  const talkLoop = async () => {
+    while (talkRef.current) {
+      const heard = await hearOnce();
+      if (!talkRef.current) break;
+      if (!heard) continue;
+      if (/^(stop|stop listening|goodbye|bye|that's all)\.?$/i.test(heard)) break;
+      const t = await send(heard);
+      if (!t || !talkRef.current) continue;
+      if (t.text) await say(t.text);
+      for (const h of t.held.filter((x) => !x.denied)) await confirmAloud(h);
+    }
+    talkRef.current = false;
+    setTalk(false);
+  };
+
+  const toggleTalk = async () => {
+    if (talk) {
+      talkRef.current = false;
+      setTalk(false);
+      voice.current?.stop(); // ends the listening promise; the loop sees voice mode is off
+      stopSaying();
+      return;
+    }
+    if (!client) return;
+    try {
+      const st = await client.voiceStatus();
+      if (!st.features.voice_conversation?.allowed) {
+        setNote('Voice mode is part of Pro. Dictation (the Voice button) stays free.');
+        return;
+      }
+    } catch {
+      /* an older computer without voice: dictation and reading out still work */
+    }
+    if (!canSpeak()) setNote('Answers will show on screen; reading them out needs the latest app build.');
+    tap();
+    talkRef.current = true;
+    setTalk(true);
+    talkLoop();
   };
 
   const dictate = async () => {
@@ -201,7 +310,14 @@ export default function Chat() {
           <Pressable onPress={() => (router.canGoBack() ? router.back() : router.replace('/chats'))} hitSlop={12} accessibilityRole="button" accessibilityLabel="Back">
             <Label color={c.text}>‹  Chats</Label>
           </Pressable>
-          <Label style={{ fontSize: 9.5 }}>{prefs.model ? prefs.model.split('/').pop() : 'Default model'}</Label>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[3] }}>
+            {/* feat/v02-anywhere-voice */}
+            <Pressable onPress={toggleTalk} hitSlop={10} accessibilityRole="button" accessibilityState={{ selected: talk }} accessibilityLabel={talk ? 'Stop voice mode' : 'Voice mode: talk and hear answers'} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              {talk ? <Pulse color={c.accent} size={7} /> : null}
+              <Label color={talk ? c.accentText : c.text}>{talk ? 'Talking' : 'Talk'}</Label>
+            </Pressable>
+            <Label style={{ fontSize: 9.5 }}>{prefs.model ? prefs.model.split('/').pop() : 'Default model'}</Label>
+          </View>
         </View>
         <Text numberOfLines={2} style={[type.title, { color: c.text, marginTop: space[2], fontSize: 24, lineHeight: 30 }]}>
           {conv?.title || firstLine || (cid ? ' ' : 'New chat')}
@@ -224,6 +340,21 @@ export default function Chat() {
           ))}
           {turn && pendingText ? <UserBlock text={pendingText} tags={[]} /> : null}
           {turn ? <LiveTurn turn={turn} shown={shown} onDecided={() => load(turn.conversationId)} /> : null}
+          {asking && !turn ? (
+            /* feat/v02-anywhere-voice: the request stays on screen while it's asked out loud */
+            <View style={{ marginTop: space[4], borderTopWidth: hairline, borderTopColor: c.border }}>
+              <Label style={{ fontSize: 9.5, marginTop: space[2] }} color={c.accentText}>Say “yes, send it” or “no”, or tap</Label>
+              <ApprovalCard
+                a={{ id: asking.id, conversation_id: cid, tool: asking.tool, args: asking.args, effect: asking.effect, reason: asking.reason, status: 'pending', result: '', created_at: new Date().toISOString(), decided_at: null }}
+                onDecided={() => {
+                  setAsking(null);
+                  askingRef.current = null;
+                  voice.current?.stop();
+                  load(cid);
+                }}
+              />
+            </View>
+          ) : null}
         </ScrollView>
 
         {/* Composer */}
@@ -267,7 +398,7 @@ export default function Chat() {
               <Label color={listening ? c.accentText : c.text}>{listening ? 'Stop' : 'Voice'}</Label>
             </Pressable>
             <Pressable
-              onPress={send}
+              onPress={() => send()}
               disabled={!canSend}
               accessibilityRole="button"
               accessibilityLabel="Send"

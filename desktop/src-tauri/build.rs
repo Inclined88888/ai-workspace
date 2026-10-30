@@ -8,6 +8,11 @@ fn main() {
             "request_approval",
             "open_data_dir",
             "open_logs",
+            // feat/v02-anywhere-voice
+            "get_ask_shortcut",
+            "set_ask_shortcut",
+            "hide_ask_bar",
+            "show_main_window",
         ]),
     ))
     .expect("failed to run tauri-build");

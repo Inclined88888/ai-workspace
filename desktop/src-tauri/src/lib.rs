@@ -9,6 +9,7 @@
 //! - [`approvals::request_approval`]: native approve / deny prompt any part of the app can raise.
 //! - [`updater`]: in-app updates, compiled in only with `--features updater` once signing keys exist.
 
+mod anywhere; // feat/v02-anywhere-voice: Ask from anywhere
 mod approvals;
 mod commands;
 mod sidecars;
@@ -28,20 +29,28 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_opener::init());
+        .plugin(tauri_plugin_opener::init())
+        .plugin(anywhere::plugin()); // feat/v02-anywhere-voice
 
     updater::register(builder)
         .manage(sidecars::Supervisor::default())
+        .manage(anywhere::Anywhere::default())
         .invoke_handler(tauri::generate_handler![
             commands::app_info,
             commands::open_data_dir,
             commands::open_logs,
             sidecars::list_sidecars,
             approvals::request_approval,
+            // feat/v02-anywhere-voice
+            anywhere::get_ask_shortcut,
+            anywhere::set_ask_shortcut,
+            anywhere::hide_ask_bar,
+            anywhere::show_main_window,
         ])
         .setup(|app| {
             sidecars::start_workbench(app.handle().clone());
             updater::check_on_start(app.handle().clone());
+            anywhere::register_saved(app.handle()); // feat/v02-anywhere-voice
             Ok(())
         })
         .build(tauri::generate_context!())

@@ -4,8 +4,9 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, stream } from "../api";
 import { Tracer } from "../Tracer";
 import { Empty, Markdown, ModelSelect, relTime, RouterInfo, RouterVia, SkeletonList, useModels, useToast } from "../util";
-import { dictationSupported, StreamText, Thinking, useDictation, useExit, VoiceOrb } from "../motion";
+import { Thinking, useExit } from "../motion";
 import { LiveMarkdown } from "../v02/LiveBlocks"; // feat/v02-automations: live docs, sheets and charts in replies
+import { DictateButton } from "../voice/DictateButton"; // feat/v02-anywhere-voice (drawn as the motion voice orb)
 
 type Conv = { id: number; title: string; channel: string; updated_at: string; model: string };
 type Msg = { id: number; role: string; content: string; tool_calls: string[]; name: string; via?: RouterInfo };
@@ -26,14 +27,14 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [steps, setSteps] = useState<Step[]>([]);
   const [approvals, setApprovals] = useState<Approval[]>([]);
-  const [text, setText] = useState(((useLocation().state as { draft?: string } | null)?.draft) ?? ""); // pre-filled from Files / Sites
+  const location = useLocation();
+  const [text, setText] = useState(((location.state as { draft?: string } | null)?.draft) ?? ""); // pre-filled from Files / Sites
+  // feat/v02-anywhere-voice: a draft handed over while Chat is already open (the ask bar's "Do it in Chat")
+  useEffect(() => { const d = (location.state as { draft?: string } | null)?.draft; if (d) setText(d); }, [location.state]);
   const [busy, setBusy] = useState(false);
   const [model, setModel] = useState("");
   const [busySince, setBusySince] = useState(0);
   const exit = useExit<number>(200);
-  // Talk instead of typing: dictation fills the composer, keeping anything typed before it
-  const typedBefore = useRef("");
-  const voice = useDictation((t) => setText((typedBefore.current ? typedBefore.current + " " : "") + t));
   const { models } = useModels();
   const endRef = useRef<HTMLDivElement>(null);
   const toast = useToast();
@@ -222,8 +223,9 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
             <div className="composer-bar">
               <ModelSelect value={model} onChange={setModel} models={models} />
               <div className="spacer" />
-              <span className="composer-hint">{voice.on ? "Listening… tap the orb to stop" : voice.err || "Shift + Enter for a new line"}</span>
-              {dictationSupported() && <VoiceOrb on={voice.on} orbRef={voice.orb} disabled={busy} onClick={() => { if (!voice.on) typedBefore.current = text.trim(); voice.toggle(); }} />}
+              <span className="composer-hint">Shift + Enter for a new line</span>
+              {/* feat/v02-anywhere-voice + motion: one mic. Local/cloud speech-to-text with browser fallback, drawn as the voice orb */}
+              <DictateButton orb disabled={busy} onText={(t) => { setText((v) => (v ? v + " " : "") + t); composerRef.current?.focus(); }} />
               <button className="btn primary send" disabled={busy || !text.trim()} aria-label="Send">{busy ? <Loader2 size={15} className="spin" /> : <ArrowUp size={16} />}</button>
             </div>
           </div>

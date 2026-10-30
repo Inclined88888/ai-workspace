@@ -251,6 +251,12 @@ export default function Settings({ onChanged }: { onChanged: () => void }) {
           <div><button className="btn primary" onClick={save}>Save</button></div>
         </div>
         {desktop?.desktop && <DesktopApp info={desktop} />}
+        {/* feat/v02-anywhere-voice */}
+        <div className="card col">
+          <h2>Ask from anywhere & voice</h2>
+          <div className="muted small">The shortcut that opens the ask bar over any app, how I listen when you talk, and how I sound.</div>
+          <div><Link className="btn" to="/voice">Open these settings</Link></div>
+        </div>
         <PhoneCard />
         <Usage />
         <LocalModels />
