@@ -4,6 +4,205 @@ Every user-visible change that needs action, or changes data on upgrade, gets an
 migration steps, rollback steps. Workbench has no release numbers yet (BACKLOG). Entries are identified by schema
 version and the merge commit on `main`.
 
+## 2026-10-30 · Release candidate v0.1 · branch release/v0.1-rc (all feature branches combined)
+
+- **One-command install without Docker**: `install.sh` (macOS, Linux) and `install.ps1` (Windows) install `ai-workspace`,
+  `rooks` and `rooks-browser` for the current user. uv brings Python 3.12. When the source has no prebuilt web UI and the
+  computer has no Node.js, the installer downloads Node.js 22 from nodejs.org, checks its SHA-256, builds, and removes it.
+  See [QUICKSTART.md](QUICKSTART.md).
+- **Launcher**: the window opens on a one-time sign-in link served by the app (one use, two minutes), so the launch token
+  is never on a command line or in a URL. This fixes a blank "Your file couldn't be accessed" (ERR_FILE_NOT_FOUND)
+  window on macOS caused by an earlier temporary redirect file. It waits for the app and checks the web UI loads, logs to
+  `logs/launcher.log`, and has `--logs`; `--status` also shows the UI check, version and logs folder. The installer's
+  Applications / Start menu shortcut is no longer mistaken for the native app and now has the real icon.
+- **Agents**: `rooks` and `rooks-browser` accept `GROQ_API_KEY` and `GEMINI_API_KEY` directly, and explain how to set up a
+  model when none is available. rooks-browser on Groq backs off on rate limits, trims long pages to fit, and recovers
+  malformed replies.
+- **Browser agent page**: live picture while a run works, a screenshot per step, the agent's thinking and actions, and
+  Allow / Deny for paused sensitive steps.
+- **CI**: `macOS window` workflow (macos-14) installs with the one-command install and checks the window shows the UI.
+  The desktop build falls back to ad-hoc signing when the Apple certificate secret cannot be imported.
+- **Local models**: the first chat works with whichever Ollama model is installed; Rooks Code prefers an installed
+  coder model when Ollama is the only provider; one answer is capped at `OLLAMA_NUM_PREDICT` (4096) tokens; the assistant
+  only offers `web_search` when a search provider is set up.
+- **Rooks Code**: more robust parsing of tool calls written as text by small models (several JSON objects in one block,
+  duplicates run once, mixed native and text calls).
+- **CI**: new `mobile` job and an `installer` job that runs the one-command install on Ubuntu, macOS and Windows.
+- **Data / migration**: none. **Rollback**: reinstall from `main`.
+
+## 2026-10-30 · Cloud by default: "Choose how to think", Sign in with ChatGPT, smart router · branch feat/cloud-models (builds on feat/skills-and-motion)
+
+- **First run is now "Choose how to think"**, shown on the desktop app's first start and in Docker whenever no model is connected. It offers four options:
+  - **Free cloud** (recommended): a guided Gemini or Groq key. It opens the key page, takes the key by paste or from the clipboard, recognises the provider and checks the key before saving it.
+  - **Sign in with your subscription**: ChatGPT, through OpenAI's official open-source flow. Claude, SuperGrok and Google AI show "not available" with the reason and a link to the source.
+  - **Paste API keys**: OpenAI, Anthropic, xAI, Google, Groq, OpenRouter, Mistral, DeepSeek, or any OpenAI-compatible URL.
+  - **Local Ollama**, marked advanced.
+- **Smart router.** `auto` (also `auto:fast` and `auto:strong`) is the default model once any cloud provider is connected.
+  - Each turn uses a fast or a strong model depending on the task.
+  - On a 429, a quota or credit error, a 5xx or an outage, the router moves to the next provider.
+  - A provider that hits its daily limit is parked until its reset.
+  - Each answer shows who replied and how many free requests are left.
+  - The new **Models** page (`/models`) sets the order, the models per tier and the local fallback, and shows quota meters.
+  - Chat, the assistant, research, Rooks Code and Rooks Browser all use the router (`-P workbench -m auto`, `X-Workbench-Channel`).
+- **New presets**: Groq, xAI, Mistral and DeepSeek. Setup's `GROQ_API_KEY` and `XAI_API_KEY` are now seeded as connections.
+- **API.** New endpoints:
+  - `/api/providers/detect` and `/api/providers/validate`
+  - `/api/router` and `/api/router/reset/{id}`
+  - `/api/auth/subscriptions`
+  - `/api/auth/chatgpt/*`
+  - `/api/status` gains `needs_models`.
+- **Data / migration.** One new table is created on startup: `router_state` (additive). The router settings are stored in the `router` setting. Existing default models are not changed; `auto` becomes the default only when no default was set.
+- **Rollback.** Check out `feat/skills-and-motion`. The old build ignores `router_state`, but a default model of `auto` has to be changed back in Settings.
+- **Docs**: `docs/models-and-router.md`, and `docs/hosted-free-tier.md`, which is a design only.
+- **Tests.** The backend has 212 passing tests, including:
+  - router fallback with fake 429, daily-limit and 5xx providers
+  - stream fallback and quota headers
+  - onboarding and key validation
+  - Sign in with ChatGPT end to end against a fake OAuth server
+- **Bundle.** JS is 464.11 kB (137.34 kB gzip) and CSS is 56.48 kB (11.83 kB gzip).
+- **Screenshots** are in `screenshots/models/`.
+
+## 2026-10-30 · Signature motion, simple appearance controls, secure GitHub skills · branch feat/skills-and-motion (builds on feat/premium-ui)
+
+- **Tracer.** While the assistant, a research job, a browser-agent task or a run is working, a thin cherry line with an ink tip travels around the composer or card border. It is drawn as an SVG rect with `stroke-dashoffset` on the compositor, so it adds no layout work.
+- **Motion.** Added page-turn route transitions, staggered cards, press and hover feedback, and nav dots.
+  - There is a new **Motion** setting: Full, Subtle (slower tracer, fades only) or Off (a static 1px line, no animation).
+  - The OS "reduce motion" setting always wins.
+- **Appearance page** (`/appearance`, also in the sidebar foot and the Cmd/Ctrl-K palette) has these controls, all with a live preview:
+  - Theme: Paper, Linen, Gallery or Night
+  - Typeface: Editorial, Modern, Classic or System
+  - Text size: 12–18 px
+  - Spacing: Comfortable or Compact
+  - Motion
+  - Accent: Cherry, Ink, Cobalt, Forest or Ochre
+
+  Settings are stored in the browser as `wb-appearance`. The old `wb-theme` value migrates automatically ("dark" becomes Night). The sidebar Light/Dark switch is gone; the palette has "Paper theme", "Night theme" and similar commands.
+- **Simpler navigation.** The sidebar now has three groups:
+  - Primary: Home, Chat, Tasks, Notes, Calendar, Mail
+  - Agents: Automations, Skills, Research, Browser agent
+  - A collapsible **More** group (remembered as `wb-nav-more`) holding the admin pages
+- **Skills page** (`/skills`; the old `/assistant-skills` redirects to it).
+  - Add a skill or MCP server from a GitHub link, or search GitHub.
+  - Every candidate passes an 8-stage gate: pinned fetch, code scan, prompt-injection scan, permission manifest, sealed trial run, risk verdict, your per-permission approval, and run-time enforcement with an audit log.
+  - High risk is blocked unless you type `install <name> anyway`.
+  - Updates re-run the gate and show a diff. Access an update newly asks for is never pre-ticked.
+  - Installed skills can be turned off or uninstalled. Blocked run-time actions become requests under **Activity**.
+  - Installed skills are available to the assistant (`load_skill`, `run_skill_script`) and to Rooks Code over MCP.
+  - Details and known gaps: `docs/skills-security.md`.
+- **Data / migration.** Three new tables are created on startup (`hub_skills`, `skill_audit`, `skill_permission_requests`; additive, `CREATE TABLE IF NOT EXISTS`). Skill files live in `DATA_DIR/skills/{staging,installed}`. No existing data changes.
+- **Rollback.** Check out `feat/premium-ui`. The new tables and `DATA_DIR/skills` are ignored by older builds and can be deleted.
+- **Tests.**
+  - Backend: 197 pass, including 30 skill-gate tests in which every malicious fixture comes out High and is refused, and the benign ones come out Low and install.
+  - Frontend: `npm test` runs 6 Appearance unit tests with Node's built-in runner.
+- **Bundle.** JS is 444.43 kB (132.37 kB gzip) and CSS is 51.25 kB (10.93 kB gzip).
+- **Screenshots** are in `screenshots/skills/`, including `tracer-composer.mp4` and `tracer-composer.gif`.
+
+## 2026-10-30 · iPhone and Android companion app (phase 4) · branch feat/mobile-app (builds on feat/premium-ui)
+
+Workbench side (pairing, API, push hook). The app itself is in `mobile/`; its lines follow.
+
+- **Pairing.** Settings → Phone shows a QR code and an 8-character code (5 minutes, single use, stored hashed). The phone exchanges it for a device token (`wbd_…`, stored hashed; kept in the phone's Keychain/Keystore). Settings lists paired phones and unpairs them. Ten wrong codes per address per 5 minutes are refused.
+- **Scoped phone API** under `/api/mobile/*`: home glance, approvals approve/deny, runs and traces, tasks, notes, conversations, model list, chat (streamed, channel `mobile`), photo and voice attachments, push token. A device token cannot reach Settings, keys, mail, the password or other phones. Decisions from the phone are logged with channel `mobile`.
+- **On your Wi-Fi.** Desktop app: "Phone access on this Wi-Fi" starts a listener on `0.0.0.0:8766` (`WORKBENCH_MOBILE_PORT`) that serves only `/api/mobile/*` and `/healthz`; remembered across restarts. Docker: `BIND_ADDRESS=0.0.0.0` plus `MOBILE_URLS`.
+- **Away from home.** A relay address (Tailscale, Cloudflare Tunnel, or a future relay) in Settings or `MOBILE_RELAY_URL` is offered to the phone after the Wi-Fi address. See `docs/mobile-pairing.md`.
+- **Push (off by default).** "Approval needed" and "Run finished" through Expo's push service, only when Settings → Phone → Push notifications is on and a phone registered a token. Needs Expo/APNs/FCM credentials in the app build.
+- **New tables** `devices` and `pairing_codes` (created automatically; no data migration, schema version unchanged). New dependency `segno` (QR codes, pure Python). Rollback: run the previous build; the two tables are ignored.
+- Screenshots: `screenshots/mobile/settings-phone-*.png`.
+
+The app (`mobile/`, Expo SDK 58, React Native, TypeScript, Expo Router; see `mobile/README.md`):
+
+- **Screens.** Today (what needs you, an ask box, jobs on the desk, tasks, notes), Chats, Chat (streaming-style reveal, Markdown and code blocks with copy, tool receipts, inline approvals), Approvals (one-tap Approve/Deny, tab badge), Runs (live status, "Needs a look", receipt with trace), Settings (paired computer, model, Paper/Ink/System, haptics, notifications, unpair) and Pair (QR scan, typed address and code, `aiworkspace://pair` deep link).
+- **Compose from the phone.** On-device dictation (development build), photo from camera or library, image/audio files (10 MB); attachments go to the computer and are referred to in the message.
+- **Security.** Device token in SecureStore (Keychain/Keystore, this device only); tokens revocable from either side; every chat and decision from the phone is logged as a receipt with channel `mobile`; chat sends an Idempotency-Key; no secrets or credentials in the repo.
+- **Push.** Expo push for "Approval needed" and "Run finished"; tapping opens the approval or run. Needs an EAS project id plus APNs/FCM V1 credentials (documented).
+- **Look.** The editorial redesign on the phone: warm paper `#F5F1E8` and ink, Bodoni Moda and Hanken Grotesk, cherry red `#D21F3C`, baby-blue fills, hairline rules, square corners, fade/lift page turns and haptics. Optional dark (Ink).
+- **Builds.** `eas.json` profiles for a development client, an Android preview APK and store builds; README covers Expo Go, TestFlight, Play internal testing and store release (Apple US$99/year, Google Play US$25 once).
+- **Checks.** 37 jest tests (pairing links, SSE parsing, Markdown, reveal, turn reducer, API client), typecheck, lint, `expo-doctor` 20/20, web export. Phone screenshots: `screenshots/phone-*.png`.
+
+## 2026-10-30 · Editorial UI redesign (light-first) · branch feat/premium-ui (builds on feat/desktop-app)
+
+Replaces the dark, gradient "premium" look with a quiet 90s fashion-editorial style. The structural work from the premium pass is kept: command palette, code blocks, skeletons, streaming and accessibility.
+
+- **Light by default.** Warm paper (#F5F1E8) and near-black ink (#141311). Dark mode is an opt-in toggle (Light / Dark in the sidebar or the palette). It is stored in `wb-theme` and no longer follows the OS setting.
+- **Type.** Bodoni Moda (Didone, optical sizes) for headings and the wordmark, Hanken Grotesk for the UI and JetBrains Mono for code. All three are bundled locally (OFL 1.1). Inter has been removed.
+- **Colour.** One accent, cherry red (#D21F3C; #B5122B for text), and a baby-blue secondary (#D5E5F4) used only for fills. Every text pair meets WCAG AA.
+- **No gradients, glow, blur or sparkle icons.** The logo mark is now a typographic wordmark. Surfaces are flat with hairline rules and square corners, and nav items are text only.
+- **Motion** is limited to fades and small page turns, and is fully disabled under reduced motion.
+- **Desktop splash and welcome screen** were restyled to match. The splash bundles its own Bodoni subset (116 KB).
+- **Bundle:** JS 410.07 kB (122.45 gzip), CSS 37.41 kB (8.13 gzip).
+- Screenshots are in `screenshots/editorial/`.
+
+## 2026-10-30 · Premium UI redesign + animations · branch feat/premium-ui (builds on feat/desktop-app)
+
+* New design system in `workbench/frontend/src/styles.css`: tokens for colour, type, spacing, radius, elevation and
+  motion, with light and dark themes checked for WCAG AA contrast. The theme follows the OS; a System / Light / Dark switch
+  in the sidebar overrides it (stored in the browser as `wb-theme`).
+* Inter and JetBrains Mono are bundled (`@fontsource-variable`, OFL 1.1). The app makes no font requests to the network.
+* Cmd/Ctrl+K command palette for pages, new chat / note / task and the theme.
+* Chat: new message layout, code blocks with a language label and a Copy button, a streaming reveal with a caret, a
+  typing indicator, an auto-growing composer with the model picker, and suggestion cards on an empty chat.
+* Redesigned app shell and sidebar, auth, the desktop welcome flow and the desktop splash (`desktop/ui/index.html`), with
+  skeleton loaders, empty states, toasts and modals.
+* Motion stays between 120 and 240 ms and is CSS only. All of it switches off under `prefers-reduced-motion`. Focus
+  rings are visible and every new control works from the keyboard.
+* Bundle: JS 398.6 → 411.1 kB (gzip 118.7 → 122.7 kB), CSS 14.5 → 39.6 kB (gzip 3.8 → 8.6 kB), plus 88.7 kB of Latin
+  fonts (Latin Extended, 85 kB, loads only when a page needs it). No new JS dependencies.
+* Docs: README image size now uses the CI figure (248 MB), and the BACKLOG note for item 116 records that it is merged.
+
+No API, schema or backend changes; no action needed on upgrade. Rollback: revert the merge.
+
+## 2026-10-30 · Desktop app for macOS and Windows (preview) · branch feat/desktop-app
+
+* New `desktop/`: a Tauri v2 app that runs Workbench natively, without Docker. The backend is frozen with PyInstaller
+  and started as a sidecar on `127.0.0.1` with a per-user data folder; the window signs itself in with a one-time
+  launch token (no password).
+* First-run welcome: paste an API key for any key-based provider, or use local Ollama, then land in chat.
+* Provider keys, `APP_SECRET` and the tools key live in the OS keychain in the desktop app.
+* `.github/workflows/desktop.yml` builds `.dmg` (Apple silicon + Intel), `.msi` + `.exe`, `.deb` + `.AppImage` on manual
+  dispatch and on tags. Signing, notarisation and the updater activate when their secrets exist
+  ([docs/desktop-release.md](docs/desktop-release.md)). Builds are unsigned until then.
+* MIT `LICENSE` added (owner to confirm).
+
+Docker installs: no action needed and no schema change. The new backend behaviour only switches on with
+`WORKBENCH_DESKTOP=1`, which only the desktop app sets; Docker keeps Fernet-encrypted keys under `APP_SECRET`.
+Rollback: revert the merge; desktop-app data lives in its own per-user folder and does not touch Docker volumes.
+
+## 2026-10-30 · Terminal coding agent (Rooks Code) · Phase 2
+
+**New:** `rooks-code/`, a model-agnostic coding agent for the terminal (OpenAI, Anthropic, OpenRouter, any
+OpenAI-compatible server, Ollama, LM Studio). Interactive and one-shot modes; read, search, diff-based edits and shell
+commands in a loop; approval by default, trusted folders, `--dry-run`, undo of the last prompt's change set, hard
+per-session token and dollar caps, a stdio MCP client, and receipts in Workbench's run-log format
+(`rooks receipts import --db workbench.db`). Standard library only, Python 3.11+. CI tests it on macOS, Windows and Linux.
+
+**Migration steps:** none. It is a separate, optional tool: install with
+`uv tool install "git+https://github.com/Inclined88888/ai-workspace#subdirectory=rooks-code"`. Workbench, its database
+and `cli/ws` are unchanged.
+
+**Rollback steps:** `uv tool uninstall rooks-code` (or `pip uninstall rooks-code`). Per-project `.rooks/` folders hold
+only receipts and undo snapshots and can be deleted.
+
+## 2026-10-30 · Rooks Browser: a local AI browser agent (phase 3)
+
+New, optional: `rooks-browser/`, a browser agent that drives your own Chrome or Edge through Playwright. It installs
+as a ≈ 150 MB Python package, not a 2.5 GB image.
+
+* **Models:** OpenAI, Anthropic, OpenRouter, Ollama, OpenAI-compatible servers or Workbench's model connections.
+* **Pages:** it reads the page's element list and text, plus screenshots for vision models.
+* **Actions:** search (SearXNG or a fallback search page), open, click, type, scroll, extract and download.
+* **Approvals:** it asks before form submits, purchases, messages and logins.
+* **Sites and receipts:** it keeps per-site allow and deny lists, and logs every visited URL as Workbench run-log
+  receipts.
+* **Passwords:** it never stores or types them.
+* **Ways to call it:** a CLI, a local HTTP API that is compatible with the `browser` add-on's job API, and an MCP server.
+
+Nothing changes for existing installs. The `browser` add-on, Workbench and the database are untouched.
+
+* **To try it:** `uv tool install ./rooks-browser`.
+* **To use it from Workbench:** set `BROWSER_URL=http://host.docker.internal:8765` and `BROWSER_API_KEY` to the token
+  you start `rooks-browser serve --host 0.0.0.0` with.
+* **Rollback:** remove those two settings, or uninstall the tool.
+
 ## 2026-10-29 · Fix upgrades from the original ROOKS database
 
 Older ROOKS installations used `tool_runs(at, ok, actor, mission_id, ...)` before

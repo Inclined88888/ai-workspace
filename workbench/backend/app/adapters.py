@@ -12,6 +12,7 @@ ways. Wire formats follow the vendors' documentation and their generated SDK typ
 
 from __future__ import annotations
 
+import contextvars
 import json
 import os
 import re
@@ -42,6 +43,8 @@ TIMEOUT = httpx.Timeout(connect=10, read=300, write=30, pool=10)
 # Ollama's OpenAI endpoint (/v1) ignores num_ctx and runs at the server default (4096 tokens), silently cutting the
 # start of long prompts. Ollama is therefore spoken to natively, with an explicit window.
 OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "16384"))
+# A cap on one answer: small local models sometimes repeat themselves until the timeout (seen with qwen2.5 7B)
+OLLAMA_NUM_PREDICT = int(os.getenv("OLLAMA_NUM_PREDICT", "4096"))
 # Local models on a CPU need minutes per answer (qwen3:4b on 4 cores ran past 300 s)
 OLLAMA_TIMEOUT = httpx.Timeout(connect=10, read=float(os.getenv("OLLAMA_TIMEOUT_S", "900")), write=30, pool=10)
 ANTHROPIC_VERSION = "2023-06-01"  # the version in Anthropic's own Messages API example
@@ -61,6 +64,45 @@ def validate(auth_kind: str, protocol: str) -> None:
         raise HTTPException(400, f"{auth_kind} connections speak {', '.join(ALLOWED[auth_kind])}, not {protocol!r}")
 
 
+class ProviderError(HTTPException):
+    """A provider call that failed, with what the smart router needs to decide on a fallback (router.py).
+
+    upstream: the provider's HTTP status (None when it never answered); kind: http | timeout | unreachable | quota.
+    retry_after: seconds the provider asked us to wait, when it said. body: the start of its error text (never logged
+    whole: some providers quote the key back).
+    """
+
+    def __init__(self, status_code: int, detail: str, upstream: int | None = None, kind: str = "http",
+                 retry_after: float | None = None, body: str = ""):
+        super().__init__(status_code, detail)
+        self.upstream, self.kind, self.retry_after, self.body = upstream, kind, retry_after, body
+
+
+# The router sets a dict here before a call; the transport writes the response's rate-limit headers into it
+CAPTURE: contextvars.ContextVar[dict | None] = contextvars.ContextVar("provider_capture", default=None)
+_LIMIT_HEADERS = re.compile(r"^(x-ratelimit-|anthropic-ratelimit-|ratelimit|retry-after$)", re.I)
+
+
+def _capture(headers) -> None:
+    box = CAPTURE.get()
+    if box is not None:
+        box["headers"] = {k.lower(): v for k, v in headers.items() if _LIMIT_HEADERS.match(k)}
+
+
+def retry_after(headers) -> float | None:
+    v = headers.get("retry-after") if headers else None
+    try:
+        return max(0.0, float(v)) if v is not None else None
+    except ValueError:
+        return None
+
+
+def error_event(conn: dict, status: int, text: str, headers=None) -> dict:
+    """A streaming error in the same terms as ProviderError, so the router can tell a quota from a crash."""
+    return {"error": f"{conn['name']} error {status}: {text[:400]}", "status": status, "retry_after": retry_after(headers),
+            "body": text[:400]}
+
+
 # Credentials, by auth_kind
 def credential(conn: dict) -> str:
     """The secret to send for this connection, or raise with the reason it cannot be used."""
@@ -75,7 +117,9 @@ def credential(conn: dict) -> str:
 
 
 def _oauth_access_token(conn: dict) -> str:
-    """Access token from the connection's token store. Refresh is item 101; until then an expired token needs sign-in."""
+    """Access token from the connection's token store, refreshed near expiry (Sign in with ChatGPT, siwc.py)."""
+    from . import siwc
+
     try:
         tokens = json.loads(decrypt(conn["secret_enc"]) or "{}")
     except ValueError:
@@ -83,6 +127,10 @@ def _oauth_access_token(conn: dict) -> str:
     expires = tokens.get("expires_at") or 0
     if tokens.get("access_token") and expires > time.time() + 30:
         return tokens["access_token"]
+    if tokens.get("refresh_token"):
+        fresh = siwc.refresh(conn, tokens)
+        if fresh:
+            return fresh
     db.run("UPDATE connections SET state = 'needs_auth', last_error = ? WHERE id = ?",
            "Sign-in expired or missing", conn["id"])
     raise HTTPException(401, f"{conn['name']} needs you to sign in again (Settings → Model providers).")
@@ -128,11 +176,13 @@ async def _post(conn: dict, url: str, body: dict, headers: dict, timeout: httpx.
         async with httpx.AsyncClient(timeout=timeout) as client:
             r = await client.post(url, headers=headers, json=body)
     except httpx.TimeoutException as e:
-        raise HTTPException(504, f"{conn['name']} did not answer within {int(timeout.read or 0)} s") from e
+        raise ProviderError(504, f"{conn['name']} did not answer within {int(timeout.read or 0)} s", kind="timeout") from e
     except httpx.HTTPError as e:
-        raise HTTPException(502, f"{conn['name']} unreachable: {e.__class__.__name__}") from e
+        raise ProviderError(502, f"{conn['name']} unreachable: {e.__class__.__name__}", kind="unreachable") from e
+    _capture(r.headers)
     if r.status_code >= 400:
-        raise HTTPException(502, f"{conn['name']} error {r.status_code}: {r.text[:400]}")
+        raise ProviderError(502, f"{conn['name']} error {r.status_code}: {r.text[:400]}", upstream=r.status_code,
+                            retry_after=retry_after(r.headers), body=r.text[:400])
     return r
 
 
@@ -140,9 +190,10 @@ async def _sse(conn: dict, url: str, body: dict, headers: dict, timeout: httpx.T
     """Server-sent events as parsed JSON payloads. An HTTP error becomes one {"error": ...} item."""
     async with httpx.AsyncClient(timeout=timeout) as client:
         async with client.stream("POST", url, headers=headers, json=body) as r:
+            _capture(r.headers)
             if r.status_code >= 400:
                 text = (await r.aread()).decode(errors="replace")
-                yield {"error": f"{conn['name']} error {r.status_code}: {text[:400]}"}
+                yield error_event(conn, r.status_code, text, r.headers)
                 return
             async for line in r.aiter_lines():
                 if not line.startswith("data:"):
@@ -167,6 +218,8 @@ class Protocol:
         return conn["base_url"].rstrip("/") + "/models"
 
     def parse_models(self, data: dict) -> list[str]:
+        if isinstance(data.get("models"), list) and not data.get("data"):  # Sign in with ChatGPT's per-account catalogue
+            return [m["slug"] for m in data["models"] if m.get("slug") and m.get("visibility", "list") == "list"]
         return [m["id"].removeprefix("models/") for m in data.get("data", []) if m.get("id")]
 
     def context_chars(self, conn: dict) -> int:
@@ -227,7 +280,7 @@ class ChatCompletions(Protocol):
         async for chunk in _sse(conn, f"{conn['base_url'].rstrip('/')}/chat/completions", self._body(conn, model, messages, True),
                                 self.headers(conn, secret), self.timeout):
             if "error" in chunk and not chunk.get("choices"):
-                yield {"error": chunk["error"] if isinstance(chunk["error"], str) else json.dumps(chunk["error"])[:400]}
+                yield {**chunk, "error": chunk["error"] if isinstance(chunk["error"], str) else json.dumps(chunk["error"])[:400]}
                 return
             if chunk.get("usage"):
                 usage = chunk["usage"]
@@ -280,7 +333,7 @@ class OllamaNative(Protocol):
         return out
 
     def _body(self, model, messages, stream, tools=None, schema=None):
-        body: dict = {"model": model, "messages": self.convert(messages), "stream": stream, "options": {"num_ctx": OLLAMA_NUM_CTX}}
+        body: dict = {"model": model, "messages": self.convert(messages), "stream": stream, "options": {"num_ctx": OLLAMA_NUM_CTX, "num_predict": OLLAMA_NUM_PREDICT}}
         if tools:
             body["tools"] = tools
         if schema:
@@ -307,7 +360,7 @@ class OllamaNative(Protocol):
             async with client.stream("POST", self.root(conn) + "/api/chat", json=self._body(model, messages, True)) as r:
                 if r.status_code >= 400:
                     text = (await r.aread()).decode(errors="replace")
-                    yield {"error": f"{conn['name']} error {r.status_code}: {text[:400]}"}
+                    yield error_event(conn, r.status_code, text, r.headers)
                     return
                 async for line in r.aiter_lines():
                     try:
@@ -372,8 +425,11 @@ class Responses(Protocol):
         return {"prompt_tokens": u.get("input_tokens") or 0, "completion_tokens": u.get("output_tokens") or 0}
 
     async def chat(self, conn, secret, model, messages, tools, schema=None):
-        data = (await _post(conn, conn["base_url"].rstrip("/") + "/responses", self._body(model, messages, False, tools, schema),
-                            self.headers(conn, secret), self.timeout)).json()
+        if conn.get("auth_kind") == "oauth_subscription":  # ChatGPT plan usage: every request must be store:false, stream:true
+            data = await self._collect(conn, secret, model, messages, tools, schema)
+        else:
+            data = (await _post(conn, conn["base_url"].rstrip("/") + "/responses", self._body(model, messages, False, tools, schema),
+                                self.headers(conn, secret), self.timeout)).json()
         text, calls = "", []
         for item in data.get("output") or []:
             if item.get("type") == "message":
@@ -382,8 +438,41 @@ class Responses(Protocol):
                 calls.append(_call(item.get("call_id") or f"call_{len(calls)}", item["name"], item.get("arguments") or "{}"))
         return {"message": {"role": "assistant", "content": text, "tool_calls": calls}, "usage": self._usage(data.get("usage"))}
 
+    @staticmethod
+    def _failure(conn: dict, ev: dict) -> dict:
+        err = ev.get("error") or (ev.get("response") or {}).get("error") or ev
+        text = json.dumps(err)[:400]
+        code = err.get("code", "") if isinstance(err, dict) else ""
+        # Sign in with ChatGPT: the plan's usage limit can arrive mid stream (developers.openai.com/siwc, models-and-inference)
+        status = 429 if code in ("subscription_sharing_usage_limit_exceeded", "subscription_sharing_usage_unavailable",
+                                 "rate_limit_exceeded", "insufficient_quota") else 502
+        return {"error": f"{conn['name']}: {text}", "status": status, "body": text}
+
+    async def _collect(self, conn, secret, model, messages, tools, schema) -> dict:
+        """A whole answer read from the event stream: text, function calls and usage, complete only at response.completed."""
+        text, items, final = "", [], None
+        async for ev in _sse(conn, conn["base_url"].rstrip("/") + "/responses", self._body(model, messages, True, tools, schema),
+                             self.headers(conn, secret), self.timeout):
+            t = ev.get("type")
+            if "error" in ev and not t:
+                raise ProviderError(502, ev["error"], upstream=ev.get("status"), retry_after=ev.get("retry_after"), body=ev.get("body", ""))
+            if t == "response.output_text.delta":
+                text += ev.get("delta", "")
+            elif t == "response.output_item.done" and isinstance(ev.get("item"), dict):
+                items.append(ev["item"])
+            elif t == "response.completed":
+                final = ev.get("response") or {}
+            elif t in ("error", "response.failed", "response.incomplete"):
+                f = self._failure(conn, ev)
+                raise ProviderError(502, f["error"], upstream=f["status"], kind="quota" if f["status"] == 429 else "http", body=f["body"])
+        if final is None:
+            raise ProviderError(502, f"{conn['name']} stream ended before response.completed", kind="unreachable")
+        output = final.get("output") or items or ([{"type": "message", "content": [{"type": "output_text", "text": text}]}] if text else [])
+        return {"output": output, "usage": final.get("usage")}
+
     async def stream(self, conn, secret, model, messages):
         usage: dict = {}
+        completed = False
         async for ev in _sse(conn, conn["base_url"].rstrip("/") + "/responses", self._body(model, messages, True),
                              self.headers(conn, secret), self.timeout):
             t = ev.get("type")
@@ -393,10 +482,14 @@ class Responses(Protocol):
             if t == "response.output_text.delta":
                 yield {"delta": ev.get("delta", "")}
             elif t == "response.completed":
+                completed = True
                 usage = self._usage((ev.get("response") or {}).get("usage"))
-            elif t in ("error", "response.failed"):
-                yield {"error": json.dumps(ev.get("error") or (ev.get("response") or {}).get("error") or ev)[:400]}
+            elif t in ("error", "response.failed", "response.incomplete"):
+                yield self._failure(conn, ev)
                 return
+        if not completed and conn.get("auth_kind") == "oauth_subscription":
+            yield {"error": f"{conn['name']} stream ended before response.completed", "status": 502}
+            return
         yield {"done": True, "usage": usage}
 
 
@@ -514,10 +607,15 @@ class Adapter:
 
     def list_models(self) -> list[str]:
         """Models the endpoint lists plus the ones typed in by hand. A failed listing is not an error: manual ones remain."""
-        secret = credential(self.conn) if self.auth_kind != "oauth_subscription" else ""
+        try:
+            secret = credential(self.conn)
+        except HTTPException:
+            if self.auth_kind != "oauth_subscription":
+                raise
+            secret = ""  # signed out: typed-in models remain listed, a call then asks to sign in again
         manual = [m.strip() for m in (self.conn.get("models") or "").split(",") if m.strip()]
         names: list[str] = []
-        if self.auth_kind != "oauth_subscription":  # plan tokens are for Responses requests only; models are typed in
+        if secret or self.auth_kind != "oauth_subscription":  # plan tokens list the account's own catalogue
             try:
                 r = httpx.get(self.protocol.models_url(self.conn), headers=self.protocol.headers(self.conn, secret), timeout=15)
                 r.raise_for_status()
@@ -533,8 +631,6 @@ class Adapter:
         """
         secret = credential(self.conn)  # raises for a refused kind (R5) or an expired sign-in
         manual = [m.strip() for m in (self.conn.get("models") or "").split(",") if m.strip()]
-        if self.auth_kind == "oauth_subscription":  # no model listing on plan tokens; a valid token is the check
-            return "ok", f"signed in; {len(manual)} models typed in"
         try:
             r = httpx.get(self.protocol.models_url(self.conn), headers=self.protocol.headers(self.conn, secret), timeout=8)
         except httpx.HTTPError as e:

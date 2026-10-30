@@ -1,8 +1,54 @@
-import { Check, Cpu, Download, KeyRound, Loader2, Mail, Plug, Plus, RefreshCw, Shield, Trash2 } from "lucide-react";
+import { Check, Cpu, Download, FolderOpen, KeyRound, Loader2, Mail, Monitor, Plug, Plus, RefreshCw, Shield, Trash2 } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, stream } from "../api";
+import { AppInfo, Sidecar, appInfo, inDesktopShell, listSidecars, openDataDir, openLogs, requestApproval } from "../desktop";
 import { ModelSelect, useModels, useToast } from "../util";
+import { PhoneCard } from "./Phone";
+
+type DesktopInfo = { desktop: boolean; data_dir: string; secret_backend: string };
+
+/** Desktop app only: where data lives, how keys are protected, and the helper processes (sidecars). */
+function DesktopApp({ info }: { info: DesktopInfo }) {
+  const [app, setApp] = useState<AppInfo | null>(null);
+  const [sidecars, setSidecars] = useState<Sidecar[]>([]);
+  const [answer, setAnswer] = useState("");
+  const shell = inDesktopShell();
+  useEffect(() => {
+    if (!shell) return;
+    appInfo().then(setApp).catch(() => undefined);
+    listSidecars().then(setSidecars).catch(() => undefined);
+  }, [shell]);
+  const test = async () => setAnswer((await requestApproval("Test approval", "This is what an approval prompt looks like. Nothing will happen either way.", "low")) ? "Approved" : "Denied");
+  return (
+    <div className="card col gap-lg">
+      <div className="row"><Monitor size={16} /><h2>Desktop app</h2>{app && <span className="badge">v{app.version} · {app.platform} {app.arch}</span>}</div>
+      <div className="col small">
+        <div>Your data: <span className="mono">{info.data_dir}</span></div>
+        <div>API keys: {info.secret_backend === "os-keychain" ? "stored in this computer's keychain" : "encrypted in your data folder (no system keychain available)"}</div>
+        {app && <div>Updates: {app.updater ? "automatic" : "manual for now (download new versions from the releases page)"}</div>}
+      </div>
+      {sidecars.length > 0 && (
+        <div className="card flush">
+          {sidecars.map((sc) => (
+            <div key={sc.name} className="list-item">
+              <div className="grow"><div><strong>{sc.name}</strong></div><div className="muted small">{sc.description}</div></div>
+              <span className={`badge ${sc.status === "running" ? "ok" : sc.status === "failed" ? "danger" : ""}`}>{sc.status}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {shell && (
+        <div className="row wrap">
+          <button className="btn" onClick={() => openDataDir()}><FolderOpen size={14} /> Open data folder</button>
+          <button className="btn" onClick={() => openLogs()}><FolderOpen size={14} /> Open logs</button>
+          <button className="btn ghost" onClick={test}>Test approval prompt</button>
+          {answer && <span className="badge">{answer}</span>}
+        </div>
+      )}
+    </div>
+  );
+}
 
 type Provider = { id: number; name: string; auth_kind: string; protocol: string; base_url: string; models: string; enabled: number;
   has_key: boolean; key_hint: string; state: string; last_error: string };
@@ -239,7 +285,9 @@ export default function Settings({ onChanged }: { onChanged: () => void }) {
   const [s, setS] = useState({ workspace_name: "", default_model: "", chat_url: "", tools_url: "" });
   const [pw, setPw] = useState({ current: "", new: "" });
   const toast = useToast();
+  const [desktop, setDesktop] = useState<DesktopInfo | null>(null);
   useEffect(() => { api<typeof s>("/settings").then(setS); }, []);
+  useEffect(() => { api<DesktopInfo>("/desktop/info").then(setDesktop).catch(() => setDesktop(null)); }, []);
 
   const save = async () => {
     try { setS(await api("/settings", { method: "PUT", body: { workspace_name: s.workspace_name, default_model: s.default_model } })); toast.ok("Saved"); onChanged(); }
@@ -263,6 +311,8 @@ export default function Settings({ onChanged }: { onChanged: () => void }) {
           </label>
           <div><button className="btn primary" onClick={save}>Save</button></div>
         </div>
+        {desktop?.desktop && <DesktopApp info={desktop} />}
+        <PhoneCard />
         <Usage />
         <LocalModels />
         <Providers />
@@ -277,14 +327,14 @@ export default function Settings({ onChanged }: { onChanged: () => void }) {
           <div className="muted small">Chat (Open WebUI) is preconfigured with a Workbench tool server at <span className="mono">{s.tools_url}</span>, so agents can search notes, manage tasks and events, search mail and save drafts. Agents can never send mail. Enable it per chat from the tools button in the message box, or for a model in Admin → Models.</div>
           <div><a className="btn" href={s.chat_url} target="_blank" rel="noreferrer">Open chat</a></div>
         </div>
-        <form className="card col" onSubmit={changePw}>
+        {!desktop?.desktop && <form className="card col" onSubmit={changePw}>
           <div className="row"><Shield size={16} /><h2>Password</h2></div>
           <div className="row wrap">
             <input className="input grow" type="password" placeholder="Current password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} />
             <input className="input grow" type="password" placeholder="New password (10+ characters)" value={pw.new} onChange={(e) => setPw({ ...pw, new: e.target.value })} />
             <button className="btn" disabled={!pw.current || pw.new.length < 10}>Change</button>
           </div>
-        </form>
+        </form>}
       </div>
       {toast.node}
     </div>

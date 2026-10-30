@@ -37,7 +37,7 @@ class ChatIn(BaseModel):
     message: str = Field(..., min_length=1, max_length=50_000)
     conversation_id: int | None = None
     model: str | None = None
-    channel: str = Field("web", pattern="^(web|cli)$")
+    channel: str = Field("web", pattern="^(web|cli|mobile)$")
 
 
 IDEMPOTENCY_KEY = re.compile(r"^[A-Za-z0-9._:-]{8,200}$")
@@ -82,7 +82,7 @@ def conversations(channel: str | None = None, q: str = ""):
         return [db.one("SELECT * FROM conversations WHERE id = ?", i) for i in ids]
     if channel:
         return db.all("SELECT * FROM conversations WHERE channel = ? ORDER BY updated_at DESC LIMIT 200", channel)
-    return db.all("SELECT * FROM conversations WHERE channel IN ('web', 'cli', 'telegram', 'schedule') ORDER BY updated_at DESC LIMIT 200")
+    return db.all("SELECT * FROM conversations WHERE channel IN ('web', 'cli', 'mobile', 'telegram', 'schedule') ORDER BY updated_at DESC LIMIT 200")
 
 
 @router.get("/conversations/{cid}")
@@ -219,6 +219,13 @@ def add_skill(data: SkillIn):
 
 @router.put("/skills/{sid}")
 def edit_skill(sid: int, data: SkillIn):
+    cur = db.one("SELECT source FROM skills WHERE id = ?", sid)
+    if cur and cur["source"] == "github":  # only enable/disable; text changes go through a new reviewed install
+        row = db.one("SELECT id FROM hub_skills WHERE name = (SELECT name FROM skills WHERE id = ?) AND status IN ('installed','disabled')", sid)
+        if row:
+            from . import skills_hub
+            skills_hub.set_enabled(row["id"], data.enabled)
+        return db.one("SELECT * FROM skills WHERE id = ?", sid)
     db.run("UPDATE skills SET description = ?, steps = ?, enabled = ?, updated_at = ? WHERE id = ?",
            data.description, data.steps, int(data.enabled), db.now(), sid)
     return db.one("SELECT * FROM skills WHERE id = ?", sid)

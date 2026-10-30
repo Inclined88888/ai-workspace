@@ -147,3 +147,12 @@ def test_cli_token_auth(client):
     assert anon.get("/api/memories").status_code == 401
     assert anon.get("/api/memories", headers={"Authorization": f"Bearer {token}"}).status_code == 200
     assert anon.get("/api/memories", headers={"Authorization": "Bearer wrong"}).status_code == 401
+
+
+def test_web_search_tool_only_offered_when_search_is_set_up(monkeypatch):
+    from app import assistant, search
+
+    monkeypatch.setattr(search, "provider", lambda: "")
+    assert not assistant.TOOL_MAP["web_search"].when(None)
+    monkeypatch.setattr(search, "provider", lambda: "brave")
+    assert assistant.TOOL_MAP["web_search"].when(None)

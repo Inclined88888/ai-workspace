@@ -37,6 +37,23 @@ CREATE TABLE IF NOT EXISTS connections (
   created_at TEXT NOT NULL
 );
 
+-- Smart router (router.py): per connection usage today, the provider's own limit headers, and cool-downs after a 429
+CREATE TABLE IF NOT EXISTS router_state (
+  connection_id INTEGER PRIMARY KEY,
+  day TEXT NOT NULL DEFAULT '',                 -- the provider's quota day this row counts (its own reset time zone)
+  requests INTEGER NOT NULL DEFAULT 0,          -- answered requests on that day
+  tokens INTEGER NOT NULL DEFAULT 0,
+  limit_requests INTEGER,                       -- from x-ratelimit-limit-requests and the like, when sent
+  remaining_requests INTEGER,
+  limit_tokens INTEGER,
+  remaining_tokens INTEGER,
+  window TEXT NOT NULL DEFAULT '',              -- what the request numbers cover: day | minute
+  cooldown_until REAL NOT NULL DEFAULT 0,       -- unix time; skipped until then
+  cooldown_reason TEXT NOT NULL DEFAULT '',
+  last_ok_at TEXT,
+  last_error TEXT NOT NULL DEFAULT ''
+);
+
 CREATE TABLE IF NOT EXISTS docs (
   id INTEGER PRIMARY KEY,
   kind TEXT NOT NULL DEFAULT 'note',            -- note | document
@@ -206,6 +223,46 @@ CREATE TABLE IF NOT EXISTS skills (
   updated_at TEXT NOT NULL
 );
 
+-- Skills from GitHub (skills_hub.py): reviewed candidates, installs, audit log, run-time permission requests
+CREATE TABLE IF NOT EXISTS hub_skills (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  kind TEXT NOT NULL DEFAULT 'skill',            -- skill (SKILL.md) | mcp (MCP server)
+  source_url TEXT NOT NULL,
+  owner TEXT NOT NULL,
+  repo TEXT NOT NULL,
+  path TEXT NOT NULL DEFAULT '',
+  ref TEXT NOT NULL DEFAULT '',
+  commit_sha TEXT NOT NULL,
+  status TEXT NOT NULL,                          -- reviewed | installed | disabled | rejected | superseded | uninstalled
+  risk TEXT NOT NULL DEFAULT 'low',
+  report TEXT NOT NULL DEFAULT '{}',
+  granted TEXT NOT NULL DEFAULT '{}',
+  update_of INTEGER,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  installed_at TEXT
+);
+CREATE TABLE IF NOT EXISTS skill_audit (
+  id INTEGER PRIMARY KEY,
+  hub_skill_id INTEGER,
+  skill_name TEXT NOT NULL DEFAULT '',
+  event TEXT NOT NULL,
+  detail TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS skill_permission_requests (
+  id INTEGER PRIMARY KEY,
+  hub_skill_id INTEGER NOT NULL,
+  kind TEXT NOT NULL,
+  target TEXT NOT NULL DEFAULT '',
+  what TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',        -- pending | allowed | denied
+  created_at TEXT NOT NULL,
+  decided_at TEXT
+);
+
 CREATE TABLE IF NOT EXISTS schedules (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,
@@ -256,6 +313,24 @@ CREATE TABLE IF NOT EXISTS agent_tasks (
   conversation_id INTEGER,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
+);
+
+-- Paired phones (mobile.py): one row per device. Only a hash of the device token is stored.
+CREATE TABLE IF NOT EXISTS devices (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL DEFAULT 'Phone',
+  platform TEXT NOT NULL DEFAULT '',            -- ios | android | web
+  token_hash TEXT NOT NULL UNIQUE,              -- sha256 of the device token
+  push_token TEXT NOT NULL DEFAULT '',          -- Expo push token; empty until the phone allows notifications
+  created_at TEXT NOT NULL,
+  last_seen TEXT
+);
+
+-- Short-lived pairing codes shown as a QR code in Settings; each is exchanged once for a device token.
+CREATE TABLE IF NOT EXISTS pairing_codes (
+  code_hash TEXT PRIMARY KEY,
+  expires_at REAL NOT NULL,                     -- unix seconds
+  used INTEGER NOT NULL DEFAULT 0
 );
 
 -- The run log (actions.py): every agent action is one row. Replaced usage, tool_runs, turn_checks and

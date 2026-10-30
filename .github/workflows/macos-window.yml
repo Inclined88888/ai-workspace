@@ -1,0 +1,48 @@
+# The one-command install on a real Mac (Apple Silicon, macos-14), straight from this branch the way a user runs it, then
+# proves the app window shows the UI (one-time sign-in link, rendered in Chrome) and that --status/--logs work.
+name: macOS window
+
+on:
+  pull_request:
+    paths: ['install.sh', 'desktop/launcher/**', 'workbench/**', 'scripts/ci/window_check.py', '.github/workflows/macos-window.yml']
+  push:
+    branches: [main, 'release/**']
+    paths: ['install.sh', 'desktop/launcher/**', 'workbench/**', 'scripts/ci/window_check.py', '.github/workflows/macos-window.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-window-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  window:
+    name: One-command install + window (macos-14)
+    runs-on: macos-14
+    timeout-minutes: 40
+    env:
+      REF: ${{ github.head_ref || github.ref_name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: One-command install from the branch (what the user pastes)
+        run: |
+          curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${REF}/install.sh" | AI_WORKSPACE_REF="$REF" bash -s -- --no-start
+      - name: Start the app and check the window shows the UI
+        run: /usr/bin/python3 scripts/ci/window_check.py
+        env:
+          WINDOW_CHECK_OUT: ${{ runner.temp }}/window-check
+      - name: Launcher and app logs
+        if: always()
+        run: |
+          ~/.local/bin/ai-workspace --logs || true
+          ~/.local/bin/ai-workspace --stop || true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        if: always()
+        with:
+          name: macos-window-check
+          path: |
+            ${{ runner.temp }}/window-check/window.png
+            ${{ runner.temp }}/window-check/dom.html
+            ~/Library/Application Support/com.inclined88888.aiworkspace/logs/
+          if-no-files-found: warn

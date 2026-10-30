@@ -39,11 +39,32 @@ def encrypt(value: str) -> str:
 def decrypt(value: str) -> str:
     if not value:
         return ""
+    from . import keychain
+
+    if keychain.is_ref(value):
+        return keychain.get(value)
     try:
         return _fernet.decrypt(value.encode()).decode()
     except InvalidToken:
         # APP_SECRET changed since this was stored; the credential must be re-entered.
         return ""
+
+
+def store_connection_secret(cid: int, value: str) -> None:
+    """Save a model connection's key: in the OS keychain when the desktop app enabled it, else encrypted in SQLite."""
+    from . import keychain
+
+    old = db.one("SELECT secret_enc FROM connections WHERE id = ?", cid)
+    if old and keychain.is_ref(old["secret_enc"]) and not value:
+        keychain.delete(old["secret_enc"])
+    stored = keychain.put(f"connection:{cid}", value) if value and keychain.enabled() else encrypt(value)
+    db.run("UPDATE connections SET secret_enc = ? WHERE id = ?", stored, cid)
+
+
+def forget_connection_secret(stored: str) -> None:
+    from . import keychain
+
+    keychain.delete(stored)
 
 
 # Sessions: signed, expiring token. Changing the password bumps the generation and logs out all sessions.

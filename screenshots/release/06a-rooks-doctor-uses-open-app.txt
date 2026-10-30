@@ -1,0 +1,7 @@
+--- rooks doctor
+rooks 0.1.0, Python 3.12.16, linux
+config: /home/tester/.config/ai-workspace/rooks.toml (not found, using defaults)
+provider: workbench (openai) at http://127.0.0.1:38675/v1, model default
+api key: WORKBENCH_API_KEY is set
+model call: ok ('ready', 21+2 tokens)
+trusted folder: no (/home/tester/demo-project)

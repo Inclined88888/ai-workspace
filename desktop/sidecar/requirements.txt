@@ -1,0 +1,4 @@
+# The desktop sidecar: Workbench's runtime plus the OS keychain client and the freezer.
+-r ../../workbench/backend/requirements.txt
+keyring==25.6.0
+pyinstaller==6.16.0

@@ -3,13 +3,13 @@ import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import App from "./App";
 import "./styles.css";
+import "./appearance.css";
+import "./skills.css";
+import "./models.css";
+import "./motion.css";
+import { applyTo, readAppearance } from "./appearance";
 
-try {
-  const theme = localStorage.getItem("wb-theme");
-  if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
-} catch {
-  /* storage unavailable */
-}
+applyTo(document.documentElement, readAppearance());
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

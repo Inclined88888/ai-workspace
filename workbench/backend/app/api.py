@@ -13,7 +13,8 @@ from .adapters import ALLOWED, validate
 from .db import OFFICIAL_HOSTS
 from .redact import redact, redact_obj
 from .security import (
-    COOKIE, check_session, decrypt, encrypt, hash_password, make_session, require_user, throttle, verify_password,
+    COOKIE, check_session, decrypt, encrypt, forget_connection_secret, hash_password, make_session, require_user,
+    store_connection_secret, throttle, verify_password,
 )
 
 public = APIRouter(prefix="/api")
@@ -47,9 +48,12 @@ def _login(response: Response) -> None:
 # Status, setup, auth
 @public.get("/status")
 def status(request: Request):
+    signed_in = check_session(request.cookies.get(COOKIE))
     return {
         "setup_complete": db.get_setting("setup_complete") == "1",
-        "signed_in": check_session(request.cookies.get(COOKIE)),
+        "signed_in": signed_in,
+        # Docker installs get the same first-run "Choose how to think" screen while no model is connected
+        "needs_models": bool(signed_in) and not db.one("SELECT id FROM connections WHERE enabled = 1 LIMIT 1"),
         "setup_code_required": bool(SETUP_CODE),
         "workspace_name": db.get_setting("workspace_name", config.WORKSPACE_NAME),
         "chat_url": config.CHAT_URL,
@@ -57,6 +61,8 @@ def status(request: Request):
         "hermes_url": config.HERMES_URL,
         "browser_enabled": bool(config.BROWSER_URL and config.BROWSER_API_KEY),
         "local_models_enabled": bool(config.OLLAMA_URL),
+        "desktop": config.DESKTOP,
+        "welcome_done": db.get_setting("desktop_welcome_done") == "1",
     }
 
 
@@ -80,6 +86,68 @@ def setup(data: SetupIn, request: Request, response: Response):
     services.local_calendar_id()
     _login(response)
     return {"ok": True}
+
+
+# Desktop app: the native shell owns the machine and the window, so there is no password. On each launch it starts
+# this backend with a fresh random WORKBENCH_DESKTOP_TOKEN and opens /api/desktop/session?token=... in its own window.
+@public.get("/desktop/session")
+def desktop_session(token: str, request: Request):
+    from fastapi.responses import RedirectResponse
+
+    if not config.DESKTOP or not config.DESKTOP_TOKEN or not secrets.compare_digest(token, config.DESKTOP_TOKEN):
+        throttle(request.client.host if request.client else "?")
+        raise HTTPException(403, "Desktop session is only available inside the desktop app")
+    if db.get_setting("setup_complete") != "1":
+        db.set_setting("password_hash", hash_password(secrets.token_urlsafe(32)))  # never typed: the window is the login
+        db.set_setting("setup_complete", "1")
+        services.local_calendar_id()
+    target = "/" if db.get_setting("desktop_welcome_done") == "1" else "/welcome"
+    response = RedirectResponse(target, status_code=303)
+    _login(response)
+    return response
+
+
+# The launcher (`ai-workspace`) opens the app in a Chrome/Edge window. Putting the launch token on that browser's command
+# line would show it to other local users (ps), so the launcher trades it for a one-time code that expires in two
+# minutes, and opens /api/desktop/handoff?code=... instead.
+HANDOFF_TTL = 120
+_handoffs: dict[str, float] = {}
+
+
+@public.post("/desktop/handoff")
+def desktop_handoff_code(request: Request):
+    import time
+
+    auth = request.headers.get("authorization", "")
+    token = auth.removeprefix("Bearer ").strip()
+    if not config.DESKTOP or not config.DESKTOP_TOKEN or not secrets.compare_digest(token, config.DESKTOP_TOKEN):
+        throttle(request.client.host if request.client else "?")
+        raise HTTPException(403, "Only the AI Workspace launcher can ask for a sign-in code")
+    now = time.monotonic()
+    for c, exp in list(_handoffs.items()):
+        if exp < now:
+            _handoffs.pop(c, None)
+    code = secrets.token_urlsafe(24)
+    _handoffs[code] = now + HANDOFF_TTL
+    return {"code": code, "expires_in": HANDOFF_TTL}
+
+
+@public.get("/desktop/handoff")
+def desktop_handoff(code: str, request: Request):
+    import time
+
+    from fastapi.responses import HTMLResponse
+
+    exp = _handoffs.pop(code, None)
+    if exp is None or exp < time.monotonic():
+        throttle(request.client.host if request.client else "?")
+        return HTMLResponse(
+            '<!doctype html><meta charset="utf-8"><title>AI Workspace</title>'
+            '<body style="font:16px -apple-system,system-ui,sans-serif;max-width:34em;margin:4em auto;color:#222">'
+            "<h2>This sign-in link has already been used or has expired</h2>"
+            "<p>Close this window and open AI Workspace again (run <code>ai-workspace</code> in a terminal, "
+            "or click AI Workspace in Applications / the Start menu).</p></body>", status_code=403)
+    return desktop_session(config.DESKTOP_TOKEN, request)
 
 
 class LoginIn(BaseModel):
@@ -117,6 +185,19 @@ def change_password(data: PasswordIn, response: Response):
     return {"ok": True}
 
 
+@api.post("/desktop/welcome-done")
+def desktop_welcome_done():
+    db.set_setting("desktop_welcome_done", "1")
+    return {"ok": True}
+
+
+@api.get("/desktop/info")
+def desktop_info():
+    from . import keychain
+
+    return {"desktop": config.DESKTOP, "data_dir": str(config.DATA_DIR), "secret_backend": keychain.backend_name()}
+
+
 # Settings and providers
 @api.get("/settings")
 def get_settings():
@@ -139,7 +220,7 @@ def put_settings(data: SettingsIn):
         db.set_setting("workspace_name", data.workspace_name.strip() or config.WORKSPACE_NAME)
     if data.default_model is not None:
         if data.default_model:
-            llm.split_ref(data.default_model)
+            llm.check_ref(data.default_model)
         db.set_setting("default_model", data.default_model)
     return get_settings()
 
@@ -154,6 +235,7 @@ def _provider_out(c: dict) -> dict:
 def providers():
     """Model connections (one per provider account or local server). See adapters.py for auth kinds and protocols."""
     return {"providers": [_provider_out(c) for c in db.all("SELECT * FROM connections ORDER BY id")], "presets": llm.PRESETS,
+            "key_info": llm.KEY_INFO,
             "auth_kinds": {k: list(v) for k, v in ALLOWED.items() if k != "session_scraping_forbidden"}}
 
 
@@ -189,9 +271,10 @@ def add_provider(data: ProviderIn):
     cid = db.run(
         "INSERT INTO connections(name, auth_kind, protocol, base_url, secret_enc, models, enabled, residency, created_at) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        data.name, auth, proto, data.base_url.rstrip("/"), encrypt(data.api_key or ""), data.models, int(data.enabled),
+        data.name, auth, proto, data.base_url.rstrip("/"), "", data.models, int(data.enabled),
         "local" if auth == "local_ollama" else "cloud", db.now(),
     )
+    store_connection_secret(cid, data.api_key or "")
     return _provider_out(db.one("SELECT * FROM connections WHERE id = ?", cid))
 
 
@@ -205,16 +288,171 @@ def edit_provider(pid: int, data: ProviderIn):
            data.name, auth, proto, data.base_url.rstrip("/"), data.models, int(data.enabled),
            "local" if auth == "local_ollama" else "cloud", pid)
     if data.api_key is not None and auth != "oauth_subscription":
-        db.run("UPDATE connections SET secret_enc = ? WHERE id = ?", encrypt(data.api_key), pid)
+        store_connection_secret(pid, data.api_key)
     llm._model_cache.pop(pid, None)
     return _provider_out(db.one("SELECT * FROM connections WHERE id = ?", pid))
 
 
 @api.delete("/providers/{pid}")
 def delete_provider(pid: int):
+    old = db.one("SELECT secret_enc FROM connections WHERE id = ?", pid)
+    if old:
+        forget_connection_secret(old["secret_enc"])
     db.run("DELETE FROM connections WHERE id = ?", pid)
     llm._model_cache.pop(pid, None)
     return {"ok": True}
+
+
+class KeyIn(BaseModel):
+    api_key: str = Field(..., min_length=8, max_length=500)
+    preset: str | None = Field(None, max_length=40)
+    base_url: str | None = Field(None, pattern=r"^https?://", max_length=300)
+    save: bool = False
+
+
+def _key_connection(data: KeyIn) -> tuple[str, dict]:
+    preset = data.preset or llm.detect_key(data.api_key)
+    if not preset or preset not in llm.PRESETS or llm.PRESETS[preset]["auth_kind"] == "local_ollama":
+        raise HTTPException(400, "That doesn't look like a key we know. Pick the provider, then paste it again.")
+    p = llm.PRESETS[preset]
+    return preset, {"id": 0, "name": p["name"], "auth_kind": p["auth_kind"], "protocol": p["protocol"],
+                    "base_url": (data.base_url or p["base_url"]).rstrip("/"), "secret_enc": encrypt(data.api_key.strip()),
+                    "models": "", "state": "connected", "enabled": 1}
+
+
+@api.post("/providers/detect")
+def detect_key(data: KeyIn):
+    """Which provider a pasted key is for, from its shape. The key is not sent anywhere."""
+    preset = llm.detect_key(data.api_key)
+    return {"preset": preset, "name": llm.PRESETS[preset]["name"] if preset else None}
+
+
+@api.post("/providers/validate")
+def validate_key(data: KeyIn):
+    """Checks a pasted key against the provider's model list before anything is saved; with save, connects it.
+
+    Only the outcome is returned, never the provider's error text (some quote the key back)."""
+    from .adapters import Adapter
+
+    preset, conn = _key_connection(data)
+    try:
+        health, detail = Adapter(conn).probe()
+    except HTTPException as e:
+        health, detail = "down", str(e.detail)
+    out = {"preset": preset, "name": conn["name"], "ok": health != "down", "health": health, "detail": detail}
+    if out["ok"] and data.save:
+        same = db.one("SELECT id FROM connections WHERE base_url = ? AND auth_kind = ?", conn["base_url"], conn["auth_kind"])
+        cid = same["id"] if same else db.run(
+            "INSERT INTO connections(name, auth_kind, protocol, base_url, secret_enc, residency, created_at) VALUES (?, ?, ?, ?, '', 'cloud', ?)",
+            conn["name"], conn["auth_kind"], conn["protocol"], conn["base_url"], db.now())
+        db.run("UPDATE connections SET enabled = 1, state = 'connected', last_error = '' WHERE id = ?", cid)
+        store_connection_secret(cid, data.api_key.strip())
+        llm._model_cache.pop(cid, None)
+        out["provider"] = _provider_out(db.one("SELECT * FROM connections WHERE id = ?", cid))
+    return out
+
+
+@api.get("/router")
+def router_status():
+    """The smart router: routing order, the fast and strong model each provider would use, quota and cool-downs."""
+    from . import router
+
+    return router.status()
+
+
+class RouterIn(BaseModel):
+    order: list[int] | None = None
+    disabled: list[int] | None = None
+    models: dict[str, dict[str, str]] | None = None
+    local_fallback: bool | None = None
+
+
+@api.put("/router")
+def router_save(data: RouterIn):
+    from . import router
+
+    router.save_settings(data.model_dump())
+    return router.status()
+
+
+@api.post("/router/reset/{cid}")
+def router_reset(cid: int):
+    """Try a provider again now, even though it said to wait."""
+    from . import router
+
+    router.reset(cid)
+    return router.status()
+
+
+class ChatGPTStartIn(BaseModel):
+    account: str | None = Field(None, max_length=200)
+
+
+@api.post("/auth/chatgpt/start")
+async def chatgpt_start(data: ChatGPTStartIn | None = None):
+    """Sign in with ChatGPT (OpenAI's official flow for open-source apps). Open the URL in the system browser."""
+    from . import siwc
+
+    return await siwc.start((data.account if data else None), listen=True)
+
+
+@api.get("/auth/chatgpt/status/{state}")
+def chatgpt_status(state: str):
+    from . import siwc
+
+    return siwc.status(state)
+
+
+class CallbackIn(BaseModel):
+    url: str = Field(..., min_length=10, max_length=8000)
+
+
+@api.post("/auth/chatgpt/complete")
+async def chatgpt_complete(data: CallbackIn):
+    """Finish a sign-in from a pasted callback URL (when the browser can't reach this computer's 127.0.0.1)."""
+    from . import siwc
+
+    res = await siwc.complete(data.url)
+    if res.get("connection_id"):
+        llm._model_cache.pop(res["connection_id"], None)
+    return res
+
+
+@api.post("/auth/chatgpt/signout/{cid}")
+def chatgpt_signout(cid: int):
+    from . import siwc
+
+    conn = db.one("SELECT * FROM connections WHERE id = ? AND auth_kind = 'oauth_subscription'", cid)
+    if not conn:
+        raise HTTPException(404, "No ChatGPT sign-in with that id")
+    llm._model_cache.pop(cid, None)
+    return siwc.sign_out(conn)
+
+
+@api.get("/auth/subscriptions")
+def subscriptions():
+    """Which plan sign-ins exist, and an honest reason for each one that isn't offered."""
+    return {"options": SUBSCRIPTIONS}
+
+
+SUBSCRIPTIONS = [
+    {"id": "chatgpt", "name": "ChatGPT", "plans": "Free, Go, Plus, Pro, Business", "available": True,
+     "detail": "OpenAI lets open-source apps use your ChatGPT plan through its official sign-in. Usage counts against your "
+               "plan's limits, shared with your other apps.",
+     "source": "https://developers.openai.com/siwc/token-sharing-open-source"},
+    {"id": "claude", "name": "Claude", "plans": "Pro, Max", "available": False,
+     "detail": "Not available. Anthropic's terms don't allow Claude Pro or Max sign-ins in other apps; accounts have been "
+               "cut off for it. Use a Claude API key instead.",
+     "source": "https://code.claude.com/docs/en/legal-and-compliance"},
+    {"id": "grok", "name": "Grok", "plans": "SuperGrok", "available": False,
+     "detail": "Not available yet. xAI only offers SuperGrok sign-in to partner apps so far, with no public sign-up for "
+               "other apps. Use an xAI API key for now.",
+     "source": "https://x.ai/news/grok-hermes"},
+    {"id": "gemini", "name": "Gemini", "plans": "Google AI Pro, Ultra", "available": False,
+     "detail": "Not available. Google doesn't allow other apps to use Gemini CLI or Antigravity sign-ins. A free AI Studio "
+               "key gives you Gemini anyway.",
+     "source": "https://github.com/google-gemini/gemini-cli/discussions/20632"},
+]
 
 
 @api.get("/models")
@@ -572,7 +810,7 @@ class ResearchIn(BaseModel):
 @api.post("/research")
 def start_research(data: ResearchIn):
     model = data.model or llm.default_model_ref()
-    llm.split_ref(model)
+    llm.check_ref(model)
     now = db.now()
     rid = db.run("INSERT INTO research(question, model, created_at, updated_at) VALUES (?, ?, ?, ?)", data.question, model, now, now)
     task = asyncio.get_running_loop().create_task(research.run(rid, data.question, model, data.depth))

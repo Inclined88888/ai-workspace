@@ -37,6 +37,34 @@ jobs:
       - name: Terminal CLI contract
         run: python -m pytest -q ../../cli/tests
 
+  rooks-code:
+    name: Terminal coding agent (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14, windows-2022]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: rooks-code
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: "3.11"  # the minimum supported version (tomllib)
+      - run: python -m pip install pytest
+      - name: Tests, including the fake-model end-to-end run
+        run: python -m pytest -q
+      - name: Installs as a command and runs
+        run: |
+          python -m pip install .
+          rooks --version
+          rooks --help
+      - name: Single-file build
+        run: |
+          python scripts/build_pyz.py
+          python dist/rooks.pyz --version
+
   frontend:
     name: Frontend type check and build
     runs-on: ubuntu-24.04
@@ -99,3 +127,81 @@ jobs:
         run: docker build -f cli-launcher/Dockerfile.claude cli-launcher
       - name: Build the pinned Codex CLI add-on
         run: docker build -f cli-launcher/Dockerfile.codex cli-launcher
+
+  rooks-browser:
+    name: Rooks Browser (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14, windows-2022]
+    defaults:
+      run:
+        working-directory: rooks-browser
+    env:
+      ROOKS_BROWSER_TEST_ENGINE: chromium  # the bundled Chromium, so the job does not depend on the runner's Chrome
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: "3.11"  # the oldest supported version
+          cache: pip
+          cache-dependency-path: rooks-browser/pyproject.toml
+      - run: python -m pip install -e ".[dev]"
+      - name: Install Chromium (Linux, with system libraries)
+        if: runner.os == 'Linux'
+        run: python -m playwright install --with-deps chromium
+      - name: Install Chromium
+        if: runner.os != 'Linux'
+        run: python -m playwright install chromium
+      - run: python -m rooks_browser doctor
+      - run: python -m pytest -q
+
+  mobile:
+    name: Mobile app (Expo)
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
+        with:
+          node-version: "22"
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test -- --ci
+
+  installer:
+    name: One-command install (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14, windows-2022]
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Build the web UI (the release zip ships it prebuilt)
+        shell: bash
+        run: cd workbench/frontend && npm ci --no-audit --no-fund && npm run build
+      - name: Install (macOS, Linux)
+        if: runner.os != 'Windows'
+        run: bash install.sh --no-start
+      - name: Install (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          AI_WORKSPACE_NO_START: "1"
+        run: ./install.ps1
+      - name: Start, answer, stop
+        run: python scripts/ci/install_smoke.py

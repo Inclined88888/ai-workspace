@@ -51,7 +51,7 @@ def backend(request, client, fake_url):
 
 def test_lists_models(client, backend):
     models = [m["model"] for m in client.get("/api/models", params={"fresh": True}).json()["models"] if m["provider_id"] == backend["id"]]
-    expected = {"local_ollama": ["llama3.2:3b", "qwen3:4b"], "oauth_subscription": ["gpt-plan"]}.get(backend["auth_kind"], ["fake-model"])
+    expected = {"local_ollama": ["llama3.2:3b", "qwen3:4b"], "oauth_subscription": ["fake-model", "gpt-plan"]}.get(backend["auth_kind"], ["fake-model"])
     assert models == expected
 
 
@@ -155,7 +155,9 @@ def test_nothing_above_the_adapter_layer_branches_on_the_backend():
     import pathlib
     import re
 
-    allowed = {"adapters.py", "api.py", "db.py", "llm.py"}  # api: create/validate connections; db: migration; llm: records them
+    # api and siwc: create/validate connections; db: migration; llm: records them; router: ranks connections by how they
+    # are paid for (plan sign-in first, local last). None of them speak a wire protocol.
+    allowed = {"adapters.py", "api.py", "db.py", "llm.py", "router.py", "siwc.py"}
     offenders = [f"{f.name}:{n}: {line.strip()}"
                  for f in sorted(pathlib.Path(__file__).resolve().parent.parent.joinpath("app").glob("*.py")) if f.name not in allowed
                  for n, line in enumerate(f.read_text().splitlines(), 1) if re.search(r"\bauth_kind\b|\bprotocol\b", line)]

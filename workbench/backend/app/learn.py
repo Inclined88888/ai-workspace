@@ -36,7 +36,9 @@ def upsert_skill(name: str, description: str, steps: str, source: str = "auto") 
         raise HTTPException(400, "Skill name must be short-kebab-case (letters, digits, dashes).")
     if not steps.strip() or not description.strip():
         raise HTTPException(400, "A skill needs a description and steps.")
-    existing = db.one("SELECT id FROM skills WHERE name = ?", name)
+    existing = db.one("SELECT id, source FROM skills WHERE name = ?", name)
+    if existing and existing["source"] == "github":  # reviewed third-party text: only a new reviewed install may change it
+        raise HTTPException(409, f"{name} was installed from GitHub after a security check and cannot be edited here. Save under another name.")
     if existing:
         db.run("UPDATE skills SET description = ?, steps = ?, updated_at = ? WHERE id = ?",
                description.strip()[:300], steps.strip()[:20000], db.now(), existing["id"])

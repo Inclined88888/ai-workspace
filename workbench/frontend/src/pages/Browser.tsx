@@ -2,14 +2,17 @@ import { CheckCircle2, CircleStop, Globe, Loader2, Play, Trash2, XCircle } from 
 import { FormEvent, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
+import { Tracer } from "../Tracer";
 import { Empty, Markdown, ModelSelect, useModels, useToast } from "../util";
 
 type JobSummary = { id: string; goal: string; provider: string; model: string; status: string; source: string; created_at: number };
-type Step = { step: number; url: string; title: string; evaluation: string; next_goal: string; actions: Record<string, unknown>[] };
+type Step = { step: number; url: string; title: string; evaluation: string; next_goal: string; actions: Record<string, unknown>[]; result?: string; status?: string; has_screenshot?: boolean };
+type Approval = { id: string; category: string; label: string; action: string; description: string; url: string; answer: string | null };
 type Job = JobSummary & {
   steps: Step[];
   error: string | null;
   has_screenshot: boolean;
+  pending_approvals?: Approval[];
   allowed_domains: string[];
   result: { final: string | null; success: boolean | null; done: boolean; steps: number; urls: string[]; duration_s: number; model: string } | null;
 };
@@ -35,6 +38,7 @@ export default function Browser() {
   const [jobs, setJobs] = useState<JobSummary[]>([]);
   const [job, setJob] = useState<Job | null>(null);
   const [shotKey, setShotKey] = useState(0);
+  const [openStep, setOpenStep] = useState<number | null>(null);
   const [form, setForm] = useState({ goal: "", provider: "", model: "", max_steps: 25, domains: "" });
   const toast = useToast();
 
@@ -54,7 +58,7 @@ export default function Browser() {
         if (stop) return;
         setJob(j);
         setShotKey((k) => k + 1);
-        if (active(j.status)) timer = setTimeout(poll, 2000);
+        if (active(j.status)) timer = setTimeout(poll, 1200);
         else loadJobs();
       } catch (e) {
         toast.err(e);
@@ -63,6 +67,15 @@ export default function Browser() {
     poll();
     return () => { stop = true; clearTimeout(timer); };
   }, [id]);
+
+  const answer = async (a: Approval, approve: boolean) => {
+    if (!job) return;
+    try {
+      await api(`/browser/jobs/${job.id}/approvals/${a.id}`, { method: "POST", body: { approve } });
+    } catch (e) {
+      toast.err(e);
+    }
+  };
 
   const start = async (e: FormEvent) => {
     e.preventDefault();
@@ -113,7 +126,8 @@ export default function Browser() {
         <div className="card flush" style={{ alignSelf: "start" }}>
           {jobs.length === 0 && <Empty icon={<Globe size={22} />} title="No runs yet" />}
           {jobs.map((j) => (
-            <div key={j.id} className={`list-item ${job?.id === j.id ? "active" : ""}`} onClick={() => navigate(`/browser/${j.id}`)}>
+            <div key={j.id} className={`list-item has-tracer ${job?.id === j.id ? "active" : ""}`} onClick={() => navigate(`/browser/${j.id}`)}>
+              <Tracer active={active(j.status)} />
               <div className="grow">
                 <div className="truncate">{j.goal}</div>
                 <div className="row small faint">{active(j.status) && <Loader2 size={11} className="spin" />}{j.status} · {j.source} · {ago(j.created_at)}</div>
@@ -126,7 +140,8 @@ export default function Browser() {
           {!job && <div className="card"><Empty icon={<Globe size={26} />} title="Pick a run or start one" hint="Agents in Chat and Paperclip can use this browser too." /></div>}
           {job && (
             <div className="col gap-lg">
-              <div className="card col">
+              <div className="card col has-tracer">
+                <Tracer active={active(job.status)} label="Browser agent is working" />
                 <div className="row" style={{ alignItems: "flex-start" }}>
                   <h2 className="grow">{job.goal}</h2>
                   {active(job.status) && <button className="btn sm" onClick={cancel}><CircleStop size={14} /> Stop</button>}
@@ -138,6 +153,17 @@ export default function Browser() {
                   {job.allowed_domains.length > 0 && <span>only {job.allowed_domains.join(", ")}</span>}
                 </div>
                 {job.error && <div className="alert err">{job.error}</div>}
+                {(job.pending_approvals || []).map((a) => (
+                  <div key={a.id} className="alert col" style={{ gap: 6 }}>
+                    <strong>The agent is waiting for you: {a.label}</strong>
+                    <div className="small">{a.description}</div>
+                    <div className="faint small mono truncate">{a.url}</div>
+                    <div className="row">
+                      <button className="btn sm primary" onClick={() => answer(a, true)}>Allow this once</button>
+                      <button className="btn sm" onClick={() => answer(a, false)}>Deny</button>
+                    </div>
+                  </div>
+                ))}
                 {job.result && (
                   <>
                     <div className="row">{job.result.success ? <CheckCircle2 size={16} className="prio-1" /> : <XCircle size={16} className="prio-2" />}<strong>{job.result.success ? "Agent reports success" : job.result.done ? "Agent finished but did not report success" : "Stopped at the step limit"}</strong></div>
@@ -156,12 +182,22 @@ export default function Browser() {
                   <h3>Steps</h3>
                   {job.steps.length === 0 && <div className="muted small">{active(job.status) ? <span className="row"><Loader2 size={13} className="spin" /> Waiting for the first step</span> : "No steps recorded."}</div>}
                   {job.steps.map((s) => (
-                    <div key={s.step} className="col" style={{ gap: 2, borderBottom: "1px solid var(--border)", paddingBottom: 8 }}>
-                      <div className="row small"><span className="badge">{s.step}</span><strong className="grow">{s.next_goal || "…"}</strong></div>
-                      {s.evaluation && <div className="muted small">{s.evaluation}</div>}
-                      <div className="faint small mono truncate">{s.actions.map((a) => Object.keys(a)[0]).join(" → ")} · {s.url}</div>
+                    <div key={s.step} className="col" style={{ gap: 4, borderBottom: "1px solid var(--border)", paddingBottom: 8 }}>
+                      <div className="row small"><span className="badge">{s.step}</span><strong className="grow">{s.next_goal || "…"}</strong>
+                        {s.status && s.status !== "ok" && <span className="badge warn">{s.status}</span>}</div>
+                      {s.evaluation && <div className="small"><span className="faint">Thinking: </span>{s.evaluation}</div>}
+                      {s.actions.map((a, i) => {
+                        const [name, args] = Object.entries(a)[0] || ["", {}];
+                        return <div key={i} className="faint small mono" style={{ wordBreak: "break-word" }}>{name}{args && Object.keys(args as object).length ? ` ${JSON.stringify(args)}` : ""}</div>;
+                      })}
+                      {s.result && <div className="muted small">{s.result}</div>}
+                      <div className="faint small truncate">{s.title ? `${s.title} · ` : ""}{s.url}</div>
+                      {s.has_screenshot && (openStep === s.step
+                        ? <img src={`/api/browser/jobs/${job.id}/screenshot/${s.step}`} alt={`Step ${s.step}`} onClick={() => setOpenStep(null)} style={{ width: "100%", borderRadius: 6, border: "1px solid var(--border)", cursor: "zoom-out" }} />
+                        : <img src={`/api/browser/jobs/${job.id}/screenshot/${s.step}`} alt={`Step ${s.step}`} loading="lazy" onClick={() => setOpenStep(s.step)} style={{ width: 160, borderRadius: 6, border: "1px solid var(--border)", cursor: "zoom-in" }} />)}
                     </div>
                   ))}
+                  {active(job.status) && job.steps.length > 0 && <div className="muted small row"><Loader2 size={13} className="spin" /> Thinking about step {job.steps.length + 1}…</div>}
                 </div>
               </div>
             </div>

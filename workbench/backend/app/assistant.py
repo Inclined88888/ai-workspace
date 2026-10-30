@@ -160,6 +160,21 @@ def _load_skill(name: str, ctx: Ctx) -> dict:
     return {"name": s["name"], "steps": s["steps"]}
 
 
+def _read_skill_file(skill: str, path: str) -> dict:
+    from . import skills_hub
+
+    return skills_hub.read_file(skill, path)
+
+
+def _run_skill_script(skill: str, script: str, args: str = "") -> dict:
+    """Runs inside the skill sandbox with only the permissions the user granted at install."""
+    import shlex
+
+    from . import skills_hub
+
+    return skills_hub.run_script(skill, script, shlex.split(args)[:20] if args else [])
+
+
 def _save_skill(name: str, description: str, steps: str) -> dict:
     from .learn import upsert_skill
 
@@ -182,6 +197,16 @@ def _team(ctx: Ctx) -> list[dict]:
     from .company import team_for
 
     return team_for(ctx.agent)
+
+
+def _search_ready() -> bool:
+    """Offer web_search only when a search provider is set up; small local models otherwise call it and stall."""
+    from .search import provider
+
+    try:
+        return bool(provider())
+    except Exception:
+        return False
 
 
 TOOLS: list[Tool] = [
@@ -220,7 +245,7 @@ TOOLS: list[Tool] = [
          effect="write"),
     # Web
     Tool("web_search", "Search the web. Returns titles, URLs and snippets.", {"query": S()},
-         lambda query: research.web_search(query, 6), ("query",), untrusted=True),
+         lambda query: research.web_search(query, 6), ("query",), untrusted=True, when=lambda ctx: _search_ready()),
     Tool("read_page", "Read the text of one public web page.", {"url": S()}, _read_page, ("url",), untrusted=True),
     Tool("browse_web", "Use a real browser to complete a multi step goal on websites (slow).", {"goal": S(), "max_steps": I()},
          _browse, ("goal",), when=lambda ctx: bool(config.BROWSER_URL and config.BROWSER_API_KEY), effect="external", untrusted=True),
@@ -236,6 +261,12 @@ TOOLS: list[Tool] = [
     # Skills
     Tool("load_skill", "Load the steps of a saved skill by name before doing that kind of task.", {"name": S()},
          lambda name, ctx=None: _load_skill(name, ctx), ("name",)),
+    Tool("read_skill_file", "Read a helper file of a skill installed from GitHub (path relative to the skill folder).",
+         {"skill": S(), "path": S()}, _read_skill_file, ("skill", "path"), untrusted=True),
+    Tool("run_skill_script", "Run a helper script of a skill installed from GitHub, sandboxed with the permissions the user granted. "
+         "args is a space-separated string. Blocked actions come back as needs_approval: tell the user, do not retry.",
+         {"skill": S(), "script": S("path inside the skill, e.g. scripts/convert.py"), "args": S()}, _run_skill_script,
+         ("skill", "script"), effect="external", untrusted=True),
     Tool("save_skill", "Save or improve a reusable procedure. name is short-kebab-case; steps is Markdown.",
          {"name": S(), "description": S("when to use it"), "steps": S()}, _save_skill, ("name", "description", "steps"),
          effect="persistent"),
@@ -309,6 +340,10 @@ async def run_tool(name: str, raw_args: str, ctx: Ctx, approved: bool = False) -
         return done(False, f"Invalid arguments: {e}", "bad_args")
     if needs_approval(t, ctx) and not approved:
         done(False, "", "denied" if ctx.channel in UNATTENDED else "held", payload=raw_args or "{}", detail=HOLD_REASON)
+        if ctx.channel not in UNATTENDED:
+            from . import push
+
+            push.approval_needed(ctx.receipts[-1]["action_id"], name)
         return False, _hold_message(t, ctx.receipts[-1]["action_id"], ctx)
     # Idempotency (item 28): when the model repeats a change it already made in this turn, it is not made again.
     # A repeat is the same tool with the same arguments and no other change in between, so a deliberate toggle
@@ -505,6 +540,8 @@ async def _run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> Async
                 *_history(ctx.conversation_id, budget - len(system) - len(json.dumps(specs)))]
         try:
             res = await llm.chat(model, msgs, specs, trace=ctx.trace())
+            if res.get("router"):  # the smart router answered: say who, what it skipped, and what is left
+                yield {"type": "router", **res["router"]}
         except HTTPException as e:
             receipts.record_turn(ctx, "model_error", str(e.detail))
             yield {"type": "error", "error": str(e.detail)}
@@ -561,20 +598,25 @@ async def _run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> Async
         receipts.record_turn(ctx, "step_limit")
     yield {"type": "message", "content": final}
     yield {"type": "done", "conversation_id": ctx.conversation_id, "cost_cents": round(cost, 3), "tool_calls": ctx.tool_calls}
+    if ctx.turn_action_id:
+        from . import push
+
+        row = db.one("SELECT outcome FROM actions WHERE id = ?", ctx.turn_action_id)
+        push.run_finished(ctx.turn_action_id, row["outcome"] if row else "", ctx.conversation_id, ctx.channel)
     from .learn import after_turn
 
     after_turn(ctx)
 
 
-async def decide(action_id: int, approve: bool) -> dict:
+async def decide(action_id: int, approve: bool, channel: str = "web") -> dict:
     """The user's answer to a held action. Approved actions run now; the outcome is added to the conversation
     so the assistant sees it on the next turn."""
     a = actions.approval(action_id)
-    decision = actions.decide(action_id, approve)  # 409 if already answered
+    decision = actions.decide(action_id, approve, channel)  # 409 if already answered
     if not approve:
         _save(a["conversation_id"], "user", f"[I denied request #{action_id}: {a['tool']}. Do not do it.]")
         return actions.approval(action_id)
-    ctx = Ctx(channel="web", conversation_id=a["conversation_id"], turn_action_id=decision)
+    ctx = Ctx(channel=channel, conversation_id=a["conversation_id"], turn_action_id=decision)
     ok, out = await run_tool(a["tool"], actions.raw_args(action_id), ctx, approved=True)
     run = ctx.receipts[-1]
     actions.finish(run["action_id"], run["outcome"], detail=out[:2000])
