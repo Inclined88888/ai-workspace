@@ -1,8 +1,10 @@
 import {
-  Activity, Bot, Brain, Building2, CalendarClock, CalendarDays, MessageSquare, CheckSquare, Globe, Columns3, ExternalLink, FileText, Home, LogOut, Mail, Menu, Moon, NotebookPen,
-  ListTree, Search, Settings as SettingsIcon, Sun, Sparkles,
+  Activity, Bot, Brain, Building2, CalendarClock, CalendarDays, MessageSquare, CheckSquare, Globe, Columns3, ExternalLink, FileText, Home, LogOut, Mail, Menu, NotebookPen,
+  ListTree, Search, Settings as SettingsIcon, Sparkles,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { CommandPalette } from "./Palette";
+import { ThemeSwitch } from "./theme";
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { api } from "./api";
 import Assistant from "./pages/Assistant";
@@ -57,32 +59,18 @@ const NAV = [
   { to: "/mail", label: "Mail", icon: Mail },
 ] as const;
 
-function ThemeToggle() {
-  const [dark, setDark] = useState(() => {
-    const t = document.documentElement.dataset.theme;
-    return t ? t === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
-  });
-  const toggle = () => {
-    const next = dark ? "light" : "dark";
-    document.documentElement.dataset.theme = next;
-    try {
-      localStorage.setItem("wb-theme", next);
-    } catch {
-      /* storage unavailable */
-    }
-    setDark(!dark);
-  };
-  return (
-    <button className="btn ghost icon" onClick={toggle} title="Toggle theme" aria-label="Toggle theme">
-      {dark ? <Sun size={16} /> : <Moon size={16} />}
-    </button>
-  );
+const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+export const MOD_KEY = isMac ? "⌘" : "Ctrl";
+
+function Boot() {
+  return <div className="boot" role="status" aria-label="Loading"><div className="brand-mark lg"><Sparkles size={22} /></div></div>;
 }
 
 export default function App() {
   const [status, setStatus] = useState<Status | null>(null);
   const [error, setError] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -103,12 +91,32 @@ export default function App() {
     return () => window.removeEventListener("wb:unauthorized", onUnauthorized);
   }, []);
   useEffect(() => setMenuOpen(false), [location.pathname]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOpen((o) => !o);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  const navItems = useMemo(
+    () => NAV.filter((item) => !("addon" in item) || (item.addon === "browser" && status?.browser_enabled)),
+    [status?.browser_enabled],
+  );
+  const palettePages = useMemo(
+    () => [...navItems.flatMap((i) => ("to" in i ? [{ to: i.to, label: i.label, icon: i.icon }] : [])), { to: "/settings", label: "Settings", icon: SettingsIcon }],
+    [navItems],
+  );
+  // Route transition key: top-level section only, so switching conversations or notes doesn't remount the page
+  const section = "/" + (location.pathname.split("/")[1] ?? "");
 
-  if (error) return <div className="auth"><div className="alert err">Cannot reach Workbench: {error}</div></div>;
-  if (!status) return null;
+  if (error) return <div className="auth"><div className="card auth-card col"><div className="alert err" role="alert">Cannot reach Workbench: {error}</div><button className="btn" onClick={refresh}>Try again</button></div></div>;
+  if (!status) return <Boot />;
   if (!status.setup_complete || !status.signed_in) {
     if (status.desktop) {
-      return <div className="auth"><div className="alert">Your session ended. Close and reopen AI Workspace to sign back in.</div></div>;
+      return <div className="auth"><div className="card auth-card"><div className="alert" role="status">Your session ended. Close and reopen AI Workspace to sign back in.</div></div></div>;
     }
     return <Auth status={status} onDone={refresh} />;
   }
@@ -125,9 +133,12 @@ export default function App() {
     <div className="shell">
       <aside className={`sidebar ${menuOpen ? "open" : ""}`}>
         <div className="brand">
-          <div className="brand-mark"><Sparkles size={16} /></div>
+          <div className="brand-mark" aria-hidden="true"><Sparkles size={14} /></div>
           <span className="truncate">{status.workspace_name}</span>
         </div>
+        <button type="button" className="sidebar-search" onClick={() => setPaletteOpen(true)} aria-keyshortcuts="Meta+K Control+K">
+          <Search size={14} /> <span>Search or jump to…</span> <span className="kbd">{MOD_KEY} K</span>
+        </button>
         {status.chat_url && (
           <a className="nav-link" href={status.chat_url} target="_blank" rel="noreferrer">
             <Sparkles size={16} /> Open WebUI <ExternalLink size={12} style={{ marginLeft: "auto" }} />
@@ -143,19 +154,19 @@ export default function App() {
             <Bot size={16} /> Hermes agent <ExternalLink size={12} style={{ marginLeft: "auto" }} />
           </a>
         )}
-        {NAV.filter((item) => !("addon" in item) || (item.addon === "browser" && status.browser_enabled)).map((item, i) =>
+        {navItems.map((item, i) =>
           "section" in item ? (
             <div key={i} className="nav-section">{item.section}</div>
           ) : (
             <NavLink key={item.to} to={item.to} end={item.to === "/"} className="nav-link">
-              <item.icon size={16} /> {item.label}
+              <item.icon size={16} /> <span className="truncate">{item.label}</span>
             </NavLink>
           ),
         )}
         <div className="spacer" />
         <NavLink to="/settings" className="nav-link"><SettingsIcon size={16} /> Settings</NavLink>
-        <div className="row" style={{ padding: "6px 4px 0" }}>
-          <ThemeToggle />
+        <div className="sidebar-foot">
+          <ThemeSwitch />
           <div className="spacer" />
           {!status.desktop && <button className="btn ghost sm" onClick={logout}><LogOut size={14} /> Sign out</button>}
         </div>
@@ -163,9 +174,11 @@ export default function App() {
       {menuOpen && <div className="modal-back" style={{ zIndex: 35 }} onClick={() => setMenuOpen(false)} />}
       <main className="main">
         <div className="mobile-bar">
-          <button className="btn ghost icon" onClick={() => setMenuOpen(true)} aria-label="Open menu"><Menu size={18} /></button>
-          <strong className="truncate">{status.workspace_name}</strong>
+          <button className="btn ghost icon" onClick={() => setMenuOpen(true)} aria-label="Open menu" aria-expanded={menuOpen}><Menu size={18} /></button>
+          <strong className="truncate grow">{status.workspace_name}</strong>
+          <button className="btn ghost icon" onClick={() => setPaletteOpen(true)} aria-label="Search or jump to"><Search size={17} /></button>
         </div>
+        <div className="route" key={section}>
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/assistant" element={<Assistant tab="chat" />} />
@@ -194,7 +207,9 @@ export default function App() {
           <Route path="/welcome" element={<Navigate to="/assistant" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        </div>
       </main>
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} pages={palettePages} />
     </div>
   );
 }
