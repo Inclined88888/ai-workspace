@@ -122,10 +122,10 @@ Native Ollama uses the Mac GPU; the `local-models` add-on would run on CPU insid
 
 **Assistant** is the main page: one chat that can use every part of the workspace.
 
-* **Tools.** Notes (search, read, create, append), tasks, calendar (agenda, create event), mail (search, save draft only, never send), web search and page reading, the browser agent when that add-on is on, memory, skills and schedules. Each tool step shows live in the chat.
+* **Tools.** Notes (search, read, create, append), tasks, calendar (agenda, create event), mail (search, read, save draft; send only after you approve each email), web search and page reading, the browser agent when that add-on is on, memory, skills and schedules. Each tool step shows live in the chat.
 * **Memory.** After a conversation it quietly extracts durable facts about you (profile, preferences, facts), at most 5 per conversation, skipping duplicates. Relevant ones are injected into every new conversation. You can also say "remember that…" or "forget…". Review and edit everything under **Memory & skills**. Turn learning off in Assistant settings.
 * **Skills.** When a task took 3 or more tool calls, it can save the procedure as a named skill and improve it on later use. Skills are listed to the model and loaded on demand, so they cost almost nothing until used.
-* **Approvals.** Web pages and email can contain instructions written by someone else (prompt injection). Once a conversation has read either, actions that leave the workspace or change the assistant's future behaviour (remember, forget, save a skill, schedule a task, create a calendar event, browse, delegate) are held until you approve them in the chat, with `ws approve <id>`, or refused outright in unattended runs (schedules, company agents). Web and email content is labelled as untrusted for the model, and skills are never learned from such turns. This narrows the damage an injection can do; it does not make the model immune to it.
+* **Approvals.** Web pages and email can contain instructions written by someone else (prompt injection). Once a conversation has read either, actions that leave the workspace or change the assistant's future behaviour (remember, forget, save a skill, schedule a task, create a calendar event, browse, delegate) are held until you approve them in the chat, with `ws approve <id>`, or refused outright in unattended runs (schedules, company agents). Sending an email and sending calendar invitations are always held for approval, even in a clean conversation. Web and email content is labelled as untrusted for the model, and skills are never learned from such turns. This narrows the damage an injection can do; it does not make the model immune to it.
 * **Receipts.** Every change the assistant makes is checked in the database after the tool runs (the task, note, event, draft, memory, skill or schedule must exist as asked), and the chat shows what was confirmed. If an answer says something was done and nothing confirms it, the answer is withdrawn and the model gets one chance to act or correct itself; if it still is not true you see it marked **Not verified**.
 * **Reliability record.** Every tool call and every answer is recorded per model, so you can see how a model really performs with your tools: the model menu shows the share of tool calls that worked, and `ws reliability` adds false claims caught. To measure a local model before relying on it: `cd workbench/backend && python bench/local_tasks.py --model qwen3:4b` (50 everyday requests, each checked against the database).
 * **History.** Every conversation is full text searchable, by you and by the assistant (`search_history`).
@@ -151,12 +151,15 @@ Native Ollama uses the Mac GPU; the `local-models` add-on would run on CPU insid
 
 **Tasks.** Due dates, priorities, projects, grouping by Overdue / Today / Upcoming, and "break down a goal" which turns one sentence into a task list.
 
+**Connect your mail & calendar.** Settings (and Home, until something is connected) has one card: **Connect Google** or **Connect Microsoft** opens the provider's own sign-in page in your browser and sets up both the inbox and the calendar in one go (OAuth with PKCE and a loopback redirect; tokens stay on your machine, encrypted or in the OS keychain). **Other provider** detects iCloud, Yahoo, Fastmail, AOL, Zoho and your own domain from the address and walks you through creating an app password, adding the CalDAV calendars at the same time. The one-click buttons need the build's OAuth client IDs; builds without them explain the app-password path instead. Maintainers: [docs/connect-google-microsoft.md](docs/connect-google-microsoft.md).
+
 **Calendar.** Month view plus day agenda. Sources:
+- **Google Calendar / Outlook Calendar** (read and create, with invitations) through Connect Google / Connect Microsoft.
 - **ICS subscription** (read only): Google Calendar "Secret address in iCal format", Outlook published ICS, any `.ics`/`webcal://` link. Refreshes every 15 minutes.
 - **CalDAV** (read and create): Nextcloud, Fastmail, iCloud (`https://caldav.icloud.com` with an app specific password), Radicale, Baïkal. Use *Find calendars* to pick one.
 - **Local** calendar stored in Workbench.
 
-**Mail.** IMAP/SMTP with app passwords: Fastmail, iCloud, Gmail (needs 2 step verification and an app password), and most self hosted servers. Read, search, reply, compose, and "Draft with AI" with your intent. AI drafts use `[placeholders]` instead of inventing facts; every send asks for confirmation. Outlook.com and Microsoft 365 are **not** supported because Microsoft requires OAuth for IMAP.
+**Mail.** Gmail and Outlook.com / Microsoft 365 through Connect Google / Connect Microsoft (Gmail API and Microsoft Graph), or IMAP/SMTP with app passwords: Fastmail, iCloud, Yahoo, Gmail (needs 2 step verification and an app password), and most self hosted servers. Read, search, reply, compose, and "Draft with AI" with your intent. AI drafts use `[placeholders]` instead of inventing facts; every send asks for confirmation.
 
 ## Terminal coding agent (Rooks Code)
 
@@ -354,7 +357,7 @@ Desktop app: Tauri v2 shell in `desktop/` that runs the backend as a frozen side
 - Telegram is the only built in messaging channel. Discord, Slack, WhatsApp and Signal need the `hermes` add-on.
 - Memory extraction and skill saving cost one extra small model call after a conversation. Turn learning off if that matters.
 - Calendar: ICS feeds are read only; CalDAV supports reading and creating, not editing or deleting remote events.
-- Mail: password/app password IMAP only, no OAuth providers, plain text sending, no attachments.
+- Mail: plain text sending, no attachments. One-click Google needs a published OAuth client, and Google's restricted-scope verification before more than 100 people can use it (see [docs/connect-google-microsoft.md](docs/connect-google-microsoft.md)).
 - Web search needs the `search` add-on or a Brave or Tavily key. Research quality depends on the model and the search results. Verify claims against the sources.
 - The Paperclip add-on runs in its own login. Workbench links to it but does not share a sign in.
 - Browser agent results are the agent's own report. Small local models are unreliable at browsing.

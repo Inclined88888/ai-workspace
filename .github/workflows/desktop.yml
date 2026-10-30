@@ -70,6 +70,13 @@ jobs:
       - name: Build the Workbench frontend
         shell: bash
         run: cd workbench/frontend && npm ci --no-audit --no-fund && npm run build
+      - name: Built-in OAuth clients for Connect Google / Microsoft (optional; off when unset)
+        shell: bash
+        env:
+          GOOGLE_OAUTH_CLIENT_ID: ${{ vars.GOOGLE_OAUTH_CLIENT_ID }}
+          GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+          MICROSOFT_OAUTH_CLIENT_ID: ${{ vars.MICROSOFT_OAUTH_CLIENT_ID }}
+        run: python scripts/write-oauth-clients.py
       - name: Freeze the Workbench backend (PyInstaller sidecar)
         shell: bash
         run: |

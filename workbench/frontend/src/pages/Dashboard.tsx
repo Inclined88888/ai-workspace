@@ -3,6 +3,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, CalEvent, Doc, Task } from "../api";
 import { Empty, fmtTime, relTime, SkeletonList, todayISO, useToast } from "../util";
+import ConnectMailCalendar from "./ConnectMailCalendar";
 
 type Dash = {
   events: CalEvent[];
@@ -106,13 +107,15 @@ export default function Dashboard(_: { chatUrl?: string }) {
         </div>
       </form>
 
+      <ConnectMailCalendar compact onlyWhenEmpty onChange={load} />
+
       <div className="grid two home-grid">
         <div className="card flush">
           <div className="card-head" style={{ padding: "14px 14px 0" }}>
             <CalendarDays size={16} /><h2>Coming up</h2><div className="spacer" /><Link to="/calendar" className="small">Calendar <ArrowRight size={12} /></Link>
           </div>
           {!data && <SkeletonList rows={3} />}
-          {data && data.events.length === 0 && <Empty icon={<CalendarDays size={22} />} title="Nothing scheduled" hint="Add a calendar from the Calendar page." />}
+          {data && data.events.length === 0 && <Empty icon={<CalendarDays size={22} />} title="Nothing scheduled" hint="Connect Google or Microsoft above, or add a calendar from the Calendar page." />}
           {data?.events.slice(0, 8).map((ev) => (
             <div key={ev.id} className="list-item" style={{ cursor: "default" }}>
               <span className="dot" style={{ background: ev.color }} />

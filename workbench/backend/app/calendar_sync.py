@@ -1,4 +1,5 @@
-"""Calendar sync: ICS subscriptions (read only) and CalDAV (read and create)."""
+"""Calendar sync: ICS subscriptions (read only), CalDAV (read and create), and Google / Microsoft calendars connected
+with one click (read and create, through cloud_mail.py)."""
 
 import uuid
 from datetime import date, datetime, timedelta, timezone
@@ -71,6 +72,11 @@ def _fetch(c: dict) -> list[dict]:
         r = httpx.get(url, timeout=30, follow_redirects=True)
         r.raise_for_status()
         return _rows(_expand(icalendar.Calendar.from_ical(r.content)))
+    if c["kind"] in ("google", "microsoft"):
+        from . import cloud_mail
+
+        now = datetime.now(timezone.utc)
+        return cloud_mail.list_events(c, now - WINDOW_PAST, now + WINDOW_FUTURE)
     if c["kind"] == "caldav":
         now = datetime.now(timezone.utc)
         comps = []
@@ -89,8 +95,9 @@ def sync(cid: int) -> dict:
     try:
         rows = _fetch(c)
     except Exception as e:  # noqa: BLE001 - any remote failure is recorded on the calendar
-        db.run("UPDATE calendars SET last_error = ? WHERE id = ?", str(e)[:500], cid)
-        raise HTTPException(502, f"Sync failed: {e}") from e
+        why = str(e.detail) if isinstance(e, HTTPException) else str(e)
+        db.run("UPDATE calendars SET last_error = ? WHERE id = ?", why[:500], cid)
+        raise HTTPException(502, f"Sync failed: {why}") from e
     with db.tx() as t:
         t.execute("DELETE FROM events WHERE calendar_id = ?", (cid,))
         t.executemany(
@@ -118,7 +125,12 @@ def discover(url: str, username: str, password: str) -> list[dict]:
         raise HTTPException(502, f"CalDAV discovery failed: {e}") from e
 
 
-def create_remote(c: dict, title: str, start: str, end: str, all_day: bool, location: str, description: str) -> str:
+def create_remote(c: dict, title: str, start: str, end: str, all_day: bool, location: str, description: str,
+                  attendees: list[str] | None = None) -> str:
+    if c["kind"] in ("google", "microsoft"):
+        from . import cloud_mail
+
+        return cloud_mail.create_event(c, title, start, end, all_day, location, description, attendees)
     uid = f"{uuid.uuid4()}@ai-workspace"
     ev = icalendar.Event()
     ev.add("uid", uid)
@@ -134,6 +146,9 @@ def create_remote(c: dict, title: str, start: str, end: str, all_day: bool, loca
         ev.add("location", location)
     if description:
         ev.add("description", description)
+    for a in attendees or []:
+        if "@" in a:
+            ev.add("attendee", f"mailto:{a.strip()}")
     cal = icalendar.Calendar()
     cal.add("prodid", "-//AI Workspace//Workbench//EN")
     cal.add("version", "2.0")
