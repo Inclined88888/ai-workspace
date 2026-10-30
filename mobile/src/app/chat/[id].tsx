@@ -17,6 +17,7 @@ import { approvalPrompt, canSpeak, say, stopSaying } from '@/lib/voiceMode'; // 
 import { fonts, hairline, space, type } from '@/lib/theme';
 import { error as hError, success, tap } from '@/lib/haptics';
 import { Markdown } from '@/components/Markdown';
+import { ChatProjectBar, CheckThis } from '@/components/V02'; // feat/v02-core
 import { ApprovalCard } from '@/components/ApprovalCard';
 import { FadeIn, Label, Notice, Rule, Screen, T } from '@/components/ui';
 import { DoneTick, Node, SpringIn, Thinking, VoiceOrb } from '@/components/motion';
@@ -322,6 +323,7 @@ export default function Chat() {
         <Text numberOfLines={2} style={[type.title, { color: c.text, marginTop: space[2], fontSize: 24, lineHeight: 30 }]}>
           {conv?.title || firstLine || (cid ? ' ' : 'New chat')}
         </Text>
+        <ChatProjectBar key={cid ?? 'new'} cid={cid} />{/* feat/v02-core */}
       </View>
       <Rule strong style={{ marginHorizontal: space[5] }} />
 
@@ -336,7 +338,7 @@ export default function Chat() {
           {loadErr ? <Notice text={loadErr} action="Retry" onAction={() => load(cid)} /> : null}
           {!cid && !turn ? <Opening onPick={(s) => setDraft(s)} /> : null}
           {messages.map((m) => (
-            <MessageView key={m.id} m={m} />
+            <MessageView key={m.id} m={m} cid={cid} />
           ))}
           {turn && pendingText ? <UserBlock text={pendingText} tags={[]} /> : null}
           {turn ? <LiveTurn turn={turn} shown={shown} onDecided={() => load(turn.conversationId)} /> : null}
@@ -472,7 +474,7 @@ function Receipt({ text, tone, live }: { text: string; tone: 'ok' | 'bad' | 'qui
   );
 }
 
-function MessageView({ m }: { m: Message }) {
+function MessageView({ m, cid }: { m: Message; cid: number | null }) {
   const { colors: c } = useSession();
   if (m.role === 'tool') return <Receipt text={`Used ${toolName(m.name)}`} tone="quiet" />;
   if (m.role === 'user') {
@@ -486,6 +488,7 @@ function MessageView({ m }: { m: Message }) {
     <FadeIn style={{ marginTop: space[5] }}>
       <Label style={{ fontSize: 9.5, marginBottom: 4 }} color={c.accentText}>Workspace</Label>
       <Markdown text={m.content} />
+      <CheckThis cid={cid} content={m.content} />{/* feat/v02-core */}
     </FadeIn>
   );
 }

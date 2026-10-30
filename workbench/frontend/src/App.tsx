@@ -44,6 +44,9 @@ import AskBar from "./pages/AskBar";
 import Meetings from "./pages/Meetings";
 import Talk from "./pages/Talk";
 import VoiceSettings from "./pages/VoiceSettings";
+import { FolderKanban, History as HistoryIcon } from "lucide-react"; // feat/v02-core
+import Projects from "./pages/Projects"; // feat/v02-core
+import HistoryPage from "./pages/History"; // feat/v02-core
 
 export type Status = {
   setup_complete: boolean;
@@ -77,12 +80,14 @@ const NAV: NavGroup[] = [
     { to: "/mail", label: "Mail", icon: Mail },
   ] },
   { section: "Your work", items: [
+    { to: "/projects", label: "Projects", icon: FolderKanban }, // feat/v02-core
     { to: "/files", label: "Files", icon: FolderOpen },
     { to: "/sites", label: "Sites", icon: Globe2 },
     { to: "/teach", label: "Show me how", icon: GraduationCap },
     { to: "/meetings", label: "Meetings", icon: Users }, // feat/v02-anywhere-voice
     { to: "/automations", label: "Automations", icon: CalendarClock },
     { to: "/jobs", label: "Jobs", icon: Layers }, // feat/v02-automations
+    { to: "/history", label: "History", icon: HistoryIcon }, // feat/v02-core: everything done, with undo
   ] },
   { section: "Helpers", items: [
     { to: "/talk", label: "Talk", icon: AudioLines }, // feat/v02-anywhere-voice
@@ -281,6 +286,9 @@ export default function App() {
           <Route path="/computer" element={<Computer />} />
           <Route path="/computer/:id" element={<Computer />} />
           <Route path="/compare" element={<Compare />} />
+          <Route path="/projects" element={<Projects />} />{/* feat/v02-core */}
+          <Route path="/projects/:id" element={<Projects />} />{/* feat/v02-core */}
+          <Route path="/history" element={<HistoryPage />} />{/* feat/v02-core */}
           <Route path="/runs" element={<Runs />} />
           <Route path="/runs/:id" element={<Runs />} />
           <Route path="/status" element={<Status />} />

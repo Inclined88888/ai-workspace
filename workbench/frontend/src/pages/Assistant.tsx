@@ -7,6 +7,7 @@ import { Empty, Markdown, ModelSelect, relTime, RouterInfo, RouterVia, SkeletonL
 import { Thinking, useExit } from "../motion";
 import { LiveMarkdown } from "../v02/LiveBlocks"; // feat/v02-automations: live docs, sheets and charts in replies
 import { DictateButton } from "../voice/DictateButton"; // feat/v02-anywhere-voice (drawn as the motion voice orb)
+import { CheckThis, CheckToggle, ProjectSwitcher } from "../v02/ChatExtras"; // feat/v02-core
 
 type Conv = { id: number; title: string; channel: string; updated_at: string; model: string };
 type Msg = { id: number; role: string; content: string; tool_calls: string[]; name: string; via?: RouterInfo };
@@ -151,6 +152,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
           <button className="btn ghost sm mobile-only" onClick={() => navigate("/assistant")} aria-label="Back to chats"><ArrowLeft size={14} /></button>
           <div className="toolbar-title truncate">{convs?.find((c) => c.id === cid)?.title ?? "New chat"}</div>
           <div className="spacer" />
+          <ProjectSwitcher cid={cid} /><CheckToggle cid={cid} />{/* feat/v02-core */}
           {tabs}
         </div>
         <div className="chat-scroll" aria-live="polite">
@@ -178,6 +180,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
                       : <LiveMarkdown text={m.content} messageId={m.id} />)}
                     {m.via && <RouterVia r={m.via} />}
                     {m.content && m.id !== freshId && <MessageFeedback msg={m} />}
+                    {m.content && m.id !== freshId && <CheckThis cid={cid} content={m.content} fresh={m.id > 1e12} />}{/* feat/v02-core */}
                   </div>
                 </div>)}
             {steps.length > 0 && (

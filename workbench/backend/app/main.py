@@ -20,6 +20,7 @@ from . import actions, api, appearance, assistant_api, bridge, browser_proxy, cl
 from .mcp_server import mcp, mcp_app
 from .adapt import hooks as adapt_hooks, routes as adapt_routes  # adapt and learn (feat/learn-and-adapt)
 from . import auto_tools, automations, jobs, v02_api  # noqa: E402 - feat/v02-automations
+from . import v02_hooks  # feat/v02-core: projects, action history with undo, checked answers
 from .security import check_bearer
 from .tools import tools
 
@@ -110,6 +111,7 @@ app.include_router(anywhere.router)
 app.include_router(voice.router)
 app.include_router(voice.device)
 app.include_router(meetings.router)
+v02_hooks.install(app)  # feat/v02-core: /api/projects, /api/history (undo), /api/checked
 app.include_router(bridge.router)  # /v1: OpenAI-shaped access to every connection, for the browser agent (item 103)
 from . import account  # noqa: E402
 account.install(app)  # Your plan: account sign-in, signed entitlements and the Pro feature gate
