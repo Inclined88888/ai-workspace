@@ -16,7 +16,7 @@ from . import egress  # noqa: E402
 
 egress.install()  # before anything connects: every outbound request is in the audit log (R8, item 75)
 
-from . import actions, api, assistant_api, bridge, browser_proxy, company, config, db, health, llm, mobile, scheduler, skills_hub, telegram  # noqa: E402
+from . import actions, api, assistant_api, bridge, browser_proxy, company, config, connect, db, health, llm, mobile, scheduler, skills_hub, telegram  # noqa: E402
 from .mcp_server import mcp, mcp_app
 from .security import check_bearer
 from .tools import tools
@@ -81,6 +81,7 @@ from . import openapi  # registers authenticated schema before including the rou
 app.include_router(api.public)
 app.include_router(api.api)
 app.include_router(assistant_api.router)
+app.include_router(connect.router)  # Connect Google / Connect Microsoft: one sign-in for mail and calendar
 app.include_router(mobile.public)  # phone companion app: pairing, then device-token routes (mobile/)
 app.include_router(mobile.owner)
 app.include_router(mobile.device)
