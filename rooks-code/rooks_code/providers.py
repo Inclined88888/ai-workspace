@@ -80,7 +80,7 @@ def parse_text_tool_calls(content: str, tool_names: set[str]) -> tuple[list[Tool
         body = content.strip()
         if body.startswith("{") and body.endswith("}"):
             candidates = [(content, body)]
-    calls, rest = [], content
+    calls, rest, seen = [], content, set()
     for raw, payload in [(r, o) for r, p in candidates for o in _objects(p)]:
         try:
             obj = json.loads(payload)
@@ -96,8 +96,12 @@ def parse_text_tool_calls(content: str, tool_names: set[str]) -> tuple[list[Tool
                 continue
         if not isinstance(args, dict):
             continue
-        calls.append(ToolCall(f"text_{len(calls)}", obj["name"], args, from_text=True))
         rest = rest.replace(raw, "")
+        key = (obj["name"], json.dumps(args, sort_keys=True))
+        if key in seen:  # a model repeating itself: run each distinct call once
+            continue
+        seen.add(key)
+        calls.append(ToolCall(f"text_{len(calls)}", obj["name"], args, from_text=True))
     return calls, (rest.strip() if calls else content)
 
 

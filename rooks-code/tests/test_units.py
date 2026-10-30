@@ -98,3 +98,11 @@ def test_text_tool_calls_several_objects_in_one_fence():
     calls, rest = providers.parse_text_tool_calls(text, {"edit_file", "run_command"})
     assert [c.arguments["new_text"] for c in calls] == ["y", "q"]
     assert "edit_file" not in rest
+
+
+def test_text_tool_calls_repeated_by_the_model_run_once():
+    from rooks_code import providers
+
+    one = '```json\n{"name": "run_command", "arguments": {"command": "python3 t.py"}}\n```\n'
+    calls, _ = providers.parse_text_tool_calls("Run it.\n" + one * 20, {"run_command"})
+    assert len(calls) == 1
