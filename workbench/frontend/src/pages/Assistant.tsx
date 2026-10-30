@@ -3,7 +3,8 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, stream } from "../api";
 import { Tracer } from "../Tracer";
-import { Empty, Markdown, ModelSelect, relTime, RouterInfo, RouterVia, SkeletonList, StreamingMarkdown, useModels, useToast } from "../util";
+import { Empty, Markdown, ModelSelect, relTime, RouterInfo, RouterVia, SkeletonList, useModels, useToast } from "../util";
+import { dictationSupported, StreamText, Thinking, useDictation, useExit, VoiceOrb } from "../motion";
 
 type Conv = { id: number; title: string; channel: string; updated_at: string; model: string };
 type Msg = { id: number; role: string; content: string; tool_calls: string[]; name: string; via?: RouterInfo };
@@ -27,6 +28,11 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   const [text, setText] = useState(((useLocation().state as { draft?: string } | null)?.draft) ?? ""); // pre-filled from Files / Sites
   const [busy, setBusy] = useState(false);
   const [model, setModel] = useState("");
+  const [busySince, setBusySince] = useState(0);
+  const exit = useExit<number>(200);
+  // Talk instead of typing: dictation fills the composer, keeping anything typed before it
+  const typedBefore = useRef("");
+  const voice = useDictation((t) => setText((typedBefore.current ? typedBefore.current + " " : "") + t));
   const { models } = useModels();
   const endRef = useRef<HTMLDivElement>(null);
   const toast = useToast();
@@ -53,7 +59,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   const decide = async (a: Approval, approve: boolean) => {
     try {
       const r = await api<{ status: string; result: string }>(`/approvals/${a.id}`, { method: "POST", body: { approve } });
-      setApprovals((xs) => xs.filter((x) => x.id !== a.id));
+      exit.run(a.id, () => setApprovals((xs) => xs.filter((x) => x.id !== a.id)));
       if (r.status === "failed") toast.err(r.result);
       if (cid) loadConv(cid);
     } catch (e) { toast.err(e); }
@@ -67,6 +73,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
     setText("");
     if (composerRef.current) composerRef.current.style.height = "auto";
     setBusy(true);
+    setBusySince(Date.now());
     setSteps([]);
     setMessages((m) => [...m, { id: Date.now(), role: "user", content: msg, tool_calls: [], name: "" }]);
     let newId = cid;
@@ -165,16 +172,16 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
                     <div className="msg-byline" aria-hidden="true">Workspace</div>
                     {m.tool_calls.length > 0 && <div className="msg-tools"><Wrench size={11} /> {m.tool_calls.join(", ")}</div>}
                     {m.content && (m.id === freshId
-                      ? <StreamingMarkdown text={m.content} onDone={() => setFreshId(null)} />
+                      ? <StreamText text={m.content} onDone={() => setFreshId(null)} />
                       : <Markdown text={m.content} />)}
                     {m.via && <RouterVia r={m.via} />}
                     {m.content && m.id !== freshId && <MessageFeedback msg={m} />}
                   </div>
                 </div>)}
             {steps.length > 0 && (
-              <div className="steps-list" aria-label="Tool activity">
+              <div className="steps-list timeline" aria-label="Tool activity">
                 {steps.map((s, i) => (
-                  <div key={i} className={`step ${s.kind === "result" ? (s.ok ? "ok" : "bad") : ""}`}>
+                  <div key={i} className={`step ${s.kind === "result" ? (s.ok ? "ok" : "bad") : s.kind === "check" ? "bad" : busy && i === steps.length - 1 ? "live" : ""}`}>
                     {s.kind === "call" ? <Wrench size={12} /> : s.kind === "check" ? <ShieldAlert size={12} />
                       : s.ok ? <Check size={12} /> : <X size={12} />}
                     <span className="truncate">{s.kind === "call" ? `${s.name} ${s.text}` : s.text}</span>
@@ -183,7 +190,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
               </div>
             )}
             {approvals.map((a) => (
-              <div key={a.id} className="card col approval-card" style={{ gap: 10 }} role="alertdialog" aria-label={`Approve ${a.tool}?`}>
+              <div key={a.id} className={`card col approval-card spring-in${exit.leaving(a.id) ? " leaving-out" : ""}`} style={{ gap: 10 }} role="alertdialog" aria-label={`Approve ${a.tool}?`}>
                 <div className="row"><ShieldAlert size={16} style={{ color: "var(--warn-text)" }} /> <b>Approve {a.tool}?</b></div>
                 <div className="small muted">{a.reason} {a.effect === "persistent" ? "This would change how the assistant behaves from now on." : "This acts outside the workspace."}</div>
                 <pre className="small mono" style={{ whiteSpace: "pre-wrap", margin: 0 }}>{a.args}</pre>
@@ -194,8 +201,11 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
               </div>
             ))}
             {busy && (
-              <div className="msg" role="status" aria-label="Assistant is working">
-                <div className="typing"><span /><span /><span /><span className="typing-label">{steps.length ? "Working…" : "Thinking…"}</span></div>
+              <div className="msg msg-thinking" aria-label="Assistant is working">
+                <div className="msg-body">
+                  <div className="msg-byline is-thinking" aria-hidden="true">Workspace</div>
+                  <Thinking since={busySince} phase={(() => { const l = steps[steps.length - 1]; return l?.kind === "call" ? l.name.replace(/[_.]+/g, " ") : undefined; })()} />
+                </div>
               </div>
             )}
             <div ref={endRef} />
@@ -211,7 +221,8 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
             <div className="composer-bar">
               <ModelSelect value={model} onChange={setModel} models={models} />
               <div className="spacer" />
-              <span className="composer-hint">Shift + Enter for a new line</span>
+              <span className="composer-hint">{voice.on ? "Listening… tap the orb to stop" : voice.err || "Shift + Enter for a new line"}</span>
+              {dictationSupported() && <VoiceOrb on={voice.on} orbRef={voice.orb} disabled={busy} onClick={() => { if (!voice.on) typedBefore.current = text.trim(); voice.toggle(); }} />}
               <button className="btn primary send" disabled={busy || !text.trim()} aria-label="Send">{busy ? <Loader2 size={15} className="spin" /> : <ArrowUp size={16} />}</button>
             </div>
           </div>

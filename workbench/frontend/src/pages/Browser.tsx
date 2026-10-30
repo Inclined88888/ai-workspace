@@ -1,8 +1,9 @@
-import { CheckCircle2, CircleStop, Globe, Loader2, Play, Trash2, XCircle } from "lucide-react";
+import { CircleStop, Globe, Loader2, Play, Trash2, XCircle } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import { Tracer } from "../Tracer";
+import { DoneTick, LiveShot } from "../motion";
 import { Empty, Markdown, ModelSelect, useModels, useToast } from "../util";
 
 type JobSummary = { id: string; goal: string; provider: string; model: string; status: string; source: string; created_at: number };
@@ -171,7 +172,7 @@ export default function Browser() {
                 ))}
                 {job.result && (
                   <>
-                    <div className="row">{job.result.success ? <CheckCircle2 size={16} className="prio-1" /> : <XCircle size={16} className="prio-2" />}<strong>{job.result.success ? "Agent reports success" : job.result.done ? "Agent finished but did not report success" : "Stopped at the step limit"}</strong></div>
+                    <div className="row">{job.result.success ? <DoneTick size={18} label="Finished" /> : <XCircle size={16} className="prio-2" />}<strong>{job.result.success ? "Agent reports success" : job.result.done ? "Agent finished but did not report success" : "Stopped at the step limit"}</strong></div>
                     <div className="muted small">This is the agent's own claim. Check it against the last screen and the steps; small models can invent answers.</div>
                     {job.result.final ? <Markdown text={job.result.final} /> : <div className="muted">No final answer.</div>}
                   </>
@@ -180,10 +181,10 @@ export default function Browser() {
               <div className="grid two">
                 <div className="card col">
                   <h3>{active(job.status) ? "Live view" : "Last screen"}</h3>
-                  {job.has_screenshot ? <img key={shotKey} src={`/api/browser/jobs/${job.id}/screenshot?k=${shotKey}`} alt="Browser screenshot" style={{ width: "100%", borderRadius: 8, border: "1px solid var(--border)" }} />
+                  {job.has_screenshot ? <LiveShot src={`/api/browser/jobs/${job.id}/screenshot?k=${shotKey}`} alt="Browser screenshot" scanning={active(job.status)} />
                     : <div className="muted small">{active(job.status) ? "Starting browser…" : "No screenshot."}</div>}
                 </div>
-                <div className="card col">
+                <div className="card col step-list timeline">
                   <h3>Steps</h3>
                   {job.steps.length === 0 && <div className="muted small">{active(job.status) ? <span className="row"><Loader2 size={13} className="spin" /> Waiting for the first step</span> : "No steps recorded."}</div>}
                   {job.steps.map((s) => (

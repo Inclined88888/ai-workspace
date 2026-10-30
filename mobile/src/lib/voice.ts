@@ -36,6 +36,7 @@ export async function startDictation(
   lang: string,
   onText: (text: string, final: boolean) => void,
   onEnd: (error?: string) => void,
+  onVolume?: (value: number) => void,
 ): Promise<VoiceSession | null> {
   if (!mod) {
     onEnd('Voice input needs the installed app (a development or TestFlight build). In Expo Go, use the keyboard mic.');
@@ -54,6 +55,7 @@ export async function startDictation(
       cleanup();
       onEnd(e?.message || 'Dictation stopped');
     }),
+    ...(onVolume ? [mod.addListener('volumechange', (e) => onVolume(Number(e?.value)))] : []),
     mod.addListener('end', () => {
       cleanup();
       onEnd();
@@ -65,7 +67,7 @@ export async function startDictation(
   } catch {
     onDevice = false;
   }
-  mod.start({ lang, interimResults: true, continuous: false, requiresOnDeviceRecognition: onDevice, addsPunctuation: true });
+  mod.start({ lang, interimResults: true, continuous: false, requiresOnDeviceRecognition: onDevice, addsPunctuation: true, ...(onVolume ? { volumeChangeEventOptions: { enabled: true, intervalMillis: 80 } } : {}) });
   return {
     stop: () => mod?.stop(),
     cancel: () => {

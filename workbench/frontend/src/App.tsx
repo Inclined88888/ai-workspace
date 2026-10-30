@@ -6,9 +6,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { CommandPalette } from "./Palette";
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { api } from "./api";
+import { EdgeGlow, transitionClick } from "./motion";
 import Assistant from "./pages/Assistant";
 import Auth from "./pages/Auth";
 import Appearance from "./pages/Appearance";
+import MotionLab from "./pages/Motion";
 import Automations from "./pages/Automations";
 import Company from "./pages/Company";
 import Browser from "./pages/Browser";
@@ -88,6 +90,24 @@ const NAV: NavGroup[] = [
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 export const MOD_KEY = isMac ? "⌘" : "Ctrl";
+
+/** While Rooks Desk is driving the computer (from any page, chat or Rooks Code), the whole window's edge lights up. */
+function DeskGlow({ enabled }: { enabled: boolean }) {
+  const [job, setJob] = useState<{ id: string; goal: string } | null>(null);
+  useEffect(() => {
+    if (!enabled) return setJob(null);
+    let stop = false;
+    let t: ReturnType<typeof setTimeout>;
+    const tick = () => api<{ id: string; goal: string; status: string }[]>("/desk/jobs")
+      .then((js) => { if (!stop) setJob(js.find((j) => j.status === "running" || j.status === "queued" || j.status === "waiting") ?? null); })
+      .catch(() => undefined)
+      .finally(() => { if (!stop) t = setTimeout(tick, document.hidden ? 8000 : 2500); });
+    tick();
+    return () => { stop = true; clearTimeout(t); };
+  }, [enabled]);
+  return <EdgeGlow active={!!job} hotkey={isMac ? "⌃⌥Esc" : "Ctrl+Alt+Esc"}
+    onStop={job ? () => { api(`/desk/jobs/${job.id}/cancel`, { method: "POST" }).catch(() => undefined); setJob(null); } : undefined} />;
+}
 
 function Boot() {
   return <div className="boot" role="status" aria-label="Loading"><div className="wordmark lg">AI Workspace</div></div>;
@@ -180,8 +200,8 @@ export default function App() {
                 </button>
               ) : <div className="nav-section">{g.section}</div>)}
               {open && g.items.map((item) => (
-                <NavLink key={item.to} to={item.to} end={item.to === "/"} className="nav-link">
-                  <item.icon size={16} /> <span className="truncate">{item.label}</span>
+                <NavLink key={item.to} to={item.to} end={item.to === "/"} className="nav-link" onClick={transitionClick(() => navigate(item.to))}>
+                  {({ isActive }) => <>{isActive && <span className="nav-ind" aria-hidden="true" />}<item.icon size={16} /> <span className="truncate">{item.label}</span></>}
                 </NavLink>
               ))}
               {open && g.collapsible && (
@@ -195,9 +215,9 @@ export default function App() {
           );
         })}
         <div className="spacer" />
-        <NavLink to="/models" className="nav-link"><Gauge size={16} /> Models</NavLink>
-        <NavLink to="/appearance" className="nav-link"><PaletteIcon size={16} /> Appearance</NavLink>
-        <NavLink to="/settings" className="nav-link"><SettingsIcon size={16} /> Settings</NavLink>
+        <NavLink to="/models" className="nav-link" onClick={transitionClick(() => navigate("/models"))}>{({ isActive }) => <>{isActive && <span className="nav-ind" aria-hidden="true" />}<Gauge size={16} /> Models</>}</NavLink>
+        <NavLink to="/appearance" className="nav-link" onClick={transitionClick(() => navigate("/appearance"))}>{({ isActive }) => <>{isActive && <span className="nav-ind" aria-hidden="true" />}<PaletteIcon size={16} /> Appearance</>}</NavLink>
+        <NavLink to="/settings" className="nav-link" onClick={transitionClick(() => navigate("/settings"))}>{({ isActive }) => <>{isActive && <span className="nav-ind" aria-hidden="true" />}<SettingsIcon size={16} /> Settings</>}</NavLink>
         <div className="sidebar-foot">
           <div className="spacer" />
           {!status.desktop && <button className="btn ghost sm" onClick={logout}><LogOut size={14} /> Sign out</button>}
@@ -222,6 +242,7 @@ export default function App() {
           <Route path="/teach" element={<Teach />} />
           <Route path="/teach/:id" element={<Teach />} />
           <Route path="/appearance" element={<Appearance />} />
+          <Route path="/appearance/motion" element={<MotionLab />} />
           <Route path="/models" element={<Models />} />
           <Route path="/assistant-settings" element={<Assistant tab="settings" />} />
           <Route path="/automations" element={<Automations />} />
@@ -253,6 +274,7 @@ export default function App() {
         </Routes>
         </div>
       </main>
+      <DeskGlow enabled={!!status.desk_enabled} />
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} pages={palettePages} />
     </div>
   );
