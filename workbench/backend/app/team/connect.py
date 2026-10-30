@@ -1,6 +1,6 @@
 """Updates coming in (feat/team-lead): member replies (email, text, Telegram, Slack), and AI Workspace Cloud task sync
-for members with a Team seat or a private member link. Jira/Asana/Trello adapters and email-inbox polling are not in
-this first cut (see docs/team-lead.md)."""
+for members with a Team seat or a private member link. Reading the inbox, Telegram and texts is in replies.py / sms.py,
+Jira/Asana/Trello in trackers.py."""
 
 from __future__ import annotations
 
@@ -24,6 +24,11 @@ def apply_update(tid: int, source: str, parsed: dict, member_id: int | None, ref
     label = {"done": "finished", "blocked": "is stuck on", "doing": "is working on"}.get(t["status"], "updated")
     pct = f" ({t['percent']}%)" if t["status"] == "doing" and t["percent"] else ""
     store.notice("update", f"{who} {label} “{t['title']}”{pct}", parsed.get("note") or "", task_id=tid, member_id=member_id)
+    from . import memory
+
+    memory.note(t, store.member(member_id) if member_id else None,
+                f"{store.member(member_id)['name'] if member_id else 'Someone'} {label} the task “{t['title']}”{pct}"
+                + (f": {parsed['note']}" if parsed.get("note") else ""), source)
     if t["status"] == "done" and before["status"] != "done" and t["assignee_id"]:
         engine.next_for(t["assignee_id"])
     return {"update": u, "task": t}
@@ -36,17 +41,20 @@ def inbound(sender: str, text: str, source: str = "email", ref: str = "") -> dic
     p = parse.reply(text)
     if not m:
         return {"applied": False, "reason": "Not from anyone on your team."}
-    open_tasks = store.tasks(assignee_id=m["id"], include_done=False)
-    t = None
-    if p["task_ref"]:
-        t = next((x for x in store.tasks(assignee_id=m["id"]) if x["id"] == p["task_ref"]), None)
-    elif len(open_tasks) == 1:
-        t = open_tasks[0]
+    t = place(m, p)
     if not t or not (p["understood"] or p["note"]):
         store.notice("update", f"Message from {m['first_name']}", text[:500], member_id=m["id"])
         return {"applied": False, "reason": "Couldn't tell which task this is about, so it's shown to you as a message.", "parsed": p}
     r = apply_update(t["id"], source, p, m["id"], ref)
     return {"applied": r is not None, "task": (r or {}).get("task"), "parsed": p}
+
+
+def place(m: dict, p: dict) -> dict | None:
+    """Which of the member's tasks a reply is about: the [T12] it carries, else their only open task."""
+    if p.get("task_ref"):
+        return next((x for x in store.tasks(assignee_id=m["id"]) if x["id"] == p["task_ref"]), None)
+    open_tasks = store.tasks(assignee_id=m["id"], include_done=False)
+    return open_tasks[0] if len(open_tasks) == 1 else None
 
 
 # --- AI Workspace Cloud (Team plans) ------------------------------------------------------------------------------------

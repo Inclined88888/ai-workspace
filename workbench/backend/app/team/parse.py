@@ -147,7 +147,7 @@ def reply(text: str) -> dict:
         out["status"], out["note"] = "blocked", first
     elif out["percent"] is None and re.search(r"\b(?:nearly|almost|not)\s+(?:done|finished)\b", low):
         out["status"] = "doing"
-    elif re.search(DONE, low):
+    elif re.search(DONE, low) and out["percent"] is None:  # "half done" is 50%, not done
         out["status"] = "done"
     elif re.search(DOING, low):
         out["status"] = "doing"

@@ -116,6 +116,12 @@ def send(oid: int) -> dict:
                        timeout=15).raise_for_status()
         elif o["channel"] == "slack" and str(c.get("slack", "")).startswith("https://hooks.slack.com/"):
             httpx.post(c["slack"], json={"text": o["body"]}, timeout=15).raise_for_status()
+        elif o["channel"] == "sms" and c.get("phone"):
+            from . import sms
+
+            if not sms.configured():
+                return _mark(oid, "copy", "Text messages aren't set up (Twilio): copy the text and send it yourself.")
+            sms.send(c["phone"], o["body"])
         elif o["channel"] == "app" and m["has_app"]:
             from . import connect
 

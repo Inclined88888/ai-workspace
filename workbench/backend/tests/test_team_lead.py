@@ -11,7 +11,10 @@ def team(client, monkeypatch):
     from app.team import store
 
     store.ensure()
-    for t in ("team_updates", "team_suggestions", "team_outbox", "team_channel_ok", "team_notices", "team_tasks", "team_members"):
+    from app.team import replies
+
+    replies.ensure()
+    for t in ("team_pending", "team_seen", "team_updates", "team_suggestions", "team_outbox", "team_channel_ok", "team_notices", "team_tasks", "team_members"):
         db.run(f"DELETE FROM {t}")
     db.run("DELETE FROM settings WHERE key LIKE 'team_%'")
     monkeypatch.setattr(store, "today", lambda: date(2026, 11, 2))  # a Monday

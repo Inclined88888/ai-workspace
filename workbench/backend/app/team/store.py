@@ -175,6 +175,13 @@ def _unseal(v: str) -> dict:
         return {}
 
 
+def _mirror(fn: str, *args) -> None:
+    """Keep the shared knowledge graph (feat/memory-core) in step. Optional; never raises."""
+    from . import memory
+
+    getattr(memory, fn)(*args)
+
+
 # --- members ---------------------------------------------------------------------------------------------------------
 def _member_out(r: dict) -> dict:
     m = dict(r)
@@ -252,7 +259,9 @@ def add_member(data: dict) -> dict:
     cols.setdefault("channel", "email" if (data.get("contact") or {}).get("email") or data.get("email") else "link")
     cols.update(created_at=now(), updated_at=now())
     mid = db.run(f"INSERT INTO team_members({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})", *cols.values())
-    return member(mid)
+    m = member(mid)
+    _mirror("person", m)
+    return m
 
 
 def update_member(mid: int, data: dict) -> dict:
@@ -261,6 +270,7 @@ def update_member(mid: int, data: dict) -> dict:
     if cols:
         cols["updated_at"] = now()
         db.run(f"UPDATE team_members SET {', '.join(k + ' = ?' for k in cols)} WHERE id = ?", *cols.values(), int(mid))
+        _mirror("person", member(mid))
     return member(mid)
 
 
@@ -277,6 +287,7 @@ def remove_member(mid: int) -> dict:
     member(mid)
     db.run("UPDATE team_tasks SET assignee_id = NULL, updated_at = ? WHERE assignee_id = ? AND status != 'done'", now(), int(mid))
     db.run("DELETE FROM team_members WHERE id = ?", int(mid))
+    _mirror("forget", "team_members", mid)
     return {"ok": True}
 
 
@@ -421,7 +432,9 @@ def add_task(data: dict) -> dict:
         cols["mine"] = 1 if not members() else 0
     cols.update(created_at=now(), updated_at=now())
     tid = db.run(f"INSERT INTO team_tasks({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})", *cols.values())
-    return task(tid)
+    t = task(tid)
+    _mirror("task", t)
+    return t
 
 
 def update_task(tid: int, data: dict) -> dict:
@@ -443,12 +456,14 @@ def update_task(tid: int, data: dict) -> dict:
     if cols:
         cols["updated_at"] = now()
         db.run(f"UPDATE team_tasks SET {', '.join(k + ' = ?' for k in cols)} WHERE id = ?", *cols.values(), int(tid))
+        _mirror("task", task(tid))
     return task(tid)
 
 
 def delete_task(tid: int) -> dict:
     task(tid)
     db.run("DELETE FROM team_tasks WHERE id = ?", int(tid))
+    _mirror("forget", "team_tasks", tid)
     return {"ok": True}
 
 

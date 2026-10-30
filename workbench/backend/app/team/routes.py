@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from .. import features_v02
 from ..mobile import require_device
 from ..security import require_user
-from . import connect, engine, outbox, parse, store
+from . import connect, engine, loop as team_loop, outbox, parse, replies, sms, store, trackers
 
 router = APIRouter(prefix="/api/team", dependencies=[Depends(require_user)])
 phone = APIRouter(prefix="/api/mobile/team", dependencies=[Depends(require_device)])
@@ -72,18 +72,34 @@ class SettingsIn(BaseModel):
     auto_assign: bool | None = None
     digest: str | None = None
     stuck_days: int | None = None
+    read_inbox: bool | None = None
+    replies_review: bool | None = None
+    mail_account: int | None = None
+
+
+class TwilioIn(BaseModel):
+    sid: str | None = Field(None, max_length=64)
+    token: str | None = Field(None, max_length=128)
+    from_number: str | None = Field(None, max_length=32)
+
+
+class PendingIn(BaseModel):
+    task_id: int | None = None
 
 
 def _settings() -> dict:
     return {"auto_notify": store.setting("auto_notify") == "1", "auto_nudge": store.setting("auto_nudge") == "1",
             "auto_assign": store.setting("auto_assign") == "1", "digest": store.setting("digest", "daily"),
-            "stuck_days": int(store.setting("stuck_days", "3")), "privacy": PRIVACY,
+            "stuck_days": int(store.setting("stuck_days", "3")),
+            "read_inbox": store.setting("read_inbox") == "1", "replies_review": replies.review_on(),
+            "mail_account": int(store.setting("mail_account") or 0) or None, "sms": sms.status(), "trackers": trackers.status(), "privacy": PRIVACY,
             "team_unlocked": features_v02.allowed("team_tasks")}
 
 
 @router.get("")
 def overview():
-    return {**engine.board(), "settings": _settings(), "suggestions": engine.suggestions(), "outbox": outbox.listing()}
+    return {**engine.board(), "settings": _settings(), "suggestions": engine.suggestions(), "outbox": outbox.listing(),
+            "replies": replies.pending()}
 
 
 @router.get("/settings")
@@ -103,7 +119,55 @@ def put_settings(body: SettingsIn):
         store.set_setting("digest", body.digest)
     if body.stuck_days:
         store.set_setting("stuck_days", str(max(1, min(30, body.stuck_days))))
+    if body.read_inbox is not None:
+        if body.read_inbox:
+            _lead()
+        store.set_setting("read_inbox", "1" if body.read_inbox else "0")
+    if body.replies_review is not None:
+        store.set_setting("replies_review", "1" if body.replies_review else "0")
+    if body.mail_account is not None:
+        store.set_setting("mail_account", str(body.mail_account or ""))
     return _settings()
+
+
+# replies read from the inbox / Telegram / texts, waiting for the lead's OK
+@router.get("/replies")
+def list_replies(status: str = "waiting"):
+    return replies.pending(status if status in ("waiting", "applied", "dismissed") else "waiting")
+
+
+@router.post("/replies/{pid}/{decision}")
+def decide_reply(pid: int, decision: str, body: PendingIn | None = None):
+    if decision not in ("apply", "dismiss"):
+        raise HTTPException(404, "Use apply or dismiss")
+    return replies.decide(pid, decision == "apply", (body or PendingIn()).task_id)
+
+
+@router.post("/replies/check")
+def check_replies():
+    """Read new replies now (inbox when switched on, texts when Twilio is set up)."""
+    _lead()
+    return team_loop.poll_replies()
+
+
+# text messages (Twilio, the lead's own account)
+@router.put("/sms")
+def put_sms(body: TwilioIn):
+    _lead()
+    return sms.configure(body.sid, body.token, body.from_number)
+
+
+# Jira / Asana / Trello with the lead's own tokens
+@router.put("/trackers/{kind}")
+def put_tracker(kind: str, body: dict[str, str]):
+    _lead()
+    return trackers.configure(kind, body)
+
+
+@router.post("/trackers/{kind}/sync")
+def sync_tracker(kind: str):
+    _lead()
+    return trackers.sync(kind)
 
 
 # members
@@ -174,6 +238,14 @@ def parse_task(body: TextIn):
         s = engine.suggest_assignee({"title": p["title"], "notes": "", "project": p["project"], "skills": [], "due": p["due"]})
         p["suggested"] = {"member_id": s["member"]["id"], "name": s["member"]["name"], "reason": s["reason"]} if s else None
     return p
+
+
+@router.post("/tasks/from-text")
+def add_from_text(body: TextIn):
+    """Parse and create in one go. Named person: assigned (message follows the outbox rules). Otherwise a suggestion."""
+    p = parse_task(body)
+    return add_task(TaskIn(title=p["title"], assignee_id=p["member_id"], due=p["due"], priority=p["priority"],
+                           project_id=p.get("project_id"), mine=False if store.members() else None))
 
 
 @router.get("/tasks/{tid}")
@@ -310,6 +382,22 @@ def phone_approve(oid: int):
 @phone.patch("/tasks/{tid}")
 def phone_patch(tid: int, body: TaskIn):
     return patch_task(tid, body)
+
+
+@phone.post("/replies/{pid}/{decision}")
+def phone_reply(pid: int, decision: str):
+    return decide_reply(pid, decision)
+
+
+@phone.post("/outbox/{oid}/cancel")
+def phone_cancel(oid: int):
+    return cancel(oid)
+
+
+@phone.post("/tasks")
+def phone_add(body: TextIn):
+    """Assign from the phone in plain English ("give Sam the Smith St quote by Friday")."""
+    return add_from_text(body)
 
 
 @phone.get("/notices")
