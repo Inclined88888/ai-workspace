@@ -121,6 +121,7 @@ class Browser:
         self.policy, self.log, self.headless, self.engine, self.cdp_url = policy, log, headless, engine, cdp_url
         self.downloads = Path(downloads or Path.cwd() / "downloads")
         self.viewport, self.slow_mo = viewport, slow_mo
+        self._shown: tuple | None = None
         self.overlay = (not headless) if overlay is None else overlay
         self.engine_used = ""
         self.parent: int | None = None  # receipt row the next egress rows hang under (the current step)
@@ -146,6 +147,8 @@ class Browser:
                 try:
                     kw = {"headless": self.headless, "slow_mo": self.slow_mo,
                           "args": ["--disable-features=PasswordManagerOnboarding", "--no-first-run", "--no-default-browser-check"]}
+                    if not self.headless:  # a real window: size it, and let the page follow the window
+                        kw["args"].append(f"--window-size={self.viewport[0]},{self.viewport[1] + 90}")
                     if eng != "chromium":
                         kw["channel"] = eng
                     self._browser = await self._pw.chromium.launch(**kw)
@@ -157,8 +160,8 @@ class Browser:
                 await self._pw.stop()
                 raise RuntimeError("No browser found. Install Google Chrome or Microsoft Edge, or run "
                                    "`python -m playwright install chromium`.\n  " + "\n  ".join(errors))
-            self.context = await self._browser.new_context(viewport={"width": self.viewport[0], "height": self.viewport[1]},
-                                                           accept_downloads=True)
+            size = {"no_viewport": True} if not self.headless else {"viewport": {"width": self.viewport[0], "height": self.viewport[1]}}
+            self.context = await self._browser.new_context(**size, accept_downloads=True)
         await self.context.route("**/*", self._route)
         if self.overlay:
             await self.context.add_init_script(page_js.OVERLAY)
@@ -284,12 +287,17 @@ class Browser:
         if path:
             path.parent.mkdir(parents=True, exist_ok=True)
         kw = {"type": "jpeg", "quality": 60} if for_model else {"type": "png"}
-        return await self.page.screenshot(path=str(path) if path else None, full_page=full_page, timeout=15000, **kw)
+        try:
+            return await self.page.screenshot(path=str(path) if path else None, full_page=full_page, timeout=15000, **kw)
+        finally:
+            if for_model and self.overlay and self._shown:
+                await self._overlay_call("show", *self._shown)  # the model sees the page; the user keeps the banner
 
     async def screenshot_b64(self) -> str:
         return base64.b64encode(await self.screenshot(for_model=True)).decode()
 
     async def show(self, text: str, eid=None) -> None:
+        self._shown = (text, eid)
         if self.overlay:
             await self._overlay_call("show", text, eid)
 

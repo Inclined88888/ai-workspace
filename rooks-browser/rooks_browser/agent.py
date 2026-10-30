@@ -31,7 +31,7 @@ object and nothing else:
 {"thought": "<one short sentence>", "action": "<action>", "args": {...}}
 
 Actions:
-- search   {"query": "words"}                      web search; results come back as a list of links
+- search   {"query": "words"}                      search the whole WEB (not the current site); returns links
 - open     {"url": "https://..."}                   go to a URL
 - click    {"id": 12}                               click element [12] from the list
 - type     {"id": 7, "text": "...", "submit": false}  fill a text field; submit=true presses Enter
@@ -44,7 +44,8 @@ Actions:
 - done     {"answer": "...", "success": true}       finish; the answer must contain what the user asked for
 
 Rules:
-- Use only element ids from the CURRENT list. Prefer opening a known URL over searching when you know the site.
+- Use only element ids from the CURRENT list. Look at the page you are on first: if it is a site that could hold the
+  answer, use its links before searching the web. Prefer opening a known URL over searching when you know the site.
 - Never type passwords, card numbers or one-time codes: use handoff so the user types them.
 - Submitting forms, buying, sending messages and logging in are checked with the user automatically. If an
   action is denied, do not try it again another way; finish with done and explain.
@@ -134,7 +135,7 @@ class Agent:
                 self.last_result = await self.browser.open(self.start_url)
             except Exception as e:  # noqa: BLE001
                 self.last_result = f"could not open start page: {e}"
-        repeats, prev = 0, None
+        repeats, prev, since_denied = 0, None, None
         try:
             for step in range(1, self.max_steps + 1):
                 if self.cancelled:
@@ -177,9 +178,15 @@ class Agent:
                     reason = ""
                     break
                 result, status = await self._execute(name, args, snap, turn, ev, res)
+                if status == "denied" and since_denied is None:
+                    since_denied = 0
+                elif since_denied is not None:
+                    since_denied += 1
                 if repeats >= 2:
                     result += "\nYou have repeated the same action three times. Do something different, or use done."
                 ev.result, ev.status = result[:600], status
+                mark = {"ok": "\u2713", "denied": "\u2717 you said no"}.get(status, "\u2717 " + status)
+                await self.browser.show(f"step {step}: {ev.next_goal} {mark}")
                 if self.screenshot_events:
                     try:
                         ev.screenshot = await self.browser.screenshot_b64()
@@ -189,6 +196,10 @@ class Agent:
                 self.browser.flush()
                 self.last_result = result
                 self.history.append(f"{step}. {name} {json.dumps(args, ensure_ascii=False)[:160]} -> {status}: {result[:200]}")
+                if since_denied is not None and since_denied >= 5:
+                    # the user said no; a model that keeps going is looking for another way round
+                    outcome, reason = "denied", "stopped: you said no and the agent did not finish"
+                    break
                 if self.tokens_in + self.tokens_out > self.max_tokens:
                     outcome, reason = "budget_paused", f"token budget of {self.max_tokens} reached"
                     break

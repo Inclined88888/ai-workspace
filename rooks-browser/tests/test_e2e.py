@@ -178,3 +178,13 @@ def test_ask_download_makes_downloads_ask(site):
     script = [act("open", url=f"{site}/widget.html"), click("link", "Download spec sheet"), act("done", answer="x")]
     res, model, asked, rows = run("get spec", script, ask={"download"})
     assert [a.category for a in asked] == ["download"] and not res.downloads
+
+
+def test_agent_that_keeps_going_after_a_no_is_stopped(site):
+    script = [act("open", url=f"{site}/widget.html"), click("button", "Buy now"),
+              act("scroll", direction="down"), act("open", url=f"{site}/products.html"), act("open", url=f"{site}/gadget.html"),
+              act("open", url=f"{site}/widget.html"), act("open", url=f"{site}/index.html"), act("done", answer="never reached")]
+    res, model, asked, rows = run("Buy a Blue Widget", script)
+    assert res.denied and not res.done and res.steps == 7
+    turn = [r for r in rows if r["kind"] == "turn"][-1]
+    assert turn["outcome"] == "denied" and "said no" in turn["failure_reason"]

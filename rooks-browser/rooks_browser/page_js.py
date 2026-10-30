@@ -65,7 +65,9 @@ SNAPSHOT = r"""
     if (el.disabled) d.disabled = true;
     out.push(d);
   }
-  const body = document.body ? document.body.innerText : '';
+  let body = document.body ? document.body.innerText : '';
+  const banner = document.getElementById('__rooks_banner');  // our own overlay is not page content
+  if (banner && banner.innerText) body = body.replace(banner.innerText, '');
   return { url: location.href, title: document.title, elements: out, text: body.replace(/\n{3,}/g, '\n\n'),
     scroll_y: Math.round(window.scrollY), page_height: Math.round(document.documentElement.scrollHeight), viewport_h: vh };
 }
@@ -80,7 +82,7 @@ OVERLAY = r"""
       let b = document.getElementById('__rooks_banner');
       if (!b) {
         b = document.createElement('div'); b.id = '__rooks_banner';
-        b.style.cssText = 'position:fixed;z-index:2147483647;left:50%;bottom:14px;transform:translateX(-50%);max-width:80%;' +
+        b.style.cssText = 'position:fixed;z-index:2147483647;left:50%;top:10px;transform:translateX(-50%);max-width:80%;' +
           'background:#fbf7ef;color:#1d1a16;border:1px solid #1d1a16;padding:7px 14px;font:13px/1.35 Georgia,serif;' +
           'box-shadow:3px 3px 0 #1d1a16;pointer-events:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
         (document.body || document.documentElement).appendChild(b);
