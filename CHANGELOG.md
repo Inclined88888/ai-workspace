@@ -4,6 +4,18 @@ Every user-visible change that needs action, or changes data on upgrade, gets an
 migration steps, rollback steps. Workbench has no release numbers yet (BACKLOG). Entries are identified by schema
 version and the merge commit on `main`.
 
+## 2026-10-30 · iPhone and Android companion app (phase 4) · branch feat/mobile-app (builds on feat/premium-ui)
+
+Workbench side (pairing, API, push hook). The app itself is in `mobile/`; its lines follow.
+
+- **Pairing.** Settings → Phone shows a QR code and an 8-character code (5 minutes, single use, stored hashed). The phone exchanges it for a device token (`wbd_…`, stored hashed; kept in the phone's Keychain/Keystore). Settings lists paired phones and unpairs them. Ten wrong codes per address per 5 minutes are refused.
+- **Scoped phone API** under `/api/mobile/*`: home glance, approvals approve/deny, runs and traces, tasks, notes, conversations, model list, chat (streamed, channel `mobile`), photo and voice attachments, push token. A device token cannot reach Settings, keys, mail, the password or other phones. Decisions from the phone are logged with channel `mobile`.
+- **On your Wi-Fi.** Desktop app: "Phone access on this Wi-Fi" starts a listener on `0.0.0.0:8766` (`WORKBENCH_MOBILE_PORT`) that serves only `/api/mobile/*` and `/healthz`; remembered across restarts. Docker: `BIND_ADDRESS=0.0.0.0` plus `MOBILE_URLS`.
+- **Away from home.** A relay address (Tailscale, Cloudflare Tunnel, or a future relay) in Settings or `MOBILE_RELAY_URL` is offered to the phone after the Wi-Fi address. See `docs/mobile-pairing.md`.
+- **Push (off by default).** "Approval needed" and "Run finished" through Expo's push service, only when Settings → Phone → Push notifications is on and a phone registered a token. Needs Expo/APNs/FCM credentials in the app build.
+- **New tables** `devices` and `pairing_codes` (created automatically; no data migration, schema version unchanged). New dependency `segno` (QR codes, pure Python). Rollback: run the previous build; the two tables are ignored.
+- Screenshots: `screenshots/mobile/settings-phone-*.png`.
+
 ## 2026-10-30 · Editorial UI redesign (light-first) · branch feat/premium-ui (builds on feat/desktop-app)
 
 Replaces the dark, gradient "premium" look with a quiet 90s fashion-editorial style. The structural work from the premium pass is kept: command palette, code blocks, skeletons, streaming and accessibility.
