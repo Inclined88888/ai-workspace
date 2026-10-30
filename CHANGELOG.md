@@ -156,6 +156,27 @@ and `cli/ws` are unchanged.
 **Rollback steps:** `uv tool uninstall rooks-code` (or `pip uninstall rooks-code`). Per-project `.rooks/` folders hold
 only receipts and undo snapshots and can be deleted.
 
+## 2026-10-30 · Rooks Browser: a local AI browser agent (phase 3)
+
+New, optional: `rooks-browser/`, a browser agent that drives your own Chrome or Edge through Playwright. It installs
+as a ≈ 150 MB Python package, not a 2.5 GB image.
+
+* **Models:** OpenAI, Anthropic, OpenRouter, Ollama, OpenAI-compatible servers or Workbench's model connections.
+* **Pages:** it reads the page's element list and text, plus screenshots for vision models.
+* **Actions:** search (SearXNG or a fallback search page), open, click, type, scroll, extract and download.
+* **Approvals:** it asks before form submits, purchases, messages and logins.
+* **Sites and receipts:** it keeps per-site allow and deny lists, and logs every visited URL as Workbench run-log
+  receipts.
+* **Passwords:** it never stores or types them.
+* **Ways to call it:** a CLI, a local HTTP API that is compatible with the `browser` add-on's job API, and an MCP server.
+
+Nothing changes for existing installs. The `browser` add-on, Workbench and the database are untouched.
+
+* **To try it:** `uv tool install ./rooks-browser`.
+* **To use it from Workbench:** set `BROWSER_URL=http://host.docker.internal:8765` and `BROWSER_API_KEY` to the token
+  you start `rooks-browser serve --host 0.0.0.0` with.
+* **Rollback:** remove those two settings, or uninstall the tool.
+
 ## 2026-10-29 · Fix upgrades from the original ROOKS database
 
 Older ROOKS installations used `tool_runs(at, ok, actor, mission_id, ...)` before
