@@ -121,8 +121,9 @@ def cmd_run(argv: list[str]) -> int:
     try:
         shown = llm.resolve(s.provider)
         shown = "AI Workspace app (smart router)" if shown == "workbench" else shown
-    except ValueError:
-        shown = s.provider or "auto"
+    except ValueError as e:
+        print(f"rooks-browser: {e}", file=sys.stderr)
+        return 2
     print(f"Rooks Browser {__version__} · {shown} · {'headed' if not s.headless else 'headless'}", file=out)
     print(f"Task: {goal}", file=out)
     try:

@@ -72,6 +72,40 @@ def app_link() -> dict:
         return {}
 
 
+NO_MODEL_HELP = ("No AI model is set up yet. Either open the app (run `ai-workspace`) and choose \"Free cloud\" "
+                 "(a free Gemini or Groq key: two minutes, no card), or set a key in this terminal and run again:\n"
+                 "    export GROQ_API_KEY=...     (free at https://console.groq.com/keys)\n"
+                 "    export GEMINI_API_KEY=...   (free at https://aistudio.google.com/apikey)\n"
+                 "On Windows PowerShell: $env:GROQ_API_KEY=\"...\"")
+KEY_ORDER = ("anthropic", "openai", "openrouter", "gemini", "groq", "xai", "deepseek", "mistral")  # when no app is open
+
+
+def app_has_models(link: dict) -> bool:
+    """False only when the app answers and lists no models at all (installed, but no model chosen yet)."""
+    import json
+    import urllib.request
+
+    req = urllib.request.Request(f"{link['url']}/v1/models", headers={"Authorization": f"Bearer {link.get('key', '')}"})
+    try:
+        with urllib.request.urlopen(req, timeout=5) as r:
+            return json.load(r).get("data") != []
+    except (OSError, ValueError, AttributeError):
+        return True
+
+
+def _ollama_up(base: str = "http://localhost:11434") -> bool:
+    import urllib.request
+
+    host = os.environ.get("OLLAMA_HOST", "")
+    if host:
+        base = host if "://" in host else f"http://{host}"
+    try:
+        urllib.request.urlopen(f"{base.rstrip('/')}/api/tags", timeout=1.5).close()
+        return True
+    except (OSError, ValueError):
+        return False
+
+
 def config_path() -> Path:
     if os.environ.get("ROOKS_CONFIG"):
         return Path(os.environ["ROOKS_CONFIG"])
@@ -143,9 +177,20 @@ def resolve(flags: dict, root: Path, file: dict | None = None) -> Settings:
            "base_url": os.environ.get("ROOKS_BASE_URL")}
     name = flags.get("provider") or env["provider"] or cfg.get("provider")
     link: dict = {}
-    if not name:  # nothing chosen: the open desktop app (cloud by default), else local Ollama
-        link = app_link() if not (os.environ.get("WORKBENCH_URL") or s.workbench_url) else {}
-        name = "workbench" if (link or os.environ.get("WORKBENCH_URL") or s.workbench_url) else "ollama"
+    if not name:  # nothing chosen: the open desktop app (cloud by default), else a key in the environment, else Ollama
+        if os.environ.get("WORKBENCH_URL") or s.workbench_url:
+            name = "workbench"
+        else:
+            link = app_link()
+            if link and app_has_models(link):
+                name = "workbench"
+            else:
+                link = {}
+                name = next((n for n in KEY_ORDER if os.environ.get(PROVIDERS[n]["key_env"])), "")
+                if not name:
+                    if not _ollama_up():
+                        raise SystemExit(f"rooks: {NO_MODEL_HELP}")
+                    name = "ollama"
     custom = cfg.get("providers", {}).get(name, {})
     if name not in PROVIDERS and not custom:
         raise SystemExit(f"rooks: unknown provider {name!r}. Built in: {', '.join(PROVIDERS)}; or add [providers.{name}] to "

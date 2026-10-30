@@ -140,6 +140,12 @@ def _post(url: str, body: dict, headers: dict, on_egress: Egress | None, timeout
             detail = detail.get("message", detail) if isinstance(detail, dict) else detail
         except ValueError:
             detail = e.reason
+        if e.code == 400 and "No model provider configured" in str(detail):
+            from .config import NO_MODEL_HELP
+
+            raise ProviderError(NO_MODEL_HELP) from None
+        if e.code in (401, 403) and "127.0.0.1" not in url and "localhost" not in url:
+            raise ProviderError(f"{url} refused the API key ({e.code}: {detail}). Check the key and try again.") from None
         raise ProviderError(f"{url} answered {e.code}: {detail}") from None
     except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
         outcome, error = "error", e.__class__.__name__

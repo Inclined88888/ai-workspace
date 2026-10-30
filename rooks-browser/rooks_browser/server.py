@@ -30,6 +30,13 @@ from .policy import parse_categories
 LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "[::1]", "::1")
 
 
+
+def _auto_or_none() -> str | None:
+    try:
+        return llm.resolve(None)
+    except ValueError:
+        return None
+
 class Jobs:
     def __init__(self, *, headless: bool = True, engine: str = "auto", cdp_url: str | None = None, max_concurrent: int = 2,
                  max_steps_limit: int = 50, approval_timeout: float = 600, block_private: bool = False):
@@ -218,7 +225,7 @@ def make_handler(jobs: Jobs, token: str):
             try:
                 if parts[:2] == ["api", "providers"]:
                     ready = llm.ready()
-                    return self._send(200, {"auto": llm.resolve(None), "usage": {"used": 0, "limit": 0}, "workbench_required": False,
+                    return self._send(200, {"auto": _auto_or_none(), "usage": {"used": 0, "limit": 0}, "workbench_required": False,
                                             "providers": [{"name": n, "label": p.label, "ready": n in ready, "default_model": p.default_model,
                                                            "notes": p.notes} for n, p in llm.PROVIDERS.items() if n != "scripted"]})
                 if parts[:2] == ["api", "jobs"]:

@@ -106,3 +106,18 @@ def test_desktop_presets_point_at_this_computer(client, monkeypatch):
     finally:
         monkeypatch.setattr(config, "DESKTOP", False)
         importlib.reload(llm)
+
+
+def test_launcher_handoff_code_is_one_time(client, desktop):
+    assert client.post("/api/desktop/handoff").status_code == 403
+    assert client.post("/api/desktop/handoff", headers={"Authorization": "Bearer wrong"}).status_code == 403
+    code = client.post("/api/desktop/handoff", headers={"Authorization": "Bearer " + "t" * 43}).json()["code"]
+    r = client.get("/api/desktop/handoff", params={"code": code}, follow_redirects=False)
+    assert r.status_code == 303 and "wb_session" in r.headers.get("set-cookie", "")
+    again = client.get("/api/desktop/handoff", params={"code": code}, follow_redirects=False)
+    assert again.status_code == 403 and "already been used" in again.text
+
+
+def test_launcher_handoff_needs_desktop_mode(client):
+    assert client.post("/api/desktop/handoff", headers={"Authorization": "Bearer x"}).status_code == 403
+    assert client.get("/api/desktop/handoff", params={"code": "nope"}, follow_redirects=False).status_code == 403

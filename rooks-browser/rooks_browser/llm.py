@@ -41,13 +41,21 @@ PROVIDERS = {p.name: p for p in [
     ProviderInfo("openai", "OpenAI", ("OPENAI_API_KEY",), "gpt-4.1-mini", "Vision on by default."),
     ProviderInfo("anthropic", "Anthropic Claude", ("ANTHROPIC_API_KEY",), "claude-sonnet-4-5", "Vision on by default."),
     ProviderInfo("openrouter", "OpenRouter", ("OPENROUTER_API_KEY",), "openai/gpt-4.1-mini", "Any OpenRouter model id; :free models work."),
+    ProviderInfo("groq", "Groq (free key at console.groq.com)", ("GROQ_API_KEY",), "openai/gpt-oss-120b", "Fast; text only."),
+    ProviderInfo("gemini", "Google Gemini (free key at aistudio.google.com)", ("GEMINI_API_KEY", "GOOGLE_API_KEY"), "gemini-2.5-flash",
+                 "Vision on by default."),
     ProviderInfo("ollama", "Ollama (local, free)", (), "qwen2.5:7b", "OLLAMA_HOST, default http://localhost:11434. Text only unless the model can see (llava, qwen2.5vl, gemma3, ...)."),
     ProviderInfo("openai-compatible", "Any OpenAI-compatible server", ("OPENAI_COMPATIBLE_BASE_URL",), "", "LM Studio, vLLM, llama.cpp, Groq, ..."),
     ProviderInfo("workbench", "AI Workspace app (its smart router)", ("WORKBENCH_URL",), "default",
                  "Found automatically while the desktop app is open; or set WORKBENCH_URL and WORKBENCH_API_KEY."),
     ProviderInfo("scripted", "Scripted (tests and demos, no model)", (), "", "--model is a JSON file of actions."),
 ]}
-AUTO_ORDER = ("workbench", "anthropic", "openai", "openrouter", "ollama")
+AUTO_ORDER = ("workbench", "anthropic", "openai", "openrouter", "gemini", "groq", "ollama")
+NO_MODEL_HELP = ("No AI model is set up yet. Either open the app (run `ai-workspace`) and choose \"Free cloud\" "
+                 "(a free Gemini or Groq key: two minutes, no card), or set a key in this terminal and run again:\n"
+                 "    export GROQ_API_KEY=...     (free at https://console.groq.com/keys)\n"
+                 "    export GEMINI_API_KEY=...   (free at https://aistudio.google.com/apikey)\n"
+                 "On Windows PowerShell: $env:GROQ_API_KEY=\"...\"")
 _VISION_HINT = re.compile(r"(gpt-4o|gpt-4\.1|gpt-5|o3|o4|claude|gemini|llava|vision|-vl|vl:|qwen2\.5vl|qwen3-vl|gemma3|minicpm-v|moondream|pixtral|llama4)", re.I)
 
 
@@ -81,8 +89,29 @@ def app_link() -> dict:
         return {}
 
 
+def app_has_models(link: dict) -> bool:
+    """False only when the app answers and lists no models at all (installed, but no model chosen yet)."""
+    req = urllib.request.Request(f"{link['url']}/v1/models", headers={"Authorization": f"Bearer {link.get('key', '')}"})
+    try:
+        with urllib.request.urlopen(req, timeout=5) as r:
+            return json.load(r).get("data") != []
+    except (OSError, ValueError, AttributeError):
+        return True
+
+
 def _has_credentials(name: str) -> bool:
-    return bool(app_link()) if name == "workbench" else bool(_env(*PROVIDERS[name].key_env))
+    if name == "workbench":
+        link = app_link()
+        return bool(link) and app_has_models(link)
+    return bool(_env(*PROVIDERS[name].key_env))
+
+
+def _ollama_up() -> bool:
+    try:
+        urllib.request.urlopen(f"{ollama_host()}/api/tags", timeout=1.5).close()
+        return True
+    except (OSError, ValueError):
+        return False
 
 
 def ollama_host() -> str:
@@ -110,9 +139,11 @@ def resolve(provider: str | None) -> str:
             raise ValueError(f"unknown provider {p!r} (choose from {', '.join(PROVIDERS)})")
         return p
     for n in AUTO_ORDER:
-        if n == "ollama" or _has_credentials(n):
+        if n != "ollama" and _has_credentials(n):
             return n
-    return "ollama"
+    if _ollama_up():
+        return "ollama"
+    raise ValueError(NO_MODEL_HELP)
 
 
 def sees(provider: str, model: str, vision: str = "auto") -> bool:
@@ -148,6 +179,10 @@ class _HTTP(Model):
         except urllib.error.HTTPError as e:
             self.on_egress("POST", url, f"http_{e.code}", int((time.monotonic() - started) * 1000), "")
             detail = e.read().decode("utf-8", "replace")[:500]
+            if e.code == 400 and "No model provider configured" in detail:
+                raise RuntimeError(NO_MODEL_HELP) from e
+            if e.code in (401, 403) and self.provider in ("groq", "gemini", "openai", "anthropic", "openrouter"):
+                raise RuntimeError(f"{self.provider} refused the API key (HTTP {e.code}). Check the key and try again.") from e
             raise RuntimeError(f"{self.provider} returned HTTP {e.code}: {detail}") from e
         except (OSError, ValueError) as e:
             self.on_egress("POST", url, "error", int((time.monotonic() - started) * 1000), e.__class__.__name__)
@@ -266,6 +301,12 @@ def make(provider: str | None, model: str | None = None, *, base_url: str | None
             raise ValueError("openrouter needs OPENROUTER_API_KEY")
         return OpenAIChat("openrouter", m, base_url or "https://openrouter.ai/api/v1", key, on_egress, json_mode=False,
                           extra_headers={"X-Title": "Rooks Browser"})
+    if p in ("groq", "gemini"):
+        key = api_key or _env(*PROVIDERS[p].key_env)
+        if not key:
+            raise ValueError(f"{p} needs {PROVIDERS[p].key_env[0]}")
+        base = base_url or ("https://api.groq.com/openai/v1" if p == "groq" else "https://generativelanguage.googleapis.com/v1beta/openai")
+        return OpenAIChat(p, m, base, key, on_egress, json_mode=False)
     if p == "workbench":
         link = {} if base_url else app_link()
         base = (base_url or link.get("url") or "").rstrip("/")

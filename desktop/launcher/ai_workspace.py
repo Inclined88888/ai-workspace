@@ -5,6 +5,7 @@
   ai-workspace --no-open    start the backend only and print the sign-in link (servers, testing)
   ai-workspace --stop       stop a copy started by this launcher
   ai-workspace --status     is it running, where, and which agents are linked
+  ai-workspace --logs       where the logs are, and their last lines (paste these when reporting a problem)
 
 The app window is Chrome or Edge in --app mode with its own profile: no tabs, no address bar, its own icon in the dock or
 taskbar. Closing that window stops the backend. Data lives in the same folder the native app uses, so switching between
@@ -24,7 +25,6 @@ import signal
 import socket
 import subprocess
 import sys
-import threading
 import time
 import urllib.request
 import webbrowser
@@ -56,8 +56,10 @@ def native_app() -> list[str] | None:
         return None
     if sys.platform == "darwin":
         for d in (Path("/Applications"), Path.home() / "Applications"):
-            if (d / f"{NAME}.app").exists():
-                return ["open", "-a", str(d / f"{NAME}.app")]
+            app = d / f"{NAME}.app"
+            # the real app (Tauri binary inside), not the shortcut to this launcher that install.sh makes
+            if (app / "Contents" / "MacOS" / "ai-workspace-desktop").exists():
+                return ["open", "-a", str(app)]
     elif sys.platform == "win32":
         roots = [os.environ.get("LOCALAPPDATA", ""), os.environ.get("PROGRAMFILES", ""), os.environ.get("LOCALAPPDATA", "") + r"\Programs"]
         for r in filter(None, roots):
@@ -129,36 +131,52 @@ def write_state(d: dict) -> None:
         json.dump(d, fh)
 
 
-_REDIRECTS: list[Path] = []
+def logs_dir() -> Path:
+    return data_dir() / "logs"
 
 
-def _private_redirect(url: str, folder: Path) -> str:
-    """A file:// page (0600, in the private data folder) that forwards to url, so the sign-in token is never on a
-    command line where other local users could read it (ps / Task Manager). Removed a few seconds later."""
-    folder.mkdir(parents=True, exist_ok=True)
-    if sys.platform != "win32":
-        folder.chmod(0o700)
-    for old in folder.glob("open-*.html"):  # left over from a launcher that exited early
-        if old.stat().st_mtime < time.time() - 60:
-            old.unlink(missing_ok=True)
-    f = folder / f"open-{secrets.token_hex(8)}.html"
-    _REDIRECTS.append(f)
-    fd = os.open(f, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as fh:
-        fh.write(f'<!doctype html><meta charset="utf-8"><title>{NAME}</title>'
-                 f'<script>location.replace({json.dumps(url)})</script>')
-    t = threading.Timer(15, lambda: f.unlink(missing_ok=True))
-    t.daemon = True
-    t.start()
-    return f.as_uri()
+_LOG: list = []
+
+
+def say(msg: str, err: bool = False) -> None:
+    """Print, and keep a copy in logs/launcher.log (a launcher started from the Dock or Finder has no terminal)."""
+    print(msg, file=sys.stderr if err else sys.stdout, flush=True)
+    try:
+        if not _LOG:
+            logs_dir().mkdir(parents=True, exist_ok=True)
+            _LOG.append(open(logs_dir() / "launcher.log", "a", encoding="utf-8"))  # noqa: SIM115
+        _LOG[0].write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {msg}\n")
+        _LOG[0].flush()
+    except OSError:
+        pass
+
+
+def handoff_url(url: str, token: str) -> str | None:
+    """A one-time sign-in link (expires in two minutes) for the window. The launch token itself never goes on a
+    command line, where other local users could read it (ps / Task Manager)."""
+    req = urllib.request.Request(f"{url}/api/desktop/handoff", method="POST", data=b"",
+                                 headers={"Authorization": f"Bearer {token}", "X-Workbench": "1"})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return f"{url}/api/desktop/handoff?code={json.load(r)['code']}"
+    except (OSError, ValueError, KeyError) as e:
+        say(f"Could not get a sign-in link from the app at {url}: {e}", err=True)
+        return None
+
+
+def ui_ok(url: str) -> bool:
+    """The web UI is there (a backend without its built web UI would open a blank window)."""
+    try:
+        with urllib.request.urlopen(f"{url}/", timeout=5) as r:
+            return b'<div id="root"' in r.read(20000)
+    except OSError:
+        return False
 
 
 def open_window(url: str, profile: Path) -> subprocess.Popen | None:
     exe = window_browser()
     if exe:
         profile.mkdir(parents=True, exist_ok=True)
-        if "token=" in url:
-            url = _private_redirect(url, data_dir() / "run")
         args = [exe, f"--app={url}", f"--user-data-dir={profile}", "--no-first-run", "--no-default-browser-check",
                 "--window-size=1280,860", f"--class={NAME}"]
         if os.environ.get("AI_WORKSPACE_WINDOW_ARGS"):
@@ -212,6 +230,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--port", type=int, default=0)
     p.add_argument("--stop", action="store_true")
     p.add_argument("--status", action="store_true")
+    p.add_argument("--logs", action="store_true", help="show where the logs are and their last lines")
     p.add_argument("--version", action="store_true")
     a = p.parse_args(argv)
     if hasattr(sys.stdout, "reconfigure"):
@@ -222,9 +241,24 @@ def main(argv: list[str] | None = None) -> int:
     if a.version:
         print((ROOT / "VERSION").read_text().strip() if (ROOT / "VERSION").exists() else "dev")
         return 0
+    if a.logs:
+        print(f"logs: {logs_dir()}")
+        for name in ("launcher.log", "workbench.log"):
+            f = logs_dir() / name
+            print(f"\n--- {f} (last 40 lines)")
+            try:
+                print("\n".join(f.read_text(errors="replace").splitlines()[-40:]) or "(empty)")
+            except OSError:
+                print("(not there yet)")
+        return 0
     if a.status:
         print(f"app: {'running at ' + st['url'] if running else 'not running'}")
+        if running:
+            print(f"web UI: {'ok' if ui_ok(st['url']) else 'MISSING (the window would be blank; run the installer again)'}")
+            print(f"backend pid: {st.get('pid')}")
+        print(f"version: {(ROOT / 'VERSION').read_text().strip() if (ROOT / 'VERSION').exists() else 'dev'}")
         print(f"data: {data_dir()}")
+        print(f"logs: {logs_dir()}  (ai-workspace --logs)")
         print(f"native app: {' '.join(native_app() or ['not installed (uses an app window in Chrome/Edge)'])}")
         for tool in ("rooks", "rooks-browser"):
             print(f"{tool}: {shutil.which(tool) or 'not on PATH'}")
@@ -236,24 +270,25 @@ def main(argv: list[str] | None = None) -> int:
 
     native = None if (a.web or a.no_open) else native_app()
     if native:
-        print(f"Opening the {NAME} app…")
+        say(f"Opening the {NAME} app…")
         subprocess.Popen(native)
         return 0
 
     if running:  # one copy at a time: reopen its window with a fresh sign-in link
-        print(f"{NAME} is already running at {st['url']}")
+        say(f"{NAME} is already running at {st['url']}")
         if not a.no_open:
-            open_window(st["session_url"], data_dir() / "window")
-            time.sleep(5)  # let the window read the forwarding page, then remove it
-            for f in _REDIRECTS:
-                f.unlink(missing_ok=True)
+            link = handoff_url(st["url"], st.get("token", ""))
+            if not link:
+                say("Run `ai-workspace --stop`, then `ai-workspace` again.", err=True)
+                return 1
+            open_window(link, data_dir() / "window")
         return 0
 
     dd = data_dir()
     dd.mkdir(parents=True, exist_ok=True)
     close_window(dd / "window")  # a window left over from a backend that is gone would swallow the new one
-    logs = dd / "logs"
-    logs.mkdir(exist_ok=True)
+    logs = logs_dir()
+    logs.mkdir(parents=True, exist_ok=True)
     port = a.port or free_port()
     token = secrets.token_urlsafe(32)
     url = f"http://127.0.0.1:{port}"
@@ -263,38 +298,43 @@ def main(argv: list[str] | None = None) -> int:
               "--exit-with-parent"]
     flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
     proc = subprocess.Popen(server, env=env, stdin=subprocess.PIPE, stdout=log, stderr=subprocess.STDOUT, creationflags=flags)
-    print(f"Starting {NAME}…", flush=True)
+    say(f"Starting {NAME} {(ROOT / 'VERSION').read_text().strip() if (ROOT / 'VERSION').exists() else ''} on port {port}…")
     deadline = time.monotonic() + 90
     while not healthy(url, 1):
         if proc.poll() is not None or time.monotonic() > deadline:
-            print(f"{NAME} did not start. Last lines of {logs / 'workbench.log'}:", file=sys.stderr)
+            say(f"{NAME} did not start. Last lines of {logs / 'workbench.log'}:", err=True)
             try:
-                print("\n".join((logs / "workbench.log").read_text(errors="replace").splitlines()[-25:]), file=sys.stderr)
+                say("\n".join((logs / "workbench.log").read_text(errors="replace").splitlines()[-25:]), err=True)
             except OSError:
                 pass
             proc.kill()
             return 1
         time.sleep(0.3)
-    session = f"{url}/api/desktop/session?token={token}"
-    write_state({"url": url, "session_url": session, "pid": proc.pid})
-    print(f"{NAME} is running at {url}  (logs: {logs})")
+    write_state({"url": url, "token": token, "pid": proc.pid})  # 0600: --status, a second `ai-workspace`, the agents
+    say(f"{NAME} is running at {url}  (logs: {logs})")
+    if not ui_ok(url):
+        say(f"The web UI is missing from {ROOT / 'workbench' / 'frontend' / 'dist'}, so the window would be blank. "
+            "Run the installer again.", err=True)
     rc = 0
     try:
         if a.no_open:
-            print(f"Sign in: {session}")
+            print(f"Sign in (one-time link, valid 2 minutes): {handoff_url(url, token)}")
             print("Press Ctrl+C to stop.")
             proc.wait()
         else:
             started = time.monotonic()
-            win = open_window(session, dd / "window")
+            link = handoff_url(url, token)
+            if not link:
+                raise KeyboardInterrupt
+            win = open_window(link, dd / "window")
             if win:
-                print("Close the window (or press Ctrl+C) to quit.")
+                say("Close the window (or press Ctrl+C) to quit.")
                 win.wait()
                 if time.monotonic() - started < 5:  # handed off to a browser already running on this profile
-                    print("Opened in the existing app window. Press Ctrl+C here to quit.")
+                    say("Opened in the existing app window. Press Ctrl+C here to quit.")
                     proc.wait()
             else:
-                print("Opened in your browser. Press Ctrl+C here to quit.")
+                say("Opened in your browser. Press Ctrl+C here to quit.")
                 proc.wait()
     except KeyboardInterrupt:
         pass
@@ -307,7 +347,7 @@ def main(argv: list[str] | None = None) -> int:
                 proc.kill()
         if read_state().get("pid") == proc.pid:
             state_file().unlink(missing_ok=True)
-        print(f"{NAME} stopped.")
+        say(f"{NAME} stopped.")
     return rc
 
 

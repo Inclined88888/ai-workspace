@@ -87,3 +87,58 @@ def test_free_cloud_presets(tmp_path, monkeypatch):
     _isolate(monkeypatch, tmp_path)
     assert config.resolve({"provider": "groq"}, tmp_path, {}).key_env == "GROQ_API_KEY"
     assert "generativelanguage" in config.resolve({"provider": "gemini"}, tmp_path, {}).base_url
+
+
+@pytest.fixture
+def empty_app():
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_GET(self):
+            body = json.dumps({"object": "list", "data": []} if self.path.startswith("/v1/models") else {"ok": True}).encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_POST(self):
+            body = b'{"detail":"No model provider configured. Add an API key in Settings."}'
+            self.send_response(400)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{srv.server_address[1]}"
+    srv.shutdown()
+
+
+def test_app_without_a_model_uses_a_key_from_the_environment(empty_app, tmp_path, monkeypatch):
+    link = _isolate(monkeypatch, tmp_path)
+    link.write_text(json.dumps({"url": empty_app, "key": "k" * 32}))
+    for k in config.KEY_ORDER:
+        monkeypatch.delenv(config.PROVIDERS[k]["key_env"], raising=False)
+    monkeypatch.setenv("GROQ_API_KEY", "gsk_test")
+    s = config.resolve({}, tmp_path, {})
+    assert s.provider == "groq" and s.base_url == "https://api.groq.com/openai/v1"
+
+
+def test_no_model_anywhere_explains_what_to_do(empty_app, tmp_path, monkeypatch):
+    link = _isolate(monkeypatch, tmp_path)
+    link.write_text(json.dumps({"url": empty_app, "key": "k" * 32}))
+    for k in config.KEY_ORDER:
+        monkeypatch.delenv(config.PROVIDERS[k]["key_env"], raising=False)
+    monkeypatch.setenv("OLLAMA_HOST", "http://127.0.0.1:9")
+    with pytest.raises(SystemExit) as e:
+        config.resolve({}, tmp_path, {})
+    assert "ai-workspace" in str(e.value) and "GROQ_API_KEY" in str(e.value)
+
+
+def test_the_apps_no_model_error_is_friendly(empty_app, tmp_path, monkeypatch):
+    _isolate(monkeypatch, tmp_path)
+    s = config.resolve({"provider": "workbench"}, tmp_path, {"workbench_url": empty_app})
+    with pytest.raises(providers.ProviderError) as e:
+        providers.make(s).complete("sys", [{"role": "user", "content": "ping"}], [])
+    assert "Free cloud" in str(e.value) and "HTTP" not in str(e.value)

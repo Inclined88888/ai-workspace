@@ -58,6 +58,10 @@ def copy_app(src: Path, home: Path) -> Path:
     shutil.copytree(src / "workbench" / "frontend" / "dist", tmp / "workbench" / "frontend" / "dist")
     for d in ("sidecar", "launcher"):
         shutil.copytree(src / "desktop" / d, tmp / "desktop" / d, ignore=ignore)
+    (tmp / "desktop" / "src-tauri" / "icons").mkdir(parents=True)
+    for f in ("icon.icns", "icon.ico", "icon.png"):  # for the Applications / Start menu shortcut
+        if (src / "desktop" / "src-tauri" / "icons" / f).exists():
+            shutil.copy2(src / "desktop" / "src-tauri" / "icons" / f, tmp / "desktop" / "src-tauri" / "icons" / f)
     for f in ("VERSION", "LICENSE", "QUICKSTART.md"):
         if (src / f).exists():
             shutil.copy2(src / f, tmp / f)
@@ -193,9 +197,11 @@ def write_shortcut(launcher: Path, app: Path, py: Path) -> str:
             menu = Path(os.environ["APPDATA"]) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / f"{NAME}.lnk"
             pyw = py.with_name("pythonw.exe")
             ps = ("$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:LNK);$s.TargetPath=$env:PYW;"
-                  "$s.Arguments='\"'+$env:LAUNCHER+'\"';$s.WorkingDirectory=$env:USERPROFILE;$s.Save()")
+                  "$s.Arguments='\"'+$env:LAUNCHER+'\"';$s.WorkingDirectory=$env:USERPROFILE;"
+                  "if($env:ICO -and (Test-Path $env:ICO)){$s.IconLocation=$env:ICO};$s.Save()")
             env = {**os.environ, "LNK": str(menu), "PYW": str(pyw if pyw.exists() else py),
-                   "LAUNCHER": str(app / "desktop" / "launcher" / "ai_workspace.py")}
+                   "LAUNCHER": str(app / "desktop" / "launcher" / "ai_workspace.py"),
+                   "ICO": str(app / "desktop" / "src-tauri" / "icons" / "icon.ico")}
             run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps], env=env, capture_output=True)
             return str(menu)
         if MAC:
@@ -209,10 +215,20 @@ def write_shortcut(launcher: Path, app: Path, py: Path) -> str:
                 '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>'
                 f"<key>CFBundleName</key><string>{NAME}</string><key>CFBundleExecutable</key><string>ai-workspace</string>"
                 "<key>CFBundleIdentifier</key><string>com.inclined88888.aiworkspace.launcher</string>"
-                "<key>CFBundlePackageType</key><string>APPL</string></dict></plist>\n")
+                "<key>CFBundlePackageType</key><string>APPL</string>"
+                "<key>CFBundleIconFile</key><string>icon.icns</string></dict></plist>\n")
+            res = bundle / "Contents" / "Resources"
+            res.mkdir(parents=True, exist_ok=True)
+            icns = app / "desktop" / "src-tauri" / "icons" / "icon.icns"
+            if icns.exists():
+                shutil.copyfile(icns, res / "icon.icns")
             exe = macos / "ai-workspace"
             exe.write_text(f'#!/bin/sh\nexec "{launcher}" --web\n')
             exe.chmod(0o755)
+            os.utime(bundle)  # Finder re-reads the icon
+            lsregister = Path("/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister")
+            if lsregister.exists():
+                subprocess.run([str(lsregister), "-f", str(bundle)], capture_output=True, check=False)
             return str(bundle)
         apps = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share") / "applications"
         apps.mkdir(parents=True, exist_ok=True)
