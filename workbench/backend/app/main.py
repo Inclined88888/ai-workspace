@@ -20,6 +20,7 @@ from . import actions, api, appearance, assistant_api, bridge, browser_proxy, cl
 from .mcp_server import mcp, mcp_app
 from .adapt import hooks as adapt_hooks, routes as adapt_routes  # adapt and learn (feat/learn-and-adapt)
 from . import auto_tools, automations, jobs, v02_api  # noqa: E402 - feat/v02-automations
+from .team import loop as team_loop, routes as team_routes, tools as team_tools  # feat/team-lead
 from . import v02_hooks  # feat/v02-core: projects, action history with undo, checked answers
 from .packs import mobile_routes as packs_mobile, routes as packs_routes, tools as packs_tools  # feat/v02-packs: Trade, Legal, Study packs
 from .security import check_bearer
@@ -37,7 +38,8 @@ async def lifespan(_: FastAPI):
     loops = [asyncio.create_task(fn()) for fn in (api.calendar_loop, scheduler.loop, telegram.loop, company.loop, sites.loop)]
     health.LOOPS.update(zip(("Calendar sync", "Scheduler", "Telegram", "Company", "Site watches"), loops))
     v02 = [asyncio.create_task(fn()) for fn in (automations.loop, jobs.loop)]  # feat/v02-automations
-    health.LOOPS.update(zip(("Automations", "Jobs board"), v02))
+    v02.append(asyncio.create_task(team_loop.loop()))  # feat/team-lead
+    health.LOOPS.update(zip(("Automations", "Jobs board", "Team checks"), v02))
     loops += v02
     from .knowledge import live as knowledge_live  # feat/memory-core: keep the graph and search index in step
 
@@ -136,6 +138,9 @@ app.include_router(knowledge_mobile.device)  # feat/memory-core
 app.include_router(packs_routes.router)  # feat/v02-packs
 app.include_router(packs_mobile.router)  # feat/v02-packs: phone flashcards and quotes
 packs_tools.register_tools()  # feat/v02-packs: pack shortcuts, shown only once a pack is added
+app.include_router(team_routes.router)  # feat/team-lead: /api/team (staff, tasks, tracking, plan)
+app.include_router(team_routes.phone)
+team_tools.register_tools()  # feat/team-lead
 app.include_router(bridge.router)  # /v1: OpenAI-shaped access to every connection, for the browser agent (item 103)
 from . import account  # noqa: E402
 account.install(app)  # Your plan: account sign-in, signed entitlements and the Pro feature gate

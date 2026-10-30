@@ -45,6 +45,7 @@ LABELS = {
     "premium_themes": "Premium themes",
     "team_shared_skills": "Shared team skills",
     "team_admin": "Team admin controls",
+    "team_tasks": "Team lead: assign and track your team",  # feat/team-lead
 }
 PREMIUM_THEMES = {"cherry", "linen", "gallery"}  # the default, Paper, Sunshine, Neon, Dark, High contrast and Auto stay free
 # integration/v0.2: Neon is free (the owner wants neon everywhere); only Cherry & Ink and the hidden themes are premium.
@@ -180,6 +181,8 @@ def features() -> set[str]:
     feats = FREE_FEATURES | set(p["features"])
     if p.get("plan") in PAID_PLANS:  # integration/v0.2
         feats |= set(V02_PRO_FEATURES)
+    if p.get("plan") in ("team", "business"):  # feat/team-lead: team lead features
+        feats |= features_v02.team_features()
     return feats
 
 

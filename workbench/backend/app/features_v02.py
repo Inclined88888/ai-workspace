@@ -33,6 +33,9 @@ FEATURE_TIERS: dict[str, str] = {
     "packs.legal": "pro",                 # clause library, redlines, document checks, matter timeline
     "packs.study": "free",                # flashcards, worked maths, references: free for students
     "packs.study.lab_notebook": "pro",    # new lab notebook entries (exporting existing entries is always free)
+    # feat/team-lead
+    "my_tasks": "free",                   # your own task list, always free
+    "team_tasks": "team",                 # Team/Business: staff, assigning, tracking, nudges, plan, member links
 }
 
 # Plain-English names shown on the upgrade card and the "Your plan" page.
@@ -46,6 +49,7 @@ FEATURE_LABELS: dict[str, str] = {
     "packs.trade": "Trade pack",
     "packs.legal": "Legal pack",
     "packs.study.lab_notebook": "Lab notebook",
+    "team_tasks": "Team lead: assign and track your team",
 }
 LABELS = FEATURE_LABELS  # feat/v02-core name
 
@@ -84,8 +88,16 @@ def describe(feature: str) -> dict:
     return {"feature": feature, "tier": tier(feature), "allowed": allowed(feature)}
 
 
+def team_features() -> set[str]:
+    """feat/team-lead: features only the Team and Business plans include."""
+    return {k for k, v in FEATURE_TIERS.items() if v == "team"}
+
+
 def upgrade_detail(feature: str) -> dict:
     label = FEATURE_LABELS.get(feature, feature)
+    if tier(feature) == "team":
+        return {"error": "upgrade_required", "feature": feature, "label": label, "plan": "team",
+                "message": f"{label} is part of the Team and Business plans. Open Your plan to set up your team."}
     return {"error": "upgrade_required", "feature": feature, "label": label,
             "message": f"{label} is part of Pro. Open Your plan to upgrade or sign in."}
 
