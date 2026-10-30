@@ -67,7 +67,7 @@ class PynputInput:
                 continue
             else:
                 self.kb.type(ch)
-            time.sleep(interval or 0.006)
+            time.sleep(interval or 0.02)
 
     def hotkey(self, keys):
         ks = [self.special.get(k, k) for k in normalise_keys(keys)]
