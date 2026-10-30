@@ -24,7 +24,7 @@ from .redact import redact
 
 CHANNEL = "rooks-code"
 COLUMNS = ("id", "ts", "kind", "channel", "provider", "model", "tool", "effect", "args", "latency_ms", "tokens_in",
-           "tokens_out", "usd_cost", "outcome", "failure_reason", "verified", "evidence", "detail", "request_id",
+           "tokens_out", "usd_cost", "outcome", "failure_reason", "verified", "evidence", "detail", "from_text", "request_id",
            "parent_action_id")
 _TEXT = ("args", "failure_reason", "evidence", "detail")
 
@@ -44,7 +44,7 @@ class RunLog:
     def add(self, kind: str, outcome: str, parent: int | None = None, **fields) -> int:
         row = {c: None for c in COLUMNS}
         row.update(channel=CHANNEL, provider=self.provider, model=self.model, tool="", effect="", args="", latency_ms=0,
-                   tokens_in=0, tokens_out=0, failure_reason="", evidence="", detail="")
+                   tokens_in=0, tokens_out=0, failure_reason="", evidence="", detail="", from_text=0)
         row.update(fields)
         for k in _TEXT:
             if row.get(k):

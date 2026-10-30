@@ -15,7 +15,7 @@ def test_config_precedence(tmp_path, monkeypatch):
     assert (s.provider, s.model, s.base_url, s.key_env, s.max_usd) == (
         "openrouter", "anthropic/claude-sonnet-4.5", "https://openrouter.ai/api/v1", "OPENROUTER_API_KEY", 3.0)
     s = config.resolve({"provider": "ollama"}, tmp_path, file)
-    assert s.model == "qwen2.5-coder:7b" and s.local and s.base_url == "http://localhost:11434/v1"
+    assert s.model == "qwen2.5:7b" and s.local and s.base_url == "http://localhost:11434/v1"
     monkeypatch.setenv("ROOKS_MODEL", "llama3.2")
     assert config.resolve({"provider": "lmstudio"}, tmp_path, file).model == "llama3.2"
     assert config.resolve({"provider": "ollama", "max_usd": 0}, tmp_path, file).max_usd is None
@@ -65,3 +65,25 @@ def test_search_and_list_skip_noise(tmp_path):
     tb = Toolbox(tmp_path)
     assert tb.prepare("search", {"pattern": "needle"}).apply()[0] == "src/b.js:2: needle here"
     assert tb.prepare("list_files", {"pattern": "*.js"}).apply()[0] == "src/b.js"
+
+
+def test_tool_calls_printed_as_text_are_recovered_only_when_valid():
+    names = {"list_files", "read_file"}
+    text = 'Let me look.\n\n```json\n{"name": "list_files", "arguments": {}}\n```\n\nThen I will read.'
+    calls, rest = providers.parse_text_tool_calls(text, names)
+    assert [(c.name, c.arguments, c.from_text) for c in calls] == [("list_files", {}, True)]
+    assert rest == "Let me look.\n\n\n\nThen I will read."
+    tagged = '<tool_call>\n{"name": "read_file", "arguments": {"path": "a.py"}}\n</tool_call>'
+    assert providers.parse_text_tool_calls(tagged, names)[0][0].arguments == {"path": "a.py"}
+    for not_a_call in ('```json\n{"name": "rm_rf", "arguments": {}}\n```', '```json\n{"a": 1}\n```', "just text {x}"):
+        assert providers.parse_text_tool_calls(not_a_call, names) == ([], not_a_call)
+
+
+def test_announced_step_detection():
+    from rooks_code.agent import announces_step
+    assert announces_step("Great. First, I'll run the tests using `python3 test_calc.py`.")
+    assert announces_step("Let's execute the command:")
+    assert not announces_step("Fixed add(): it subtracted. The test now passes.")
+    assert not announces_step("Shall I run the tests?")
+    assert announces_step("Next, I'll **search** in `test_calc.py`:\n\n1. **Search in `test_calc.py`** for failed tests:")
+    assert not announces_step("Here is a summary: 1. Listed files. I'll be here if you need more. Let me know!")

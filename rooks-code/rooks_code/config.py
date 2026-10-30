@@ -20,7 +20,7 @@ PROVIDERS: dict[str, dict] = {
                   "model": "claude-sonnet-4-5"},
     "openrouter": {"kind": "openai", "base_url": "https://openrouter.ai/api/v1", "key_env": "OPENROUTER_API_KEY",
                    "model": "openai/gpt-4.1-mini"},
-    "ollama": {"kind": "openai", "base_url": "http://localhost:11434/v1", "key_env": "", "model": "qwen2.5-coder:7b",
+    "ollama": {"kind": "openai", "base_url": "http://localhost:11434/v1", "key_env": "", "model": "qwen2.5:7b",
                "local": True},
     "lmstudio": {"kind": "openai", "base_url": "http://localhost:1234/v1", "key_env": "", "model": "local-model",
                  "local": True},
@@ -54,6 +54,7 @@ class Settings:
     command_timeout: int = 120
     trusted_folders: list[str] = field(default_factory=list)
     auto_approve: bool = False
+    nudge: bool = True                   # ask again when a reply announces a step but calls no tool (small models)
     dry_run: bool = False
     mcp_servers: dict[str, dict] = field(default_factory=dict)
     prices: dict[str, list[float]] = field(default_factory=dict)  # model -> [usd per 1M in, usd per 1M out]
@@ -88,7 +89,7 @@ def resolve(flags: dict, root: Path, file: dict | None = None) -> Settings:
     """Build settings from the file, ROOKS_* environment variables and flags (flags win). Unknown providers are errors."""
     cfg = load_file() if file is None else file
     s = Settings(root=root)
-    for key in ("max_usd", "max_tokens", "max_steps", "command_timeout", "trusted_folders", "auto_approve", "workbench_url"):
+    for key in ("max_usd", "max_tokens", "max_steps", "command_timeout", "trusted_folders", "auto_approve", "workbench_url", "nudge"):
         if key in cfg:
             setattr(s, key, cfg[key])
     s.prices = dict(cfg.get("prices", {}))
@@ -138,7 +139,7 @@ def _project_mcp(root: Path) -> dict:
 
 EXAMPLE = '''# Rooks Code settings. API keys are read from the environment variables named here; never put a key in this file.
 provider = "ollama"                 # openai | anthropic | openrouter | ollama | lmstudio | openai-compatible | your own
-# model = "qwen2.5-coder:7b"
+# model = "qwen2.5:7b"
 max_usd = 1.0                       # hard cap per session, in US dollars (0 = no cap)
 max_tokens = 200000                 # hard cap per session (0 = no cap)
 trusted_folders = []                # edits and commands inside these folders run without asking

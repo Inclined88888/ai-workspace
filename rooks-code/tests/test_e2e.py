@@ -200,3 +200,30 @@ def test_mcp_stdio_server_tools(project, fake, tmp_path):
     assert m.requests[1]["body"]["messages"][-1]["content"] == "HELLO MCP"
     listing = rooks(project, "mcp", "-C", str(project))
     assert "fake: 1 tools" in listing.stdout and "mcp__fake__shout" in listing.stdout
+
+
+def test_tool_call_printed_as_text_by_a_local_model(project, fake):
+    m = fake([openai_reply('I will read it.\n```json\n{"name": "read_file", "arguments": {"path": "calc.py"}}\n```'),
+              openai_reply("It subtracts.")])
+    r = run(project, m)
+    assert r.returncode == 0 and "It subtracts." in r.stdout
+    assert "return a - b" in m.requests[1]["body"]["messages"][-1]["content"]
+    call = next(x for x in receipt(project) if x["kind"] == "tool_call")
+    assert call["from_text"] == 1 and call["outcome"] == "ok"
+
+
+def test_a_reply_that_announces_a_step_is_nudged_once_more(project, fake):
+    m = fake([openai_reply("Now I'll read calc.py."), openai_reply("", [("read_file", {"path": "calc.py"})]),
+              openai_reply("It subtracts.")])
+    r = run(project, m)
+    assert r.returncode == 0 and "It subtracts." in r.stdout and len(m.requests) == 3
+    assert "did not call a tool" in m.requests[1]["body"]["messages"][-1]["content"]
+    turn = next(x for x in receipt(project) if x["kind"] == "turn")
+    assert "nudged 1x" in turn["detail"]
+
+
+def test_system_prompt_lists_the_project_root(project, fake):
+    m = fake([openai_reply("ok")])
+    run(project, m)
+    system = m.requests[0]["body"]["messages"][0]["content"]
+    assert "calc.py, test_calc.py" in system and ".rooks" not in system

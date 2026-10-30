@@ -8,6 +8,7 @@ callback (method, url, outcome, ms, error) so the run receipt carries an outboun
 from __future__ import annotations
 
 import json
+import re
 import time
 import urllib.error
 import urllib.request
@@ -31,6 +32,7 @@ class ToolCall:
     name: str
     arguments: dict
     bad_json: str = ""  # the raw text when the model sent arguments that were not JSON
+    from_text: bool = False  # recovered from the reply's text, not a structured call
 
 
 @dataclass
@@ -43,6 +45,43 @@ class Reply:
 
 class ProviderError(Exception):
     pass
+
+
+# Some local models (qwen2.5-coder on Ollama, for one) print a tool call as text instead of returning a structured call.
+# Same rule as Workbench (workbench/backend/app/adapters.py parse_text_tool_calls): accept only well-formed calls to tools
+# that were actually offered; anything else stays plain text. Also accepted here: a ```json fence inside other prose.
+THINK_RE = re.compile(r"<think>.*?</think>", re.S)
+_TOOL_TAG_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.S)
+_FENCE_ANY_RE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.S)
+
+
+def parse_text_tool_calls(content: str, tool_names: set[str]) -> tuple[list[ToolCall], str]:
+    candidates = [(m.group(0), m.group(1)) for m in _TOOL_TAG_RE.finditer(content)]
+    if not candidates:
+        candidates = [(m.group(0), m.group(1)) for m in _FENCE_ANY_RE.finditer(content)]
+    if not candidates:
+        body = content.strip()
+        if body.startswith("{") and body.endswith("}"):
+            candidates = [(content, body)]
+    calls, rest = [], content
+    for raw, payload in candidates:
+        try:
+            obj = json.loads(payload)
+        except ValueError:
+            continue
+        if not isinstance(obj, dict) or obj.get("name") not in tool_names:
+            continue
+        args = obj.get("arguments", obj.get("parameters", {}))
+        if isinstance(args, str):
+            try:
+                args = json.loads(args or "{}")
+            except ValueError:
+                continue
+        if not isinstance(args, dict):
+            continue
+        calls.append(ToolCall(f"text_{len(calls)}", obj["name"], args, from_text=True))
+        rest = rest.replace(raw, "")
+    return calls, (rest.strip() if calls else content)
 
 
 def price(model: str, overrides: dict, local: bool) -> tuple[float, float] | None:

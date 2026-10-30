@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import platform
+import re
 import time
 from pathlib import Path
 
@@ -17,14 +18,34 @@ from .undo import ChangeSets
 SYSTEM = """You are Rooks Code, a careful coding agent working in the user's project through tools.
 Project root: {root}
 Operating system: {os}
+Files and folders at the project root: {listing}
 
 How to work:
 - Investigate first: list_files, search and read_file before changing anything. Never guess file contents.
 - Change files with edit_file (exact text replacement) or write_file. Keep changes minimal and in the project's style.
 - Use run_command to run tests, builds and other CLIs, and to check your work. Commands run in the project root.
 - The user approves edits and commands; if one is denied, do not retry it, ask or take another approach.
+- When you decide to do something, call the tool in that same reply; do not just describe it.
 - When the task is done, stop calling tools and reply with a short summary of what changed and how you checked it.
   Only claim what the tool results show."""
+
+
+# Smaller local models often announce a step ("Now I'll run the tests.") and stop without calling a tool. When a reply
+# ends like that, Rooks asks once more (at most NUDGES times per prompt) instead of ending the turn. Off with nudge = false.
+_ANNOUNCES = re.compile(r"\b(I'll|I will|I am going to|I'm going to|Let's|Let me|Next,? I|Now,? I|First,? I)\b",
+                        re.I)
+NUDGE = ("You described a next step but did not call a tool. Call the tool now. If the task is already finished, reply "
+         "with your final summary instead.")
+NUDGES = 2
+
+
+def announces_step(text: str) -> bool:
+    """True when a reply's last lines promise an action ("Next, I'll run the tests:") rather than finish or ask."""
+    tail = re.sub(r"(?i)let me know", "", text.strip())[-400:]
+    if not tail or tail.endswith("?") or re.search(r"(?i)\b(summary|summari[sz]e|in short|all done)\b", tail):
+        return False
+    lines = [x for x in tail.splitlines() if x.strip()]
+    return tail.endswith(":") or any(_ANNOUNCES.search(x) for x in lines[-2:])
 
 
 class Budget:
@@ -56,7 +77,7 @@ class Agent:
         self.messages: list[dict] = []
         self.always: set[str] = set()  # effects approved for the rest of the session ("a" at the prompt)
         self.budget = Budget(settings.max_tokens, settings.max_usd, settings.model, settings.prices, settings.local)
-        self.system = SYSTEM.format(root=self.root, os=f"{platform.system()} {platform.release()}")
+        self.system = SYSTEM.format(root=self.root, os=f"{platform.system()} {platform.release()}", listing=_listing(self.root))
         self._turn: int | None = None
         if settings.max_usd and self.budget.price is None:
             ui.warn(f"price of {settings.model} is unknown, so the ${settings.max_usd} cap cannot be enforced; the token cap "
@@ -93,7 +114,7 @@ class Agent:
         self.messages.append({"role": "user", "content": prompt})
         self._turn = turn = self.log.add("turn", "running", args=prompt)
         self.changes.begin(prompt)
-        started, outcome, answer, writes, failed_checks = time.monotonic(), "no_claim", "", 0, 0
+        started, outcome, answer, writes, failed_checks, nudges = time.monotonic(), "no_claim", "", 0, 0, 0
         try:
             for step in range(self.s.max_steps):
                 estimate = len(self.system + json.dumps(self.messages) + json.dumps(self.tool_specs())) // 4
@@ -114,6 +135,10 @@ class Agent:
                     break
                 finally:
                     self.ui.thinking(False)
+                reply.text = providers.THINK_RE.sub("", reply.text or "").strip()
+                if not reply.tool_calls and reply.text:
+                    names = {t["name"] for t in self.tool_specs()}
+                    reply.tool_calls, reply.text = providers.parse_text_tool_calls(reply.text, names)
                 usd = providers.cost(self.s.model, reply.tokens_in, reply.tokens_out, self.s.prices, self.s.local)
                 self.log.add("model_call", "ok", parent=turn, latency_ms=int((time.monotonic() - t0) * 1000),
                              tokens_in=reply.tokens_in, tokens_out=reply.tokens_out, usd_cost=usd,
@@ -123,8 +148,13 @@ class Agent:
                     msg["tool_calls"] = [{"id": c.id, "type": "function", "function": {
                         "name": c.name, "arguments": json.dumps(c.arguments)}} for c in reply.tool_calls]
                 self.messages.append(msg)
+                nudge = (not reply.tool_calls and self.s.nudge and nudges < NUDGES and announces_step(reply.text))
                 if reply.text:
-                    self.ui.assistant(reply.text, final=not reply.tool_calls)
+                    self.ui.assistant(reply.text, final=not reply.tool_calls and not nudge)
+                if nudge:
+                    nudges += 1
+                    self.messages.append({"role": "user", "content": NUDGE})
+                    continue
                 if not reply.tool_calls:
                     answer = reply.text
                     break
@@ -153,7 +183,8 @@ class Agent:
                             tokens_in=t["tokens_in"], tokens_out=t["tokens_out"],
                             usd_cost=None if t["cost_unknown"] else t["usd"],
                             evidence=f"{writes} file change(s) checked, {failed_checks} failed" if writes else "",
-                            detail=f"undo: {saved.name}" if saved else "")
+                            detail="; ".join(x for x in (f"undo: {saved.name}" if saved else "",
+                                                         f"nudged {nudges}x to call the tool it announced" if nudges else "") if x))
             self.ui.footer(t, self.s, saved is not None)
         return answer
 
@@ -183,7 +214,8 @@ class Agent:
                 self.log.add("tool_call", "bad_args", parent=turn, tool=call.name, args=args_text, failure_reason=str(e))
                 return f"Error: bad arguments: {e}", "bad_args"
         effect = {"command": "external"}.get(plan.effect, plan.effect)
-        action = self.log.add("tool_call", "running", parent=turn, tool=call.name, effect=effect, args=args_text)
+        action = self.log.add("tool_call", "running", parent=turn, tool=call.name, effect=effect, args=args_text,
+                              from_text=int(call.from_text))
         if plan.effect != "read":
             self.ui.show_plan(plan)
             if self.s.dry_run:
@@ -238,6 +270,16 @@ class Agent:
     def close(self) -> None:
         if self.mcp:
             self.mcp.close()
+
+
+def _listing(root: Path, limit: int = 60) -> str:
+    """The project's top level, so the model starts from real paths instead of guessing (small models invent src/)."""
+    from .tools import SKIP_DIRS
+    try:
+        names = sorted(p.name + ("/" if p.is_dir() else "") for p in root.iterdir() if p.name not in SKIP_DIRS)
+    except OSError:
+        return "(unreadable)"
+    return ", ".join(names[:limit]) + (f", ... ({len(names) - limit} more)" if len(names) > limit else "") or "(empty)"
 
 
 def _is_local(host: str) -> bool:

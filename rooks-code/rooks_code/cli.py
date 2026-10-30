@@ -122,7 +122,7 @@ def parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="rooks", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("prompt", nargs="*", help="one prompt to run, then exit; omit for an interactive session")
     ap.add_argument("-P", "--provider", help=f"one of {', '.join(config.PROVIDERS)} or a [providers.NAME] from the config")
-    ap.add_argument("-m", "--model", help="model id, e.g. gpt-4.1-mini, claude-sonnet-4-5, qwen2.5-coder:7b")
+    ap.add_argument("-m", "--model", help="model id, e.g. gpt-4.1-mini, claude-sonnet-4-5, qwen2.5:7b")
     ap.add_argument("--base-url", help="API base URL (for openai-compatible servers)")
     ap.add_argument("-C", "--cwd", help="project folder (default: current folder)")
     ap.add_argument("-y", "--yes", action="store_true", help="approve every edit and command without asking")
