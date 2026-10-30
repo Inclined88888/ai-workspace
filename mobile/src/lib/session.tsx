@@ -5,7 +5,8 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, Platform, useColorScheme } from 'react-native';
 import { claim, Client, firstReachable } from './api';
-import { clearPairing, DEFAULT_PREFS, loadPairing, loadPrefs, Pairing, Prefs, savePairing, savePrefs } from './storage';
+import { clearPairing, DEFAULT_PREFS, loadComputers, loadPairing, loadPrefs, Pairing, Prefs, saveComputers, savePairing, savePrefs } from './storage';
+import { linkKeys, upsertComputer } from './link'; // feat/grok-style
 import { DARK_THEMES, Palette, palettes, resolveTheme, ThemeId } from './theme';
 import { setHaptics } from './haptics';
 
@@ -84,6 +85,11 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     await savePairing(p);
     setPairing(p);
     setStatus('online');
+    // feat/grok-style: set up the end-to-end encrypted link for this computer (best effort; Wi-Fi still works without it)
+    try {
+      const comp = await linkKeys(base, r.device_token, r.workspace_name, (u, i) => fetch(u, i));
+      await saveComputers(upsertComputer(await loadComputers(), comp));
+    } catch { /* older computer without the link: fine */ }
   }, []);
 
   const forget = useCallback(async () => {

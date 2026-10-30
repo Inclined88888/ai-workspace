@@ -458,7 +458,9 @@ def _hold_message(t: Tool, aid: int, ctx: Ctx, reason: str = HOLD_REASON) -> str
 
 
 def available_tools(ctx: Ctx) -> list[Tool]:
-    return [t for t in TOOLS if t.when(ctx)]
+    from .teammates import hooks as tm_hooks  # feat/grok-style: a teammate's tool groups; nothing outbound in group chats
+
+    return tm_hooks.filter_tools(ctx, [t for t in TOOLS if t.when(ctx)])
 
 
 _ENVIRONMENT = re.compile(r"not set up|not enabled|no mail account|not configured|unreachable", re.I)
@@ -479,6 +481,11 @@ async def run_tool(name: str, raw_args: str, ctx: Ctx, approved: bool = False) -
 
     if not t or not t.when(ctx):
         return done(False, f"Unknown tool {name}", "unknown_tool")
+    from .teammates import hooks as tm_hooks  # feat/grok-style: teammates never send; a send becomes a draft the user sends
+
+    drafted = tm_hooks.as_draft(name, raw_args, ctx)  # feat/grok-style
+    if drafted:
+        return done(True, drafted, "drafted", False, "draft for the user to send")
     try:
         args = json.loads(raw_args or "{}")
         if not isinstance(args, dict):
@@ -565,6 +572,9 @@ def system_prompt(ctx: Ctx, user_text: str) -> str:
     from . import v02_hooks  # feat/v02-core: project context and check mode
 
     parts.extend(v02_hooks.context(ctx, user_text))  # feat/v02-core
+    from .teammates import hooks as tm_hooks  # feat/grok-style: which teammate answers, its persona and own memory
+
+    parts.extend(tm_hooks.context(ctx, user_text))  # feat/grok-style
     skills = db.all("SELECT name, description FROM skills WHERE enabled = 1 ORDER BY uses DESC, updated_at DESC LIMIT 30")
     if skills:
         parts.append("Your saved skills (load_skill before using):\n" + "\n".join(f"- {s['name']}: {s['description']}" for s in skills))
