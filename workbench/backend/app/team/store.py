@@ -476,7 +476,7 @@ def add_update(tid: int, source: str, *, member_id: int | None = None, status: s
     patch: dict = {}
     if status:
         patch["status"] = status
-        if status == "blocked":
+        if status == "blocked" and (note or not task(tid)["blocked_reason"]):
             patch["blocked_reason"] = note[:500]
     if percent is not None:
         patch["percent"] = percent

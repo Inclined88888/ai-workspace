@@ -85,8 +85,25 @@ def suggest_assignee(t: dict, exclude: set[int] | None = None) -> dict | None:
 
 
 def _pending(kind: str, task_id: int | None, member_id: int | None) -> bool:
-    return bool(db.one("SELECT 1 FROM team_suggestions WHERE kind = ? AND task_id IS ? AND member_id IS ? AND status = 'pending'",
-                       kind, task_id, member_id))
+    """One open idea per task is enough: don't stack "give it to Alex" on top of "give it to Priya"."""
+    if task_id is not None:
+        return bool(db.one("SELECT 1 FROM team_suggestions WHERE task_id = ? AND status = 'pending'", task_id))
+    return bool(db.one("SELECT 1 FROM team_suggestions WHERE kind = ? AND task_id IS NULL AND member_id IS ? AND status = 'pending'",
+                       kind, member_id))
+
+
+def _stale(s: dict) -> bool:
+    """A suggestion that no longer makes sense: the task is gone or finished, or someone already sorted it out."""
+    t = s.get("task")
+    if s["task_id"] and not t:
+        return True
+    if not t:
+        return False
+    if t["status"] == "done" or t["assignee_id"] == s["member_id"]:
+        return True
+    if s["kind"] in ("assign", "next") and t["assignee_id"]:
+        return True
+    return s["kind"] == "rebalance" and t["assignee_id"] != s["from_member_id"]
 
 
 def add_suggestion(kind: str, task_id: int | None, member_id: int | None, reason: str, from_member_id: int | None = None) -> dict | None:
@@ -129,13 +146,23 @@ def _sug_out(s: dict) -> dict:
 
 def suggestions(status: str = "pending") -> list[dict]:
     store.ensure()
-    return [_sug_out(s) for s in db.all("SELECT * FROM team_suggestions WHERE status = ? ORDER BY id DESC LIMIT 100", status)]
+    out = []
+    for s in db.all("SELECT * FROM team_suggestions WHERE status = ? ORDER BY id DESC LIMIT 100", status):
+        s = _sug_out(s)
+        if status == "pending" and _stale(s):
+            db.run("UPDATE team_suggestions SET status = 'stale', decided_at = ? WHERE id = ?", store.now(), s["id"])
+            continue
+        out.append(s)
+    return out
 
 
 def decide(sid: int, approve: bool, auto: bool = False) -> dict:
     s = suggestion(sid)
     if s["status"] != "pending":
         return s
+    if approve and _stale(s):
+        db.run("UPDATE team_suggestions SET status = 'stale', decided_at = ? WHERE id = ?", store.now(), int(sid))
+        return suggestion(sid)
     db.run("UPDATE team_suggestions SET status = ?, decided_at = ? WHERE id = ?",
            ("auto" if auto else "approved") if approve else "dismissed", store.now(), int(sid))
     if approve and s["task_id"] and s["member_id"]:

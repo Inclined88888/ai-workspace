@@ -5,6 +5,7 @@ Jira/Asana/Trello in trackers.py."""
 from __future__ import annotations
 
 import json
+import re
 import logging
 
 from .. import db
@@ -41,7 +42,7 @@ def inbound(sender: str, text: str, source: str = "email", ref: str = "") -> dic
     p = parse.reply(text)
     if not m:
         return {"applied": False, "reason": "Not from anyone on your team."}
-    t = place(m, p)
+    t = place(m, p, text)
     if not t or not (p["understood"] or p["note"]):
         store.notice("update", f"Message from {m['first_name']}", text[:500], member_id=m["id"])
         return {"applied": False, "reason": "Couldn't tell which task this is about, so it's shown to you as a message.", "parsed": p}
@@ -49,12 +50,32 @@ def inbound(sender: str, text: str, source: str = "email", ref: str = "") -> dic
     return {"applied": r is not None, "task": (r or {}).get("task"), "parsed": p}
 
 
-def place(m: dict, p: dict) -> dict | None:
-    """Which of the member's tasks a reply is about: the [T12] it carries, else their only open task."""
+_SMALL = {"the", "and", "for", "with", "new", "job", "task", "from", "into", "onto"}
+
+
+def _words(s: str) -> set[str]:
+    return {w for w in re.findall(r"[a-z0-9]+", s.lower()) if len(w) > 2 and w not in _SMALL}
+
+
+def place(m: dict, p: dict, text: str = "") -> dict | None:
+    """Which of the member's tasks a reply is about: the [T12] it carries, else their only open task,
+    else the one task whose name the reply clearly mentions ("Smith St quote is 80% done")."""
     if p.get("task_ref"):
         return next((x for x in store.tasks(assignee_id=m["id"]) if x["id"] == p["task_ref"]), None)
     open_tasks = store.tasks(assignee_id=m["id"], include_done=False)
-    return open_tasks[0] if len(open_tasks) == 1 else None
+    if len(open_tasks) == 1:
+        return open_tasks[0]
+    said = _words(text)
+    scored = []
+    for t in open_tasks:
+        w = _words(t["title"])
+        hit = len(w & said)
+        if w and (hit == len(w) or hit >= 2):
+            scored.append((hit / len(w), hit, t))
+    scored.sort(key=lambda x: (-x[0], -x[1]))
+    if scored and (len(scored) == 1 or scored[0][:2] != scored[1][:2]):
+        return scored[0][2]
+    return None
 
 
 # --- AI Workspace Cloud (Team plans) ------------------------------------------------------------------------------------
