@@ -1,4 +1,5 @@
 import { RotateCcw } from "lucide-react";
+import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { ACCENTS, DEFAULTS, FONTS, SIZES, resolveTheme, useAppearance } from "../appearance";
 import { ThemeGrid } from "../ThemePicker";
@@ -66,13 +67,14 @@ export default function Appearance() {
 
           <section className="ap-section" aria-labelledby="ap-motion">
             <h3 id="ap-motion">Motion</h3>
-            <Seg label="Motion" value={a.motion} onChange={(v) => set({ motion: v })} options={[["full", "Full"], ["subtle", "Subtle"], ["off", "Off"]]} />
+            <Seg label="Motion" value={a.motion} onChange={(v) => set({ motion: v })} options={[["full", "Full"], ["subtle", "Calm"], ["off", "Off"]]} />
             <p className="small muted" style={{ margin: "10px 0 0" }}>
               {osReduced ? "Your computer asks for reduced motion, so nothing moves whatever you pick here."
-                : a.motion === "full" ? "Page turns, hover lifts and the moving border while work is happening."
-                : a.motion === "subtle" ? "Gentle fades and a slow border. No sliding."
+                : a.motion === "full" ? "Pages glide into each other, replies arrive word by word, cards settle on a spring and the window's edge lights up while I use your computer."
+                : a.motion === "subtle" ? "Calm motion: the same moments as gentle fades. Nothing slides, bounces or spins."
                 : "Nothing moves. Work in progress shows a still red outline."}
             </p>
+            <Link to="/appearance/motion" className="btn sm" style={{ marginTop: 10 }}>See every animation</Link>
           </section>
 
           <section className="ap-section" aria-labelledby="ap-accent" style={{ borderBottom: "none" }}>

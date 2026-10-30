@@ -14,6 +14,9 @@ import { success, tap, warning } from '@/lib/haptics';
 import { ConnectionMark } from '@/components/Connection';
 import { Btn, Label, Masthead, Notice, Screen, Section, T } from '@/components/ui';
 
+const MOTION_LABEL = { full: 'Full', calm: 'Calm', off: 'Off' } as const;
+const MOTION_NEXT = { full: 'calm', calm: 'off', off: 'full' } as const;
+
 function Row({ k, v, onPress, mono }: { k: string; v: string; onPress?: () => void; mono?: boolean }) {
   const { colors: c } = useSession();
   return (
@@ -148,6 +151,23 @@ export default function Settings() {
           >
             <T>Haptics</T>
             <Label color={prefs.haptics ? c.text : c.muted}>{prefs.haptics ? 'On' : 'Off'}</Label>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Motion: ${MOTION_LABEL[prefs.motion ?? 'full']}. Tap to change.`}
+            onPress={() => {
+              tap();
+              setPrefs({ motion: MOTION_NEXT[prefs.motion ?? 'full'] });
+            }}
+            style={{ paddingVertical: 14, borderBottomWidth: hairline, borderBottomColor: c.border }}
+          >
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <T>Motion</T>
+              <Label color={c.text}>{MOTION_LABEL[prefs.motion ?? 'full']}</Label>
+            </View>
+            <T style={{ color: c.muted, fontSize: 13, marginTop: 4 }}>
+              {prefs.motion === 'calm' ? 'Calm: gentle fades, nothing bounces or slides.' : prefs.motion === 'off' ? 'Nothing moves.' : 'Cards settle on a spring, the orb follows your voice.'}{" Your phone’s Reduce Motion setting always wins."}
+            </T>
           </Pressable>
 
           <Section title="Notifications" />

@@ -17,7 +17,10 @@ import { fonts, hairline, space, type } from '@/lib/theme';
 import { error as hError, success, tap } from '@/lib/haptics';
 import { Markdown } from '@/components/Markdown';
 import { ApprovalCard } from '@/components/ApprovalCard';
-import { FadeIn, Label, Notice, Pulse, Rule, Screen, T } from '@/components/ui';
+import { FadeIn, Label, Notice, Rule, Screen, T } from '@/components/ui';
+import { DoneTick, Node, SpringIn, Thinking, VoiceOrb } from '@/components/motion';
+import { useSharedValue } from 'react-native-reanimated';
+import { volumeLevel } from '@/lib/motion';
 
 type Conv = { id: number; title: string; messages: Message[] };
 
@@ -36,6 +39,7 @@ export default function Chat() {
   const [shown, setShown] = useState('');
   const [note, setNote] = useState('');
   const [listening, setListening] = useState(false);
+  const level = useSharedValue(0);
   const [attachOpen, setAttachOpen] = useState(false);
   const scroll = useRef<ScrollViewInstance>(null);
   const voice = useRef<VoiceSession | null>(null);
@@ -163,8 +167,12 @@ export default function Chat() {
       (text) => setDraft(before + text),
       (err) => {
         setListening(false);
+        level.value = 0;
         voice.current = null;
         if (err) setNote(err);
+      },
+      (v) => {
+        level.value = volumeLevel(v);
       },
     );
     setListening(!!voice.current);
@@ -255,7 +263,7 @@ export default function Chat() {
               style={[type.body, { flex: 1, color: c.text, maxHeight: 140, paddingVertical: 10, paddingHorizontal: 0, fontSize: 16 }]}
             />
             <Pressable onPress={dictate} accessibilityRole="button" accessibilityLabel={listening ? 'Stop dictation' : 'Dictate'} hitSlop={8} style={{ paddingVertical: 12, paddingHorizontal: 6, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              {listening ? <Pulse color={c.accent} size={7} /> : null}
+              <VoiceOrb on={listening} level={level} size={24} />
               <Label color={listening ? c.accentText : c.text}>{listening ? 'Stop' : 'Voice'}</Label>
             </Pressable>
             <Pressable
@@ -322,12 +330,12 @@ function UserBlock({ text, tags }: { text: string; tags: string[] }) {
   );
 }
 
-function Receipt({ text, tone }: { text: string; tone: 'ok' | 'bad' | 'quiet' }) {
+function Receipt({ text, tone, live }: { text: string; tone: 'ok' | 'bad' | 'quiet'; live?: boolean }) {
   const { colors: c } = useSession();
   const dot = tone === 'ok' ? c.ok : tone === 'bad' ? c.danger : c.borderStrong;
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: space[2] }}>
-      <View style={{ width: 5, height: 5, backgroundColor: dot }} />
+      {live ? <Node tone={tone} /> : <View style={{ width: 5, height: 5, backgroundColor: dot }} />}
       <Text style={[type.small, { color: c.muted, flex: 1 }]} numberOfLines={1}>{text}</Text>
     </View>
   );
@@ -358,29 +366,34 @@ function LiveTurn({ turn, shown, onDecided }: { turn: Turn; shown: string; onDec
     <View style={{ marginTop: space[5] }}>
       <Label style={{ fontSize: 9.5, marginBottom: 4 }} color={c.accentText}>Workspace</Label>
       {turn.steps.map((s, i) => (
-        <Receipt key={i} text={`${s.ok === null ? 'Using' : 'Used'} ${toolName(s.tool)}${s.ok === false ? ' · failed' : ''}`} tone={s.ok === null ? 'quiet' : s.ok ? 'ok' : 'bad'} />
+        <Receipt key={i} live text={`${s.ok === null ? 'Using' : 'Used'} ${toolName(s.tool)}${s.ok === false ? ' · failed' : ''}`} tone={s.ok === null ? 'quiet' : s.ok ? 'ok' : 'bad'} />
       ))}
       {turn.held.map((h) =>
         h.denied ? (
           <Receipt key={h.id} text={`${toolName(h.tool)} was refused by your rules`} tone="bad" />
         ) : (
-          <View key={h.id} style={{ marginTop: space[2], borderTopWidth: hairline, borderTopColor: c.border }}>
+          <SpringIn key={h.id} style={{ marginTop: space[2], borderTopWidth: hairline, borderTopColor: c.border }}>
             <ApprovalCard
               a={{ id: h.id, conversation_id: turn.conversationId, tool: h.tool, args: h.args, effect: h.effect, reason: h.reason, status: 'pending', result: '', created_at: new Date().toISOString(), decided_at: null }}
               onDecided={onDecided}
             />
-          </View>
+          </SpringIn>
         ),
       )}
       {working ? (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: space[3] }}>
-          <Pulse color={c.accent} />
-          <Text style={{ fontFamily: fonts.displayItalic, fontSize: 16, color: c.muted }}>{phaseLabel(turn)}…</Text>
+        <View style={{ marginTop: space[3] }}>
+          <Thinking label={phaseLabel(turn)} />
         </View>
       ) : null}
       {shown ? (
-        <View style={{ marginTop: space[2] }}>
+        <SpringIn style={{ marginTop: space[2] }}>
           <Markdown text={shown} />
+        </SpringIn>
+      ) : null}
+      {turn.phase === 'done' && shown && shown === turn.text ? (
+        <View style={{ marginTop: space[2], flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <DoneTick size={16} haptic={false} />
+          <Label style={{ fontSize: 9.5 }}>Done</Label>
         </View>
       ) : null}
       {turn.phase === 'error' ? (
