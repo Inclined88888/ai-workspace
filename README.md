@@ -174,6 +174,13 @@ cd your-project && rooks -P ollama -m qwen2.5:7b
 
 Install on macOS, Windows and Linux, configuration, MCP servers and limits: [rooks-code/README.md](rooks-code/README.md).
 
+### Your Claude plan, through Claude Code
+
+Have a Claude Pro or Max plan? Install Anthropic's Claude Code (`npm i -g @anthropic-ai/claude-code`), run `claude` once to
+sign in, and hand it coding jobs from the app's **Coding agent** page or with `rooks -P claude-code "..."`. You approve
+each edit and command, and see the diff. The app never sees your sign-in. Codex with a ChatGPT plan works the same way.
+Details and Anthropic's terms: [docs/CLAUDE-CODE.md](docs/CLAUDE-CODE.md).
+
 ## Add-ons in detail
 
 The sections below only matter if you turned the add-on on.

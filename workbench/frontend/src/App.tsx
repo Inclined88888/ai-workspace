@@ -1,6 +1,6 @@
 import {
   Activity, Gauge, Bot, Brain, Building2, CalendarClock, CalendarDays, ChevronRight, MessageSquare, CheckSquare, Globe, Columns3, ExternalLink, FileText, Home, LogOut, Mail, Menu, NotebookPen,
-  ListTree, Palette as PaletteIcon, Puzzle, Search, Settings as SettingsIcon,
+  Code2, ListTree, Palette as PaletteIcon, Puzzle, Search, Settings as SettingsIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CommandPalette } from "./Palette";
@@ -12,6 +12,7 @@ import Appearance from "./pages/Appearance";
 import Automations from "./pages/Automations";
 import Company from "./pages/Company";
 import Browser from "./pages/Browser";
+import Code from "./pages/Code";
 import CalendarPage from "./pages/Calendar";
 import Compare from "./pages/Compare";
 import Dashboard from "./pages/Dashboard";
@@ -59,6 +60,7 @@ const NAV: NavGroup[] = [
     { to: "/automations", label: "Automations", icon: CalendarClock },
     { to: "/skills", label: "Skills", icon: Puzzle },
     { to: "/research", label: "Research", icon: Search },
+    { to: "/code", label: "Coding agent", icon: Code2 },
     { to: "/browser", label: "Browser agent", icon: Globe, addon: "browser" },
   ] },
   { section: "More", collapsible: true, items: [
@@ -210,6 +212,8 @@ export default function App() {
           <Route path="/company" element={<Company />} />
           <Route path="/research" element={<Research />} />
           <Route path="/research/:id" element={<Research />} />
+          <Route path="/code" element={<Code />} />
+          <Route path="/code/:id" element={<Code />} />
           <Route path="/browser" element={<Browser />} />
           <Route path="/browser/:id" element={<Browser />} />
           <Route path="/compare" element={<Compare />} />

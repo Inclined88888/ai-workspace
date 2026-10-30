@@ -4,6 +4,19 @@ Every user-visible change that needs action, or changes data on upgrade, gets an
 migration steps, rollback steps. Workbench has no release numbers yet (BACKLOG). Entries are identified by schema
 version and the merge commit on `main`.
 
+## 2026-10-30 · Sunshine theme and Claude plan via Claude Code · branch feat/sunshine-claude
+
+- **Sunshine theme (new default)**: bright, warm and airy: near-white warm background, soft cards, a clean sans
+  (Hanken Grotesk) throughout, pill buttons and a #FFC83D accent used sparingly (text uses an AA darker amber, #8A5A00).
+  Paper, Linen, Gallery and Night stay in Appearance, and a saved choice is kept on upgrade. Home, chat, settings,
+  first run and the browser agent page are decluttered. Screenshots: `screenshots/sunshine/`.
+- **Your Claude plan through Claude Code**: first run offers "Use your Claude plan through Claude Code" with install and
+  sign-in status. The new **Coding agent** page runs your own signed-in `claude` (or `codex`) headless in a folder you
+  pick: live steps, approvals per edit/command, follow-ups in the same session, and a diff. The app never signs you in or
+  reads a token. API: `/api/cli-agents`. See [docs/CLAUDE-CODE.md](docs/CLAUDE-CODE.md).
+- **Rooks Code**: `-P claude-code` and `-P codex` delegate to those CLIs with Rooks-style approvals.
+- Migration: none. Rollback: pick Paper in Appearance to get the previous look.
+
 ## 2026-10-30 · Release candidate v0.1 · branch release/v0.1-rc (all feature branches combined)
 
 - **One-command install without Docker**: `install.sh` (macOS, Linux) and `install.ps1` (Windows) install `ai-workspace`,

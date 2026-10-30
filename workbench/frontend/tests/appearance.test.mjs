@@ -29,9 +29,16 @@ const ap = await import(pathToFileURL(file).href);
 
 beforeEach(() => { store.clear(); reduced = false; events.length = 0; document.documentElement = fakeEl(); });
 
-test("defaults to Paper, Editorial, 14px, full motion, cherry", () => {
+test("defaults to Sunshine, Clean type, 14px, full motion, sun accent", () => {
   assert.deepEqual(ap.readAppearance(), ap.DEFAULTS);
-  assert.equal(ap.DEFAULTS.theme, "paper");
+  assert.deepEqual([ap.DEFAULTS.theme, ap.DEFAULTS.font, ap.DEFAULTS.accent], ["sunshine", "modern", "sun"]);
+});
+
+test("the older themes stay available, and saved choices are kept", () => {
+  assert.deepEqual(ap.THEMES.map((t) => t.id), ["sunshine", "paper", "linen", "gallery", "night"]);
+  store.set("wb-appearance", JSON.stringify({ theme: "paper", font: "editorial", accent: "cherry" }));
+  const a = ap.readAppearance();
+  assert.deepEqual([a.theme, a.font, a.accent], ["paper", "editorial", "cherry"]);
 });
 
 test("corrupt or hostile storage falls back to safe values", () => {
@@ -55,7 +62,9 @@ test("applyTo writes data attributes and scales text tokens", () => {
   assert.equal(el.style.props.get("--text-md"), "16px");
   assert.equal(el.style.props.get("--text-4xl"), "64px");
   ap.applyTo(el, ap.DEFAULTS);
-  assert.equal(el.dataset.theme, undefined, "Paper is the unthemed default");
+  assert.equal(el.dataset.theme, "sunshine");
+  ap.applyTo(el, { ...ap.DEFAULTS, theme: "paper" });
+  assert.equal(el.dataset.theme, undefined, "Paper is the unthemed :root base");
   assert.equal(el.style.props.size, 0, "14px removes overrides");
 });
 
