@@ -147,8 +147,18 @@ def peer_for_mailbox(mailbox: str) -> dict:
     return p
 
 
+def _account_token() -> str:
+    from .. import account
+    return account._session()
+
+
 def relay_url() -> str:
-    return (db.get_setting("link_relay_url", "") or os.getenv("LINK_RELAY_URL", "")).strip().rstrip("/")
+    """Explicit setting/env first; otherwise the account's cloud when signed in (the relay lives there)."""
+    u = (db.get_setting("link_relay_url", "") or os.getenv("LINK_RELAY_URL", "")).strip().rstrip("/")
+    if u:
+        return u
+    from .. import account
+    return account.cloud_url() if account._session() else ""
 
 
 def lan_urls() -> list[str]:
@@ -197,7 +207,9 @@ async def relay_once(client: httpx.AsyncClient, base: str) -> int:
         h = {"Authorization": f"Bearer {tok}"}
         r = await client.get(f"{base}/relay/v1/{p['mailbox']}/to-computer", headers=h, params={"wait": 20})
         if r.status_code == 404:
-            await client.post(f"{base}/relay/v1/mailboxes", json={"mailbox": p["mailbox"], "token": tok}, headers=h)
+            # The mailbox is created with the signed-in account (the relay checks the plan); then only its token is used.
+            await client.post(f"{base}/relay/v1/mailboxes", json={"mailbox": p["mailbox"], "token": tok},
+                              headers={"Authorization": f"Bearer {_account_token()}"})
             continue
         if r.status_code >= 400:
             continue

@@ -278,3 +278,52 @@ def test_teammates_only_send_through_drafts(client, monkeypatch):
     assert db.one("SELECT outcome FROM actions WHERE tool = 'send_email' ORDER BY id DESC LIMIT 1")["outcome"] == "drafted"
     client.post(f"/api/outbox/{d[0]['id']}/send")
     assert len(sent) == 1
+
+
+def test_relay_once_registers_with_account_then_answers_sealed(client, monkeypatch):
+    """The computer side against a fake of the ai-workspace-cloud relay API (same routes, offline)."""
+    import asyncio
+
+    import httpx
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+
+    from app.teammates import phonelink as pl
+
+    monkeypatch.setattr(pl, "_account_token", lambda: "acct-session")
+    tok = _pair(client)
+    phone = X25519PrivateKey.generate()
+    pub = pl.b64e(phone.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw))
+    reg = client.post("/api/mobile/link/keys", json={"phone_pub": pub}, headers={"Authorization": f"Bearer {tok}"}).json()
+    mb, key = reg["mailbox"], pl.derive(phone, reg["computer_pub"], reg["mailbox"])
+    boxes: dict = {}
+    seen: list = []
+
+    def relay(req: httpx.Request) -> httpx.Response:
+        auth = req.headers.get("authorization", "")
+        seen.append((req.method, req.url.path, auth))
+        if req.url.path == "/relay/v1/mailboxes":
+            assert auth == "Bearer acct-session"
+            body = json.loads(req.content)
+            boxes[body["mailbox"]] = {"token": body["token"], "to-computer": [env] if body["mailbox"] == mb else [], "to-phone": []}
+            return httpx.Response(200, json={"ok": True})
+        _, _, _, m, d = req.url.path.split("/")
+        b = boxes.get(m)
+        if not b or auth != f"Bearer {b['token']}":
+            return httpx.Response(404)
+        if req.method == "GET":
+            out, b[d] = b[d], []
+            return httpx.Response(200, json={"messages": out})
+        b[d].append(json.loads(req.content))
+        return httpx.Response(200, json={"ok": True})
+
+    env = pl.seal(key, mb, "p2c", {"seq": 1, "ts": time.time(), "token": tok, "method": "GET", "path": "/api/mobile/teammates"})
+
+    async def go():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(relay)) as c:
+            return await pl.relay_once(c, "https://relay.test"), await pl.relay_once(c, "https://relay.test")
+
+    assert asyncio.run(go())[1] == 1  # first round creates the mailboxes, second answers
+    res = pl.open_(key, mb, "c2p", boxes[mb]["to-phone"][0])
+    assert res["status"] == 200 and res["body"]["teammates"]
+    assert all(a != "Bearer acct-session" for (_, p, a) in seen if p != "/relay/v1/mailboxes")
