@@ -233,7 +233,7 @@ def test_pause_resume_and_computer_jobs_queue(quiet_loops, monkeypatch):
     gate = {}
 
     async def slow(jid):
-        await gate.setdefault(jid, asyncio.Event()).wait()
+        await gate.setdefault("release", asyncio.Event()).wait()
         jobs._touch(jid, status="done", detail="Finished")
 
     monkeypatch.setattr(jobs, "run_job", slow)
@@ -250,8 +250,8 @@ def test_pause_resume_and_computer_jobs_queue(quiet_loops, monkeypatch):
         await asyncio.sleep(0)
         assert tick() == [c2["id"]]  # the paused computer job frees the screen
         assert jobs.get(pb["id"])["status"] == "queued"
-        for e in gate.values():
-            e.set()
+        await asyncio.sleep(0)
+        gate["release"].set()
         await asyncio.sleep(0.05)
         assert jobs.resume(c1["id"])["status"] == "queued"
         assert tick() == [c1["id"]]  # the desktop playbook still waits behind the resumed computer job
