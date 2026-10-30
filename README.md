@@ -115,6 +115,22 @@ Native Ollama uses the Mac GPU; the `local-models` add-on would run on CPU insid
 
 **Mail.** IMAP/SMTP with app passwords: Fastmail, iCloud, Gmail (needs 2 step verification and an app password), and most self hosted servers. Read, search, reply, compose, and "Draft with AI" with your intent. AI drafts use `[placeholders]` instead of inventing facts; every send asks for confirmation. Outlook.com and Microsoft 365 are **not** supported because Microsoft requires OAuth for IMAP.
 
+## Terminal coding agent (Rooks Code)
+
+`rooks` is a coding agent for your terminal, like Claude Code or Codex CLI, that works with any model: OpenAI, Anthropic,
+OpenRouter, any OpenAI-compatible server, or local Ollama and LM Studio with no internet at all. It reads and searches
+code, edits with diffs, runs your tests and loops until done. Every edit and command is approved first (or trusted per
+folder), `--dry-run` changes nothing, `/undo` reverts the last prompt's edits, a per-session token and dollar cap is
+enforced, and every action is written to a receipt you can import into Workbench's run log. It needs neither Workbench
+nor Docker.
+
+```sh
+uv tool install "git+https://github.com/Inclined88888/ai-workspace#subdirectory=rooks-code"
+cd your-project && rooks -P ollama -m qwen2.5-coder:7b
+```
+
+Install on macOS, Windows and Linux, configuration, MCP servers and limits: [rooks-code/README.md](rooks-code/README.md).
+
 ## Add-ons in detail
 
 The sections below only matter if you turned the add-on on.
