@@ -1,21 +1,40 @@
-MIT License
+AI Workspace - Proprietary Software Licence
 
-Copyright (c) 2026 Inclined88888
+Copyright (c) 2026 Inclined88888. All rights reserved.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+This software, including its source code, object code, documentation, designs, themes and associated files
+(the "Software"), is the confidential and proprietary property of Inclined88888 (the "Owner").
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+1. No licence is granted except as set out here. You may install and use official builds of the Software that the
+   Owner distributes, for your own personal or internal business purposes, subject to these terms and to the plan
+   you have chosen (Free, Pro, Team or Business). Pro, Team and Business features require a current paid plan.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+2. Without the Owner's prior written permission you must not: copy, modify, adapt, translate or create derivative
+   works of the Software; distribute, sublicense, sell, rent, lease, lend or host the Software for others; remove,
+   disable or circumvent any licence check, entitlement, plan gate or technical protection; or reverse engineer,
+   decompile or disassemble the Software, except to the extent such a restriction is prohibited by applicable law.
+
+3. Access to this source code, where granted, is for review or contribution under a separate written agreement
+   only and does not grant any right to use, copy or distribute it.
+
+4. Third-party components. The Software includes open-source components (for example npm, Python and Rust packages,
+   fonts and bundled tools) that remain under their own licences. Nothing in this licence restricts your rights
+   under those licences; their licence texts are included with the respective components or their package metadata.
+   Versions of this project previously published under the MIT licence remain available under that licence to
+   anyone who received them; this licence applies to this version and later versions.
+
+5. Disclaimer. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT
+   NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT, TO THE
+   EXTENT PERMITTED BY LAW. Nothing in this licence excludes, restricts or modifies any consumer guarantee, right or
+   remedy under the Australian Consumer Law or any other law that cannot lawfully be excluded.
+
+6. Limitation of liability. To the extent permitted by law, the Owner is not liable for any indirect, incidental,
+   special or consequential loss, or loss of data, profits or revenue, arising out of or in connection with the
+   Software.
+
+7. Termination. This licence ends automatically if you breach it. On termination you must stop using the Software.
+   Your own data created with the Software remains yours.
+
+8. Governing law. This licence is governed by the laws of Queensland, Australia.
+
+Licensing enquiries: open an issue on the project's official repository or contact the Owner.
