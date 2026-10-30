@@ -32,7 +32,8 @@ How to work:
 
 # Smaller local models often announce a step ("Now I'll run the tests.") and stop without calling a tool. When a reply
 # ends like that, Rooks asks once more (at most NUDGES times per prompt) instead of ending the turn. Off with nudge = false.
-_ANNOUNCES = re.compile(r"\b(I'll|I will|I am going to|I'm going to|Let's|Let me|Next,? I|Now,? I|First,? I)\b",
+_ANNOUNCES = re.compile(r"\b(I'll|I will|I am going to|I'm going to|Let's|Let me|Next,? I|Now,? I|First,? I|This will|"
+                        r"We'll|We will)\b",
                         re.I)
 NUDGE = ("You described a next step but did not call a tool. Call the tool now. If the task is already finished, reply "
          "with your final summary instead.")

@@ -83,6 +83,7 @@ def test_announced_step_detection():
     from rooks_code.agent import announces_step
     assert announces_step("Great. First, I'll run the tests using `python3 test_calc.py`.")
     assert announces_step("Let's execute the command:")
+    assert announces_step("Now, read the file.\n\nThis will read the `mathutil.py` file.")
     assert not announces_step("Fixed add(): it subtracted. The test now passes.")
     assert not announces_step("Shall I run the tests?")
     assert announces_step("Next, I'll **search** in `test_calc.py`:\n\n1. **Search in `test_calc.py`** for failed tests:")
