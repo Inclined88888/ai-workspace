@@ -103,7 +103,7 @@ def portable_node(cache: Path) -> tuple[str, dict]:
         archive.unlink(missing_ok=True)
     home = root / name
     bindir = home if WIN else home / "bin"
-    env = {**os.environ, "PATH": str(bindir) + os.pathsep + os.environ.get("PATH", "")}
+    env = {**os.environ, "npm_config_update_notifier": "false", "PATH": str(bindir) + os.pathsep + os.environ.get("PATH", "")}
     return str(bindir / ("npm.cmd" if WIN else "npm")), env
 
 
@@ -112,7 +112,7 @@ def ensure_frontend(src: Path, home: Path) -> None:
     if dist.exists():
         say("web UI: prebuilt")
         return
-    npm, env = shutil.which("npm"), dict(os.environ)
+    npm, env = shutil.which("npm"), {**os.environ, "npm_config_update_notifier": "false"}
     fetched = False
     if not npm:
         try:

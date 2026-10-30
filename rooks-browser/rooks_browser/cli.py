@@ -118,7 +118,12 @@ def cmd_run(argv: list[str]) -> int:
             except Exception:  # noqa: BLE001
                 pass
 
-    print(f"Rooks Browser {__version__} · {s.provider or 'auto'} · {'headed' if not s.headless else 'headless'}", file=out)
+    try:
+        shown = llm.resolve(s.provider)
+        shown = "AI Workspace app (smart router)" if shown == "workbench" else shown
+    except ValueError:
+        shown = s.provider or "auto"
+    print(f"Rooks Browser {__version__} · {shown} · {'headed' if not s.headless else 'headless'}", file=out)
     print(f"Task: {goal}", file=out)
     try:
         res = asyncio.run(runner.run_task(goal, s, approver=_tty_approver(out), on_event=on_event,
