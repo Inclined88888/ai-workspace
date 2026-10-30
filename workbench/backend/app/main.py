@@ -39,6 +39,21 @@ async def lifespan(_: FastAPI):
     v02 = [asyncio.create_task(fn()) for fn in (automations.loop, jobs.loop)]  # feat/v02-automations
     health.LOOPS.update(zip(("Automations", "Jobs board"), v02))
     loops += v02
+    from .knowledge import live as knowledge_live  # feat/memory-core: keep the graph and search index in step
+
+    kn = asyncio.create_task(knowledge_live.loop())  # feat/memory-core
+    health.LOOPS["Memory index"] = kn  # feat/memory-core
+    loops.append(kn)  # feat/memory-core
+    from .knowledge import improve as knowledge_improve  # feat/memory-core: nightly self-improvement, only when idle
+
+    ki = asyncio.create_task(knowledge_improve.loop())  # feat/memory-core
+    health.LOOPS["Nightly improvement"] = ki  # feat/memory-core
+    loops.append(ki)  # feat/memory-core
+    from .knowledge import backup as knowledge_backup  # feat/memory-core: one automatic local backup a day
+
+    kb = asyncio.create_task(knowledge_backup.loop())  # feat/memory-core
+    health.LOOPS["Backups"] = kb  # feat/memory-core
+    loops.append(kb)  # feat/memory-core
     async with mcp.session_manager.run():
         yield
     mobile.lan_stop()
@@ -113,6 +128,11 @@ app.include_router(voice.router)
 app.include_router(voice.device)
 app.include_router(meetings.router)
 v02_hooks.install(app)  # feat/v02-core: /api/projects, /api/history (undo), /api/checked
+from .knowledge import routes as knowledge_routes  # feat/memory-core: shared memory and data layer
+app.include_router(knowledge_routes.router)  # feat/memory-core
+from .knowledge import mobile as knowledge_mobile  # feat/memory-core: read-only search, People and Projects on the phone
+
+app.include_router(knowledge_mobile.device)  # feat/memory-core
 app.include_router(packs_routes.router)  # feat/v02-packs
 app.include_router(packs_mobile.router)  # feat/v02-packs: phone flashcards and quotes
 packs_tools.register_tools()  # feat/v02-packs: pack shortcuts, shown only once a pack is added

@@ -15,13 +15,13 @@ import { FadeIn, Label, Notice, T, Tag } from '@/components/ui';
 /** Two quiet links under "Ask your computer…" on Home. */
 export function HomeLinks() {
   const { colors: c } = useSession();
-  const link = (label: string, to: '/projects' | '/history') => (
+  const link = (label: string, to: '/projects' | '/history' | '/knowledge') => (
     <Pressable key={to} onPress={() => { tap(); router.push(to); }} accessibilityRole="link" accessibilityLabel={label}
       style={({ pressed }) => ({ flex: 1, borderWidth: hairline, borderColor: c.rule, paddingVertical: 11, paddingHorizontal: 12, backgroundColor: pressed ? c.panel2 : 'transparent' })}>
       <Label color={c.text}>{label}  →</Label>
     </Pressable>
   );
-  return <View style={{ flexDirection: 'row', gap: space[2], marginTop: space[3] }}>{[link('Projects', '/projects'), link('History', '/history')]}</View>;
+  return <View style={{ flexDirection: 'row', gap: space[2], marginTop: space[3] }}>{[link('Projects', '/projects'), link('Memory', '/knowledge') /* feat/memory-core */, link('History', '/history')]}</View>;
 }
 
 /** Under the chat title: which project this chat is filed in (tap to change) and whether answers get checked. */

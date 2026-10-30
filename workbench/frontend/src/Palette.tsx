@@ -2,6 +2,9 @@ import { CornerDownLeft, Github, LucideIcon, Moon, Pause, Play, Plus, Search, Su
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { FONTS, setAppearance, THEMES } from "./appearance";
+import { api } from "./api";
+import { Brain } from "lucide-react";
+import { Hit, KIND_ROUTE } from "./memory/types"; // feat/memory-core: universal search
 
 export type PaletteItem = { id: string; label: string; group: string; icon: LucideIcon; hint?: string; keywords?: string; run: () => void };
 
@@ -44,11 +47,21 @@ export function CommandPalette({ open, onClose, pages }: { open: boolean; onClos
   ], [pages, navigate]);
 
   const query = q.trim().toLowerCase();
-  const results = useMemo(() => items
+  // feat/memory-core: Cmd/Ctrl+K also searches chats, files, notes, tasks, people, projects, meetings and memories
+  const [hits, setHits] = useState<Hit[]>([]);
+  useEffect(() => {
+    if (query.length < 3) { setHits([]); return; }
+    const t = setTimeout(() => api<Hit[]>(`/knowledge/search?q=${encodeURIComponent(query)}`).then(setHits).catch(() => setHits([])), 160);
+    return () => clearTimeout(t);
+  }, [query]);
+  const results = useMemo(() => [...items
     .map((it) => ({ it, s: Math.max(score(it.label, query), score(it.keywords ?? "", query) * 0.6) }))
     .filter((x) => x.s > 0)
     .sort((a, b) => (query ? b.s - a.s : 0))
-    .map((x) => x.it), [items, query]);
+    .map((x) => x.it).slice(0, query ? 6 : undefined),
+  ...hits.map((h): PaletteItem => ({ id: `kn-${h.kind}-${h.ref}`, label: h.title || h.kind, group: "Your stuff", icon: Brain,
+    hint: { message: "Chat", task: "Task", file: "File", note: "Note", event: "Calendar", meeting: "Meeting", site: "Site", draft: "Email", memory: "Memory", entity: "Person or project", site_record: "Site record" }[h.kind] ?? h.kind,
+    run: () => navigate((KIND_ROUTE[h.kind] ?? (() => "/knowledge"))(h.ref)) }))], [items, query, hits, navigate]);
 
   useEffect(() => {
     if (!open) return;
@@ -83,7 +96,7 @@ export function CommandPalette({ open, onClose, pages }: { open: boolean; onClos
       <div className="palette" role="dialog" aria-modal="true" aria-label="Command menu" onMouseDown={(e) => e.stopPropagation()} onKeyDown={onKey}>
         <div className="palette-input">
           <Search size={18} />
-          <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search pages and actions…"
+          <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search everything: chats, files, people, projects, pages…"
             role="combobox" aria-expanded="true" aria-controls="palette-list" aria-activedescendant={results[sel] ? `pal-${results[sel].id}` : undefined} aria-autocomplete="list" />
           <span className="kbd">Esc</span>
         </div>

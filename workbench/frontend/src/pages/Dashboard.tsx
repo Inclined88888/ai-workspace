@@ -4,6 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { api, CalEvent, Doc, Task } from "../api";
 import { Empty, fmtTime, relTime, SkeletonList, todayISO, useToast } from "../util";
 import ConnectMailCalendar from "./ConnectMailCalendar";
+import { ImprovedCard } from "../memory/Improved"; // feat/memory-core
 
 type Dash = {
   events: CalEvent[];
@@ -85,6 +86,8 @@ export default function Dashboard(_: { chatUrl?: string }) {
         <div className="spacer" />
         <Link className="btn primary" to="/assistant">Ask your assistant <ArrowRight size={14} /></Link>
       </div>
+
+      <ImprovedCard />{/* feat/memory-core: what I improved overnight */}
 
       <form className="card col home-capture" onSubmit={submit} style={{ marginBottom: 24 }} aria-label="Quick capture">
         <div className="row">
