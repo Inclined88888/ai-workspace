@@ -10,6 +10,8 @@
   GET  /api/jobs/{id}/approvals         POST /api/jobs/{id}/approvals/{aid} {"approve": true|false}
   POST /api/jobs/{id}/cancel            stop that job now        POST /api/stop   stop whatever is running
   GET  /api/jobs/{id}/receipt           receipt rows             GET  /api/screen  a screenshot right now
+  POST /api/recordings  GET /api/recordings/{id}  POST /api/recordings/{id}/stop
+                                        "Show me how": which apps and windows the person used, in order (recording.py)
 
 Only one job drives the mouse at a time; others queue. Binding beyond 127.0.0.1 needs ROOKS_DESK_TOKEN (24+ chars).
 No answer to an approval in ROOKS_DESK_APPROVAL_TIMEOUT seconds (default 600) is a no.
@@ -322,6 +324,16 @@ def make_handler(jobs: Jobs, token: str):
                     if img.width > 1280:
                         img = img.resize((1280, round(img.height * 1280 / img.width)))
                     return self._send(200, to_png(img), "image/png")
+                if parts[:2] == ["api", "recordings"]:  # Workbench "Show me how" (recording.py): apps and windows only
+                    from .recording import Recordings
+                    if not hasattr(jobs, "recordings"):
+                        jobs.recordings = Recordings(jobs.backend, float(os.getenv("ROOKS_DESK_RECORD_INTERVAL", "0.7")))
+                    if len(parts) == 2 and method == "POST":
+                        return self._send(200, jobs.recordings.start(str(self._body().get("start_url") or "")))
+                    if len(parts) == 3 and method == "GET":
+                        return self._send(200, jobs.recordings.get(parts[2]))
+                    if parts[3:] == ["stop"] and method == "POST":
+                        return self._send(200, jobs.recordings.stop(parts[2]))
                 if parts[:2] == ["api", "jobs"]:
                     if len(parts) == 2:
                         if method == "GET":

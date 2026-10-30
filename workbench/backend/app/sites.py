@@ -494,7 +494,8 @@ class BrowserFetcher:
 
     async def submit(self, form: dict, values: dict):
         d = await self._post("/api/site/submit", {"url": form.get("page_url") or form["action"], "form_index": form["index"],
-                                                  "values": {f["name"]: values.get(f["name"], f.get("value", "")) for f in form["fields"]}})
+                                                  "values": {f["name"]: values.get(f["name"], f.get("value", "")) for f in form["fields"]},
+                                                  "approved": True})  # only decide() calls this, after the user's yes
         return d["url"], d.get("status", 200), d.get("html", "")
 
     async def download(self, url: str):

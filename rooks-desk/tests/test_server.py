@@ -98,3 +98,22 @@ def test_deleting_waiting_and_queued_jobs_frees_the_mouse(api):
     nxt = call("POST", "/api/jobs", {"goal": "next one"})
     j = wait_for(call, nxt["id"], lambda j: j["status"] == "done")
     assert j["result"]["final"] == "ran"
+
+
+def test_show_me_how_recording_notes_apps_and_hides_sign_in_titles(api, monkeypatch):
+    call, _scripts, b, jobs = api
+    from rooks_desk.recording import Recordings
+    jobs.recordings = Recordings(jobs.backend, 0.05)
+    rec = call("POST", "/api/recordings", {})
+    assert rec["status"] == "recording" and rec["captures"] == "apps_and_windows"
+    b.open_app("Text Editor")
+    time.sleep(0.3)
+    b.apps["Text Editor"].title = "Sign in to your account"
+    time.sleep(0.3)
+    r = call("POST", f"/api/recordings/{rec['id']}/stop")
+    assert r["status"] == "stopped"
+    apps = [e for e in r["events"] if e["kind"] == "open_app"]
+    assert apps and apps[0]["app"] == "Text Editor"
+    assert all("Sign in" not in e.get("title", "") for e in apps)
+    with pytest.raises(urllib.error.HTTPError):
+        call("GET", "/api/recordings/nope")

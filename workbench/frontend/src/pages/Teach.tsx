@@ -13,7 +13,7 @@ type Suggestion = { id: number; title: string; detail: string; cron: string; kin
 
 const SURFACES: { id: Surface; label: string; icon: typeof Globe; hint: string }[] = [
   { id: "browser", label: "On a website", icon: Globe, hint: "A browser window opens. Do the task once, as you normally would." },
-  { id: "desktop", label: "On my computer", icon: Monitor, hint: "Do it in your usual apps while I watch the screen." },
+  { id: "desktop", label: "On my computer", icon: Monitor, hint: "Do it in your usual apps. I note which apps and windows you use, in order; tell me the clicks and typing in the box as you go." },
   { id: "narration", label: "Just tell me", icon: Mic, hint: "Describe the steps in your own words." },
 ];
 
@@ -98,7 +98,7 @@ function Home() {
               {SURFACES.map((s) => {
                 const off = recorders ? !recorders[s.id] : false;
                 return (
-                  <button key={s.id} className="btn" aria-pressed={surface === s.id} disabled={off} title={off ? "Not connected yet" : s.hint} onClick={() => setSurface(s.id)}>
+                  <button key={s.id} className="btn" aria-pressed={surface === s.id} disabled={off} title={off ? (s.id === "desktop" ? "Turn on computer use first (Computer page)" : "Not connected yet") : s.hint} onClick={() => setSurface(s.id)}>
                     <s.icon size={14} /> {s.label}
                   </button>
                 );
@@ -121,7 +121,8 @@ function Home() {
         ) : (
           <>
             <h2><span className="learn-rec-dot" aria-hidden="true" />{rec.surface === "narration" ? "Almost there" : "I'm watching"}</h2>
-            {rec.surface !== "narration" && <p className="muted">Do the task in the window that opened. I never record passwords. Press Done when you're finished.</p>}
+            {rec.surface === "browser" && <p className="muted">Do the task in the window that opened. I never record passwords. Press Done when you're finished.</p>}
+            {rec.surface === "desktop" && <p className="muted">Do the task in your usual apps. I note which app and window you're in (never keystrokes or passwords), so tell me the important clicks below. Press Done when you're finished.</p>}
             {rec.error && <div className="alert">{rec.error}</div>}
             {rec.surface !== "narration" && (
               <div className="learn-live" aria-live="polite">

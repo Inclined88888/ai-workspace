@@ -37,5 +37,6 @@ test("recorded events become short lines and never show hidden values", () => {
   assert.equal(t.eventLine({ kind: "click", target: { role: "button", name: "Send reminder" } }), "Clicked “Send reminder”");
   assert.equal(t.eventLine({ kind: "type", secret: true, value: "x", target: { label: "Password" } }), "Filled “Password” (hidden)");
   assert.equal(t.eventLine({ kind: "type", value: "Bluegum", target: { label: "Client" } }), "Typed “Bluegum” in “Client”");
-  assert.equal(t.eventLine({ kind: "open_app", app: "Excel" }), "Opened Excel");
+  assert.equal(t.eventLine({ kind: "open_app", app: "Excel" }), "Working in Excel");
+  assert.equal(t.eventLine({ kind: "open_app", app: "Excel", title: "Budget.xlsx" }), "Working in Excel · Budget.xlsx");
 });

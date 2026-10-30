@@ -262,19 +262,19 @@ class BrowserRunner:
 
 
 class DeskRunner(BrowserRunner):
-    """Rooks Desk speaks the same job API (feat/computer-use). Until it is merged, desktop replays report 503."""
+    """Rooks Desk speaks the same job API. Without computer use set up, desktop replays report 503."""
     surface = "desktop"
 
     def _base(self) -> tuple[str, str]:
-        base = getattr(config, "DESK_URL", "") or ""
+        base = config.DESK_URL
         if not base:
             raise HTTPException(503, "Desktop replays need computer use (Rooks Desk), which is not set up on this computer yet.")
-        return base, getattr(config, "DESK_API_KEY", "") or ""
+        return base, config.DESK_API_KEY
 
     async def start(self, goal: str, pb: dict) -> str:
         base, key = self._base()
         async with httpx.AsyncClient(timeout=30) as c:
-            r = await c.post(f"{base}/api/jobs", json={"goal": goal, "max_steps": min(10 + 3 * len(pb.get("steps", [])), 50)},
+            r = await c.post(f"{base}/api/jobs", json={"goal": goal, "max_steps": min(10 + 3 * len(pb.get("steps", [])), 50), "source": "learn"},
                              headers={"Authorization": f"Bearer {key}"})
         if r.status_code >= 400:
             raise HTTPException(502, f"Rooks Desk: {r.text[:300]}")

@@ -10,8 +10,8 @@ the page or app moves things around. Password fields arrive with secret=true and
 
 Adapters:
   BrowserRecorder   Rooks Browser's recording API (POST/GET /api/recordings[/id[/stop]]), a visible browser window
-  DeskRecorder      Rooks Desk. It does not expose a recording stream yet; the adapter speaks the same API so it works
-                    the day /api/recordings lands there, and reports "not available yet" until then
+  DeskRecorder      Rooks Desk's /api/recordings: which apps and windows the person used, in order (no keystrokes);
+                    the person's narration fills in the clicks
   NarrationRecorder no capture: the person types or says the steps; always available
 Any other source (a browser extension, the phone) can push events with POST /api/learn/recordings/{id}/events.
 """
@@ -122,13 +122,12 @@ class BrowserRecorder(_Http):
         self.base, self.key = (config.BROWSER_URL or "").rstrip("/"), config.BROWSER_API_KEY or ""
 
 
-class DeskRecorder(_Http):
+class DeskRecorder(_Http):  # noqa: D101 - Rooks Desk (computer use), same recording API as Rooks Browser
     surface = "desktop"
     label = "Computer use (Rooks Desk)"
 
     def __init__(self):
-        # config.DESK_URL arrives with feat/computer-use; until then this adapter is a stub that reports NotAvailable
-        self.base, self.key = (getattr(config, "DESK_URL", "") or "").rstrip("/"), getattr(config, "DESK_API_KEY", "") or ""
+        self.base, self.key = (config.DESK_URL or "").rstrip("/"), config.DESK_API_KEY or ""
 
 
 class NarrationRecorder:
@@ -156,4 +155,4 @@ def get(surface: str) -> Recorder:
 
 
 def availability() -> dict:
-    return {"browser": bool(config.BROWSER_URL), "desktop": bool(getattr(config, "DESK_URL", "")), "narration": True}
+    return {"browser": bool(config.BROWSER_URL), "desktop": bool(config.DESK_URL), "narration": True}

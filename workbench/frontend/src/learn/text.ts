@@ -53,7 +53,7 @@ export function missingValues(params: Param[], values: Record<string, string>): 
 }
 
 /** A recorded event as one short line for the live view. */
-export function eventLine(e: { kind: string; url?: string; app?: string; value?: string; secret?: boolean; text?: string; target?: Record<string, string> }): string {
+export function eventLine(e: { kind: string; url?: string; app?: string; title?: string; value?: string; secret?: boolean; text?: string; target?: Record<string, string> }): string {
   const t = e.target || {};
   const what = t.name || t.label || t.text || t.placeholder || t.role || "something";
   switch (e.kind) {
@@ -64,7 +64,7 @@ export function eventLine(e: { kind: string; url?: string; app?: string; value?:
     case "check": return `Ticked “${what}”`;
     case "submit": return "Submitted a form";
     case "key": return "Pressed Enter";
-    case "open_app": return `Opened ${e.app || "an app"}`;
+    case "open_app": return `Working in ${e.app || "an app"}${e.title ? ` · ${e.title.slice(0, 60)}` : ""}`;
     default: return e.text || e.value || e.kind;
   }
 }
