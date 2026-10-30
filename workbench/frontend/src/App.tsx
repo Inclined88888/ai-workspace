@@ -1,6 +1,6 @@
 import {
   Activity, Gauge, Bot, Brain, Building2, CalendarClock, CalendarDays, ChevronRight, MessageSquare, CheckSquare, Globe, Columns3, ExternalLink, FileText, Home, LogOut, Mail, Menu, NotebookPen,
-  ListTree, Palette as PaletteIcon, Puzzle, Search, Settings as SettingsIcon,
+  GraduationCap, ListTree, Palette as PaletteIcon, Puzzle, Search, Settings as SettingsIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CommandPalette } from "./Palette";
@@ -25,6 +25,8 @@ import Skills from "./pages/Skills";
 import Tasks from "./pages/Tasks";
 import Welcome from "./pages/Welcome";
 import Models from "./pages/Models";
+import AboutYou from "./pages/AboutYou"; // adapt and learn (feat/learn-and-adapt)
+import Teach from "./pages/Teach"; // adapt and learn (feat/learn-and-adapt)
 
 export type Status = {
   setup_complete: boolean;
@@ -57,13 +59,14 @@ const NAV: NavGroup[] = [
   ] },
   { section: "Agents", items: [
     { to: "/automations", label: "Automations", icon: CalendarClock },
+    { to: "/teach", label: "Show me how", icon: GraduationCap },
     { to: "/skills", label: "Skills", icon: Puzzle },
     { to: "/research", label: "Research", icon: Search },
     { to: "/browser", label: "Browser agent", icon: Globe, addon: "browser" },
   ] },
   { section: "More", collapsible: true, items: [
     { to: "/documents", label: "Documents", icon: FileText },
-    { to: "/assistant-memory", label: "Memory", icon: Brain },
+    { to: "/about-you", label: "What I know", icon: Brain },
     { to: "/company", label: "Company", icon: Building2 },
     { to: "/compare", label: "Compare models", icon: Columns3 },
     { to: "/runs", label: "Run log", icon: ListTree },
@@ -203,6 +206,9 @@ export default function App() {
           <Route path="/assistant-memory" element={<Assistant tab="memory" />} />
           <Route path="/assistant-skills" element={<Navigate to="/skills" replace />} />
           <Route path="/skills" element={<Skills />} />
+          <Route path="/about-you" element={<AboutYou />} />
+          <Route path="/teach" element={<Teach />} />
+          <Route path="/teach/:id" element={<Teach />} />
           <Route path="/appearance" element={<Appearance />} />
           <Route path="/models" element={<Models />} />
           <Route path="/assistant-settings" element={<Assistant tab="settings" />} />
