@@ -1,8 +1,9 @@
-import { CheckCircle2, CircleStop, FolderOpen, Loader2, Monitor, OctagonX, Play, ShieldAlert, ShieldCheck, Trash2, XCircle } from "lucide-react";
+import { CircleStop, FolderOpen, Loader2, Monitor, OctagonX, Play, ShieldAlert, ShieldCheck, Trash2, XCircle } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import { Tracer } from "../Tracer";
+import { CursorOverlay, DoneTick, LiveShot, parsePointer, Pointer } from "../motion";
 import { Empty, Markdown, ModelSelect, useModels, useToast } from "../util";
 
 type JobSummary = { id: string; goal: string; provider: string; model: string; status: string; source: string; created_at: number; dry_run: boolean };
@@ -60,6 +61,7 @@ export default function Computer() {
   const [job, setJob] = useState<Job | null>(null);
   const [shotKey, setShotKey] = useState(0);
   const [openStep, setOpenStep] = useState<number | null>(null);
+  const [shotSize, setShotSize] = useState<[number, number]>([0, 0]);
   const [form, setForm] = useState({ goal: "", model: "", max_steps: 30, dry_run: false, approve: [] as string[] });
   const [lists, setLists] = useState<{ folders: string; allow_apps: string } | null>(null);
   const toast = useToast();
@@ -239,7 +241,7 @@ export default function Computer() {
                 </div>
                 {job.error && <div className="alert err">{job.error}</div>}
                 {(job.pending_approvals || []).map((a) => (
-                  <div key={a.id} className="alert col" style={{ gap: 6, borderColor: "var(--accent)" }}>
+                  <div key={a.id} className="alert col spring-in" style={{ gap: 6, borderColor: "var(--accent)" }}>
                     <strong className="row"><ShieldAlert size={15} /> Allow this? {CATEGORY[a.category] || a.category}</strong>
                     <div>{a.summary}</div>
                     {a.detail && <pre className="mono small" style={{ whiteSpace: "pre-wrap", margin: 0 }}>{a.detail}</pre>}
@@ -251,7 +253,7 @@ export default function Computer() {
                 ))}
                 {job.result && (
                   <>
-                    <div className="row">{job.result.success ? <CheckCircle2 size={16} className="prio-1" /> : <XCircle size={16} className="prio-2" />}
+                    <div className="row">{job.result.success ? <DoneTick size={18} label="Finished" /> : <XCircle size={16} className="prio-2" />}
                       <strong>{job.result.stopped ? `Stopped: ${job.result.stopped}` : job.result.success ? "Rooks Desk reports success" : job.result.done ? "Finished without success" : "Stopped at the step limit"}</strong></div>
                     <div className="muted small">This is the agent's own claim. Check the last screen, files and steps below.</div>
                     {job.result.final ? <Markdown text={job.result.final} /> : <div className="muted">No final answer.</div>}
@@ -263,15 +265,18 @@ export default function Computer() {
               <div className="grid two">
                 <div className="card col">
                   <h3>{active(job.status) ? "Live screen" : "Last screen"}</h3>
-                  {job.has_screenshot ? <img key={shotKey} src={`/api/desk/jobs/${job.id}/screenshot?k=${shotKey}`} alt="Screen" style={{ width: "100%", borderRadius: 8, border: "1px solid var(--border)" }} />
+                  {job.has_screenshot ? (
+                    <LiveShot src={`/api/desk/jobs/${job.id}/screenshot?k=${shotKey}`} alt="Screen" scanning={job.status === "running"} onSize={(w, h) => setShotSize((o) => (o[0] === w && o[1] === h ? o : [w, h]))}>
+                      {active(job.status) && <CursorOverlay points={job.steps.map((s) => parsePointer(s.result, s.action, shotSize[0], shotSize[1])).filter((p): p is Pointer => !!p)} />}
+                    </LiveShot>)
                     : <div className="muted small">{active(job.status) ? "Looking at the screen…" : "No screenshot."}</div>}
                   {job.live?.output && active(job.status) && <pre className="mono small" style={{ maxHeight: 220, overflow: "auto", background: "var(--code-bg)", padding: 8, borderRadius: 6 }}>{job.live.output}</pre>}
                 </div>
-                <div className="card col">
+                <div className="card col step-list timeline">
                   <h3>Thinking and actions</h3>
                   {job.steps.length === 0 && <div className="muted small">{active(job.status) ? <span className="row"><Loader2 size={13} className="spin" /> Looking at the screen</span> : "No steps recorded."}</div>}
                   {job.steps.map((s) => (
-                    <div key={s.step} className="col" style={{ gap: 4, borderBottom: "1px solid var(--border)", paddingBottom: 8 }}>
+                    <div key={s.step} className={`col${s.status === "denied" || s.status === "error" ? " failed" : ""}`} style={{ gap: 4, borderBottom: "1px solid var(--border)", paddingBottom: 8 }}>
                       <div className="row small"><span className="badge">{s.step}</span><strong className="grow mono" style={{ wordBreak: "break-word" }}>{describe(s)}</strong>
                         {s.status && s.status !== "ok" && <span className={`badge ${s.status === "denied" || s.status === "error" ? "danger" : "warn"}`}>{s.status}</span>}</div>
                       {s.thought && <div className="small"><span className="faint">Thinking: </span>{s.thought}</div>}

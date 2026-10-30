@@ -9,6 +9,7 @@ import { tap } from '@/lib/haptics';
 import { RunRow } from '@/components/RunRow';
 import { ConnectionMark, OfflineNotice } from '@/components/Connection';
 import { Btn, Empty, FadeIn, Label, Masthead, Notice, Screen } from '@/components/ui';
+import { SkeletonRows } from '@/components/motion';
 
 export default function Runs() {
   const { colors: c, client } = useSession();
@@ -69,7 +70,7 @@ export default function Runs() {
             </View>
           </View>
         }
-        ListEmptyComponent={list.loading ? undefined : <Empty title={failed ? 'Nothing failed.' : 'No runs yet.'} body={failed ? 'Every recent run finished cleanly.' : 'Ask your computer something and its receipt appears here.'} />}
+        ListEmptyComponent={list.loading ? <SkeletonRows /> : <Empty title={failed ? 'Nothing failed.' : 'No runs yet.'} body={failed ? 'Every recent run finished cleanly.' : 'Ask your computer something and its receipt appears here.'} />}
         renderItem={({ item, index }) => (
           <FadeIn delay={Math.min(index, 6) * 25} style={{ paddingHorizontal: space[5] }}>
             <RunRow r={item} />
