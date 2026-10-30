@@ -481,6 +481,11 @@ async def run_tool(name: str, raw_args: str, ctx: Ctx, approved: bool = False) -
 
     if not t or not t.when(ctx):
         return done(False, f"Unknown tool {name}", "unknown_tool")
+    from .teammates import hooks as tm_hooks  # feat/grok-style: teammates never send; a send becomes a draft the user sends
+
+    drafted = tm_hooks.as_draft(name, raw_args, ctx)  # feat/grok-style
+    if drafted:
+        return done(True, drafted, "drafted", False, "draft for the user to send")
     try:
         args = json.loads(raw_args or "{}")
         if not isinstance(args, dict):

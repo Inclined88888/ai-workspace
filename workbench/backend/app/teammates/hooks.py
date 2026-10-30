@@ -49,6 +49,7 @@ def filter_tools(ctx, tools: list) -> list:
             pats = [re.compile(store.TOOL_GROUPS[g]["match"]) for g in t["tools"] if g in store.TOOL_GROUPS]
             every = [re.compile(v["match"]) for v in store.TOOL_GROUPS.values()]
             out = [x for x in out if not any(p.search(x.name) for p in every) or any(p.search(x.name) for p in pats)]
+        out = [x for x in out if x.name not in SEND_TOOLS]  # drafts are the only way out
         if gid:
             out = [x for x in out if x.effect not in ("external", "persistent") and not x.confirm and not x.always_ask
                    and x.name != "request_secure_form"]
@@ -123,3 +124,35 @@ def register_tools() -> None:
         if t.name not in have:
             assistant.TOOLS.append(t)
             assistant.TOOL_MAP[t.name] = t
+
+
+# Draft-before-send is the only way a teammate sends anything. Every tool that delivers a message to someone else is
+# listed here with how its arguments map onto a draft; a call is turned into a draft the user sends from the app.
+SEND_TOOLS = {
+    "send_email": ("email", lambda a: (a.get("to", ""), a.get("subject", ""), a.get("body", ""))),
+    "send_telegram": ("telegram", lambda a: (str(a.get("chat_id", "")), "", a.get("text", "") or a.get("body", ""))),
+    "send_slack": ("slack", lambda a: (a.get("channel", ""), "", a.get("text", "") or a.get("body", ""))),
+}
+
+
+def as_draft(name: str, raw_args: str, ctx) -> str:
+    """assistant.run_tool: in a teammate's conversation (chat, group, routine, Slack, Telegram) a send becomes a draft."""
+    if name not in SEND_TOOLS:
+        return ""
+    import json
+
+    from . import outbox, store
+
+    t, _ = store.teammate_for(getattr(ctx, "conversation_id", None))
+    if not t:
+        return ""
+    try:
+        args = json.loads(raw_args or "{}")
+    except ValueError:
+        args = {}
+    channel, fn = SEND_TOOLS[name]
+    to, subject, body = fn(args if isinstance(args, dict) else {})
+    d = outbox.draft(channel, to, body, subject, t["id"], getattr(ctx, "conversation_id", None))
+    return json.dumps({"draft_id": d["id"], "status": "draft", "sent": False,
+                       "note": "Teammates don't send. This is now a draft card the user reviews and sends from the app. "
+                               "Tell the user it's ready for them to send; do not say it was sent."})

@@ -190,10 +190,10 @@ def test_slack_inbound_answers_only_allowed_users(client, monkeypatch):
     assert "private" in posted[-1][1]
     SCRIPT[:] = [tool_call("send_email", {"to": "x@example.com", "subject": "s", "body": "b"}), {"role": "assistant", "content": "Asked."}]
     asyncio.run(channels.handle_slack_event({"type": "message", "channel_type": "im", "user": "u123", "channel": "D1", "text": "email x", "ts": "1.2"}))
-    assert "Waiting for your OK" in posted[-1][1]
+    assert "Nothing is sent until you press Send" in posted[-1][1]
     from app import db
 
-    assert db.one("SELECT outcome FROM actions WHERE tool = 'send_email' ORDER BY id DESC LIMIT 1")["outcome"] == "held"
+    assert db.one("SELECT outcome FROM actions WHERE tool = 'send_email' ORDER BY id DESC LIMIT 1")["outcome"] in ("held", "drafted")
     n = len(posted)
     asyncio.run(channels.handle_slack_event({"type": "message", "channel_type": "im", "user": "U123", "channel": "D1", "text": "email x", "ts": "1.2"}))
     assert len(posted) == n  # a Slack retry never runs twice
@@ -253,3 +253,28 @@ def test_phone_files_handoff(client, tmp_path):
     client.post(f"/api/link/handoffs/{hid}/pick-up")
     assert not any(x["id"] == hid for x in client.get("/api/link/handoffs").json())
     assert client.put("/api/link", json={"relay_url": "http://insecure"}).status_code == 400
+
+
+def test_teammates_only_send_through_drafts(client, monkeypatch):
+    """Even if a teammate calls send_email (hidden from it), nothing is sent: it becomes a draft the user sends."""
+    from app import assistant, db
+
+    sent = []
+
+    async def fake_send(*a, **k):
+        sent.append(a)
+        return {"sent": True}
+
+    monkeypatch.setattr(assistant, "_send_email", fake_send)
+    t = mate(client, name="Sender")
+    CALLS.clear()
+    SCRIPT[:] = [tool_call("send_email", {"to": "boss@example.com", "subject": "Done", "body": "All done"}),
+                 {"role": "assistant", "content": "Drafted."}]
+    ev = events(client.post(f"/api/teammates/{t['id']}/chat", json={"message": "email my boss"}))
+    assert "send_email" not in {x["function"]["name"] for x in CALLS[0]["tools"]}
+    assert sent == []
+    d = [e for e in ev if e["type"] == "draft"]
+    assert d and d[0]["recipients"] == "boss@example.com" and d[0]["subject"] == "Done"
+    assert db.one("SELECT outcome FROM actions WHERE tool = 'send_email' ORDER BY id DESC LIMIT 1")["outcome"] == "drafted"
+    client.post(f"/api/outbox/{d[0]['id']}/send")
+    assert len(sent) == 1
