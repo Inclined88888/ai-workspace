@@ -91,3 +91,19 @@ def test_browse_web_refuses_sensitive_without_elicitation(site, tmp_path):
         assert data["denied"] and "cannot ask the user" in data["note"]
     finally:
         c.close()
+
+
+def test_calling_agent_cannot_self_approve(site, tmp_path):
+    script = tmp_path / "s.json"
+    script.write_text(json.dumps([{"action": "open", "args": {"url": f"{site}/widget.html"}}, {"action": "click", "args": {"id": 7}},
+                                  {"action": "done", "args": {"answer": "no", "success": False}}]))
+    c = Client(env_for(tmp_path))
+    try:
+        schema = c.req("tools/list")["tools"][0]["inputSchema"]["properties"]
+        assert "approve" not in schema
+        r = c.req("tools/call", {"name": "browse_web", "arguments": {"goal": "buy", "provider": "scripted", "model": str(script),
+                                                                     "approve": ["purchase"]}})
+        data = json.loads(r["content"][0]["text"])
+        assert data["denied"] and not any("order.html" in u for u in data["urls"])
+    finally:
+        c.close()

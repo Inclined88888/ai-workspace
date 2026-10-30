@@ -11,7 +11,7 @@ Everything heavier is an **optional add-on, off by default**:
 | `search` | SearXNG | Free private web search (otherwise use a Brave or Tavily key, or none) | small |
 | `codex` | Official Codex CLI 0.163.0 | Explicit CLI task hand-off ([setup](cli-launcher/CODEX.md)) | image size unmeasured |
 | `claude-code` | Official Claude Code 2.1.308 | Explicit CLI task hand-off using the user's own official login ([setup and API](cli-launcher/README.md)) | image size unmeasured |
-| `browser` | browser-use + Chromium | Browser agent page and a `browse_web` tool | ≈ 2.5 GB image |
+| `browser` | browser-use + Chromium | Browser agent page and a `browse_web` tool (or use the lighter [Rooks Browser](rooks-browser/README.md), no image) | ≈ 2.5 GB image |
 | `local-models` | Ollama in Docker | Local models (on a Mac, native Ollama is faster and is detected by setup) | ≈ 8.5 GB image + models |
 | `openwebui` | Open WebUI | A second chat app with RAG knowledge bases and multi user accounts | ≈ 6.5 GB image |
 | `paperclip` | Paperclip | Upstream company of agents running coding CLIs (Claude Code, Codex, OpenCode) | ≈ 13 GB image |
@@ -194,6 +194,26 @@ Model choice: the browser agent uses the models you connected in Workbench. It c
 **Cost control.** Browser model calls are counted in Workbench's usage like any other call (channel `browser`), including runs started by Paperclip employees, which are therefore **outside Paperclip's budgets**. Three limits apply to every caller: `max_steps` per run, `BROWSER_MAX_STEPS_LIMIT` (default 50) as the ceiling for any run, and `BROWSER_MONTHLY_STEP_LIMIT` (default 2000 steps per UTC month, 0 = unlimited). For guaranteed $0, pick a local model.
 
 **Safety.** The service refuses IP address URLs and the stack's own hostnames, and its one-off page reads refuse any host that resolves to a private address. That keeps it off your containers and LAN. A public hostname that resolves to a private address could still be reached during an agent run; don't rely on this as your only network boundary on a sensitive LAN. The agent can fill forms and click buttons on public sites, so be specific about what it must not do (buy, post, delete).
+
+### Rooks Browser (no add-on needed)
+
+[Rooks Browser](rooks-browser/README.md) is a lighter, local-first browser agent. It drives your own Chrome or Edge
+through Playwright (≈ 150 MB instead of a 2.5 GB image) and works with OpenAI, Anthropic, OpenRouter, Ollama or your
+Workbench models. Vision models get screenshots, and text-only models work from the page's element list.
+
+* **What it asks first.** It shows every action, and asks before it submits a form, buys, sends a message or logs in.
+* **What it stores.** It keeps per-site allow and deny lists, and logs every visited URL in Workbench's run-log format.
+  It never stores or types passwords.
+* **How you reach it:**
+  * a CLI: `rooks-browser "task"`
+  * a local HTTP API with the same job API as the `browser` add-on: point `BROWSER_URL` at it and Workbench's Browser
+    page uses it
+  * an MCP server for Rooks Code, Claude Code and Codex: `rooks-browser mcp`
+
+```
+uv tool install ./rooks-browser && rooks-browser doctor
+rooks-browser -P ollama -m qwen2.5:7b "find the opening hours of the State Library of Queensland"
+```
 
 ## Models and providers
 

@@ -9,7 +9,8 @@ Register it with any MCP client:
 
 Approvals: when the client supports MCP elicitation (it said so in `initialize`), a sensitive action becomes an
 elicitation/create request, so the user answers in Claude Code / Codex itself. Otherwise sensitive actions are refused
-and listed in the result; pre-approve categories per call with `approve: ["submit"]` only after asking the user.
+and listed in the result. The calling agent cannot approve on the user's behalf: the `approve` argument only exists when
+the user turned it on with ROOKS_BROWSER_MCP_PREAPPROVE=1 in the MCP config (and never covers logins).
 The browser is headless unless ROOKS_BROWSER_HEADED=1. Model: ROOKS_BROWSER_PROVIDER / ROOKS_BROWSER_MODEL or the
 tool's provider/model arguments.
 """
@@ -28,6 +29,21 @@ from .policy import parse_categories
 
 PROTOCOLS = ("2025-06-18", "2025-03-26", "2024-11-05")
 
+APPROVE_ARG = {"type": "array", "items": {"type": "string", "enum": ["submit", "purchase", "message", "download"]},
+               "description": "categories the USER explicitly approved for this task (ask them first)"}
+
+
+def preapprove_enabled() -> bool:
+    return os.getenv("ROOKS_BROWSER_MCP_PREAPPROVE") == "1"
+
+
+def tools() -> list[dict]:
+    out = json.loads(json.dumps(TOOLS))
+    if preapprove_enabled():
+        out[0]["inputSchema"]["properties"]["approve"] = APPROVE_ARG
+    return out
+
+
 TOOLS = [
     {"name": "browse_web",
      "description": "Give a browser agent a goal in plain English (e.g. 'find the opening hours of the State Library on its "
@@ -37,8 +53,6 @@ TOOLS = [
          "goal": {"type": "string"}, "max_steps": {"type": "integer", "default": 20, "minimum": 1, "maximum": 60},
          "allowed_sites": {"type": "array", "items": {"type": "string"}, "description": "only these sites, e.g. ['*.example.com']"},
          "start_url": {"type": "string"},
-         "approve": {"type": "array", "items": {"type": "string", "enum": ["submit", "purchase", "message", "download"]},
-                     "description": "categories the USER already approved for this task"},
          "provider": {"type": "string"}, "model": {"type": "string"}}, "required": ["goal"]}},
     {"name": "read_page", "description": "Open one URL in a real browser (JavaScript runs) and return its title, visible text and links. No AI, fast.",
      "inputSchema": {"type": "object", "properties": {"url": {"type": "string"}, "max_chars": {"type": "integer", "default": 20000}},
@@ -115,7 +129,7 @@ class Server:
         if method == "ping":
             return {}
         if method == "tools/list":
-            return {"tools": TOOLS}
+            return {"tools": tools()}
         if method == "tools/call":
             name, args = params.get("name"), params.get("arguments") or {}
             try:
@@ -135,7 +149,7 @@ class Server:
                                headless=not (os.getenv("ROOKS_BROWSER_HEADED") == "1" and has_display()),
                                engine=os.getenv("ROOKS_BROWSER_ENGINE", "auto"), cdp_url=os.getenv("ROOKS_BROWSER_CDP_URL"),
                                allow=list(args.get("allowed_sites") or []), start_url=args.get("start_url") or None,
-                               pre_approved=parse_categories(",".join(args.get("approve") or [])),
+                               pre_approved=parse_categories(",".join(args.get("approve") or [])) if preapprove_enabled() else set(),
                                workbench_db=os.getenv("ROOKS_BROWSER_WORKBENCH_DB"))
 
     def approver(self, ap) -> bool:
@@ -162,8 +176,8 @@ class Server:
             d = res.to_dict()
             d["note"] = "The answer is the agent's own claim; the urls and receipt show what it actually did."
             if res.denied and "elicitation" not in self.client_caps:
-                d["note"] += (" Sensitive actions were refused because this MCP client cannot ask the user. Ask the user, then "
-                              "call again with approve: [category].")
+                d["note"] += (" Sensitive actions were refused because this MCP client cannot ask the user. Tell the user; they "
+                              "can run it themselves with `rooks-browser` in a terminal, or use a client with MCP elicitation.")
             return d
         raise ValueError(f"unknown tool {name}")
 
