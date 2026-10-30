@@ -1,26 +1,24 @@
-import { Monitor, Moon, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
 
-export type ThemePref = "system" | "light" | "dark";
+/** Light is always the default. Dark is an explicit opt-in and never follows the OS. */
+export type ThemePref = "light" | "dark";
 const KEY = "wb-theme";
 
 export function readTheme(): ThemePref {
   try {
-    const t = localStorage.getItem(KEY);
-    return t === "light" || t === "dark" ? t : "system";
+    return localStorage.getItem(KEY) === "dark" ? "dark" : "light";
   } catch {
-    return "system";
+    return "light";
   }
 }
 
-/** "system" removes the override so the CSS follows prefers-color-scheme live. */
 export function applyTheme(pref: ThemePref) {
   const root = document.documentElement;
-  if (pref === "system") delete root.dataset.theme;
-  else root.dataset.theme = pref;
+  if (pref === "dark") root.dataset.theme = "dark";
+  else delete root.dataset.theme;
   try {
-    if (pref === "system") localStorage.removeItem(KEY);
-    else localStorage.setItem(KEY, pref);
+    if (pref === "dark") localStorage.setItem(KEY, "dark");
+    else localStorage.removeItem(KEY);
   } catch {
     /* storage unavailable */
   }
@@ -37,27 +35,26 @@ export function useTheme(): [ThemePref, (p: ThemePref) => void] {
   return [pref, applyTheme];
 }
 
-const OPTIONS: { value: ThemePref; label: string; Icon: typeof Sun }[] = [
-  { value: "system", label: "Match system", Icon: Monitor },
-  { value: "light", label: "Light", Icon: Sun },
-  { value: "dark", label: "Dark", Icon: Moon },
+const OPTIONS: { value: ThemePref; label: string }[] = [
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
 ];
 
+/** Two-way text toggle (radiogroup: arrow keys move, Tab leaves). */
 export function ThemeSwitch() {
   const [pref, set] = useTheme();
-  const move = (dir: number) => {
-    const i = OPTIONS.findIndex((o) => o.value === pref);
-    const next = OPTIONS[(i + dir + OPTIONS.length) % OPTIONS.length];
-    set(next.value);
-    document.getElementById(`theme-${next.value}`)?.focus();
+  const move = () => {
+    const next = pref === "light" ? "dark" : "light";
+    set(next);
+    document.getElementById(`theme-${next}`)?.focus();
   };
   return (
     <div className="theme-switch" role="radiogroup" aria-label="Theme"
-      onKeyDown={(e) => { if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); move(1); } if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); move(-1); } }}>
-      {OPTIONS.map(({ value, label, Icon }) => (
-        <button key={value} id={`theme-${value}`} type="button" role="radio" aria-checked={pref === value} aria-label={label} title={label}
+      onKeyDown={(e) => { if (["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp"].includes(e.key)) { e.preventDefault(); move(); } }}>
+      {OPTIONS.map(({ value, label }) => (
+        <button key={value} id={`theme-${value}`} type="button" role="radio" aria-checked={pref === value}
           tabIndex={pref === value ? 0 : -1} onClick={() => set(value)}>
-          <Icon size={14} />
+          {label}
         </button>
       ))}
     </div>

@@ -5,8 +5,7 @@ import App from "./App";
 import "./styles.css";
 import { readTheme } from "./theme";
 
-const theme = readTheme();
-if (theme !== "system") document.documentElement.dataset.theme = theme;
+if (readTheme() === "dark") document.documentElement.dataset.theme = "dark";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

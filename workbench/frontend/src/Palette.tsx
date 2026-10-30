@@ -1,4 +1,4 @@
-import { CornerDownLeft, LucideIcon, Monitor, Moon, Plus, Search, Sun } from "lucide-react";
+import { CornerDownLeft, LucideIcon, Moon, Plus, Search, Sun } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { applyTheme } from "./theme";
@@ -34,9 +34,8 @@ export function CommandPalette({ open, onClose, pages }: { open: boolean; onClos
     { id: "new-chat", label: "New chat", group: "Actions", icon: Plus, keywords: "assistant ask message", run: () => navigate("/assistant") },
     { id: "new-note", label: "New note", group: "Actions", icon: Plus, keywords: "write doc", run: () => navigate("/notes") },
     { id: "new-task", label: "Add a task", group: "Actions", icon: Plus, keywords: "todo", run: () => navigate("/tasks") },
-    { id: "theme-system", label: "Theme: match system", group: "Appearance", icon: Monitor, keywords: "auto appearance", run: () => applyTheme("system") },
-    { id: "theme-light", label: "Theme: light", group: "Appearance", icon: Sun, keywords: "appearance", run: () => applyTheme("light") },
-    { id: "theme-dark", label: "Theme: dark", group: "Appearance", icon: Moon, keywords: "appearance night", run: () => applyTheme("dark") },
+    { id: "theme-light", label: "Light theme", group: "Appearance", icon: Sun, keywords: "appearance", run: () => applyTheme("light") },
+    { id: "theme-dark", label: "Dark theme", group: "Appearance", icon: Moon, keywords: "appearance night", run: () => applyTheme("dark") },
     ...pages.map((p) => ({ id: `go-${p.to}`, label: p.label, group: "Go to", icon: p.icon, hint: "Page", run: () => navigate(p.to) })),
   ], [pages, navigate]);
 
