@@ -504,6 +504,9 @@ async def run_tool(name: str, raw_args: str, ctx: Ctx, approved: bool = False) -
     if "ctx" in sig.parameters:
         args["ctx"] = ctx
     args = {k: v for k, v in args.items() if k in sig.parameters}
+    from . import v02_hooks  # feat/v02-core: action history snapshots for undo
+
+    snap = v02_hooks.before_tool(name, args)  # feat/v02-core
     try:
         result = t.fn(**args)
         if inspect.isawaitable(result):
@@ -525,8 +528,10 @@ async def run_tool(name: str, raw_args: str, ctx: Ctx, approved: bool = False) -
     verified, evidence = receipts.verify(name, args, result)
     if verified is False:  # the tool returned, but what it was asked to do is not there
         return done(False, f"Error: the change could not be confirmed: {evidence}", "check_failed", False, evidence)
-    return done(True, out, "verified" if verified else "ok", verified, evidence, receipts.ref_of(name, result),
-                request_id=f"{key}:{uuid.uuid4().hex[:8]}" if key else None)
+    res = done(True, out, "verified" if verified else "ok", verified, evidence, receipts.ref_of(name, result),
+               request_id=f"{key}:{uuid.uuid4().hex[:8]}" if key else None)
+    v02_hooks.after_tool(name, args, result, ctx, snap)  # feat/v02-core: action history entry with its undo
+    return res
 
 
 def system_prompt(ctx: Ctx, user_text: str) -> str:
@@ -549,6 +554,9 @@ def system_prompt(ctx: Ctx, user_text: str) -> str:
     from .adapt import hooks as adapt_hooks  # adapt and learn: what the assistant has learned about this person
 
     parts.extend(adapt_hooks.context(user_text))
+    from . import v02_hooks  # feat/v02-core: project context and check mode
+
+    parts.extend(v02_hooks.context(ctx, user_text))  # feat/v02-core
     skills = db.all("SELECT name, description FROM skills WHERE enabled = 1 ORDER BY uses DESC, updated_at DESC LIMIT 30")
     if skills:
         parts.append("Your saved skills (load_skill before using):\n" + "\n".join(f"- {s['name']}: {s['description']}" for s in skills))
