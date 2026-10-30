@@ -1,0 +1,191 @@
+# Desktop app installers (desktop/): macOS .dmg (Apple silicon and Intel), Windows .msi + .exe, Linux .deb + .AppImage.
+#
+# Runs on manual dispatch (artifacts only) and on version tags (also attaches the installers to the GitHub release).
+# Unsigned by default. Signing, notarisation and the in-app updater switch on by themselves when their repository
+# secrets exist; every secret, what it costs and how to get it: docs/desktop-release.md.
+name: Desktop app
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*.*.*', 'desktop-v*.*.*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS (Apple silicon)
+            os: macos-15
+            target: aarch64-apple-darwin
+            bundles: app,dmg
+          - name: macOS (Intel)
+            os: macos-15-intel
+            target: x86_64-apple-darwin
+            bundles: app,dmg
+          - name: Windows
+            os: windows-2022
+            target: x86_64-pc-windows-msvc
+            bundles: msi,nsis
+          - name: Linux
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            bundles: deb,appimage
+    env:
+      # Secrets cannot be tested in `if:`; these say only whether each one exists. Values go to the build step below.
+      HAS_APPLE_CERT: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_SIGNING_IDENTITY != '' }}
+      HAS_APPLE_NOTARY: ${{ secrets.APPLE_ID != '' && secrets.APPLE_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
+      HAS_AZURE_SIGNING: ${{ secrets.AZURE_CLIENT_ID != '' && secrets.AZURE_SIGNING_ENDPOINT != '' }}
+      HAS_WINDOWS_SIGN_COMMAND: ${{ secrets.WINDOWS_SIGN_COMMAND != '' }}
+      HAS_UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Rust toolchain
+        shell: bash
+        run: rustup toolchain install stable --profile minimal --target ${{ matrix.target }} && rustup default stable
+      - name: Linux system libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev patchelf
+      - name: Build the Workbench frontend
+        shell: bash
+        run: cd workbench/frontend && npm ci --no-audit --no-fund && npm run build
+      - name: Freeze the Workbench backend (PyInstaller sidecar)
+        shell: bash
+        run: |
+          python -m pip install -r desktop/sidecar/requirements.txt
+          node desktop/scripts/build-sidecar.mjs --target ${{ matrix.target }} --python python
+      - name: Sidecar smoke test (starts, answers /healthz)
+        shell: bash
+        run: python desktop/scripts/smoke_sidecar.py desktop/src-tauri/binaries/workbench-server-${{ matrix.target }}$([ "$RUNNER_OS" = Windows ] && echo .exe)
+      - name: Install Tauri CLI
+        shell: bash
+        run: cd desktop && npm ci --no-audit --no-fund
+
+      - name: Choose signing (each part turns on only when its secrets exist)
+        id: signing
+        shell: bash
+        env:
+          AZURE_SIGNING_ENDPOINT: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          AZURE_SIGNING_ACCOUNT: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+          AZURE_SIGNING_PROFILE: ${{ secrets.AZURE_SIGNING_PROFILE }}
+          WINDOWS_SIGN_COMMAND: ${{ secrets.WINDOWS_SIGN_COMMAND }}
+        run: |
+          set -euo pipefail
+          echo '{}' > desktop/src-tauri/tauri.ci.conf.json
+          args="--config src-tauri/tauri.ci.conf.json"
+          mac_identity="-"; mac_signed=false; notarise=false
+          if [ "$RUNNER_OS" = macOS ]; then
+            if [ "$HAS_APPLE_CERT" = true ]; then
+              mac_signed=true; mac_identity=""
+              if [ "$HAS_APPLE_NOTARY" = true ]; then notarise=true; echo "macOS: Developer ID signing + notarisation"
+              else echo "::warning::APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID missing: signed but NOT notarised"; fi
+            else
+              echo "::notice::No Apple certificate: ad-hoc signed only. Users must right-click > Open the first time."
+            fi
+          fi
+          if [ "$RUNNER_OS" = Windows ]; then
+            if [ "$HAS_AZURE_SIGNING" = true ]; then
+              echo "Windows: signing with Azure Trusted Signing"
+              cargo install trusted-signing-cli --locked
+              jq -n --arg e "$AZURE_SIGNING_ENDPOINT" --arg a "$AZURE_SIGNING_ACCOUNT" --arg p "$AZURE_SIGNING_PROFILE" \
+                '{bundle:{windows:{signCommand:("trusted-signing-cli -e " + $e + " -a " + $a + " -c " + $p + " -d \"AI Workspace\" %1")}}}' \
+                > desktop/src-tauri/tauri.ci.conf.json
+            elif [ "$HAS_WINDOWS_SIGN_COMMAND" = true ]; then
+              echo "Windows: signing with WINDOWS_SIGN_COMMAND (OV certificate in a cloud HSM)"
+              jq -n --arg c "$WINDOWS_SIGN_COMMAND" '{bundle:{windows:{signCommand:$c}}}' > desktop/src-tauri/tauri.ci.conf.json
+            else
+              echo "::notice::No Windows signing secrets: installers are unsigned (SmartScreen will warn)."
+            fi
+          fi
+          if [ "$HAS_UPDATER_KEY" = true ]; then
+            if grep -q REPLACE_WITH desktop/src-tauri/tauri.updater.conf.json; then
+              echo "::error::TAURI_SIGNING_PRIVATE_KEY is set but tauri.updater.conf.json still has the placeholder public key"; exit 1
+            fi
+            echo "Updater: on"; args="$args --features updater --config src-tauri/tauri.updater.conf.json"
+          else
+            echo "Updater: off (no TAURI_SIGNING_PRIVATE_KEY)"
+          fi
+          { echo "args=$args"; echo "mac_identity=$mac_identity"; echo "mac_signed=$mac_signed"; echo "notarise=$notarise"; } >> "$GITHUB_OUTPUT"
+
+      - name: Build installers
+        shell: bash
+        env:
+          # macOS: Tauri imports the certificate into a temporary keychain, signs the app and sidecar, and notarises.
+          APPLE_SIGNING_IDENTITY: ${{ steps.signing.outputs.mac_signed == 'true' && secrets.APPLE_SIGNING_IDENTITY || steps.signing.outputs.mac_identity }}
+          APPLE_CERTIFICATE: ${{ steps.signing.outputs.mac_signed == 'true' && secrets.APPLE_CERTIFICATE || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ steps.signing.outputs.mac_signed == 'true' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          APPLE_ID: ${{ steps.signing.outputs.notarise == 'true' && secrets.APPLE_ID || '' }}
+          APPLE_PASSWORD: ${{ steps.signing.outputs.notarise == 'true' && secrets.APPLE_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ steps.signing.outputs.notarise == 'true' && secrets.APPLE_TEAM_ID || '' }}
+          # Windows: read by trusted-signing-cli
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          # Updater: signs update bundles (only used with --features updater)
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: cd desktop && npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} ${{ steps.signing.outputs.args }}
+
+      - name: Collect installers
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          b=desktop/src-tauri/target/${{ matrix.target }}/release/bundle
+          find "$b" -maxdepth 2 -type f \( -name '*.dmg' -o -name '*.msi' -o -name '*-setup.exe' -o -name '*.deb' -o -name '*.AppImage' \
+            -o -name '*.sig' -o -name '*.app.tar.gz' \) -exec cp {} out/ \;
+          # Make Intel and Apple silicon DMGs distinguishable
+          for f in out/*.dmg; do [ -e "$f" ] || continue; case "$f" in *aarch64*|*x64*) ;; *) mv "$f" "${f%.dmg}_${{ matrix.target }}.dmg";; esac; done
+          ls -la out
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: desktop-${{ matrix.target }}
+          path: out/*
+          if-no-files-found: error
+
+  publish:
+    name: Attach installers to the release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          pattern: desktop-*
+          merge-multiple: true
+          path: out
+      - name: Checksums
+        run: cd out && sha256sum * > SHA256SUMS-desktop
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF#refs/tags/}"
+          if [[ "$TAG" == v* ]]; then
+            # release.yml creates v* releases after its own checks; wait for it rather than racing it.
+            for i in $(seq 1 60); do gh release view "$TAG" >/dev/null 2>&1 && break; sleep 30; done
+          fi
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --verify-tag --prerelease --title "AI Workspace ${TAG#desktop-}" --notes-file docs/desktop-release.md
+          gh release upload "$TAG" out/* --clobber

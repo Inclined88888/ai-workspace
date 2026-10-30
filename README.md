@@ -19,6 +19,25 @@ Everything heavier is an **optional add-on, off by default**:
 
 You don't need any of them for the assistant, memory, skills, schedules, Telegram or the company of agents. Those are built into Workbench.
 
+## Download for Mac / Windows
+
+**Desktop app (preview).** Double-click to install. No Docker, no terminal: it runs Workbench on your own computer,
+keeps your data in your user folder and your API keys in the system keychain. On first launch, paste an API key
+(OpenAI, Anthropic, OpenRouter, Gemini and more) or use free local models with [Ollama](https://ollama.com/download),
+and you land in chat.
+
+| | Download |
+| --- | --- |
+| **macOS** (Apple silicon) | `AI Workspace_<version>_aarch64.dmg` from [Releases](https://github.com/Inclined88888/ai-workspace/releases) |
+| **macOS** (Intel) | `AI Workspace_<version>_x64.dmg` from [Releases](https://github.com/Inclined88888/ai-workspace/releases) |
+| **Windows** 10/11 | `AI Workspace_<version>_x64-setup.exe` (or `.msi`) from [Releases](https://github.com/Inclined88888/ai-workspace/releases) |
+| Linux | `.AppImage` or `.deb` from [Releases](https://github.com/Inclined88888/ai-workspace/releases) |
+
+Preview builds are **not code-signed yet**. On macOS, right-click the app → **Open** the first time; on Windows, click
+**More info → Run anyway**. Signing, notarisation and auto-updates switch on once the keys exist
+([docs/desktop-release.md](docs/desktop-release.md)). The add-ons below (browser agent, Paperclip, Hermes, Open WebUI)
+are still Docker-only; the server install below is unchanged.
+
 ## Why AI Workspace
 
 1. **Light.** Core image is ~350 MB, not multi-GB, and idles at ~100 MB of RAM (measured outside Docker).
@@ -257,6 +276,9 @@ cd workbench/frontend && npm install && npm run dev   # http://localhost:5173, p
 
 Backend: FastAPI + SQLite. Frontend: React + Vite + TypeScript. The tool server spec is at `/tools/openapi.json`.
 
+Desktop app: Tauri v2 shell in `desktop/` that runs the backend as a frozen sidecar. Build and dev instructions:
+[desktop/README.md](desktop/README.md); signing and releases: [docs/desktop-release.md](docs/desktop-release.md).
+
 ## Known limits
 
 - Single user Workbench (the `openwebui` add-on supports multiple users).
@@ -270,3 +292,7 @@ Backend: FastAPI + SQLite. Frontend: React + Vite + TypeScript. The tool server 
 
 
 API clients: [authenticated OpenAPI discovery](docs/API.md). Releases: [signature verification](docs/RELEASES.md).
+
+## License
+
+[MIT](LICENSE).

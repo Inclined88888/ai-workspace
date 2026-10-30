@@ -14,13 +14,13 @@ from . import config, db
 from .adapters import (  # noqa: F401 - re-exported for callers and tests
     OLLAMA_NUM_CTX, THINK_RE, Adapter, keep_model, parse_text_tool_calls, validate,
 )
-from .security import encrypt
+from .security import encrypt, store_connection_secret  # noqa: F401 - encrypt kept for callers
 
 # Presets offered in Settings. Each names the auth kind and protocol it uses; the base URL is editable.
 PRESETS = {
     # Native Ollama app on the host (fast on Mac: uses the GPU) unless the ollama add-on container is configured
     "ollama": {"name": "Ollama (local)", "auth_kind": "local_ollama", "protocol": "ollama_native",
-               "base_url": config.OLLAMA_URL or "http://host.docker.internal:11434"},
+               "base_url": config.OLLAMA_URL or ("http://127.0.0.1:11434" if config.DESKTOP else "http://host.docker.internal:11434")},
     "openai": {"name": "OpenAI", "auth_kind": "api_key", "protocol": "responses", "base_url": "https://api.openai.com/v1"},
     "anthropic": {"name": "Anthropic", "auth_kind": "api_key", "protocol": "anthropic_messages", "base_url": "https://api.anthropic.com/v1",
                   "note": "Claude API key from console.anthropic.com. Claude Pro and Max subscriptions cannot be used by "
@@ -37,7 +37,7 @@ PRESETS = {
     "opencode-zen": {"name": "OpenCode Zen", "auth_kind": "api_key", "protocol": "chat_completions",
                      "base_url": "https://opencode.ai/inference/openai/v1", "note": "Pay as you go. Key from opencode.ai/console."},
     "compatible": {"name": "OpenAI compatible server", "auth_kind": "openai_compatible", "protocol": "chat_completions",
-                   "base_url": "http://host.docker.internal:1234/v1", "note": "LM Studio, vLLM, llama.cpp server, LiteLLM, Groq, Together. Key optional."},
+                   "base_url": "http://127.0.0.1:1234/v1" if config.DESKTOP else "http://host.docker.internal:1234/v1", "note": "LM Studio, vLLM, llama.cpp server, LiteLLM, Groq, Together. Key optional."},
 }
 SEED = {"openai": "openai", "anthropic": "anthropic", "openrouter": "openrouter", "gemini": "gemini"}  # .env key -> preset
 
@@ -46,13 +46,15 @@ def seed_connections() -> None:
     """First start only: connections for a host Ollama and for provider keys given in .env."""
     if db.one("SELECT id FROM connections LIMIT 1"):
         return
-    seeds = [("ollama", "")] if config.OLLAMA_URL else []
+    # The desktop app always knows where a native Ollama would be; its welcome flow adds it only when the user picks it.
+    seeds = [("ollama", "")] if config.OLLAMA_URL and not config.DESKTOP else []
     seeds += [(SEED[k], key) for k, key in config.SEED_KEYS.items() if key]
     for preset, key in seeds:
         p = PRESETS[preset]
-        db.run("INSERT INTO connections(name, auth_kind, protocol, base_url, secret_enc, residency, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-               p["name"], p["auth_kind"], p["protocol"], p["base_url"], encrypt(key), "local" if p["auth_kind"] == "local_ollama" else "cloud",
-               db.now())
+        cid = db.run("INSERT INTO connections(name, auth_kind, protocol, base_url, secret_enc, residency, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                     p["name"], p["auth_kind"], p["protocol"], p["base_url"], "", "local" if p["auth_kind"] == "local_ollama" else "cloud",
+                     db.now())
+        store_connection_secret(cid, key)
 
 
 def _connection(cid: int) -> dict:
