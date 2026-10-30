@@ -6,6 +6,7 @@ A self hosted AI workspace in one light container. Start with the [README](../RE
 - [Security audit](AUDIT.md)
 - [Phase 0 gate](PHASE0-GATE.md)
 - [Releases](RELEASES.md)
+- [Connect Google and Microsoft (OAuth setup)](connect-google-microsoft.md)
 - Design notes: [run log and connections](design/0001-run-log-and-connections.md), [adapters](design/0002-adapters.md)
 
 ---

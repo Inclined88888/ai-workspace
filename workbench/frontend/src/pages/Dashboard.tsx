@@ -2,7 +2,8 @@ import { ArrowRight, CalendarDays, CheckSquare, FileText, NotebookPen, Plus, Sea
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, CalEvent, Doc, Task } from "../api";
-import { Empty, fmtTime, relTime, Skeleton, SkeletonList, todayISO, useToast } from "../util";
+import { Empty, fmtTime, relTime, SkeletonList, todayISO, useToast } from "../util";
+import ConnectMailCalendar from "./ConnectMailCalendar";
 
 type Dash = {
   events: CalEvent[];
@@ -26,6 +27,14 @@ function dayLabel(iso: string, allDay: boolean) {
   if (d.toDateString() === today.toDateString()) return "Today";
   if (d.toDateString() === tomorrow.toDateString()) return "Tomorrow";
   return d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+}
+
+/** One calm sentence instead of three stat tiles. */
+function summary(open: number, overdue: number, events: number) {
+  const tasks = open === 0 ? "No open tasks" : `${open} open task${open === 1 ? "" : "s"}`;
+  const late = open === 0 ? "" : overdue === 0 ? ", none overdue" : `, ${overdue} overdue`;
+  const cal = events === 0 ? "a clear calendar this week" : `${events} event${events === 1 ? "" : "s"} this week`;
+  return `${tasks}${late}, and ${cal}.`;
 }
 
 export default function Dashboard(_: { chatUrl?: string }) {
@@ -71,12 +80,13 @@ export default function Dashboard(_: { chatUrl?: string }) {
         <div>
           <p className="kicker">{new Date().toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })}</p>
           <h1>{greeting()}</h1>
+          <p className="muted home-summary">{data ? summary(data.open_tasks, data.overdue, data.events.length) : "\u00a0"}</p>
         </div>
         <div className="spacer" />
         <Link className="btn primary" to="/assistant">Ask your assistant <ArrowRight size={14} /></Link>
       </div>
 
-      <form className="card col" onSubmit={submit} style={{ marginBottom: 16 }}>
+      <form className="card col home-capture" onSubmit={submit} style={{ marginBottom: 24 }} aria-label="Quick capture">
         <div className="row">
           <div className="tabs">
             {(["task", "note", "research"] as const).map((m) => (
@@ -85,7 +95,6 @@ export default function Dashboard(_: { chatUrl?: string }) {
               </button>
             ))}
           </div>
-          <span className="muted small">Quick capture</span>
         </div>
         <div className="row">
           <input
@@ -98,19 +107,15 @@ export default function Dashboard(_: { chatUrl?: string }) {
         </div>
       </form>
 
-      <div className="grid three stats" style={{ marginBottom: 16 }}>
-        <div className="card stat"><span className="muted small">Open tasks</span><span className="num">{data ? data.open_tasks : <Skeleton w={48} h={44} />}</span></div>
-        <div className="card stat"><span className="muted small">Overdue</span><span className="num" style={{ color: data?.overdue ? "var(--danger-text)" : undefined }}>{data ? data.overdue : <Skeleton w={48} h={44} />}</span></div>
-        <div className="card stat"><span className="muted small">Events this week</span><span className="num">{data ? data.events.length : <Skeleton w={48} h={44} />}</span></div>
-      </div>
+      <ConnectMailCalendar compact onlyWhenEmpty onChange={load} />
 
-      <div className="grid two">
+      <div className="grid two home-grid">
         <div className="card flush">
           <div className="card-head" style={{ padding: "14px 14px 0" }}>
             <CalendarDays size={16} /><h2>Coming up</h2><div className="spacer" /><Link to="/calendar" className="small">Calendar <ArrowRight size={12} /></Link>
           </div>
           {!data && <SkeletonList rows={3} />}
-          {data && data.events.length === 0 && <Empty icon={<CalendarDays size={22} />} title="Nothing scheduled" hint="Add a calendar from the Calendar page." />}
+          {data && data.events.length === 0 && <Empty icon={<CalendarDays size={22} />} title="Nothing scheduled" hint="Connect Google or Microsoft above, or add a calendar from the Calendar page." />}
           {data?.events.slice(0, 8).map((ev) => (
             <div key={ev.id} className="list-item" style={{ cursor: "default" }}>
               <span className="dot" style={{ background: ev.color }} />

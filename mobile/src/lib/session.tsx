@@ -6,7 +6,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { AppState, Platform, useColorScheme } from 'react-native';
 import { claim, Client, firstReachable } from './api';
 import { clearPairing, DEFAULT_PREFS, loadPairing, loadPrefs, Pairing, Prefs, savePairing, savePrefs } from './storage';
-import { dark as darkPalette, light as lightPalette, Palette } from './theme';
+import { DARK_THEMES, Palette, palettes, resolveTheme, ThemeId } from './theme';
 import { setHaptics } from './haptics';
 
 type Status = 'loading' | 'unpaired' | 'connecting' | 'online' | 'offline';
@@ -18,6 +18,7 @@ type Session = {
   prefs: Prefs;
   colors: Palette;
   dark: boolean;
+  theme: ThemeId;
   setPrefs: (p: Partial<Prefs>) => void;
   pair: (code: string, urls: string[], deviceName: string) => Promise<void>;
   forget: () => Promise<void>;
@@ -101,14 +102,31 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const client = useMemo(() => (pairing ? new Client(pairing.active, pairing.token) : null), [pairing]);
-  const dark = prefs.theme === 'dark' || (prefs.theme === 'system' && system === 'dark');
+
+  // "Same as computer": read the computer's look whenever we (re)connect, and remember it for offline starts.
+  useEffect(() => {
+    if (status !== 'online' || !client) return;
+    client.appearance().then((a) => {
+      const t = a.theme === 'auto' ? 'auto' : a.resolved || a.theme;
+      setPrefsState((cur) => {
+        if (cur.desktopTheme === t) return cur;
+        const next = { ...cur, desktopTheme: t };
+        savePrefs(next).catch(() => undefined);
+        return next;
+      });
+    }).catch(() => undefined); // an older computer without /appearance: keep the last known look
+  }, [status, client]);
+
+  const theme = resolveTheme(prefs.theme, system, prefs.desktopTheme);
+  const dark = DARK_THEMES.includes(theme);
   const value: Session = {
     status,
     pairing,
     client,
     prefs,
-    colors: dark ? darkPalette : lightPalette,
+    colors: palettes[theme],
     dark,
+    theme,
     setPrefs,
     pair,
     forget,

@@ -1,14 +1,20 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "What the splash and the Workbench page (served by the local backend on 127.0.0.1) may call.",
-  "windows": ["main"],
+  "description": "What the splash and the Workbench page (served by the local backend on 127.0.0.1) may call. The page may also set the window's light/dark title bar and background colour to match the chosen theme.",
+  "windows": [
+    "main"
+  ],
   "local": true,
   "remote": {
-    "urls": ["http://127.0.0.1:*"]
+    "urls": [
+      "http://127.0.0.1:*"
+    ]
   },
   "permissions": [
     "core:default",
+    "core:window:allow-set-theme",
+    "core:window:allow-set-background-color",
     "allow-app-info",
     "allow-list-sidecars",
     "allow-request-approval",

@@ -15,7 +15,9 @@ It also links the app to the two command-line agents installed next to it:
     `rooks` (Rooks Code) and `rooks-browser` find the running app and use its default model (the smart router, "auto", unless changed) with no keys of
     their own; the file is removed when the app quits,
   * starts `rooks-browser serve` (when installed) on a free loopback port and points BROWSER_URL at it, so the
-    Browser agent page and the assistant's browse tool drive the user's own Chrome or Edge.
+    Browser agent page and the assistant's browse tool drive the user's own Chrome or Edge,
+  * starts `rooks-desk serve` (when installed) the same way and points DESK_URL at it, so the Computer page and the
+    assistant's use_computer tool can operate the user's apps, terminal and files (asking before anything sensitive).
 
 It is also runnable unfrozen for development: python desktop/sidecar/workbench_server.py --port 8765 --data-dir /tmp/wb
 """
@@ -201,6 +203,55 @@ def start_rooks_browser(app_url: str, key: str, log_dir: Path) -> str | None:
     return f"http://127.0.0.1:{port}"
 
 
+def find_rooks_desk() -> str | None:
+    """The rooks-desk command (computer use): $ROOKS_DESK_BIN, PATH, or where the installer puts it."""
+    if os.environ.get("ROOKS_DESK_BIN"):
+        return os.environ["ROOKS_DESK_BIN"] if Path(os.environ["ROOKS_DESK_BIN"]).exists() else None
+    found = shutil.which("rooks-desk")
+    if found:
+        return found
+    exe = "rooks-desk.exe" if sys.platform == "win32" else "rooks-desk"
+    for d in (Path.home() / ".local" / "bin", Path.home() / ".ai-workspace" / "bin"):
+        if (d / exe).exists():
+            return str(d / exe)
+    return None
+
+
+def start_rooks_desk(app_url: str, key: str, log_dir: Path) -> str | None:
+    """Run `rooks-desk serve` for the Computer page and the assistant's use_computer tool. Loopback only, with the
+    bridge key as its token. It does nothing until a task is started, and asks the user before every sensitive step.
+    Off with WORKBENCH_ROOKS_DESK=0. Returns its URL, or None when it is not installed or off."""
+    if os.environ.get("DESK_URL") or os.environ.get("WORKBENCH_ROOKS_DESK", "1") == "0":
+        return None
+    exe = find_rooks_desk()
+    if not exe:
+        print("workbench: rooks-desk is not installed; the Computer page stays off", file=sys.stderr)
+        return None
+    port = _free_port()
+    env = {**os.environ, "ROOKS_DESK_TOKEN": key, "WORKBENCH_URL": app_url, "WORKBENCH_API_KEY": key,
+           "ROOKS_DESK_PROVIDER": os.environ.get("ROOKS_DESK_PROVIDER", "workbench")}
+    args = [exe, "serve", "--port", str(port), "--exit-with-parent"]
+    log = open(log_dir / "rooks-desk.log", "ab")  # noqa: SIM115 - lives as long as the child
+    flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+    try:
+        proc = subprocess.Popen(args, env=env, stdin=subprocess.PIPE, stdout=log, stderr=log, creationflags=flags)
+    except OSError as e:
+        print(f"workbench: could not start rooks-desk: {e}", file=sys.stderr)
+        return None
+
+    def stop():
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+
+    _CLEANUP.append(stop)
+    print(f"workbench: rooks-desk serving on http://127.0.0.1:{port}", flush=True)
+    return f"http://127.0.0.1:{port}"
+
+
 def _exit_with_parent() -> None:
     """The shell holds our stdin open; when it exits (even if it crashes) stdin closes and so do we."""
     def watch():
@@ -215,11 +266,17 @@ def _exit_with_parent() -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
+    raw = sys.argv[1:] if argv is None else argv
+    if raw[:1] == ["--run-python"]:  # the frozen app's own interpreter for the Files sandbox (app/compute.py)
+        from app import compute
+
+        compute.run_frozen(raw[1:])
+        return
     p = argparse.ArgumentParser(prog="workbench-server")
     p.add_argument("--port", type=int, default=int(os.getenv("WORKBENCH_PORT", "8765")))
     p.add_argument("--data-dir", default=os.getenv("DATA_DIR", ""))
     p.add_argument("--exit-with-parent", action="store_true")
-    p.add_argument("--no-agents", action="store_true", help="do not start rooks-browser or write app.json (tests)")
+    p.add_argument("--no-agents", action="store_true", help="do not start rooks-browser, rooks-desk or write app.json (tests)")
     p.add_argument("--print-secret-backend", action="store_true", help="report where secrets would live and exit")
     args = p.parse_args(argv)
     if not args.data_dir:
@@ -253,6 +310,10 @@ def main(argv: list[str] | None = None) -> None:
         browser_url = start_rooks_browser(app_url, os.environ["BROWSER_API_KEY"], data_dir)
         if browser_url:
             os.environ["BROWSER_URL"] = browser_url
+        desk_url = start_rooks_desk(app_url, os.environ["BROWSER_API_KEY"], data_dir)
+        if desk_url:
+            os.environ["DESK_URL"] = desk_url
+            os.environ.setdefault("DESK_API_KEY", os.environ["BROWSER_API_KEY"])
         write_app_link(app_url, os.environ["BROWSER_API_KEY"])
 
     if not getattr(sys, "frozen", False):

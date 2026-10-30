@@ -1,7 +1,9 @@
 """Local HTTP API, standard library only. It speaks the same job API as the old browser-agent container
 (/api/providers, /api/jobs, /api/jobs/{id}, /screenshot, /cancel, DELETE), so Workbench's Browser page, its browse_web
 tool and browser_proxy.py work unchanged when BROWSER_URL points here, and adds what that container never had:
-approvals (GET/POST /api/jobs/{id}/approvals), receipts (GET /api/jobs/{id}/receipt) and one-off /api/read, /api/search.
+approvals (GET/POST /api/jobs/{id}/approvals), receipts (GET /api/jobs/{id}/receipt), one-off /api/read, /api/search, and
+recordings for Workbench's "Show me how" (POST /api/recordings, GET /api/recordings/{id}, POST /api/recordings/{id}/stop),
+and work sites for Workbench's Sites page (POST /api/site/login|close|page|submit|download, see sites.py).
 
   rooks-browser serve                      127.0.0.1:8765, no token needed from this computer
   rooks-browser serve --host 0.0.0.0       refuses to start without ROOKS_BROWSER_TOKEN (or BROWSER_API_KEY)
@@ -284,6 +286,20 @@ def make_handler(jobs: Jobs, token: str):
                             return self._send(200, jobs.get(jid)["approvals"])
                         if method == "POST":
                             return self._send(200, jobs.answer(jid, parts[4], bool(self._body().get("approve"))))
+                if parts[:2] == ["api", "recordings"]:  # Workbench "Show me how" (recorder.py)
+                    from .recorder import Recordings
+                    if not hasattr(jobs, "recordings"):
+                        jobs.recordings = Recordings(jobs.loop, headless=os.getenv("ROOKS_BROWSER_RECORD_HEADLESS") == "1", engine=jobs.engine)
+                    if len(parts) == 2 and method == "POST":
+                        return self._send(200, jobs.recordings.start(str(self._body().get("start_url") or "")))
+                    if len(parts) == 3 and method == "GET":
+                        return self._send(200, jobs.recordings.get(parts[2]))
+                    if parts[3:] == ["stop"] and method == "POST":
+                        return self._send(200, jobs.recordings.stop(parts[2]))
+                if parts[:2] == ["api", "site"] and len(parts) == 3 and method == "POST":  # Workbench Sites (sites.py)
+                    from .sites import handle
+                    code, out = handle(jobs, parts[2], self._body())
+                    return self._send(code, out)
                 if parts[:2] == ["api", "read"] and method == "POST":
                     from .cli import one_off_read
                     b = self._body()

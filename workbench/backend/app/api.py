@@ -60,6 +60,7 @@ def status(request: Request):
         "paperclip_url": config.PAPERCLIP_URL,
         "hermes_url": config.HERMES_URL,
         "browser_enabled": bool(config.BROWSER_URL and config.BROWSER_API_KEY),
+        "desk_enabled": bool(config.DESK_URL and config.DESK_API_KEY),
         "local_models_enabled": bool(config.OLLAMA_URL),
         "desktop": config.DESKTOP,
         "welcome_done": db.get_setting("desktop_welcome_done") == "1",
@@ -440,9 +441,9 @@ SUBSCRIPTIONS = [
      "detail": "OpenAI lets open-source apps use your ChatGPT plan through its official sign-in. Usage counts against your "
                "plan's limits, shared with your other apps.",
      "source": "https://developers.openai.com/siwc/token-sharing-open-source"},
-    {"id": "claude", "name": "Claude", "plans": "Pro, Max", "available": False,
-     "detail": "Not available. Anthropic's terms don't allow Claude Pro or Max sign-ins in other apps; accounts have been "
-               "cut off for it. Use a Claude API key instead.",
+    {"id": "claude", "name": "Claude", "plans": "Pro, Max, Team, Enterprise", "available": True, "via": "claude_code",
+     "detail": "Through Claude Code, Anthropic's own app. Install it and sign in with your plan there; this app hands coding "
+               "jobs to it and shows the work. Your sign-in never passes through this app.",
      "source": "https://code.claude.com/docs/en/legal-and-compliance"},
     {"id": "grok", "name": "Grok", "plans": "SuperGrok", "available": False,
      "detail": "Not available yet. xAI only offers SuperGrok sign-in to partner apps so far, with no public sign-up for "
@@ -627,7 +628,7 @@ def calendars():
 
 class CalendarIn(BaseModel):
     name: str = Field(..., min_length=1, max_length=80)
-    kind: Literal["ics", "caldav", "local"]
+    kind: Literal["ics", "caldav", "local", "google", "microsoft"]  # google/microsoft only come from Connect, edits only
     url: str = Field("", max_length=1000)
     username: str = Field("", max_length=200)
     password: str | None = Field(None, max_length=500)
@@ -637,6 +638,8 @@ class CalendarIn(BaseModel):
 
 @api.post("/calendars")
 async def add_calendar(data: CalendarIn):
+    if data.kind in ("google", "microsoft"):
+        raise HTTPException(400, "Use Connect Google or Connect Microsoft in Settings to add that calendar")
     if data.kind != "local" and not data.url.startswith(("http://", "https://", "webcal://")):
         raise HTTPException(400, "Calendar URL must start with https://, http:// or webcal://")
     cid = db.run(
@@ -665,6 +668,9 @@ def edit_calendar(cid: int, data: CalendarIn):
 
 @api.delete("/calendars/{cid}")
 def delete_calendar(cid: int):
+    c = db.one("SELECT kind FROM calendars WHERE id = ?", cid)
+    if c and c["kind"] in ("google", "microsoft"):
+        raise HTTPException(400, "This calendar comes from a connected account. Turn it off, or disconnect the account.")
     db.run("DELETE FROM calendars WHERE id = ?", cid)
     return {"ok": True}
 
@@ -714,6 +720,13 @@ def mail_accounts():
     return [{k: v for k, v in a.items() if k != "password_enc"} for a in db.all("SELECT * FROM mail_accounts ORDER BY id")]
 
 
+@api.get("/mail/autodetect")
+async def mail_autodetect(email: str):
+    from . import mail_autodetect as autodetect
+
+    return await asyncio.to_thread(autodetect.detect, email)
+
+
 class MailAccountIn(BaseModel):
     name: str = Field(..., min_length=1, max_length=120)
     email: str = Field(..., pattern=r"^[^@\s]+@[^@\s]+$")
@@ -729,7 +742,15 @@ class MailAccountIn(BaseModel):
 @api.post("/mail/accounts")
 async def add_mail_account(data: MailAccountIn):
     row = data.model_dump(exclude={"password"}) | {"password_enc": encrypt(data.password)}
-    await asyncio.to_thread(mail.test, row)
+    try:
+        await asyncio.to_thread(mail.test, row)
+    except HTTPException:
+        # iCloud accepts the bare name before the @ when the full address is refused; try that once before giving up
+        local = row["username"].split("@", 1)[0]
+        if "@" not in row["username"] or row["imap_host"] != "imap.mail.me.com":
+            raise
+        row["username"] = local
+        await asyncio.to_thread(mail.test, row)
     aid = db.run(
         "INSERT INTO mail_accounts(name, email, imap_host, imap_port, smtp_host, smtp_port, smtp_security, username, password_enc) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -741,6 +762,9 @@ async def add_mail_account(data: MailAccountIn):
 
 @api.delete("/mail/accounts/{aid}")
 def delete_mail_account(aid: int):
+    a = db.one("SELECT kind FROM mail_accounts WHERE id = ?", aid)
+    if a and a["kind"] in ("google", "microsoft"):
+        raise HTTPException(400, "This inbox comes from a connected account. Disconnect it in Settings under Connect your mail & calendar.")
     db.run("DELETE FROM mail_accounts WHERE id = ?", aid)
     return {"ok": True}
 
@@ -750,7 +774,7 @@ async def mail_list(aid: int, folder: str = "INBOX", q: str = ""):
     return await asyncio.to_thread(mail.list_messages, _account(aid), folder, 50, q)
 
 
-@api.get("/mail/{aid}/messages/{uid}")
+@api.get("/mail/{aid}/messages/{uid:path}")
 async def mail_get(aid: int, uid: str, folder: str = "INBOX"):
     return await asyncio.to_thread(mail.get_message, _account(aid), uid, folder)
 

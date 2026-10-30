@@ -1,6 +1,6 @@
 import {
   Activity, Gauge, Bot, Brain, Building2, CalendarClock, CalendarDays, ChevronRight, MessageSquare, CheckSquare, Globe, Columns3, ExternalLink, FileText, Home, LogOut, Mail, Menu, NotebookPen,
-  ListTree, Palette as PaletteIcon, Puzzle, Search, Settings as SettingsIcon,
+  Code2, FolderOpen, Globe2, GraduationCap, ListTree, Monitor, Palette as PaletteIcon, Puzzle, Search, Settings as SettingsIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CommandPalette } from "./Palette";
@@ -12,10 +12,14 @@ import Appearance from "./pages/Appearance";
 import Automations from "./pages/Automations";
 import Company from "./pages/Company";
 import Browser from "./pages/Browser";
+import Code from "./pages/Code";
+import Computer from "./pages/Computer";
 import CalendarPage from "./pages/Calendar";
 import Compare from "./pages/Compare";
 import Dashboard from "./pages/Dashboard";
 import Docs from "./pages/Docs";
+import FilesPage from "./pages/Files";
+import SitesPage from "./pages/Sites";
 import MailPage from "./pages/Mail";
 import Research from "./pages/Research";
 import Runs from "./pages/Runs";
@@ -25,6 +29,8 @@ import Skills from "./pages/Skills";
 import Tasks from "./pages/Tasks";
 import Welcome from "./pages/Welcome";
 import Models from "./pages/Models";
+import AboutYou from "./pages/AboutYou"; // adapt and learn (feat/learn-and-adapt)
+import Teach from "./pages/Teach"; // adapt and learn (feat/learn-and-adapt)
 
 export type Status = {
   setup_complete: boolean;
@@ -35,6 +41,8 @@ export type Status = {
   paperclip_url: string;
   hermes_url: string;
   browser_enabled: boolean;
+  /** Rooks Desk (computer use) is running on this machine. */
+  desk_enabled?: boolean;
   local_models_enabled: boolean;
   /** Running inside the native desktop app (desktop/), which signs the window in itself. */
   desktop?: boolean;
@@ -42,10 +50,10 @@ export type Status = {
   needs_models?: boolean;
 };
 
-type NavItem = { to: string; label: string; icon: typeof Home; addon?: "browser" };
+type NavItem = { to: string; label: string; icon: typeof Home; addon?: "browser" | "desk" };
 type NavGroup = { section?: string; collapsible?: boolean; items: NavItem[] };
 
-/** Six everyday places first, the agent tools second, everything else folded under More. */
+/** Six everyday places first, then the person's own work, then the helpers that act for them; the rest folded under More. */
 const NAV: NavGroup[] = [
   { items: [
     { to: "/", label: "Home", icon: Home },
@@ -55,15 +63,22 @@ const NAV: NavGroup[] = [
     { to: "/calendar", label: "Calendar", icon: CalendarDays },
     { to: "/mail", label: "Mail", icon: Mail },
   ] },
-  { section: "Agents", items: [
+  { section: "Your work", items: [
+    { to: "/files", label: "Files", icon: FolderOpen },
+    { to: "/sites", label: "Sites", icon: Globe2 },
+    { to: "/teach", label: "Show me how", icon: GraduationCap },
     { to: "/automations", label: "Automations", icon: CalendarClock },
-    { to: "/skills", label: "Skills", icon: Puzzle },
+  ] },
+  { section: "Helpers", items: [
     { to: "/research", label: "Research", icon: Search },
+    { to: "/code", label: "Coding agent", icon: Code2 },
     { to: "/browser", label: "Browser agent", icon: Globe, addon: "browser" },
+    { to: "/computer", label: "Computer", icon: Monitor, addon: "desk" },
   ] },
   { section: "More", collapsible: true, items: [
     { to: "/documents", label: "Documents", icon: FileText },
-    { to: "/assistant-memory", label: "Memory", icon: Brain },
+    { to: "/about-you", label: "What I know", icon: Brain },
+    { to: "/skills", label: "Skills", icon: Puzzle },
     { to: "/company", label: "Company", icon: Building2 },
     { to: "/compare", label: "Compare models", icon: Columns3 },
     { to: "/runs", label: "Run log", icon: ListTree },
@@ -115,8 +130,8 @@ export default function App() {
   }, []);
   const [moreOpen, setMoreOpen] = useState(() => localStorage.getItem("wb-nav-more") === "1");
   const nav = useMemo(
-    () => NAV.map((g) => ({ ...g, items: g.items.filter((i) => !i.addon || (i.addon === "browser" && status?.browser_enabled)) })),
-    [status?.browser_enabled],
+    () => NAV.map((g) => ({ ...g, items: g.items.filter((i) => !i.addon || (i.addon === "browser" && status?.browser_enabled) || (i.addon === "desk" && status?.desk_enabled)) })),
+    [status?.browser_enabled, status?.desk_enabled],
   );
   const palettePages = useMemo(
     () => [...nav.flatMap((g) => g.items.map((i) => ({ to: i.to, label: i.label, icon: i.icon }))),
@@ -124,7 +139,7 @@ export default function App() {
     [nav],
   );
   // Keep More open while you're on one of its pages
-  const inMore = NAV[2].items.some((i) => location.pathname === i.to || location.pathname.startsWith(i.to + "/"));
+  const inMore = (NAV.find((g) => g.collapsible)?.items ?? []).some((i) => location.pathname === i.to || location.pathname.startsWith(i.to + "/"));
   const toggleMore = () => setMoreOpen((o) => { localStorage.setItem("wb-nav-more", o ? "0" : "1"); return !o; });
   // Route transition key: top-level section only, so switching conversations or notes doesn't remount the page
   const section = "/" + (location.pathname.split("/")[1] ?? "");
@@ -203,15 +218,24 @@ export default function App() {
           <Route path="/assistant-memory" element={<Assistant tab="memory" />} />
           <Route path="/assistant-skills" element={<Navigate to="/skills" replace />} />
           <Route path="/skills" element={<Skills />} />
+          <Route path="/about-you" element={<AboutYou />} />
+          <Route path="/teach" element={<Teach />} />
+          <Route path="/teach/:id" element={<Teach />} />
           <Route path="/appearance" element={<Appearance />} />
           <Route path="/models" element={<Models />} />
           <Route path="/assistant-settings" element={<Assistant tab="settings" />} />
           <Route path="/automations" element={<Automations />} />
           <Route path="/company" element={<Company />} />
           <Route path="/research" element={<Research />} />
+          <Route path="/files" element={<FilesPage />} />
+          <Route path="/sites" element={<SitesPage />} />
           <Route path="/research/:id" element={<Research />} />
+          <Route path="/code" element={<Code />} />
+          <Route path="/code/:id" element={<Code />} />
           <Route path="/browser" element={<Browser />} />
           <Route path="/browser/:id" element={<Browser />} />
+          <Route path="/computer" element={<Computer />} />
+          <Route path="/computer/:id" element={<Computer />} />
           <Route path="/compare" element={<Compare />} />
           <Route path="/runs" element={<Runs />} />
           <Route path="/runs/:id" element={<Runs />} />

@@ -97,6 +97,8 @@ export async function claim(base: string, code: string, name: string, platform: 
   return j as { device_token: string; device_id: number; workspace_name: string };
 }
 
+export type DesktopAppearance = { theme: string; resolved: string; dark: boolean; font: string; size: number; motion: string; accent: string };
+
 export class Client {
   constructor(public base: string, private token: string, private f: FetchLike = defaultFetch) {}
 
@@ -130,6 +132,8 @@ export class Client {
   }
 
   me = () => this.req<Me>('GET', '/me');
+  /** The look chosen on the computer (theme, typeface, text size), for "Same as computer". */
+  appearance = () => this.req<DesktopAppearance>('GET', '/appearance');
   home = () => this.req<Home>('GET', '/home');
   approvals = () => this.req<Approval[]>('GET', '/approvals');
   decide = (id: number, approve: boolean) => this.req<Approval>('POST', `/approvals/${id}`, { approve });

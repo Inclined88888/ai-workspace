@@ -1,6 +1,6 @@
-import { ArrowLeft, ArrowUp, BookOpen, Brain, Check, Copy, KeyRound, Loader2, MessageSquare, Plus, Search, ShieldAlert, Trash2, Wrench, X } from "lucide-react";
+import { ArrowLeft, ArrowUp, BookOpen, Brain, Check, Copy, KeyRound, Loader2, MessageSquare, Pencil, Plus, Search, ShieldAlert, ThumbsDown, ThumbsUp, Trash2, Wrench, X } from "lucide-react";
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, stream } from "../api";
 import { Tracer } from "../Tracer";
 import { Empty, Markdown, ModelSelect, relTime, RouterInfo, RouterVia, SkeletonList, StreamingMarkdown, useModels, useToast } from "../util";
@@ -24,7 +24,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [steps, setSteps] = useState<Step[]>([]);
   const [approvals, setApprovals] = useState<Approval[]>([]);
-  const [text, setText] = useState("");
+  const [text, setText] = useState(((useLocation().state as { draft?: string } | null)?.draft) ?? ""); // pre-filled from Files / Sites
   const [busy, setBusy] = useState(false);
   const [model, setModel] = useState("");
   const { models } = useModels();
@@ -168,6 +168,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
                       ? <StreamingMarkdown text={m.content} onDone={() => setFreshId(null)} />
                       : <Markdown text={m.content} />)}
                     {m.via && <RouterVia r={m.via} />}
+                    {m.content && m.id !== freshId && <MessageFeedback msg={m} />}
                   </div>
                 </div>)}
             {steps.length > 0 && (
@@ -398,6 +399,58 @@ export default function Assistant({ tab }: { tab: "chat" | "memory" | "skills" |
       {tab === "memory" && <MemoryTab />}
       {tab === "skills" && <SkillsTab />}
       {tab === "settings" && <SettingsTab />}
+    </div>
+  );
+}
+
+
+/** Thumbs and "Fix this" under each reply: both go to /api/learn/feedback, so the next answer follows the lesson. */
+function MessageFeedback({ msg }: { msg: Msg }) {
+  const [rating, setRating] = useState(0);
+  const [mode, setMode] = useState<"" | "why" | "edit">("");
+  const [comment, setComment] = useState("");
+  const [edited, setEdited] = useState(msg.content);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const toast = useToast();
+  const send = async (body: { rating?: number; comment?: string; edited?: string }) => {
+    setBusy(true);
+    try {
+      const r = await api<{ note: string }>("/learn/feedback", {
+        body: { target_kind: "message", target_id: String(msg.id), original: body.edited !== undefined ? msg.content : "", ...body },
+      });
+      setNote(r.note || "Thanks, noted.");
+      setMode("");
+    } catch (e) { toast.err(e); } finally { setBusy(false); }
+  };
+  const thumb = (r: number) => {
+    setRating(r);
+    if (r > 0) send({ rating: 1 }); else setMode("why");
+  };
+  return (
+    <div className="msg-feedback">
+      {toast.node}
+      <div className="row" style={{ gap: 4 }}>
+        <button className={`btn ghost sm icon${rating > 0 ? " on" : ""}`} aria-pressed={rating > 0} aria-label="Good answer" title="Good answer" disabled={busy} onClick={() => thumb(1)}><ThumbsUp size={13} /></button>
+        <button className={`btn ghost sm icon${rating < 0 ? " on" : ""}`} aria-pressed={rating < 0} aria-label="Not right" title="Not right" disabled={busy} onClick={() => thumb(-1)}><ThumbsDown size={13} /></button>
+        <button className="btn ghost sm" title="Change the answer the way you wanted it; I learn from the difference" disabled={busy} onClick={() => setMode(mode === "edit" ? "" : "edit")}><Pencil size={13} /> Fix this</button>
+        {note && <span className="muted small" role="status">{note}</span>}
+      </div>
+      {mode === "why" && (
+        <div className="row" style={{ gap: 6, marginTop: 6 }}>
+          <input className="input grow" value={comment} onChange={(e) => setComment(e.target.value)} placeholder="What should I do differently? (optional)" aria-label="What should I do differently?" />
+          <button className="btn sm primary" disabled={busy} onClick={() => send({ rating: -1, comment })}>Send</button>
+        </div>
+      )}
+      {mode === "edit" && (
+        <div className="col" style={{ gap: 6, marginTop: 6 }}>
+          <textarea className="input" rows={6} value={edited} onChange={(e) => setEdited(e.target.value)} aria-label="Your version" />
+          <div className="row" style={{ gap: 6 }}>
+            <button className="btn sm primary" disabled={busy || edited.trim() === msg.content.trim()} onClick={() => send({ rating, edited })}>Save my version</button>
+            <button className="btn sm ghost" onClick={() => setMode("")}>Cancel</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

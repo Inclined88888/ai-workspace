@@ -1,4 +1,8 @@
-"""IMAP read and SMTP send. Works with any standard provider (Fastmail, iCloud, Gmail/Outlook app passwords, self hosted)."""
+"""IMAP read and SMTP send. Works with any standard provider (Fastmail, iCloud, Yahoo, Gmail app passwords, self hosted).
+
+Accounts connected with "Connect Google" or "Connect Microsoft" (kind google | microsoft) go through cloud_mail.py
+instead, which speaks the Gmail API and Microsoft Graph and returns the same shapes.
+"""
 
 import email
 import imaplib
@@ -64,7 +68,17 @@ def _body_text(msg: email.message.Message) -> str:
     return text
 
 
+def _cloud(acct: dict):
+    if acct.get("kind") in ("google", "microsoft"):
+        from . import cloud_mail
+
+        return cloud_mail
+    return None
+
+
 def list_messages(acct: dict, folder: str = "INBOX", limit: int = 40, query: str = "") -> list[dict]:
+    if cloud := _cloud(acct):
+        return cloud.list_messages(acct, folder, limit, query)
     m = _imap(acct)
     try:
         status, _ = m.select(f'"{folder}"', readonly=True)
@@ -108,6 +122,8 @@ def list_messages(acct: dict, folder: str = "INBOX", limit: int = 40, query: str
 
 
 def get_message(acct: dict, uid: str, folder: str = "INBOX") -> dict:
+    if cloud := _cloud(acct):
+        return cloud.get_message(acct, uid)
     if not uid.isdigit():
         raise HTTPException(400, "Invalid message id")
     m = _imap(acct)
@@ -135,16 +151,25 @@ def get_message(acct: dict, uid: str, folder: str = "INBOX") -> dict:
             pass
 
 
-def send(acct: dict, to: str, subject: str, body: str, in_reply_to: str = "") -> str:
+def send(acct: dict, to: str, subject: str, body: str, in_reply_to: str = "", *, cc: str = "",
+         attachments: list[tuple[str, str, bytes]] | None = None) -> str:
+    """Send one message. attachments: (filename, content type, bytes)."""
+    if cloud := _cloud(acct):
+        return cloud.send(acct, to, subject, body, in_reply_to, cc=cc, attachments=attachments)
     msg = EmailMessage()
     msg["From"] = f'{acct["name"]} <{acct["email"]}>'
     msg["To"] = to
+    if cc:
+        msg["Cc"] = cc
     msg["Subject"] = subject
     msg["Message-ID"] = make_msgid(domain=acct["email"].split("@")[-1])
     if in_reply_to:
         msg["In-Reply-To"] = in_reply_to
         msg["References"] = in_reply_to
     msg.set_content(body)
+    for filename, ctype, data in attachments or []:
+        main, _, sub = (ctype or "application/octet-stream").partition("/")
+        msg.add_attachment(data, maintype=main or "application", subtype=sub or "octet-stream", filename=filename)
     password = decrypt(acct["password_enc"])
     try:
         with egress.track("SEND", f"smtp://{acct['smtp_host']}:{acct['smtp_port']}"):
@@ -163,5 +188,7 @@ def send(acct: dict, to: str, subject: str, body: str, in_reply_to: str = "") ->
 
 
 def test(acct: dict) -> None:
+    if cloud := _cloud(acct):
+        return cloud.test(acct)
     m = _imap(acct)
     m.logout()
