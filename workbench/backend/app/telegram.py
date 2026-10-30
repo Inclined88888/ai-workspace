@@ -84,6 +84,10 @@ async def _handle(client: httpx.AsyncClient, msg: dict, update_id: int | None = 
     chat_id, user_id = msg["chat"]["id"], (msg.get("from") or {}).get("id")
     text = (msg.get("text") or "").strip()
     if user_id not in allowed():
+        from .team import replies  # feat/team-lead: a team member answering a task message
+
+        if replies.from_telegram(msg):
+            return
         await send(client, chat_id, f"This assistant is private. Your Telegram user id is {user_id}.")
         return
     if not text:
