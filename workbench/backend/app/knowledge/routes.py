@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from ..security import require_user
-from . import crypto, export_all, graph, live, memory, schema
+from . import crypto, export_all, graph, improve, live, memory, schema
 from .recall import recall as _recall_fn, search_all
 
 router = APIRouter(prefix="/api/knowledge", dependencies=[Depends(require_user)])
@@ -163,3 +163,28 @@ def ok(fid: int):
 @router.post("/sync")
 def sync():
     return live.sync_once()
+
+
+class ToggleIn(BaseModel):
+    enabled: bool
+
+
+@router.get("/improvements")
+def improvements():
+    return improve.latest()
+
+
+@router.put("/improvements/settings")
+def improvements_toggle(body: ToggleIn):
+    improve.set_enabled(body.enabled)
+    return improve.latest()
+
+
+@router.post("/improvements/run")
+def improvements_run():
+    return improve.run_once(force=True)
+
+
+@router.post("/improvements/{pid}/{choice}")
+def improvements_decide(pid: int, choice: str):
+    return improve.decide(pid, choice == "approve")

@@ -44,6 +44,11 @@ async def lifespan(_: FastAPI):
     kn = asyncio.create_task(knowledge_live.loop())  # feat/memory-core
     health.LOOPS["Memory index"] = kn  # feat/memory-core
     loops.append(kn)  # feat/memory-core
+    from .knowledge import improve as knowledge_improve  # feat/memory-core: nightly self-improvement, only when idle
+
+    ki = asyncio.create_task(knowledge_improve.loop())  # feat/memory-core
+    health.LOOPS["Nightly improvement"] = ki  # feat/memory-core
+    loops.append(ki)  # feat/memory-core
     async with mcp.session_manager.run():
         yield
     mobile.lan_stop()

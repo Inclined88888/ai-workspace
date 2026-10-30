@@ -426,6 +426,10 @@ HOLD_REASON = "This conversation contains untrusted web or email content."
 def hold_reason(t: Tool, ctx: Ctx, args: dict) -> str:
     if t.always_ask:
         return ALWAYS_ASK_REASON
+    from .knowledge import improve as kn_improve  # feat/memory-core: "ask before" rules you approved (only ever stricter)
+
+    if kn_improve.hold_reason(t.name):
+        return kn_improve.hold_reason(t.name)
     if t.confirm:
         try:
             why = t.confirm(args)

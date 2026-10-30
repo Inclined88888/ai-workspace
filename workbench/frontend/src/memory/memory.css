@@ -35,3 +35,5 @@
   border: 1px solid var(--border); border-radius: var(--radius-sm); box-shadow: var(--shadow-3); padding: 4px; }
 .kn-menu button { background: none; border: 0; text-align: left; padding: 7px 10px; border-radius: var(--radius-xs); font: inherit; color: var(--text); cursor: pointer; }
 .kn-menu button:hover { background: var(--panel-2); }
+.kn-improved { border-left: 3px solid var(--accent); }
+.kn-proposal { display: flex; gap: 10px; align-items: center; margin-top: 12px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--accent-soft); }
