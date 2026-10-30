@@ -1,6 +1,6 @@
 import {
   Activity, Bot, Brain, Building2, CalendarClock, CalendarDays, MessageSquare, CheckSquare, Globe, Columns3, ExternalLink, FileText, Home, LogOut, Mail, Menu, NotebookPen,
-  ListTree, Search, Settings as SettingsIcon, Sparkles,
+  ListTree, Search, Settings as SettingsIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CommandPalette } from "./Palette";
@@ -63,7 +63,7 @@ const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigat
 export const MOD_KEY = isMac ? "⌘" : "Ctrl";
 
 function Boot() {
-  return <div className="boot" role="status" aria-label="Loading"><div className="brand-mark lg"><Sparkles size={22} /></div></div>;
+  return <div className="boot" role="status" aria-label="Loading"><div className="wordmark lg">AI Workspace</div></div>;
 }
 
 export default function App() {
@@ -133,15 +133,14 @@ export default function App() {
     <div className="shell">
       <aside className={`sidebar ${menuOpen ? "open" : ""}`}>
         <div className="brand">
-          <div className="brand-mark" aria-hidden="true"><Sparkles size={14} /></div>
-          <span className="truncate">{status.workspace_name}</span>
+          <span className="wordmark truncate">{status.workspace_name}</span>
         </div>
         <button type="button" className="sidebar-search" onClick={() => setPaletteOpen(true)} aria-keyshortcuts="Meta+K Control+K">
-          <Search size={14} /> <span>Search or jump to…</span> <span className="kbd">{MOD_KEY} K</span>
+          <Search size={14} /> <span>Search</span> <span className="kbd">{MOD_KEY} K</span>
         </button>
         {status.chat_url && (
           <a className="nav-link" href={status.chat_url} target="_blank" rel="noreferrer">
-            <Sparkles size={16} /> Open WebUI <ExternalLink size={12} style={{ marginLeft: "auto" }} />
+            <MessageSquare size={16} /> Open WebUI <ExternalLink size={12} style={{ marginLeft: "auto" }} />
           </a>
         )}
         {status.paperclip_url && (

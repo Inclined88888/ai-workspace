@@ -1,4 +1,4 @@
-import { Check, CheckSquare, Flag, Loader2, Plus, Sparkles, Trash2 } from "lucide-react";
+import { Check, CheckSquare, Flag, Loader2, ListTree, Plus, Trash2 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { api, Task } from "../api";
 import { Empty, ModelSelect, SkeletonList, todayISO, useModels, useToast } from "../util";
@@ -138,7 +138,7 @@ export default function Tasks() {
       </form>
 
       <div className="card row wrap" style={{ marginBottom: 20 }}>
-        <Sparkles size={16} className="prio-1" />
+        <ListTree size={16} className="prio-1" />
         <input className="input grow" style={{ minWidth: 200 }} value={goal} onChange={(e) => setGoal(e.target.value)} placeholder="Break a goal into tasks, e.g. 'Plan a team offsite in March'" />
         <div style={{ width: 180 }}><ModelSelect value={model} onChange={setModel} models={models} /></div>
         <button className="btn" disabled={goal.trim().length < 3 || busy} onClick={breakdown}>{busy ? <Loader2 size={15} className="spin" /> : "Break down"}</button>

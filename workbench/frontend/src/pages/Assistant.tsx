@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowUp, Brain, Check, Copy, KeyRound, Loader2, MessageSquare, Plus, Search, ShieldAlert, Sparkles, Trash2, Wrench, X } from "lucide-react";
+import { ArrowLeft, ArrowUp, BookOpen, Brain, Check, Copy, KeyRound, Loader2, MessageSquare, Plus, Search, ShieldAlert, Trash2, Wrench, X } from "lucide-react";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, stream } from "../api";
@@ -131,14 +131,14 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
       <div className="split-main">
         <div className="toolbar">
           <button className="btn ghost sm mobile-only" onClick={() => navigate("/assistant")} aria-label="Back to chats"><ArrowLeft size={14} /></button>
-          <div className="truncate" style={{ fontWeight: 550 }}>{convs?.find((c) => c.id === cid)?.title ?? "New chat"}</div>
+          <div className="toolbar-title truncate">{convs?.find((c) => c.id === cid)?.title ?? "New chat"}</div>
           <div className="spacer" />
           {tabs}
         </div>
         <div className="chat-scroll" aria-live="polite">
           <div className="chat-thread">
             {visible.length === 0 && !busy && (
-              <Empty hero icon={<Sparkles size={24} />} title="What can I do for you?"
+              <Empty hero title="What can I do for you?"
                 hint="I remember what matters across conversations, use your notes, tasks, calendar and mail, search the web, and can schedule things like a daily report.">
                 <div className="chat-suggestions">
                   {suggestions.map((sg) => (
@@ -152,8 +152,8 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
             {visible.map((m) => m.role === "user"
               ? <div key={m.id} className="msg user"><div className="bubble-user">{m.content}</div></div>
               : <div key={m.id} className="msg">
-                  <div className="msg-avatar" aria-hidden="true"><Sparkles size={14} /></div>
                   <div className="msg-body">
+                    <div className="msg-byline" aria-hidden="true">Workspace</div>
                     {m.tool_calls.length > 0 && <div className="msg-tools"><Wrench size={11} /> {m.tool_calls.join(", ")}</div>}
                     {m.content && (m.id === freshId
                       ? <StreamingMarkdown text={m.content} onDone={() => setFreshId(null)} />
@@ -184,7 +184,6 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
             ))}
             {busy && (
               <div className="msg" role="status" aria-label="Assistant is working">
-                <div className="msg-avatar" aria-hidden="true"><Sparkles size={14} /></div>
                 <div className="typing"><span /><span /><span /><span className="typing-label">{steps.length ? "Working…" : "Thinking…"}</span></div>
               </div>
             )}
@@ -280,7 +279,7 @@ function SkillsTab() {
           <div className="row"><button className="btn primary" onClick={save}>Save</button><button className="btn ghost" onClick={() => setDraft(null)}>Cancel</button></div>
         </div>
       )}
-      {items.length === 0 && !draft && <Empty icon={<Sparkles size={24} />} title="No skills yet" hint="Ask for something multi step, like 'plan my week from my calendar and tasks'." />}
+      {items.length === 0 && !draft && <Empty icon={<BookOpen size={24} />} title="No skills yet" hint="Ask for something multi step, like 'plan my week from my calendar and tasks'." />}
       <div className="card flush">
         {items.map((s) => (
           <div key={s.id} className="col" style={{ padding: "10px 14px", borderBottom: "1px solid var(--border)" }}>

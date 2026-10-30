@@ -1,4 +1,4 @@
-import { ArrowLeft, Eye, FileText, Loader2, NotebookPen, Pencil, Pin, Plus, Search, Sparkles, Trash2, Wand2, X } from "lucide-react";
+import { ArrowLeft, Eye, FileText, Loader2, NotebookPen, Pencil, Pin, Plus, PenLine, Search, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, Doc, stream } from "../api";
@@ -97,7 +97,7 @@ function Editor({ doc, onSaved, onDeleted }: { doc: Doc; onSaved: (d: Doc) => vo
         </div>
         <div style={{ width: 180 }}><ModelSelect value={model} onChange={setModel} models={models} /></div>
         <select className="input" style={{ width: 170 }} value="" onChange={(e) => e.target.value && runAssist(e.target.value)}>
-          <option value="">✨ AI assist…</option>
+          <option value="">Assist…</option>
           {ACTIONS.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
         </select>
         <div className="spacer" />
@@ -109,14 +109,14 @@ function Editor({ doc, onSaved, onDeleted }: { doc: Doc; onSaved: (d: Doc) => vo
         <input className="editor-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Untitled" />
         <input className="input" style={{ border: "none", padding: 0, height: 24, background: "transparent", color: "var(--muted)" }} value={tags} onChange={(e) => setTags(e.target.value)} placeholder="Add tags, comma separated" />
         <div className="row">
-          <input className="input grow" value={instruction} onChange={(e) => setInstruction(e.target.value)} placeholder="Ask AI to change this (e.g. 'make it more formal', 'add a conclusion')…"
+          <input className="input grow" value={instruction} onChange={(e) => setInstruction(e.target.value)} placeholder="Describe an edit, e.g. 'make it more formal' or 'add a conclusion'"
             onKeyDown={(e) => { if (e.key === "Enter" && instruction.trim()) runAssist("custom"); }} />
-          <button className="btn" disabled={!instruction.trim()} onClick={() => runAssist("custom")}><Wand2 size={15} /> Apply</button>
+          <button className="btn" disabled={!instruction.trim()} onClick={() => runAssist("custom")}><PenLine size={15} /> Apply</button>
         </div>
         {assist && (
           <div className="card col" style={{ borderColor: "var(--accent)" }}>
             <div className="row">
-              <Sparkles size={15} className="prio-1" />
+              <PenLine size={15} className="prio-1" />
               <strong>{ACTIONS.find((a) => a.id === assist.action)?.label ?? "Custom edit"}</strong>
               {assist.busy && <Loader2 size={14} className="spin" />}
               <div className="spacer" />

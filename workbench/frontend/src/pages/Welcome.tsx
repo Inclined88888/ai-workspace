@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, Check, Cpu, Download, ExternalLink, KeyRound, Loader2, ListChecks, ShieldCheck, Sparkles } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Cpu, Download, ExternalLink, KeyRound, Loader2, ListChecks, ShieldCheck } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { api, stream } from "../api";
 
@@ -193,8 +193,9 @@ export default function Welcome({ onDone }: { onDone: () => void }) {
         {step === "choose" && (
           <div className="col gap-lg">
             <div className="welcome-hero">
-              <div className="brand-mark lg" aria-hidden="true"><Sparkles size={22} /></div>
-              <h1>Welcome to AI Workspace</h1>
+              <div className="kicker">First run · 1 of 2</div>
+              <div className="wordmark xl">AI Workspace</div>
+              <h1 className="sr-only">Welcome to AI Workspace</h1>
               <p className="muted">Connect a model to get started. Everything else (notes, tasks, research, the run log) works on this computer.</p>
             </div>
             <div className="col" style={{ gap: 10 }}>

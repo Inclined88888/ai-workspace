@@ -173,10 +173,10 @@ export function useToast() {
   };
 }
 
-export function Empty({ icon, title, hint, hero = false, children }: { icon: React.ReactNode; title: string; hint?: string; hero?: boolean; children?: React.ReactNode }) {
+export function Empty({ icon, title, hint, hero = false, children }: { icon?: React.ReactNode; title: string; hint?: string; hero?: boolean; children?: React.ReactNode }) {
   return (
     <div className={`empty ${hero ? "hero" : ""}`}>
-      <div className="empty-icon" aria-hidden="true">{icon}</div>
+      {icon && <div className="empty-icon" aria-hidden="true">{icon}</div>}
       <div className="empty-title">{title}</div>
       {hint && <div className="muted">{hint}</div>}
       {children}

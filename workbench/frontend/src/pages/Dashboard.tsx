@@ -1,4 +1,4 @@
-import { ArrowRight, CalendarDays, CheckSquare, FileText, NotebookPen, Plus, Search, Sparkles } from "lucide-react";
+import { ArrowRight, CalendarDays, CheckSquare, FileText, NotebookPen, Plus, Search } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, CalEvent, Doc, Task } from "../api";
@@ -69,11 +69,11 @@ export default function Dashboard(_: { chatUrl?: string }) {
     <div className="page">
       <div className="page-head">
         <div>
+          <p className="kicker">{new Date().toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })}</p>
           <h1>{greeting()}</h1>
-          <p className="muted">{new Date().toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })}</p>
         </div>
         <div className="spacer" />
-        <Link className="btn primary" to="/assistant"><Sparkles size={16} /> Ask your assistant</Link>
+        <Link className="btn primary" to="/assistant">Ask your assistant <ArrowRight size={14} /></Link>
       </div>
 
       <form className="card col" onSubmit={submit} style={{ marginBottom: 16 }}>
@@ -99,9 +99,9 @@ export default function Dashboard(_: { chatUrl?: string }) {
       </form>
 
       <div className="grid three stats" style={{ marginBottom: 16 }}>
-        <div className="card stat"><span className="muted small">Open tasks</span><span className="num">{data ? data.open_tasks : <Skeleton w={36} h={28} />}</span></div>
-        <div className="card stat"><span className="muted small">Overdue</span><span className="num" style={{ color: data?.overdue ? "var(--danger-text)" : undefined }}>{data ? data.overdue : <Skeleton w={36} h={28} />}</span></div>
-        <div className="card stat"><span className="muted small">Events this week</span><span className="num">{data ? data.events.length : <Skeleton w={36} h={28} />}</span></div>
+        <div className="card stat"><span className="muted small">Open tasks</span><span className="num">{data ? data.open_tasks : <Skeleton w={48} h={44} />}</span></div>
+        <div className="card stat"><span className="muted small">Overdue</span><span className="num" style={{ color: data?.overdue ? "var(--danger-text)" : undefined }}>{data ? data.overdue : <Skeleton w={48} h={44} />}</span></div>
+        <div className="card stat"><span className="muted small">Events this week</span><span className="num">{data ? data.events.length : <Skeleton w={48} h={44} />}</span></div>
       </div>
 
       <div className="grid two">

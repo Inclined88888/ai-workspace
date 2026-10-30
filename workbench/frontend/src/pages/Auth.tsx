@@ -1,4 +1,4 @@
-import { ArrowRight, Check, Cpu, Download, KeyRound, Loader2, Lock, Sparkles } from "lucide-react";
+import { ArrowRight, Check, Cpu, Download, KeyRound, Loader2, Lock } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { api, stream } from "../api";
 import type { Status } from "../App";
@@ -30,7 +30,7 @@ function Login({ onDone }: { onDone: () => void }) {
   return (
     <form className="col gap-lg" onSubmit={submit}>
       <div className="auth-brand">
-        <div className="brand-mark lg" aria-hidden="true"><Sparkles size={22} /></div>
+        <div className="wordmark lg" aria-hidden="true">AI Workspace</div>
         <div>
           <h1>Welcome back</h1>
           <p className="muted">Sign in to your workspace.</p>
@@ -180,7 +180,7 @@ export default function Auth({ status, onDone }: { status: Status; onDone: () =>
         {step === 0 && (
           <form className="col gap-lg" onSubmit={createAccount}>
             <div className="auth-brand">
-              <div className="brand-mark lg" aria-hidden="true"><Sparkles size={22} /></div>
+              <div className="wordmark lg" aria-hidden="true">AI Workspace</div>
               <div>
                 <h1>Set up your workspace</h1>
                 <p className="muted">Create the password that protects Workbench. This is a single owner app.</p>
