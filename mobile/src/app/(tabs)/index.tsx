@@ -12,6 +12,7 @@ import { ApprovalCard } from '@/components/ApprovalCard';
 import { RunRow } from '@/components/RunRow';
 import { ConnectionMark, OfflineNotice } from '@/components/Connection';
 import { FadeIn, Label, Notice, Pulse, Rule, Screen, Section, T } from '@/components/ui';
+import { HomeLinks } from '@/components/V02'; // feat/v02-core
 
 export default function Today() {
   const { colors: c, pairing } = useSession();
@@ -58,6 +59,7 @@ export default function Today() {
               <T style={{ color: c.muted, fontSize: 16 }}>Ask your computer…</T>
               <Text style={{ fontFamily: fonts.display, fontSize: 20, color: c.accent }}>→</Text>
             </Pressable>
+            <HomeLinks />{/* feat/v02-core: Projects and History */}
           </FadeIn>
         </View>
         <OfflineNotice />
@@ -79,6 +81,16 @@ export default function Today() {
 
           <FadeIn delay={140}>
             <Section title="On the desk" action="All runs" onAction={() => router.navigate('/runs')} />
+            {/* feat/v02-automations: background jobs board and the Share box */}
+            <Pressable onPress={() => router.push('/jobs')} accessibilityRole="button" accessibilityLabel="Open the jobs board"
+              style={{ paddingVertical: space[3], borderBottomWidth: hairline, borderBottomColor: c.border, flexDirection: 'row', justifyContent: 'space-between' }}>
+              <T>Jobs board and Share</T><T style={{ color: c.muted }}>›</T>
+            </Pressable>
+            {/* feat/grok-style: teammates, drafts to send, handoff, files, linked computers */}
+            <Pressable onPress={() => router.push('/teammates')} accessibilityRole="button" accessibilityLabel="Open teammates"
+              style={{ paddingVertical: space[3], borderBottomWidth: hairline, borderBottomColor: c.border, flexDirection: 'row', justifyContent: 'space-between' }}>
+              <T>Teammates, drafts and files</T><T style={{ color: c.muted }}>›</T>
+            </Pressable>
             {h?.running ? (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: space[3], borderBottomWidth: hairline, borderBottomColor: c.border }}>
                 <Pulse color={c.accent} />

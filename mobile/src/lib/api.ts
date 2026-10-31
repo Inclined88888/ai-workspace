@@ -97,6 +97,8 @@ export async function claim(base: string, code: string, name: string, platform: 
   return j as { device_token: string; device_id: number; workspace_name: string };
 }
 
+export type DesktopAppearance = { theme: string; resolved: string; dark: boolean; font: string; size: number; motion: string; accent: string };
+
 export class Client {
   constructor(public base: string, private token: string, private f: FetchLike = defaultFetch) {}
 
@@ -130,9 +132,15 @@ export class Client {
   }
 
   me = () => this.req<Me>('GET', '/me');
+  /** The look chosen on the computer (theme, typeface, text size), for "Same as computer". */
+  appearance = () => this.req<DesktopAppearance>('GET', '/appearance');
   home = () => this.req<Home>('GET', '/home');
   approvals = () => this.req<Approval[]>('GET', '/approvals');
   decide = (id: number, approve: boolean) => this.req<Approval>('POST', `/approvals/${id}`, { approve });
+  /** feat/v02-anywhere-voice: answer a held action out loud. The computer checks the words; only a clear yes approves. */
+  voiceDecide = (id: number, utterance: string) =>
+    this.req<{ decision: 'approve' | 'deny' | 'unclear'; status?: string; result?: string; say?: string; heard: string }>('POST', `/voice/approvals/${id}`, { utterance });
+  voiceStatus = () => this.req<{ engine: string; features: Record<string, { tier: string; allowed: boolean }> }>('GET', '/voice/status');
   runs = (before?: number, failed = false) =>
     this.req<{ runs: RunCard[] }>('GET', `/runs?limit=30${before ? `&before=${before}` : ''}${failed ? '&failed=true' : ''}`);
   trace = (id: number) => this.req<TraceNode>('GET', `/runs/${id}`);
@@ -143,6 +151,10 @@ export class Client {
   setTask = (id: number, status: Task['status']) => this.req<Task>('PATCH', `/tasks/${id}`, { status });
   pushToken = (token: string) => this.req<{ ok: boolean; push_enabled_on_desktop: boolean }>('PUT', '/push-token', { token });
   unpair = () => this.req<{ ok: boolean }>('DELETE', '/me');
+  // feat/v02-automations: background jobs board and the Share box
+  jobs = () => this.req<import('./jobs').Board>('GET', '/jobs');
+  jobAction = (id: number, action: import('./jobs').JobAction) => this.req<import('./jobs').Job>('POST', `/jobs/${id}/${action}`);
+  share = (b: { text: string; url: string; title?: string }) => this.req<{ fired: number }>('POST', '/share', b);
   attach = (a: { kind: 'photo' | 'voice'; mime: string; name: string; duration_ms?: number; data: string }) =>
     this.req<{ id: string; kind: string; file: string; bytes: number }>('POST', '/attachments', a);
 

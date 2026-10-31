@@ -1,0 +1,98 @@
+/* ==========================================================================
+   Ask from anywhere, Talk and Meetings (feat/v02-anywhere-voice).
+   Theme variables only. Motion follows html[data-motion] and the OS reduce-motion setting.
+   ========================================================================== */
+
+/* ---- Chips ---- */
+.chip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border: 1px solid var(--border); border-radius: 999px;
+  background: var(--panel); color: var(--text); font: inherit; font-size: var(--text-xs); cursor: pointer; max-width: 100%;
+  transition: border-color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out); }
+.chip:hover:not(:disabled) { border-color: var(--border-strong); }
+.chip:focus-visible { outline: 2px solid var(--accent-ring); outline-offset: 2px; }
+.chip.ghost { background: transparent; color: var(--muted); border-style: dashed; }
+.chip.on { color: var(--text); border-style: solid; background: var(--accent-soft); }
+.chip:disabled { opacity: 0.5; cursor: default; }
+.chip-x { display: inline-grid; place-items: center; width: 18px; height: 18px; border: 0; border-radius: 999px; background: var(--panel-2); color: var(--muted); cursor: pointer; padding: 0; margin-left: -4px; }
+.chip-x:hover { color: var(--text); }
+
+/* ---- The floating ask bar (its own small window) ---- */
+html.askbar-doc, html.askbar-doc body { background: var(--panel); }
+.askbar { display: flex; flex-direction: column; gap: 12px; height: 100vh; padding: 0 16px 14px; background: var(--panel); color: var(--text);
+  border: 1px solid var(--border-strong); box-sizing: border-box; overflow: hidden; }
+.askbar-drag { display: flex; align-items: center; gap: 8px; height: 40px; flex: none; border-bottom: 1px solid var(--border); margin: 0 -16px; padding: 0 8px 0 16px; cursor: grab; user-select: none; }
+.askbar-title { font-family: var(--serif); font-size: var(--text-lg); font-weight: 600; letter-spacing: 0.01em; }
+.askbar-context, .askbar-quick { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; flex: none; }
+.askbar-thumb { width: 26px; height: 18px; object-fit: cover; border-radius: 3px; border: 1px solid var(--border); }
+.askbar-text { flex: none; max-height: 110px; overflow: auto; margin: 0; padding: 8px 10px; font-family: var(--mono); font-size: var(--text-xs); white-space: pre-wrap;
+  background: var(--panel-2); border-radius: var(--radius-sm, 4px); color: var(--muted); }
+.askbar-answer { flex: 1 1 auto; min-height: 0; overflow: auto; padding-right: 4px; }
+.askbar-asked { margin-bottom: 6px; }
+.askbar-input { display: flex; gap: 6px; align-items: flex-end; flex: none; }
+.askbar-input textarea { flex: 1; resize: none; min-height: 38px; max-height: 120px; field-sizing: content; }
+.askbar-actions { display: flex; gap: 6px; align-items: center; flex: none; }
+:root[data-motion="full"] .askbar { animation: askbar-in 160ms var(--ease-out) both; }
+@keyframes askbar-in { from { opacity: 0; transform: translateY(-4px) scale(0.995); } to { opacity: 1; transform: none; } }
+
+/* ---- Mic button ---- */
+.dictate { position: relative; display: inline-flex; align-items: center; gap: 8px; }
+.dictate button { position: relative; }
+.dictate[data-state="listening"] button { color: var(--accent-text); border-color: var(--accent); }
+.dictate-level { position: absolute; inset: -3px; border-radius: 999px; border: 2px solid var(--accent); opacity: 0.45; pointer-events: none; transition: transform 90ms linear; }
+:root[data-motion="off"] .dictate-level { transition: none; transform: none !important; }
+.dictate-hint { position: absolute; bottom: calc(100% + 6px); right: 0; width: max-content; max-width: 280px; padding: 6px 9px; background: var(--panel); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm, 4px); color: var(--text); z-index: 20; box-shadow: var(--shadow-4); }
+
+/* ---- Talk ---- */
+.talk-stage { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 36px 24px; text-align: center; }
+.talk-orb { --level: 0; position: relative; width: 116px; height: 116px; border-radius: 999px; border: 1px solid var(--border-strong); background: var(--panel); color: var(--text);
+  display: grid; place-items: center; cursor: pointer; transition: border-color var(--dur) var(--ease-out), background-color var(--dur) var(--ease-out); }
+.talk-orb::after { content: ""; position: absolute; inset: -8px; border-radius: 999px; border: 2px solid var(--accent); opacity: 0; transform: scale(calc(1 + var(--level) * 0.18)); transition: opacity var(--dur) var(--ease-out); pointer-events: none; }
+.talk-orb:focus-visible { outline: 2px solid var(--accent-ring); outline-offset: 4px; }
+.talk-orb.listening, .talk-orb.confirming { border-color: var(--accent); color: var(--accent-text); }
+.talk-orb.listening::after, .talk-orb.confirming::after { opacity: 0.55; }
+.talk-orb.speaking { background: var(--accent-soft); }
+.talk-orb.waiting { border-style: dashed; }
+:root[data-motion="full"] .talk-orb.speaking::after { opacity: 0.4; animation: orb-breathe 1.6s var(--ease-in-out) infinite; }
+@keyframes orb-breathe { 50% { transform: scale(1.08); } }
+:root[data-motion="off"] .talk-orb::after { transform: none; transition: none; animation: none; }
+.talk-phase { font-family: var(--serif); font-size: var(--text-xl); }
+.talk-interim { max-width: 560px; font-style: italic; }
+.talk-last { max-width: 560px; }
+.talk-log { display: flex; flex-direction: column; gap: 10px; margin: 24px 0; }
+.talk-note { text-align: center; }
+.talk-info { margin-top: 24px; gap: 6px; }
+.talk-page .approval-card { margin-top: 16px; }
+
+/* ---- Settings ---- */
+.shortcut-key { display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm, 4px);
+  background: var(--panel-2); color: var(--text); font-family: var(--mono); font-size: var(--text-sm); cursor: pointer; }
+.shortcut-key.recording { border-color: var(--accent); color: var(--accent-text); background: var(--accent-soft); }
+.shortcut-key:focus-visible { outline: 2px solid var(--accent-ring); outline-offset: 2px; }
+.badge.plan-pro { background: var(--accent-soft); color: var(--accent-text); border-color: transparent; }
+
+/* ---- Meetings ---- */
+.recorder { display: flex; align-items: center; gap: 16px; }
+.recorder-time { font-family: var(--mono); font-size: var(--text-2xl); font-variant-numeric: tabular-nums; }
+.rec-dot { display: inline-block; width: 12px; height: 12px; border-radius: 999px; background: var(--danger); flex: none; }
+.rec-dot.sm { width: 8px; height: 8px; vertical-align: middle; }
+:root[data-motion="full"] .rec-dot { animation: rec-pulse 1.4s var(--ease-in-out) infinite; }
+:root[data-motion="subtle"] .rec-dot { animation: rec-pulse 2.8s var(--ease-in-out) infinite; }
+@keyframes rec-pulse { 50% { opacity: 0.35; } }
+.transcript-live, .transcript { max-height: 420px; overflow: auto; gap: 6px; }
+.seg { font-size: var(--text-sm); line-height: 1.5; }
+.seg-time { font-size: var(--text-2xs); margin-right: 6px; }
+.meeting-title { font-family: var(--serif); font-size: var(--text-xl); border-color: transparent; background: transparent; padding-left: 0; }
+.meeting-title:hover, .meeting-title:focus { border-color: var(--border); padding-left: 8px; }
+.meeting-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+.meeting-list.decisions { list-style: none; padding-left: 0; }
+.meeting-list.decisions li { display: flex; gap: 8px; align-items: baseline; }
+.action-item { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-bottom: 1px solid var(--border); cursor: pointer; }
+.action-item:last-of-type { border-bottom: 0; }
+.action-item .grow { display: flex; flex-direction: column; gap: 2px; }
+.action-item.added { color: var(--muted); }
+.action-item .ok { color: var(--ok-text); margin-top: 2px; }
+.consent-check { padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm, 4px); background: var(--panel-2); }
+
+@media (prefers-reduced-motion: reduce) {
+  .askbar, .rec-dot, .talk-orb::after, .dictate-level { animation: none !important; transition: none !important; }
+}

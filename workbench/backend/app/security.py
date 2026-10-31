@@ -11,6 +11,18 @@ from fastapi import HTTPException, Request
 from . import config, db
 
 COOKIE = "wb_session"
+
+def set_session_cookie(response, token: str) -> None:
+    """Set session cookie with security flags (AIW-002)."""
+    response.set_cookie(
+        COOKIE,
+        token,
+        secure=config.COOKIE_SECURE,
+        httponly=True,
+        samesite="lax",
+        max_age=config.SESSION_DAYS * 86400,
+        path="/",
+    )
 _fernet = Fernet(base64.urlsafe_b64encode(hashlib.sha256(b"enc:" + config.APP_SECRET.encode()).digest()))
 _sign_key = hashlib.sha256(b"sig:" + config.APP_SECRET.encode()).digest()
 
@@ -95,7 +107,7 @@ def check_session(token: str | None) -> bool:
 
 def require_user(request: Request) -> None:
     if not check_session(request.cookies.get(COOKIE)):
-        raise HTTPException(401, "Not signed in")
+        raise HTTPException(status_code=401, detail="Not signed in")
 
 
 def check_bearer(request: Request) -> bool:

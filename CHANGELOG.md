@@ -4,6 +4,69 @@ Every user-visible change that needs action, or changes data on upgrade, gets an
 migration steps, rollback steps. Workbench has no release numbers yet (BACKLOG). Entries are identified by schema
 version and the merge commit on `main`.
 
+## 2026-10-30 · Sunshine theme and Claude plan via Claude Code · branch feat/sunshine-claude
+
+- **Sunshine theme (new default)**: bright, warm and airy: near-white warm background, soft cards, a clean sans
+  (Hanken Grotesk) throughout, pill buttons and a #FFC83D accent used sparingly (text uses an AA darker amber, #8A5A00).
+  Paper, Linen, Gallery and Night stay in Appearance, and a saved choice is kept on upgrade. Home, chat, settings,
+  first run and the browser agent page are decluttered. Screenshots: `screenshots/sunshine/`.
+- **Your Claude plan through Claude Code**: first run offers "Use your Claude plan through Claude Code" with install and
+  sign-in status. The new **Coding agent** page runs your own signed-in `claude` (or `codex`) headless in a folder you
+  pick: live steps, approvals per edit/command, follow-ups in the same session, and a diff. The app never signs you in or
+  reads a token. API: `/api/cli-agents`. See [docs/CLAUDE-CODE.md](docs/CLAUDE-CODE.md).
+- **Rooks Code**: `-P claude-code` and `-P codex` delegate to those CLIs with Rooks-style approvals.
+- Migration: none. Rollback: pick Paper in Appearance to get the previous look.
+
+## 2026-10-30 · Computer use: Rooks Desk (phase 5) · branch feat/computer-use (on release/v0.1-rc)
+
+- **Rooks Desk** (`rooks-desk`, new package), a computer-use agent for macOS, Windows and Linux/X11:
+  - Screenshots of every monitor, downscaled for the model.
+  - Mouse, keyboard and hotkeys.
+  - Apps and windows.
+  - Accessibility trees (AX, UI Automation, AT-SPI).
+  - A shell with streaming output.
+  - Files in allowed folders, and the clipboard.
+  - Each step is plan → act → verify. A `done` claim is checked against the files the task names, and a model that
+    says "saved" when nothing was saved gets told so once, then fails.
+- **Safety.** It asks before shell commands (and before typing into a terminal), files outside the allowed folders,
+  deletes, email and messages, purchases and logins.
+  - Logins and dangerous commands can't be pre-approved.
+  - Read-only commands that print file contents (`cat ~/.ssh/id_rsa`) still ask outside the allowed folders; `env`
+    and `printenv` always ask; commands it runs never see the bridge key or its own token.
+  - App and folder allow-lists; password managers are denied by default.
+  - A red frame and an on-screen bar while it works.
+  - Kill switch: Ctrl+Alt+Esc, the top-left mouse corner, `rooks-desk stop`, or Stop everything.
+  - A JSONL receipt with a screenshot per step, and a dry-run mode.
+  - `rooks-desk setup` walks through the macOS Screen Recording and Accessibility permissions.
+- **MCP.**
+  - `rooks-desk mcp` exposes `use_computer` plus 18 low-level tools. Sensitive steps become MCP elicitation questions
+    and are refused when the client can't ask you.
+  - Rooks Code adds it automatically as the server `desk` (`[mcp] desk = false` or `ROOKS_DESK_MCP=0` turns it off).
+  - Rooks Desk can call other MCP servers (`rooks-desk mcp-servers add NAME -- CMD`), for example an AutoCAD server.
+    See `rooks-desk/docs/AUTOCAD.md`.
+- **App.**
+  - New **Computer** page: a live screen, thinking, actions, thumbnails, live shell output, Allow / Deny, Stop
+    everything, a "What it may touch" editor, and "Don't ask me this time before it: run commands / save files
+    outside my folders / send emails" for a no-stops run.
+  - `/api/desk/*` proxies to the Rooks Desk the desktop app starts for you (`WORKBENCH_ROOKS_DESK=0` turns that off).
+  - The assistant gets a `use_computer` tool when Rooks Desk is running.
+- **Smart router.** It knows which models can see. Requests with screenshots go to a vision model first: Gemini Flash;
+  Groq Llama 4 Scout or Maverick and Qwen 3.8; OpenRouter's free Gemma 3, Llama 4 and Qwen2.5-VL. If no vision model
+  is available, the images are left out with a note rather than failing. `rooks-desk` is a strong channel.
+- **Mail.** `send` supports Cc and attachments. New bridge endpoint `POST /v1/desk/send_email`:
+  - It answers only the `rooks-desk` channel with the bridge or desk key.
+  - Rooks Desk asks you before it sends.
+  - Limits: 20 attachments and 20 MB in total.
+- **Installer.** Installs `rooks-desk` (skip with `--no-desk`) and prints the per-OS permission notes. `ai-workspace
+  --status` lists it.
+- **CI.**
+  - A `rooks-desk` job on Ubuntu, macos-14 and windows-2022 (unit tests, a backend import, the CLI).
+  - On windows-2022 a real-desktop smoke test (open Notepad, type with real input, read it back through UI
+    Automation); on macos-14 it reports the permission state and skips what macOS hasn't allowed.
+  - A `rooks-desk-e2e` job that drives Mousepad and xfce4-terminal under Xvfb and uploads the screenshots.
+- **Data / migration**: none. Rooks Desk keeps its settings and receipts in `~/.rooks-desk`. **Rollback**: `uv tool
+  uninstall rooks-desk`, or install with `--no-desk`.
+
 ## 2026-10-30 · Release candidate v0.1 · branch release/v0.1-rc (all feature branches combined)
 
 - **One-command install without Docker**: `install.sh` (macOS, Linux) and `install.ps1` (Windows) install `ai-workspace`,

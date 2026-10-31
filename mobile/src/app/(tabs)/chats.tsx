@@ -10,6 +10,7 @@ import { hairline, space, type } from '@/lib/theme';
 import { tap } from '@/lib/haptics';
 import { OfflineNotice, ConnectionMark } from '@/components/Connection';
 import { Btn, Empty, FadeIn, Label, Masthead, Notice, Screen } from '@/components/ui';
+import { SkeletonRows } from '@/components/motion';
 
 const FROM: Record<string, string> = { web: 'Desktop', cli: 'Terminal', mobile: 'Phone', telegram: 'Telegram' };
 
@@ -41,7 +42,7 @@ export default function Chats() {
             </View>
           </View>
         }
-        ListEmptyComponent={list.loading ? undefined : <Empty title="No chats yet." body="Start one here or on your computer; they all show up in this list." />}
+        ListEmptyComponent={list.loading ? <SkeletonRows /> : <Empty title="No chats yet." body="Start one here or on your computer; they all show up in this list." />}
         renderItem={({ item, index }) => (
           <FadeIn delay={Math.min(index, 6) * 30}>
             <Pressable

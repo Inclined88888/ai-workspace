@@ -24,7 +24,7 @@ const secs = (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}
 const KIND = { turn: "Turn", model_call: "Model call", tool_call: "Tool call", decision: "Your decision" };
 
 function title(r: Run) {
-  if (r.kind === "turn") return r.conversation_title || `Turn #${r.id}`;
+  if (r.kind === "turn") return r.conversation_title || (r.channel?.startsWith("cli:") && r.args) || `Turn #${r.id}`;
   return `${KIND[r.kind]} · ${r.channel || "unknown"}`;
 }
 
@@ -124,7 +124,7 @@ function Trace({ id }: { id: number }) {
         <>
           <div className="page-head">
             <div>
-              <h1>{run.kind === "turn" ? run.conversation_title || `Turn #${run.id}` : `${KIND[run.kind]} #${run.id}`}</h1>
+              <h1>{run.kind === "turn" ? title(run) : `${KIND[run.kind]} #${run.id}`}</h1>
               <p className="muted">
                 {new Date(run.ts).toLocaleString()} · {run.channel || "no channel"}
                 {run.conversation_id && <> · <Link to={`/assistant/${run.conversation_id}`}>open conversation</Link></>}

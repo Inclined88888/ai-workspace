@@ -1,7 +1,7 @@
 import asyncio
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
@@ -16,9 +16,14 @@ from . import egress  # noqa: E402
 
 egress.install()  # before anything connects: every outbound request is in the audit log (R8, item 75)
 
-from . import actions, api, assistant_api, bridge, browser_proxy, company, config, db, health, llm, mobile, scheduler, skills_hub, telegram  # noqa: E402
+from . import actions, api, appearance, assistant_api, bridge, browser_proxy, cli_agents_api, company, config, connect, db, desk_proxy, health, llm, mobile, scheduler, sites, skills_hub, telegram, work_api  # noqa: E402
 from .mcp_server import mcp, mcp_app
-from .security import check_bearer
+from .adapt import hooks as adapt_hooks, routes as adapt_routes  # adapt and learn (feat/learn-and-adapt)
+from . import auto_tools, automations, jobs, v02_api  # noqa: E402 - feat/v02-automations
+from .team import loop as team_loop, routes as team_routes, tools as team_tools  # feat/team-lead
+from . import v02_hooks  # feat/v02-core: projects, action history with undo, checked answers
+from .packs import mobile_routes as packs_mobile, routes as packs_routes, tools as packs_tools  # feat/v02-packs: Trade, Legal, Study packs
+from .security import check_bearer, require_user
 from .tools import tools
 
 
@@ -30,8 +35,32 @@ async def lifespan(_: FastAPI):
     actions.recover()
     company.recover()
     mobile.boot()
-    loops = [asyncio.create_task(fn()) for fn in (api.calendar_loop, scheduler.loop, telegram.loop, company.loop)]
-    health.LOOPS.update(zip(("Calendar sync", "Scheduler", "Telegram", "Company"), loops))
+    loops = [asyncio.create_task(fn()) for fn in (api.calendar_loop, scheduler.loop, telegram.loop, company.loop, sites.loop)]
+    health.LOOPS.update(zip(("Calendar sync", "Scheduler", "Telegram", "Company", "Site watches"), loops))
+    v02 = [asyncio.create_task(fn()) for fn in (automations.loop, jobs.loop)]  # feat/v02-automations
+    v02.append(asyncio.create_task(team_loop.loop()))  # feat/team-lead
+    health.LOOPS.update(zip(("Automations", "Jobs board", "Team checks"), v02))
+    loops += v02
+    from .knowledge import live as knowledge_live  # feat/memory-core: keep the graph and search index in step
+
+    kn = asyncio.create_task(knowledge_live.loop())  # feat/memory-core
+    health.LOOPS["Memory index"] = kn  # feat/memory-core
+    loops.append(kn)  # feat/memory-core
+    from .knowledge import improve as knowledge_improve  # feat/memory-core: nightly self-improvement, only when idle
+
+    ki = asyncio.create_task(knowledge_improve.loop())  # feat/memory-core
+    health.LOOPS["Nightly improvement"] = ki  # feat/memory-core
+    loops.append(ki)  # feat/memory-core
+    from .knowledge import backup as knowledge_backup  # feat/memory-core: one automatic local backup a day
+
+    kb = asyncio.create_task(knowledge_backup.loop())  # feat/memory-core
+    health.LOOPS["Backups"] = kb  # feat/memory-core
+    loops.append(kb)  # feat/memory-core
+    from .teammates import routes as tm_routes  # feat/grok-style: Slack gateway and the encrypted phone relay
+
+    tm = [(n, asyncio.create_task(fn())) for n, fn in tm_routes.background()]
+    health.LOOPS.update(dict(tm))
+    loops += [t for _, t in tm]
     async with mcp.session_manager.run():
         yield
     mobile.lan_stop()
@@ -47,9 +76,18 @@ async def guard(request: Request, call_next):
     # CSRF: state changing API calls must carry a custom header, which cross site pages cannot send without CORS.
     if request.url.path.startswith("/mcp") and not check_bearer(request):
         return JSONResponse({"detail": "Invalid or missing bearer token"}, status_code=401)
-    if request.url.path.startswith("/api/") and request.method not in ("GET", "HEAD", "OPTIONS"):
-        if request.headers.get("x-workbench") != "1":
-            return JSONResponse({"detail": "Missing X-Workbench header"}, status_code=403)
+    # Session auth: all API routes require a valid session (AIW-001)
+    if request.url.path.startswith("/api/"):
+        if request.url.path in ("/api/status", "/api/setup", "/api/login"):
+            pass  # public endpoints
+        else:
+            try:
+                require_user(request)
+            except HTTPException:
+                return JSONResponse({"detail": "Not signed in"}, status_code=401)
+        if request.method not in ("GET", "HEAD", "OPTIONS"):
+            if request.headers.get("x-workbench") != "1":
+                return JSONResponse({"detail": "Missing X-Workbench header"}, status_code=403)
     response = await call_next(request)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("Referrer-Policy", "same-origin")
@@ -61,6 +99,11 @@ async def guard(request: Request, call_next):
 # R7: error messages reach clients redacted. Provider errors can quote keys; 422 errors echo the rejected input.
 @app.exception_handler(StarletteHTTPException)
 async def http_error(_: Request, exc: StarletteHTTPException):
+    return JSONResponse({"detail": redact.redact_obj(exc.detail)}, status_code=exc.status_code, headers=exc.headers)
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(_: Request, exc: HTTPException):
     return JSONResponse({"detail": redact.redact_obj(exc.detail)}, status_code=exc.status_code, headers=exc.headers)
 
 
@@ -81,12 +124,48 @@ from . import openapi  # registers authenticated schema before including the rou
 app.include_router(api.public)
 app.include_router(api.api)
 app.include_router(assistant_api.router)
+app.include_router(connect.router)  # Connect Google / Connect Microsoft: one sign-in for mail and calendar
 app.include_router(mobile.public)  # phone companion app: pairing, then device-token routes (mobile/)
 app.include_router(mobile.owner)
 app.include_router(mobile.device)
+app.include_router(appearance.owner)  # the chosen look, shared with the phone and the terminal tools
+app.include_router(appearance.device)
 app.include_router(browser_proxy.router)
+app.include_router(desk_proxy.router)
+app.include_router(work_api.router)  # Files (any file, analysis, sandboxed Python) and Sites (any website the user works in)
 app.include_router(skills_hub.router)  # Skills from GitHub behind the security gate
+app.include_router(cli_agents_api.router)  # hand jobs to the user's own Claude Code / Codex CLI
+app.include_router(adapt_routes.router)  # /api/learn: What I know about you, Show me how, suggestions
+adapt_hooks.register_tools()
+app.include_router(v02_api.router)  # feat/v02-automations: automations, jobs board, live documents
+app.include_router(v02_api.phone)
+auto_tools.register_tools()
+# feat/v02-anywhere-voice: Ask from anywhere, voice, meeting companion
+from . import anywhere, meetings, voice  # noqa: E402
+
+app.include_router(anywhere.native)
+app.include_router(anywhere.router)
+app.include_router(voice.router)
+app.include_router(voice.device)
+app.include_router(meetings.router)
+v02_hooks.install(app)  # feat/v02-core: /api/projects, /api/history (undo), /api/checked
+from .knowledge import routes as knowledge_routes  # feat/memory-core: shared memory and data layer
+app.include_router(knowledge_routes.router)  # feat/memory-core
+from .knowledge import mobile as knowledge_mobile  # feat/memory-core: read-only search, People and Projects on the phone
+
+app.include_router(knowledge_mobile.device)  # feat/memory-core
+app.include_router(packs_routes.router)  # feat/v02-packs
+app.include_router(packs_mobile.router)  # feat/v02-packs: phone flashcards and quotes
+packs_tools.register_tools()  # feat/v02-packs: pack shortcuts, shown only once a pack is added
+app.include_router(team_routes.router)  # feat/team-lead: /api/team (staff, tasks, tracking, plan)
+app.include_router(team_routes.phone)
+team_tools.register_tools()  # feat/team-lead
 app.include_router(bridge.router)  # /v1: OpenAI-shaped access to every connection, for the browser agent (item 103)
+from . import account  # noqa: E402
+account.install(app)  # Your plan: account sign-in, signed entitlements and the Pro feature gate
+from .teammates import routes as tm_routes  # noqa: E402 - feat/grok-style: teammates, groups, vault, outbox, pages, channels, phone link
+
+tm_routes.install(app)
 app.mount("/tools", tools)
 app.mount("/mcp", mcp_app)  # MCP clients use http://workbench:8000/mcp/
 

@@ -7,6 +7,7 @@ API keys are never stored by Rooks: each provider names the environment variable
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 import tomllib
 from dataclasses import dataclass, field
@@ -36,6 +37,10 @@ PROVIDERS: dict[str, dict] = {
     "xai": {"kind": "openai", "base_url": "https://api.x.ai/v1", "key_env": "XAI_API_KEY", "model": "grok-4-fast"},
     "deepseek": {"kind": "openai", "base_url": "https://api.deepseek.com/v1", "key_env": "DEEPSEEK_API_KEY", "model": "deepseek-chat"},
     "mistral": {"kind": "openai", "base_url": "https://api.mistral.ai/v1", "key_env": "MISTRAL_API_KEY", "model": "mistral-large-latest"},
+    # Delegates: hand the job to the user's own signed-in Claude Code or Codex CLI (their Claude or ChatGPT plan).
+    # Rooks never sees a key or token for these; see rooks_code/delegate.py.
+    "claude-code": {"kind": "delegate", "base_url": "", "key_env": "", "model": "default", "key_optional": True},
+    "codex": {"kind": "delegate", "base_url": "", "key_env": "", "model": "default", "key_optional": True},
     # any other OpenAI-compatible server: set base_url (and key_env if it needs a key)
     "openai-compatible": {"kind": "openai", "base_url": "", "key_env": "ROOKS_API_KEY", "model": "",
                           "key_optional": True},
@@ -173,6 +178,9 @@ def resolve(flags: dict, root: Path, file: dict | None = None) -> Settings:
     s.prices = dict(cfg.get("prices", {}))
     s.mcp_servers = dict(cfg.get("mcp", {}).get("servers", {}))
     s.mcp_servers.update(_project_mcp(root))
+    desk = _desk_mcp(cfg)
+    if desk and "desk" not in s.mcp_servers:
+        s.mcp_servers["desk"] = desk
     env = {"provider": os.environ.get("ROOKS_PROVIDER"), "model": os.environ.get("ROOKS_MODEL"),
            "base_url": os.environ.get("ROOKS_BASE_URL")}
     name = flags.get("provider") or env["provider"] or cfg.get("provider")
@@ -226,6 +234,16 @@ def resolve(flags: dict, root: Path, file: dict | None = None) -> Settings:
     return s
 
 
+def _desk_mcp(cfg: dict) -> dict | None:
+    """Rooks Desk, when installed, is added as the MCP server "desk" so the agent can see the screen, click and type in
+    other apps. Its tools are never trusted here, and Rooks Desk asks again for its own risky steps. Turn it off with
+    `[mcp] desk = false` or ROOKS_DESK_MCP=0."""
+    if cfg.get("mcp", {}).get("desk") is False or os.environ.get("ROOKS_DESK_MCP", "1").lower() in ("0", "false", "no", "off"):
+        return None
+    exe = shutil.which("rooks-desk")
+    return {"command": exe, "args": ["mcp"], "trusted": False} if exe else None
+
+
 def _project_mcp(root: Path) -> dict:
     """A project's .mcp.json ({"mcpServers": {...}}, the format Claude Code and Cursor use) adds servers for that folder."""
     import json
@@ -243,6 +261,7 @@ EXAMPLE = '''# Rooks Code settings. API keys are read from the environment varia
 # provider = "workbench"            # default: the open AI Workspace app, else ollama
 #                                   # workbench | openai | anthropic | openrouter | groq | gemini | xai | deepseek | mistral
 #                                   # | ollama | lmstudio | openai-compatible | your own
+#                                   # | claude-code | codex  (delegate to your own signed-in CLI and its plan)
 # model = "qwen2.5:7b"
 max_usd = 1.0                       # hard cap per session, in US dollars (0 = no cap)
 max_tokens = 200000                 # hard cap per session (0 = no cap)
@@ -254,6 +273,9 @@ trusted_folders = []                # edits and commands inside these folders ru
 # base_url = "https://api.groq.com/openai/v1"
 # key_env = "GROQ_API_KEY"
 # model = "llama-3.3-70b-versatile"
+
+# [mcp]
+# desk = false                      # do not add Rooks Desk (computer use) as the MCP server "desk" when it is installed
 
 # [mcp.servers.filesystem]          # stdio MCP servers; tools appear as mcp__<server>__<tool>
 # command = "npx"

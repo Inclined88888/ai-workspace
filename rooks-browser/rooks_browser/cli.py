@@ -21,6 +21,7 @@ import sys
 from pathlib import Path
 
 from . import __version__, llm, receipts, runner, search
+from . import theme as term_theme
 from .agent import StepEvent
 from .policy import CATEGORIES, SitePolicy, parse_categories
 
@@ -65,10 +66,22 @@ def settings_from(a, headed_default: bool) -> runner.Settings:
                            slow_mo=a.slow_mo, downloads=getattr(a, "downloads", None))
 
 
+# --- colour: the theme chosen in AI Workspace (theme.py); off for NO_COLOR, --no-color and anything not a terminal ---
+def painter(stream, enabled: bool | None = None, theme: str | None = None):
+    on = (hasattr(stream, "isatty") and stream.isatty() and not os.environ.get("NO_COLOR")) if enabled is None else enabled
+    t = term_theme.load(theme)
+    if on and sys.platform == "win32":
+        os.system("")  # enables ANSI escape handling in the Windows console
+
+    def paint(role: str, text: str) -> str:
+        return f"\033[{t.sgr(role)}m{text}\033[0m" if on else text
+    return paint
+
+
 # --- run -------------------------------------------------------------------------------------------------------------
-def _tty_approver(stream=sys.stderr):
+def _tty_approver(stream=sys.stderr, paint=lambda role, text: text):
     def ask(ap) -> bool:
-        print(f"\n  ⚠  Needs your OK — {ap.description}\n     on {ap.url}", file=stream)
+        print(paint("warn", f"\n  ⚠  Needs your OK — {ap.description}") + paint("dim", f"\n     on {ap.url}"), file=stream)
         if not sys.stdin or not sys.stdin.isatty():
             print("     (no terminal to ask: answered no)", file=stream)
             return False
@@ -94,6 +107,8 @@ def cmd_run(argv: list[str]) -> int:
     p.add_argument("--downloads", default=None, help="folder for downloaded files")
     p.add_argument("--screenshots", default=None, metavar="DIR", help="save a screenshot after every step")
     p.add_argument("--json", action="store_true", help="print the result as JSON")
+    p.add_argument("--no-color", action="store_true", help="plain text output")
+    p.add_argument("--theme", choices=term_theme.THEMES, default=None, help="terminal colours (default: the theme chosen in AI Workspace, or $ROOKS_THEME)")
     a = p.parse_args(argv)
     goal = " ".join(a.task)
     try:
@@ -103,14 +118,16 @@ def cmd_run(argv: list[str]) -> int:
     out = sys.stderr if a.json else sys.stdout
     shots = Path(a.screenshots) if a.screenshots else None
     holder = {}
+    paint = painter(out, False if a.no_color else None, a.theme)
 
     async def on_event(ev: StepEvent):
         mark = {"ok": "✓", "denied": "✗", "blocked": "⛔", "error": "!", "bad_args": "?"}.get(ev.status, "·")
-        print(f"  {ev.step:>2}. {ev.next_goal}", file=out)
+        role = {"ok": "ok", "denied": "warn", "blocked": "error", "error": "error", "bad_args": "warn"}.get(ev.status, "dim")
+        print(paint("accent", f"  {ev.step:>2}.") + f" {ev.next_goal}", file=out)
         if ev.evaluation:
-            print(f"      thinking: {ev.evaluation[:160]}", file=out)
+            print(paint("dim", f"      thinking: {ev.evaluation[:160]}"), file=out)
         if ev.result and ev.result != "finished":
-            print(f"      {mark} {ev.result.splitlines()[0][:160]}", file=out)
+            print(paint(role, f"      {mark} {ev.result.splitlines()[0][:160]}"), file=out)
         out.flush()
         if shots and "agent" in holder:
             try:
@@ -124,10 +141,10 @@ def cmd_run(argv: list[str]) -> int:
     except ValueError as e:
         print(f"rooks-browser: {e}", file=sys.stderr)
         return 2
-    print(f"Rooks Browser {__version__} · {shown} · {'headed' if not s.headless else 'headless'}", file=out)
+    print(paint("accent", f"Rooks Browser {__version__}") + paint("dim", f" · {shown} · {'headed' if not s.headless else 'headless'}"), file=out)
     print(f"Task: {goal}", file=out)
     try:
-        res = asyncio.run(runner.run_task(goal, s, approver=_tty_approver(out), on_event=on_event,
+        res = asyncio.run(runner.run_task(goal, s, approver=_tty_approver(out, paint), on_event=on_event,
                                           on_agent=lambda ag: holder.update(agent=ag)))
     except (ValueError, RuntimeError) as e:
         print(f"rooks-browser: {e}", file=sys.stderr)

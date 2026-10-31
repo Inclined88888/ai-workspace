@@ -1,6 +1,7 @@
 """Phone companion app (mobile/): pairing codes, scoped device tokens, approvals and runs from the phone, push hooks,
 and the LAN listener that only exposes the phone's routes."""
 
+import memfacts
 import asyncio
 import base64
 import time
@@ -132,14 +133,14 @@ def test_phone_approves_and_denies_held_actions(client, phone, monkeypatch):
     assert home["approvals_count"] >= 2 and home["runs"]
 
     ok = phone.post(f"/api/mobile/approvals/{held[0]}", json={"approve": True}, headers=_auth(token)).json()
-    assert ok["status"] == "done" and db.one("SELECT 1 FROM memories WHERE content = 'Phone approved memory'")
+    assert ok["status"] == "done" and memfacts.exact('Phone approved memory')
     no = phone.post(f"/api/mobile/approvals/{held[1]}", json={"approve": False}, headers=_auth(token)).json()
     assert no["status"] == "denied" and not db.one("SELECT 1 FROM schedules WHERE name = 'phone-denied'")
     # decided once: the desktop and the phone cannot both answer
     assert client.post(f"/api/approvals/{held[0]}", json={"approve": False}).status_code == 409
     decision = db.one("SELECT channel FROM actions WHERE kind = 'decision' AND parent_action_id = ?", held[0])
     assert decision["channel"] == "mobile"
-    db.run("DELETE FROM memories WHERE content = 'Phone approved memory'")
+    memfacts.drop('Phone approved memory')
 
 
 def test_phone_chat_streams_and_appears_in_runs(client, phone):

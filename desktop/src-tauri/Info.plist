@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Merged into the app's Info.plist by Tauri (feat/v02-anywhere-voice): why macOS asks for these permissions. -->
+<plist version="1.0">
+<dict>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>AI Workspace listens when you use voice mode or record a meeting. Nothing is recorded unless you start it.</string>
+  <key>NSSpeechRecognitionUsageDescription</key>
+  <string>AI Workspace can use your Mac's own dictation to turn what you say into text.</string>
+</dict>
+</plist>

@@ -1,3 +1,4 @@
+import { confirmWithBiometrics } from '@/lib/guard'; // feat/grok-style
 /**
  * One held action, as a slip of paper: what the agent wants to do, the arguments that matter, and two square
  * buttons. Approve is ink, Deny is outlined; the decision is sent once and logged on the computer as a receipt.
@@ -10,6 +11,7 @@ import { useSession } from '@/lib/session';
 import { fonts, hairline, motion, space, type } from '@/lib/theme';
 import { success, warning } from '@/lib/haptics';
 import { Btn, Label, T, Tag } from './ui';
+import { DoneTick } from './motion';
 
 export function ApprovalCard({ a, onDecided, compact }: { a: Approval; onDecided?: (a: Approval) => void; compact?: boolean }) {
   const { colors: c, client } = useSession();
@@ -20,6 +22,11 @@ export function ApprovalCard({ a, onDecided, compact }: { a: Approval; onDecided
 
   const decide = async (approve: boolean) => {
     if (!client || busy) return;
+    if (approve) {
+      // feat/grok-style: Face ID / passcode before approving from the phone
+      const g = await confirmWithBiometrics(`Approve: ${a.tool.replace(/_/g, ' ')}`);
+      if (!g.ok) { setErr(g.reason); return; }
+    }
     setBusy(approve ? 'approve' : 'deny');
     setErr('');
     try {
@@ -61,7 +68,7 @@ export function ApprovalCard({ a, onDecided, compact }: { a: Approval; onDecided
       {err ? <T style={{ color: c.danger, marginTop: space[2], fontSize: 13 }}>{err}</T> : null}
       {done ? (
         <View style={{ marginTop: space[3], flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <View style={{ width: 8, height: 8, backgroundColor: done.status === 'denied' ? c.danger : c.ok }} />
+          {done.status === 'denied' || done.status === 'failed' ? <View style={{ width: 8, height: 8, backgroundColor: c.danger }} /> : <DoneTick size={18} haptic={false} />}
           <Label color={c.text}>{done.status === 'denied' ? 'Denied · logged' : done.status === 'failed' ? 'Approved · it failed' : 'Approved · running on your computer'}</Label>
         </View>
       ) : (

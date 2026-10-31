@@ -4,14 +4,18 @@
  */
 import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
+import type { MotionPref } from './motion';
 
 export type Pairing = { token: string; urls: string[]; active: string; name: string; deviceId: number };
 
 const KEY = 'aiworkspace.pairing.v1';
 const PREFS = 'aiworkspace.prefs.v1';
 
-export type Prefs = { theme: 'light' | 'dark' | 'system'; model: string; haptics: boolean };
-export const DEFAULT_PREFS: Prefs = { theme: 'light', model: '', haptics: true };
+/** theme: 'computer' follows the paired computer's choice; 'system' follows the phone; or one of the six themes.
+ * 'light' and 'dark' are the older choices, read as Paper and Dark. */
+export type ThemePref = 'computer' | 'system' | 'sunshine' | 'paper' | 'cherry' | 'neon' | 'night' | 'contrast' | 'light' | 'dark';
+export type Prefs = { theme: ThemePref; model: string; haptics: boolean; desktopTheme?: string; motion?: MotionPref };
+export const DEFAULT_PREFS: Prefs = { theme: 'computer', model: '', haptics: true, motion: 'full' };
 
 const web = {
   get: (k: string) => (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(k) : null),
@@ -63,3 +67,15 @@ export async function loadPrefs(): Promise<Prefs> {
 }
 
 export const savePrefs = (p: Prefs) => setItem(PREFS, JSON.stringify(p));
+
+// feat/grok-style: linked computers (encrypted link) and the offline queue, kept in the secure store.
+const COMPUTERS = 'aiworkspace.computers.v1';
+const QUEUE = 'aiworkspace.queue.v1';
+export async function loadComputers(): Promise<import('./link').Computer[]> {
+  try { return JSON.parse((await getItem(COMPUTERS)) || '[]'); } catch { return []; }
+}
+export const saveComputers = (l: import('./link').Computer[]) => setItem(COMPUTERS, JSON.stringify(l));
+export async function loadQueue(): Promise<import('./link').Queued[]> {
+  try { return JSON.parse((await getItem(QUEUE)) || '[]'); } catch { return []; }
+}
+export const saveQueue = (q: import('./link').Queued[]) => setItem(QUEUE, JSON.stringify(q));

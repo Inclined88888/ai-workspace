@@ -83,7 +83,8 @@ async def create_event(data: services.EventIn) -> dict:
 @tools.get("/calendar/calendars", operation_id="list_calendars", summary="List calendars and whether they accept new events")
 def list_calendars() -> list[dict]:
     services.local_calendar_id()
-    return [{"id": c["id"], "name": c["name"], "writable": c["kind"] != "ics"} for c in db.all("SELECT * FROM calendars WHERE enabled = 1")]
+    return [{"id": c["id"], "name": c["name"], "kind": c["kind"], "writable": c["kind"] != "ics",
+             "can_invite": c["kind"] in ("google", "microsoft", "caldav")} for c in db.all("SELECT * FROM calendars WHERE enabled = 1")]
 
 
 @tools.get("/mail/search", operation_id="search_email", summary="Search recent email in the user's inbox (first account unless account_id is given)")
@@ -95,7 +96,7 @@ async def search_email(query: str = "", account_id: int | None = None) -> list[d
     return [m | {"account_id": acct["id"]} for m in messages]
 
 
-@tools.get("/mail/{account_id}/messages/{uid}", operation_id="read_email", summary="Read one email by account id and uid")
+@tools.get("/mail/{account_id}/messages/{uid:path}", operation_id="read_email", summary="Read one email by account id and uid")
 async def read_email(account_id: int, uid: str) -> dict:
     acct = db.one("SELECT * FROM mail_accounts WHERE id = ?", account_id)
     if not acct:
@@ -114,13 +115,23 @@ class DraftIn(BaseModel):
 @tools.post("/mail/drafts", operation_id="save_email_draft",
             summary="Save an email draft for the user to review and send in Workbench. This never sends email.")
 def save_draft(data: DraftIn) -> dict:
-    acct = db.one("SELECT id FROM mail_accounts WHERE id = ?", data.account_id) if data.account_id else db.one("SELECT id FROM mail_accounts ORDER BY id LIMIT 1")
+    acct = db.one("SELECT * FROM mail_accounts WHERE id = ?", data.account_id) if data.account_id else db.one("SELECT * FROM mail_accounts ORDER BY id LIMIT 1")
     now = db.now()
     did = db.run(
         "INSERT INTO mail_drafts(account_id, to_addr, subject, body, in_reply_to, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
         acct["id"] if acct else None, data.to, data.subject, data.body, data.in_reply_to, now, now,
     )
-    return {"draft_id": did, "status": "saved, not sent. The user reviews it under Mail > Drafts."}
+    where = "Mail > Drafts"
+    if acct and acct.get("kind") in ("google", "microsoft"):
+        # Also put it in Gmail / Outlook Drafts so it can be finished anywhere. A failure here never loses the local draft.
+        from . import cloud_mail
+
+        try:
+            cloud_mail.create_draft(acct, data.to, data.subject, data.body, data.in_reply_to)
+            where += " and in " + ("Gmail" if acct["kind"] == "google" else "Outlook") + " Drafts"
+        except HTTPException:
+            pass
+    return {"draft_id": did, "status": f"saved, not sent. The user reviews it under {where}."}
 
 
 @tools.get("/agenda", operation_id="get_agenda", summary="Get the user's agenda: upcoming events plus due and overdue tasks")

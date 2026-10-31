@@ -9,6 +9,8 @@ It installs, per user and without admin rights:
   * `rooks`:          Rooks Code, the terminal coding agent (uv tool)
   * `rooks-browser`:  Rooks Browser, the AI browser agent (uv tool) and a browser for it: your Chrome or Edge, else
                       Playwright's Chromium
+  * `rooks-desk`:     Rooks Desk, computer use: sees the screen, clicks and types in your apps, runs terminal commands
+                      and works with files in folders you allow, asking first (uv tool; skip with --no-desk)
   * the native app:   only when a published GitHub release has one for this computer (--native auto|yes|no)
 
 Run again to upgrade; data, keys and settings are kept (they live in the app's data folder, not here).
@@ -139,14 +141,35 @@ def make_venv(home: Path, app: Path) -> Path:
         run([uv(), "venv", "--quiet", "--python", "3.12", str(venv)])
     py = venv / ("Scripts/python.exe" if WIN else "bin/python")
     reqs = ["-r", str(app / "workbench" / "backend" / "requirements.txt"), "keyring==25.6.0"]
+    files_reqs = app / "workbench" / "backend" / "requirements-files.txt"  # Files page readers, statistics, charts, maths
+    if files_reqs.exists():
+        reqs += ["-r", str(files_reqs)]
     run([uv(), "pip", "install", "--quiet", "--python", str(py), *reqs])
     return py
 
 
-def install_tools(src: Path) -> None:
-    for pkg in ("rooks-code", "rooks-browser"):
+def install_tools(src: Path, desk: bool = True) -> None:
+    for pkg in ("rooks-code", "rooks-browser", *(("rooks-desk",) if desk and (src / "rooks-desk").exists() else ())):
         run([uv(), "tool", "install", "--quiet", "--force", "--reinstall", "--python", "3.12", str(src / pkg)])
         say(f"{pkg}: installed")
+
+
+def desk_notes() -> list[str]:
+    """What the user still has to do once for computer use on this OS. Nothing is granted silently."""
+    if MAC:
+        return ["Computer use (rooks-desk) needs two macOS permissions, granted once: run `rooks-desk setup`, then allow",
+                "  Screen Recording and Accessibility for it in System Settings > Privacy & Security."]
+    if WIN:
+        return ["Computer use (rooks-desk) works without admin rights. It cannot click in windows that run as administrator",
+                "  (UAC) unless it runs elevated too, and never answers UAC prompts itself."]
+    notes = []
+    if os.environ.get("WAYLAND_DISPLAY") and not os.environ.get("DISPLAY"):
+        notes.append("Computer use (rooks-desk) needs an X11 session (Wayland blocks screen capture and input). Pick "
+                     "'Ubuntu on Xorg' at the login screen.")
+    sys_py = Path("/usr/bin/python3")
+    if not sys_py.exists() or subprocess.run([str(sys_py), "-c", "import pyatspi"], capture_output=True).returncode != 0:
+        notes.append("For reading app controls (not just screenshots), install AT-SPI: sudo apt install python3-pyatspi")
+    return notes
 
 
 def tool_python(tool: str) -> Path:
@@ -331,6 +354,7 @@ def main() -> int:
     p.add_argument("--repo", default=os.environ.get("AI_WORKSPACE_REPO") or "Inclined88888/ai-workspace")
     p.add_argument("--native", choices=("auto", "yes", "no"), default=os.environ.get("AI_WORKSPACE_NATIVE", "auto"))
     p.add_argument("--no-browser", action="store_true")
+    p.add_argument("--no-desk", action="store_true", help="do not install rooks-desk (computer use)")
     p.add_argument("--no-shortcut", action="store_true")
     a = p.parse_args()
     src, home, bin_dir = Path(a.src).resolve(), Path(a.home).expanduser(), Path(a.bin).expanduser()
@@ -341,8 +365,8 @@ def main() -> int:
     app = copy_app(src, home)
     py = make_venv(home, app)
     say(f"app: {app}")
-    step("2/5  Rooks Code (rooks) and Rooks Browser (rooks-browser)")
-    install_tools(src)
+    step("2/5  Rooks Code (rooks), Rooks Browser (rooks-browser) and Rooks Desk (rooks-desk)")
+    install_tools(src, desk=not a.no_desk)
     step("3/5  A browser for Rooks Browser")
     browser = ensure_browser(a.no_browser)
     step("4/5  Launch command and shortcut")
@@ -364,7 +388,11 @@ def main() -> int:
     hint = ensure_path(bin_dir)
     (home / "install.json").write_text(json.dumps({"src": str(src), "app": str(app), "python": str(py), "browser": browser,
                                                    "native": native, "bin": str(bin_dir)}, indent=1))
-    print("\nDone. Start it with:\n\n    ai-workspace\n\nAlso installed:  rooks (coding agent)   rooks-browser (browser agent)")
+    print("\nDone. Start it with:\n\n    ai-workspace\n\nAlso installed:  rooks (coding agent)   rooks-browser (browser agent)"
+          + ("" if a.no_desk else "   rooks-desk (computer use)"))
+    if not a.no_desk:
+        for line in desk_notes():
+            print(f"\n{line}" if not line.startswith("  ") else line)
     if hint:
         print(f"\n{hint}")
     return 0

@@ -139,10 +139,15 @@ async def mine_skill(conv_id: int) -> str:
     return ""
 
 
-async def _after(conv_id: int, tool_calls: int) -> None:
+async def _after(conv_id: int, tool_calls: int, channel: str = "web") -> None:
+    from .adapt import hooks as adapt_hooks
+
     async with _lock:  # one learning job at a time keeps it light
         try:
-            await mine_memories(conv_id)
+            if adapt_hooks.memory_replaces_legacy():  # encrypted "What I know about you" store, plus job patterns
+                await adapt_hooks.after_turn(conv_id, channel)
+            else:
+                await mine_memories(conv_id)
             if tool_calls >= SKILL_MIN_TOOL_CALLS:
                 await mine_skill(conv_id)
         except Exception as e:  # noqa: BLE001 - learning is best effort and must never break chat
@@ -153,7 +158,7 @@ def after_turn(ctx) -> None:
     if not enabled():
         return
     try:
-        task = asyncio.get_running_loop().create_task(_after(ctx.conversation_id, ctx.tool_calls))
+        task = asyncio.get_running_loop().create_task(_after(ctx.conversation_id, ctx.tool_calls, ctx.channel))
     except RuntimeError:
         return
     _tasks.add(task)

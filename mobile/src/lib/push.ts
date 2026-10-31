@@ -1,3 +1,4 @@
+import { registerApprovalCategory } from './lockActions'; // feat/grok-style
 /**
  * Push notifications: approval needed, job finished. The phone asks permission, gets an Expo push token and gives it
  * to the desktop (PUT /api/mobile/push-token). The desktop sends through Expo's push service, which hands off to
@@ -29,6 +30,7 @@ export async function registerForPush(): Promise<{ token: string | null; reason:
   let granted = existing.granted;
   if (!granted) granted = (await Notifications.requestPermissionsAsync()).granted;
   if (!granted) return { token: null, reason: 'Notifications are off for this app in Settings.' };
+  await registerApprovalCategory(Notifications).catch(() => {}); // feat/grok-style: lock-screen Approve/Decline
   const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
   if (!projectId) return { token: null, reason: 'This build has no EAS project id yet (run `eas init`).' };
   try {
@@ -43,6 +45,7 @@ export async function registerForPush(): Promise<{ token: string | null; reason:
 export function routeFor(data: Record<string, unknown> | undefined): string | null {
   if (!data) return null;
   if (data.kind === 'approval') return '/approvals';
+  if (data.kind === 'job') return '/jobs'; // feat/v02-automations: jobs board
   if (data.kind === 'run') {
     if (typeof data.conversation_id === 'number') return `/chat/${data.conversation_id}`;
     if (typeof data.id === 'number') return `/run/${data.id}`;

@@ -1,8 +1,10 @@
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  info?: Record<string, unknown>;
+  constructor(status: number, message: string, info?: Record<string, unknown>) {
     super(message);
     this.status = status;
+    this.info = info;
   }
 }
 
@@ -11,6 +13,7 @@ function detail(body: unknown, fallback: string): string {
     const d = (body as { detail: unknown }).detail;
     if (typeof d === "string") return d;
     if (Array.isArray(d)) return d.map((e) => (e as { msg?: string }).msg ?? JSON.stringify(e)).join("; ");
+    if (d && typeof d === "object" && typeof (d as { message?: unknown }).message === "string") return (d as { message: string }).message;
   }
   return fallback;
 }
@@ -34,7 +37,11 @@ export async function api<T = unknown>(path: string, options: { method?: string;
     if (res.status === 401 && !path.startsWith("/login") && !path.startsWith("/password")) {
       window.dispatchEvent(new Event("wb:unauthorized"));
     }
-    throw new ApiError(res.status, detail(body, `${res.status} ${res.statusText}`));
+    const info = (body as { detail?: unknown } | null)?.detail;
+    const obj = info && typeof info === "object" && !Array.isArray(info) ? (info as Record<string, unknown>) : undefined;
+    // A Pro feature on a Free plan: the app shows one friendly upgrade card (ProGate.tsx), wherever the call came from.
+    if (res.status === 402 && obj?.error === "upgrade_required") window.dispatchEvent(new CustomEvent("wb:upgrade", { detail: obj }));
+    throw new ApiError(res.status, detail(body, `${res.status} ${res.statusText}`), obj);
   }
   return body as T;
 }
@@ -137,11 +144,12 @@ export type CalEvent = {
 export type Calendar = {
   id: number;
   name: string;
-  kind: "local" | "ics" | "caldav";
+  kind: "local" | "ics" | "caldav" | "google" | "microsoft";
   url: string;
   username: string;
   color: string;
   enabled: number;
   last_synced: string | null;
   last_error: string | null;
+  linked_account_id?: number | null;
 };
