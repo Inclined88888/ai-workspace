@@ -6,6 +6,7 @@ Runs as a background task when conversation exceeds threshold.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -24,6 +25,15 @@ DEFAULT_KEEP_RECENT = 10  # Always keep this many recent messages
 # Compression markers
 COMPRESSION_MARKER = "[Earlier conversation summarized]"
 COMPRESSION_STATUS = "🗜️ Compacting context..."
+
+
+def _text(content: Any) -> str:
+    """Message content as plain text: strings pass through, multimodal parts keep only their text."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return " ".join(p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text")
+    return "" if content is None else str(content)
 
 
 @dataclass
@@ -123,7 +133,7 @@ def _default_summarize(messages: List[Dict[str, Any]]) -> str:
     """Default summarization using the configured model."""
     # Build a prompt for summarization
     text = "\n\n".join(
-        f"{m.get('role', 'unknown')}: {m.get('content', '')[:500]}"
+        f"{m.get('role', 'unknown')}: {_text(m.get('content'))[:500]}"
         for m in messages[-20:]  # Last 20 old messages
     )
     
@@ -140,16 +150,14 @@ Summary (be concise, 2-3 paragraphs max):"""
 
     try:
         # Use the default model for summarization
-        response = llm.complete(
-            [{"role": "user", "content": prompt}],
-            model=llm.default_model_ref(),
-            max_tokens=500,
-        )
-        return response.get("content", "Summary unavailable")
+        # llm.complete is async; this path is sync (callers run it from worker threads), so drive it here.
+        # Inside a running event loop asyncio.run raises, and we fall back to truncation below.
+        summary = asyncio.run(llm.complete(llm.default_model_ref(), [{"role": "user", "content": prompt}], {"channel": "compression"}))
+        return (summary or "").strip() or "Summary unavailable"
     except Exception as e:
         logger.warning("Summarization failed: %s", e)
         # Fallback: simple truncation
-        return f"[{len(messages)} messages removed. Last topic: {messages[-1].get('content', 'unknown')[:100]}...]"
+        return f"[{len(messages)} messages removed. Last topic: {_text(messages[-1].get('content'))[:100] if messages else 'unknown'}...]"
 
 
 def compress_if_needed(
