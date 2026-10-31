@@ -78,58 +78,50 @@ export type Status = {
   needs_models?: boolean;
 };
 
-type NavItem = { to: string; label: string; icon: typeof Home; addon?: "browser" | "desk" };
+type NavItem = { to: string; label: string; icon: typeof Home };
 type NavGroup = { section?: string; collapsible?: boolean; items: NavItem[] };
 
-/**
- * integration/v0.2 navigation, grouped so a non-technical person sees a short list:
- * the four places you live in, your day, your work, the helpers that act for you, then More and Advanced folded away.
- */
+/** Keep daily destinations visible. Every other page remains available through a folded group and Search. */
 const NAV: NavGroup[] = [
   { items: [
     { to: "/", label: "Home", icon: Home },
     { to: "/assistant", label: "Chat", icon: MessageSquare },
     { to: "/projects", label: "Projects", icon: FolderKanban }, // feat/v02-core
-    { to: "/jobs", label: "Jobs", icon: Layers }, // feat/v02-automations
-  ] },
-  { section: "Your day", items: [
     { to: "/mail", label: "Mail", icon: Mail },
     { to: "/calendar", label: "Calendar", icon: CalendarDays },
     { to: "/tasks", label: "Tasks", icon: CheckSquare },
-    { to: "/notes", label: "Notes", icon: NotebookPen },
   ] },
-  { section: "Your work", items: [
+  { section: "Tools", collapsible: true, items: [
+    { to: "/research", label: "Research", icon: Search },
+    { to: "/code", label: "Coding", icon: Code2 },
+    { to: "/browser", label: "Browser", icon: Globe },
+    { to: "/computer", label: "Computer", icon: Monitor },
     { to: "/files", label: "Files", icon: FolderOpen },
     { to: "/sites", label: "Sites", icon: Globe2 },
     { to: "/automations", label: "Automations", icon: CalendarClock },
+    { to: "/jobs", label: "Jobs", icon: Layers },
     { to: "/teammates", label: "Teammates", icon: Users }, // feat/grok-style
-    { to: "/pages", label: "Pages", icon: FileTextIcon }, // feat/grok-style
-    { to: "/vault", label: "Vault", icon: LockIcon }, // feat/grok-style
-    { to: "/channels", label: "Channels", icon: MessageCircleIcon }, // feat/grok-style
     { to: "/teach", label: "Show me how", icon: GraduationCap },
     { to: "/packs", label: "Packs", icon: Package }, // feat/v02-packs
     { to: "/meetings", label: "Meetings", icon: Users }, // feat/v02-anywhere-voice
-  ] },
-  { section: "Helpers", items: [
     { to: "/talk", label: "Talk", icon: AudioLines }, // feat/v02-anywhere-voice
-    { to: "/research", label: "Research", icon: Search },
-    { to: "/code", label: "Coding", icon: Code2 },
-    { to: "/browser", label: "Browser", icon: Globe, addon: "browser" },
-    { to: "/computer", label: "Computer", icon: Monitor, addon: "desk" },
   ] },
-  { section: "More", collapsible: true, items: [
+  { section: "Library", collapsible: true, items: [
+    { to: "/notes", label: "Notes", icon: NotebookPen },
+    { to: "/pages", label: "Pages", icon: FileTextIcon },
+    { to: "/vault", label: "Vault", icon: LockIcon },
+    { to: "/channels", label: "Channels", icon: MessageCircleIcon },
     { to: "/skills", label: "Skills", icon: Puzzle },
     { to: "/history", label: "History", icon: HistoryIcon }, // feat/v02-core: everything done, with undo
     { to: "/about-you", label: "About you", icon: Brain },
     { to: "/knowledge", label: "Memory", icon: Brain }, // feat/memory-core: people, project knowledge, what I know
+    { to: "/documents", label: "Documents", icon: FileText },
+  ] },
+  { section: "Advanced", collapsible: true, items: [
     { to: "/plan", label: "Your plan", icon: Sparkles },
-    { to: "/settings", label: "Settings", icon: SettingsIcon },
     { to: "/appearance", label: "Appearance", icon: PaletteIcon },
     { to: "/models", label: "Models", icon: Gauge },
     { to: "/voice", label: "Ask anywhere & voice", icon: AudioLines }, // feat/v02-anywhere-voice
-  ] },
-  { section: "Advanced", collapsible: true, items: [
-    { to: "/documents", label: "Documents", icon: FileText },
     { to: "/company", label: "Company", icon: Building2 },
     { to: "/compare", label: "Compare models", icon: Columns3 },
     { to: "/runs", label: "Run log", icon: ListTree },
@@ -201,21 +193,22 @@ export default function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-  // Folded groups (More, Advanced): remembered per group, and always open while you're on one of their pages
+  // Folded groups are remembered per group and open automatically on their own pages.
   const [folds, setFolds] = useState<Record<string, boolean>>(() => ({
-    More: localStorage.getItem("wb-nav-more") === "1", Advanced: localStorage.getItem("wb-nav-advanced") === "1" }));
-  const nav = useMemo(
-    () => NAV.map((g) => ({ ...g, items: g.items.filter((i) => !i.addon || (i.addon === "browser" && status?.browser_enabled) || (i.addon === "desk" && status?.desk_enabled)) })),
-    [status?.browser_enabled, status?.desk_enabled],
-  );
+    Tools: localStorage.getItem("wb-nav-tools") === "1",
+    Library: localStorage.getItem("wb-nav-library") === "1",
+    Advanced: localStorage.getItem("wb-nav-advanced") === "1",
+  }));
+  const nav = NAV;
   const palettePages = useMemo(
-    () => [...nav.flatMap((g) => g.items.map((i) => ({ to: i.to, label: i.label, icon: i.icon })))],
+    () => [...nav.flatMap((g) => g.items.map((i) => ({ to: i.to, label: i.label, icon: i.icon }))),
+      { to: "/settings", label: "Settings", icon: SettingsIcon }],
     [nav],
   );
   const inGroup = (g: NavGroup) => g.items.some((i) => location.pathname === i.to || location.pathname.startsWith(i.to + "/"));
   const toggleFold = (name: string) => setFolds((f) => {
     const open = !f[name];
-    localStorage.setItem(name === "More" ? "wb-nav-more" : "wb-nav-advanced", open ? "1" : "0");
+    localStorage.setItem(`wb-nav-${name.toLowerCase()}`, open ? "1" : "0");
     return { ...f, [name]: open };
   });
   // Route transition key: top-level section only, so switching conversations or notes doesn't remount the page
@@ -274,7 +267,9 @@ export default function App() {
         })}
         <div className="spacer" />
         <div className="sidebar-foot">
-          <div className="spacer" />
+          <NavLink to="/settings" className="nav-link" onClick={transitionClick(() => navigate("/settings"))}>
+            <SettingsIcon size={16} /> <span>Settings</span>
+          </NavLink>
           {!status.desktop && <button className="btn ghost sm" onClick={logout}><LogOut size={14} /> Sign out</button>}
         </div>
       </aside>

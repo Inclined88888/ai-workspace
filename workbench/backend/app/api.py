@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from . import calendar_sync, config, db, llm, mail, research, services
+from . import calendar_sync, config, db, llm, mail, research, search, services
 from .adapters import ALLOWED, validate
 from .db import OFFICIAL_HOSTS
 from .redact import redact, redact_obj
@@ -825,6 +825,12 @@ def delete_draft(did: int):
 
 
 # Research
+@api.get("/research/setup")
+def research_setup():
+    provider = search.provider()
+    return {"ready": bool(provider), "search_provider": provider}
+
+
 class ResearchIn(BaseModel):
     question: str = Field(..., min_length=5, max_length=4000)
     model: str | None = None
@@ -833,6 +839,8 @@ class ResearchIn(BaseModel):
 
 @api.post("/research")
 def start_research(data: ResearchIn):
+    if not search.provider():
+        raise HTTPException(400, "Web search is not set up. Open Chat settings and add a Brave Search or Tavily key, or enable SearXNG.")
     model = data.model or llm.default_model_ref()
     llm.check_ref(model)
     now = db.now()

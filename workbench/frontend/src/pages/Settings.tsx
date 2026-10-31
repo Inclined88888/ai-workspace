@@ -6,6 +6,7 @@ import { AppInfo, Sidecar, appInfo, inDesktopShell, listSidecars, openDataDir, o
 import { ModelSelect, useModels, useToast } from "../util";
 import ConnectMailCalendar from "./ConnectMailCalendar";
 import { PhoneCard } from "./Phone";
+import { AgentSetup, type CliAgent } from "./Code";
 
 type DesktopInfo = { desktop: boolean; data_dir: string; secret_backend: string };
 
@@ -101,7 +102,7 @@ function Providers() {
   };
 
   return (
-    <div className="card col gap-lg">
+    <div className="card col gap-lg" id="model-providers">
       <div className="row"><KeyRound size={16} /><h2>Model providers</h2></div>
       <div className="muted small"><strong>Free options:</strong> local models with Ollama, OpenRouter models ending in :free (free key), and Google Gemini's free tier (free key). Free models are marked (free) in model menus. OpenCode's free models only run inside the OpenCode app, so here they are available to Company agents through the paperclip add-on. Any OpenAI compatible endpoint works: OpenAI, Anthropic, OpenRouter, Groq, Together, Mistral, LM Studio, vLLM, LiteLLM. If a provider has no model list endpoint, type model ids in “Models”.</div>
       <div className="card flush">
@@ -139,6 +140,27 @@ function Providers() {
       {toast.node}
     </div>
   );
+}
+
+function ClaudePlan() {
+  const [agent, setAgent] = useState<CliAgent | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [error, setError] = useState("");
+  const check = (fresh = false) => {
+    setChecking(true);
+    api<{ agents: CliAgent[] }>(`/cli-agents${fresh ? "?fresh=true" : ""}`)
+      .then((r) => { setAgent(r.agents.find((a) => a.id === "claude") ?? null); setError(""); })
+      .catch((e) => setError((e as Error).message))
+      .finally(() => setChecking(false));
+  };
+  useEffect(() => { check(); }, []);
+  return <div className="card col gap-lg">
+    <h2>Use your Claude subscription</h2>
+    <p className="muted small">You can add Claude Code after choosing a free model. It runs coding jobs on your Claude plan. Claude Code sign-in does not make Claude available as a model in Chat; for that, add an Anthropic API key below.</p>
+    {error && <div className="alert err">{error}</div>}
+    {agent ? <AgentSetup agent={agent} onRecheck={() => check(true)} checking={checking} /> : checking && <Loader2 size={15} className="spin" />}
+    <div className="row wrap"><Link className="btn" to="/code">Open Coding</Link><a className="btn ghost" href="#model-providers">Add Anthropic API key for Chat</a></div>
+  </div>;
 }
 
 function LocalModels() {
@@ -251,6 +273,7 @@ export default function Settings({ onChanged }: { onChanged: () => void }) {
           <div><button className="btn primary" onClick={save}>Save</button></div>
         </div>
         {desktop?.desktop && <DesktopApp info={desktop} />}
+        <ClaudePlan />
         {/* feat/v02-anywhere-voice */}
         <div className="card col">
           <h2>Ask from anywhere & voice</h2>

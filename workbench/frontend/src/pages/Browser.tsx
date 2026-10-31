@@ -1,6 +1,6 @@
 import { CircleStop, Globe, Loader2, Play, Trash2, XCircle } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import { Tracer } from "../Tracer";
 import { DoneTick, LiveShot } from "../motion";
@@ -36,6 +36,9 @@ export default function Browser() {
   const navigate = useNavigate();
   const { models } = useModels();
   const [usage, setUsage] = useState<{ used: number; limit: number } | null>(null);
+  const [bridgeReady, setBridgeReady] = useState(false);
+  const [checkingService, setCheckingService] = useState(true);
+  const [serviceError, setServiceError] = useState("");
   const [jobs, setJobs] = useState<JobSummary[]>([]);
   const [job, setJob] = useState<Job | null>(null);
   const [shotKey, setShotKey] = useState(0);
@@ -44,8 +47,12 @@ export default function Browser() {
   const toast = useToast();
 
   const loadJobs = () => api<JobSummary[]>("/browser/jobs").then(setJobs).catch(toast.err);
+  const checkService = () => { setCheckingService(true); return api<{ usage: { used: number; limit: number }; providers: { name: string; ready: boolean }[] }>("/browser/providers")
+    .then((r) => { setUsage(r.usage); setBridgeReady(r.providers.some((p) => p.name === "workbench" && p.ready)); setServiceError(""); })
+    .catch((e) => { setBridgeReady(false); setServiceError((e as Error).message); })
+    .finally(() => setCheckingService(false)); };
   useEffect(() => {
-    api<{ usage: { used: number; limit: number } }>("/browser/providers").then((r) => setUsage(r.usage)).catch(toast.err);
+    checkService();
     loadJobs();
   }, []);
 
@@ -106,6 +113,18 @@ export default function Browser() {
         <div><h1>Browser agent</h1><p className="muted">Describe a goal. The agent opens a real browser, clicks, types and reads until it is done.</p></div>
       </div>
 
+      {!checkingService && (serviceError || !bridgeReady || models.length === 0) && <div className="card col" role="status" style={{ marginBottom: 16 }}>
+        <h2>Before your first browser task</h2>
+        {serviceError && <div className="alert err">Browser service: {serviceError}</div>}
+        {!serviceError && !bridgeReady && <div className="alert">The browser service is running but cannot reach AI Workspace's model bridge. Restart AI Workspace, then check again.</div>}
+        <ol className="small">
+          <li>Connect a model in <Link to="/settings">Settings</Link>. A model that can read screenshots works best.</li>
+          <li>For the one-command install, run <code>rooks-browser doctor</code> to check Chrome or Chromium, then restart AI Workspace.</li>
+          <li>If it still fails, run <code>ai-workspace --logs</code> to see the browser service error.</li>
+        </ol>
+        <div><button type="button" className="btn sm" onClick={checkService}>Check again</button></div>
+      </div>}
+
       <form className="card col" onSubmit={start} style={{ marginBottom: 16 }}>
         <textarea className="input" rows={3} value={form.goal} onChange={(e) => setForm({ ...form, goal: e.target.value })} placeholder="e.g. Find three remote software engineer roles on weworkremotely.com" />
         {!form.goal && (
@@ -120,7 +139,7 @@ export default function Browser() {
             <input className="input" type="number" min={1} max={50} style={{ width: 80 }} value={form.max_steps} onChange={(e) => setForm({ ...form, max_steps: Number(e.target.value) })} />
           </label>
           <input className="input grow" style={{ minWidth: 200 }} value={form.domains} onChange={(e) => setForm({ ...form, domains: e.target.value })} placeholder="Only these sites (optional): *.pcpartpicker.com, …" />
-          <button className="btn primary" disabled={form.goal.trim().length < 3}><Play size={15} /> Run</button>
+          <button className="btn primary" disabled={!!serviceError || !bridgeReady || models.length === 0 || form.goal.trim().length < 3}><Play size={15} /> Run</button>
         </div>
         <div className="faint small" title="Runs on any model connected in Settings, through Workbench, so its spend shows in Usage. Vision models read screenshots; small local models are unreliable at browsing. Max steps caps the cost of a run.">
           Uses a model from Settings; spend shows in Usage. Vision models work best.

@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowUp, BookOpen, Brain, Check, Copy, KeyRound, Loader2, MessageSquare, Pencil, Plus, Search, ShieldAlert, ThumbsDown, ThumbsUp, Trash2, Wrench, X } from "lucide-react";
+import { ArrowLeft, ArrowUp, BookOpen, Brain, Check, Copy, KeyRound, Loader2, MessageSquare, Paperclip, Pencil, Plus, Search, ShieldAlert, ThumbsDown, ThumbsUp, Trash2, Wrench, X } from "lucide-react";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, stream } from "../api";
@@ -33,6 +33,9 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   // feat/v02-anywhere-voice: a draft handed over while Chat is already open (the ask bar's "Do it in Chat")
   useEffect(() => { const d = (location.state as { draft?: string } | null)?.draft; if (d) setText(d); }, [location.state]);
   const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [attachments, setAttachments] = useState<{ id: number; name: string }[]>([]);
+  const fileInput = useRef<HTMLInputElement>(null);
   const [model, setModel] = useState("");
   const [busySince, setBusySince] = useState(0);
   const exit = useExit<number>(200);
@@ -69,19 +72,41 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   };
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, steps]);
 
+  const attach = async (files: FileList | File[]) => {
+    if (uploading) return;
+    const incoming = Array.from(files);
+    if (attachments.length + incoming.length > 10) { toast.err(new Error("Attach up to 10 files per message.")); return; }
+    setUploading(true);
+    try {
+      for (const file of incoming) {
+        const res = await fetch(`/api/files/upload?name=${encodeURIComponent(file.name)}`, {
+          method: "POST", credentials: "same-origin",
+          headers: { "X-Workbench": "1", "Content-Type": "application/octet-stream" }, body: file,
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.detail || `Could not attach ${file.name}`);
+        setAttachments((items) => [...items, { id: Number(body.id), name: file.name }]);
+      }
+    } catch (e) { toast.err(e); }
+    finally { setUploading(false); if (fileInput.current) fileInput.current.value = ""; }
+  };
+
   const send = async (e?: FormEvent) => {
     e?.preventDefault();
     const msg = text.trim();
-    if (!msg || busy) return;
+    if ((!msg && !attachments.length) || busy || uploading) return;
+    const files = attachments;
     setText("");
     if (composerRef.current) composerRef.current.style.height = "auto";
     setBusy(true);
     setBusySince(Date.now());
     setSteps([]);
-    setMessages((m) => [...m, { id: Date.now(), role: "user", content: msg, tool_calls: [], name: "" }]);
+    const optimisticId = Date.now();
+    setMessages((m) => [...m, { id: optimisticId, role: "user", content: [msg, ...files.map((f) => `📎 ${f.name}`)].filter(Boolean).join("\n"), tool_calls: [], name: "" }]);
     let newId = cid;
     let via: RouterInfo | undefined;
-    await stream("/assistant/chat", { message: msg, conversation_id: cid, model: model || null }, (ev) => {
+    let failed = false;
+    try { await stream("/assistant/chat", { message: msg, file_ids: files.map((f) => f.id), conversation_id: cid, model: model || null }, (ev) => {
       const t = ev.type as string | undefined;
       if (t === "start") newId = Number(ev.conversation_id);
       if (t === "router") via = ev as unknown as RouterInfo;
@@ -101,11 +126,15 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
         setFreshId(mid);
         setMessages((m) => [...m, { id: mid, role: "assistant", content: String(ev.content), tool_calls: [], name: "", via }]);
       }
-      if (t === "error" || (!t && ev.error)) toast.err(String(ev.error));
-    });
+      if (t === "error" || (!t && ev.error)) { failed = true; toast.err(String(ev.error)); }
+    }); } catch (e) { failed = true; toast.err(e); }
+    if (failed) {
+      setText(msg);
+      setMessages((m) => m.filter((x) => x.id !== optimisticId));
+    } else setAttachments([]);
     setBusy(false);
     loadConvs();
-    if (newId && newId !== cid) navigate(`/assistant/${newId}`, { replace: true });
+    if (!failed && newId && newId !== cid) navigate(`/assistant/${newId}`, { replace: true });
   };
 
   const remove = async (c: Conv) => {
@@ -216,9 +245,17 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
             <div ref={endRef} />
           </div>
         </div>
-        <form className="composer-wrap" onSubmit={send}>
+        <form className="composer-wrap" onSubmit={send}
+          onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) e.preventDefault(); }}
+          onDrop={(e) => { if (e.dataTransfer.files.length) { e.preventDefault(); attach(e.dataTransfer.files); } }}>
           <div className={`composer has-tracer${busy ? " is-working" : ""}`}>
             <Tracer active={busy} label="Assistant is working" />
+            <input ref={fileInput} type="file" multiple hidden aria-label="Attach files" onChange={(e) => { if (e.target.files) attach(e.target.files); }} />
+            {attachments.length > 0 && <div className="row wrap" style={{ padding: "8px 10px 0" }}>
+              {attachments.map((f) => <span key={f.id} className="badge row">{f.name}
+                <button type="button" className="btn ghost sm icon" aria-label={`Remove ${f.name}`} onClick={() => setAttachments((items) => items.filter((x) => x.id !== f.id))}><X size={12} /></button>
+              </span>)}
+            </div>}
             <textarea ref={composerRef} rows={1} value={text} aria-label="Message"
               onChange={(e) => { setText(e.target.value); const t = e.target; t.style.height = "auto"; t.style.height = `${Math.min(240, t.scrollHeight)}px`; }}
               placeholder="Ask anything, or describe a job to do…"
@@ -227,9 +264,12 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
               <ModelSelect value={model} onChange={setModel} models={models} />
               <div className="spacer" />
               <span className="composer-hint">Shift + Enter for a new line</span>
+              <button type="button" className="btn ghost icon" aria-label="Attach a file, including ZIP" title="Attach files, including ZIP" disabled={busy || uploading} onClick={() => fileInput.current?.click()}>
+                {uploading ? <Loader2 size={16} className="spin" /> : <Paperclip size={16} />}
+              </button>
               {/* feat/v02-anywhere-voice + motion: one mic. Local/cloud speech-to-text with browser fallback, drawn as the voice orb */}
               <DictateButton orb disabled={busy} onText={(t) => { setText((v) => (v ? v + " " : "") + t); composerRef.current?.focus(); }} />
-              <button className="btn primary send" disabled={busy || !text.trim()} aria-label="Send">{busy ? <Loader2 size={15} className="spin" /> : <ArrowUp size={16} />}</button>
+              <button className="btn primary send" disabled={busy || uploading || (!text.trim() && !attachments.length)} aria-label="Send">{busy ? <Loader2 size={15} className="spin" /> : <ArrowUp size={16} />}</button>
             </div>
           </div>
         </form>

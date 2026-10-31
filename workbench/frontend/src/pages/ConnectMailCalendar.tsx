@@ -116,6 +116,14 @@ export default function ConnectMailCalendar({ compact = false, onlyWhenEmpty = f
         {anything && <button className="btn ghost sm icon" title="Refresh" onClick={load}><RefreshCw size={13} /></button>}</div>
       <div className="muted small">One sign-in sets up both your inbox and your calendar. Your assistant can read, summarise and draft; it never sends an email or an invitation until you say yes.</div>
 
+      {loaded && !anything && providers && <div className="alert col small" role="status">
+        <strong>Choose a way to connect</strong>
+        {(["google", "microsoft"] as Provider[]).map((p) => <div key={p}>
+          <strong>{NAMES[p]}:</strong> {providers[p]?.configured ? "One-click sign-in is ready." : providers[p]?.message || "One-click sign-in needs an app registration for this build."}
+        </div>)}
+        <div>For iCloud, Yahoo, Fastmail or another provider, open <strong>Other provider</strong> below and follow its app-password steps.</div>
+      </div>}
+
       {anything && (
         <div className="account-chips">
           {linked.map((a) => (
@@ -199,6 +207,7 @@ export default function ConnectMailCalendar({ compact = false, onlyWhenEmpty = f
 function OtherProvider({ onSuggest, onAdded }: { onSuggest: (p: Provider, email: string) => void; onAdded: () => void }) {
   const [email, setEmail] = useState("");
   const [det, setDet] = useState<Detected | null>(null);
+  const [gmailPassword, setGmailPassword] = useState(false);
   const [checking, setChecking] = useState(false);
   const [form, setForm] = useState({ name: "", username: "", password: "", imap_host: "", imap_port: 993, smtp_host: "", smtp_port: 465, smtp_security: "ssl" as "ssl" | "starttls" });
   const [addCal, setAddCal] = useState(true);
@@ -218,6 +227,13 @@ function OtherProvider({ onSuggest, onAdded }: { onSuggest: (p: Provider, email:
     } catch { setDet(null); } finally { setChecking(false); }
   };
   useEffect(() => { const t = window.setTimeout(() => detect(email), 500); return () => window.clearTimeout(t); }, [email]);
+  const detail: Detected | null = gmailPassword && det?.kind === "one_click" && det.provider === "google"
+    ? { ...det, kind: "known", label: "Gmail with an app password", imap_host: "imap.gmail.com", imap_port: 993,
+        smtp_host: "smtp.gmail.com", smtp_port: 465, smtp_security: "ssl", app_password: true,
+        app_password_url: "https://myaccount.google.com/apppasswords",
+        steps: ["Turn on 2-Step Verification for your Google Account.",
+          "Create an app password, then paste it below. Google may not offer app passwords for every account."] }
+    : det;
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -243,37 +259,42 @@ function OtherProvider({ onSuggest, onAdded }: { onSuggest: (p: Provider, email:
     <form className="card col" onSubmit={submit} style={{ background: "var(--panel-2)" }}>
       <div className="row"><KeyRound size={15} /><h3 className="grow">Other provider</h3><span className="muted small">iCloud, Yahoo, Fastmail, AOL, Zoho, your own domain…</span></div>
       <div className="row">
-        <input className="input grow" required type="email" autoFocus placeholder="Your email address" value={email} onChange={(e) => setEmail(e.target.value)} onBlur={() => detect()} />
+        <input className="input grow" required type="email" autoFocus placeholder="Your email address" value={email} onChange={(e) => { setEmail(e.target.value); setGmailPassword(false); }} onBlur={() => detect()} />
         {checking && <Loader2 size={15} className="spin" />}
       </div>
-      {det?.kind === "one_click" && (
+      {det?.kind === "one_click" && !gmailPassword && (
         <div className="alert">
           <div className="row wrap">
             <ProviderLogo provider={det.provider!} />
             <div className="grow">{det.workspace ? `${email.split("@")[1]} uses ${det.provider === "google" ? "Google Workspace" : "Microsoft 365"}.` : `That's a ${NAMES[det.provider!]} address.`} One click is easier, with no app password.</div>
             <button type="button" className="btn sm primary" onClick={() => onSuggest(det.provider!, email.trim())}>Connect {NAMES[det.provider!]}</button>
+            {det.provider === "google" && <button type="button" className="btn sm" onClick={() => {
+              setForm((f) => ({ ...f, imap_host: "imap.gmail.com", imap_port: 993,
+                smtp_host: "smtp.gmail.com", smtp_port: 465, smtp_security: "ssl" }));
+              setGmailPassword(true);
+            }}>Use a Gmail app password</button>}
           </div>
         </div>
       )}
-      {det && det.kind !== "one_click" && det.kind !== "invalid" && (
+      {detail && detail.kind !== "one_click" && detail.kind !== "invalid" && (
         <>
-          <div className="small"><strong>{det.label}</strong>{det.source === "guess" ? " · best guess" : det.source === "ispdb" ? " · settings found automatically" : ""}</div>
-          {det.steps && (
+          <div className="small"><strong>{detail.label}</strong>{detail.source === "guess" ? " · best guess" : detail.source === "ispdb" ? " · settings found automatically" : ""}</div>
+          {detail.steps && (
             <div className="small">
-              {det.app_password ? <>This provider needs an <strong>app password</strong> (not your normal password):</> : null}
-              <ol className="connect-steps">{det.steps.map((s) => <li key={s}>{s}</li>)}</ol>
-              {det.app_password_url && <a href={det.app_password_url} target="_blank" rel="noreferrer">Open the app password page <ExternalLink size={11} /></a>}
+              {detail.app_password ? <>This provider needs an <strong>app password</strong> (not your normal password):</> : null}
+              <ol className="connect-steps">{detail.steps.map((s) => <li key={s}>{s}</li>)}</ol>
+              {detail.app_password_url && <a href={detail.app_password_url} target="_blank" rel="noreferrer">Open the app password page <ExternalLink size={11} /></a>}
             </div>
           )}
           <div className="row wrap">
             <input className="input grow" placeholder="Your name (shown on sent mail)" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-            <input className="input grow" required type="password" autoComplete="off" placeholder={det.app_password ? "App password" : "Password"} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+            <input className="input grow" required type="password" autoComplete="off" placeholder={detail.app_password ? "App password" : "Password"} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
           </div>
-          {det.caldav_url && <label className="check small"><input type="checkbox" checked={addCal} onChange={(e) => setAddCal(e.target.checked)} /> Also add my calendars ({det.caldav_url.replace("https://", "")})</label>}
+          {detail.caldav_url && <label className="check small"><input type="checkbox" checked={addCal} onChange={(e) => setAddCal(e.target.checked)} /> Also add my calendars ({detail.caldav_url.replace("https://", "")})</label>}
           <details className="connect-more" open={showServers} onToggle={(e) => setShowServers((e.target as HTMLDetailsElement).open)}>
-            <summary><ChevronRight size={12} /> Server settings{det.username_hint ? " and username" : ""}</summary>
+            <summary><ChevronRight size={12} /> Server settings{detail.username_hint ? " and username" : ""}</summary>
             <div className="col">
-              {det.username_hint && <div className="muted small">{det.username_hint}</div>}
+              {detail.username_hint && <div className="muted small">{detail.username_hint}</div>}
               <input className="input" placeholder="Username (defaults to your email)" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} />
               <div className="row wrap">
                 <input className="input grow" required placeholder="IMAP host" value={form.imap_host} onChange={(e) => setForm({ ...form, imap_host: e.target.value })} />

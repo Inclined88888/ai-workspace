@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from . import actions, assistant, company, db, egress, health, learn, receipts, scheduler, search, telegram, usage
+from . import actions, analysis, assistant, company, db, egress, health, learn, receipts, scheduler, search, telegram, usage
 from .api import sse
 from .security import COOKIE, check_session, encrypt
 
@@ -34,7 +34,8 @@ router = APIRouter(prefix="/api", dependencies=[Depends(require_user_or_cli)])
 
 # Chat
 class ChatIn(BaseModel):
-    message: str = Field(..., min_length=1, max_length=50_000)
+    message: str = Field("", max_length=50_000)
+    file_ids: list[int] = Field(default_factory=list, max_length=10)
     conversation_id: int | None = None
     model: str | None = None
     channel: str = Field("web", pattern="^(web|cli|mobile)$")
@@ -56,6 +57,16 @@ def chat(data: ChatIn, idempotency_key: str | None = Header(None)):
             return JSONResponse(status_code=409, content={
                 "detail": "This request was already received (same Idempotency-Key); it was not run again",
                 "conversation_id": prior["conversation_id"], "turn_id": prior["id"], "outcome": prior["outcome"]})
+    # Resolve attachments before creating a conversation so a bad id never leaves an empty chat behind.
+    attached = [analysis.get(fid) for fid in dict.fromkeys(data.file_ids)]
+    if not data.message.strip() and not attached:
+        raise HTTPException(422, "Write a message or attach a file.")
+    message = data.message.strip()
+    if attached:
+        names = "\n".join(f"- #{f['id']}: {json.dumps(f['name'])}" for f in attached)
+        message = (message + "\n\n" if message else "") + "Attached files:\n" + names
+    if not data.message.strip():
+        message = "Please review the attached file(s).\n\n" + message
     cid = data.conversation_id
     if cid:
         if not db.one("SELECT id FROM conversations WHERE id = ?", cid):
@@ -68,7 +79,7 @@ def chat(data: ChatIn, idempotency_key: str | None = Header(None)):
     async def events():
         yield {"type": "start", "conversation_id": cid}
         ctx = assistant.Ctx(channel=data.channel, conversation_id=cid, request_key=key)
-        async for e in assistant.run_turn(ctx, data.message, data.model):
+        async for e in assistant.run_turn(ctx, message, data.model):
             yield e
 
     return sse(events())
