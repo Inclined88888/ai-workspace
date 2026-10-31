@@ -19,10 +19,18 @@ from zoneinfo import ZoneInfo
 import httpx
 from fastapi import HTTPException
 
-from . import actions, config, db, llm, receipts, research, services, tools
+from . import actions, compression, config, db, llm, receipts, research, router, services, tools
 
 MAX_STEPS = 12
 HISTORY_MESSAGES = 40
+_BACKGROUND: set[asyncio.Task] = set()  # strong refs so background jobs (history summaries) are not garbage collected
+
+
+def _spawn(coro) -> asyncio.Task:
+    task = asyncio.create_task(coro)
+    _BACKGROUND.add(task)
+    task.add_done_callback(_BACKGROUND.discard)
+    return task
 TOOL_TIMEOUT_S = 180
 
 
@@ -601,7 +609,12 @@ CLAIM_NUDGE = ("[Automatic check, not from the user: your answer said \"{claim}\
 
 
 def _history(conversation_id: int, budget_chars: int = 300_000) -> list[dict]:
-    """The recent conversation as model messages, repaired and cut to fit the model's window.
+    return _history_window(conversation_id, budget_chars)[0]
+
+
+def _history_window(conversation_id: int, budget_chars: int = 300_000) -> tuple[list[dict], int | None]:
+    """The recent conversation as model messages, repaired and cut to fit the model's window, plus the id of the
+    first message kept (None when nothing was kept). Older messages are covered by compression's rolling summary.
 
     Repair: a turn interrupted between a tool call and its result (Stop button, closed tab, restart) would leave a call
     without an answer, which OpenAI and Anthropic reject on every later request. Missing results are filled in.
@@ -609,10 +622,12 @@ def _history(conversation_id: int, budget_chars: int = 300_000) -> list[dict]:
     """
     rows = db.all("SELECT * FROM messages WHERE conversation_id = ? ORDER BY id DESC LIMIT ?", conversation_id, HISTORY_MESSAGES)[::-1]
     out: list[dict] = []
+    ids: list[int | None] = []
     pending: list[str] = []
 
     def close_pending() -> None:
         out.extend({"role": "tool", "tool_call_id": cid, "content": INTERRUPTED} for cid in pending)
+        ids.extend(None for _ in pending)
         pending.clear()
 
     for r in rows:
@@ -620,6 +635,7 @@ def _history(conversation_id: int, budget_chars: int = 300_000) -> list[dict]:
             if r["tool_call_id"] in pending:
                 pending.remove(r["tool_call_id"])
                 out.append({"role": "tool", "tool_call_id": r["tool_call_id"], "content": r["content"]})
+                ids.append(r["id"])
             continue  # a result without its call (cut off by the window) is dropped
         close_pending()
         if r["role"] == "assistant":
@@ -630,10 +646,11 @@ def _history(conversation_id: int, budget_chars: int = 300_000) -> list[dict]:
             out.append(m)
         else:
             out.append({"role": "user", "content": r["content"]})
+        ids.append(r["id"])
     close_pending()
     starts = [i for i, m in enumerate(out) if m["role"] == "user"]
     if not starts:
-        return []
+        return [], None
     used, keep_from = 0, starts[-1]
     for i in range(len(out) - 1, -1, -1):
         used += len(json.dumps(out[i], ensure_ascii=False))
@@ -641,7 +658,7 @@ def _history(conversation_id: int, budget_chars: int = 300_000) -> list[dict]:
             break
         if i in starts:
             keep_from = i
-    return out[keep_from:]
+    return out[keep_from:], ids[keep_from]
 
 
 def new_conversation(channel: str, title: str = "New chat", external_id: str = "", agent_id: int | None = None) -> int:
@@ -698,6 +715,7 @@ async def _run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> Async
         f"SELECT 1 FROM (SELECT name FROM messages WHERE conversation_id = ? ORDER BY id DESC LIMIT ?) "
         f"WHERE name IN ({','.join('?' * len(UNTRUSTED_TOOLS))}) LIMIT 1", ctx.conversation_id, HISTORY_MESSAGES, *UNTRUSTED_TOOLS))
     budget = llm.context_chars(model)
+    summarising = None
     nudged = False
     cost = 0.0
     final = ""
@@ -713,8 +731,14 @@ async def _run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> Async
                 yield {"type": "error", "error": f"{agent['name']} paused: {reason}", "budget": True}
                 return
         system = system_prompt(ctx, user_text)
-        msgs = [{"role": "system", "content": system},
-                *_history(ctx.conversation_id, budget - len(system) - len(json.dumps(specs)))]
+        summary = compression.history_summary(ctx.conversation_id) if compression.enabled() else None
+        if summary:
+            system += "\n\n" + compression.SUMMARY_NOTE + summary["summary"]
+        history, first_kept = _history_window(ctx.conversation_id, budget - len(system) - len(json.dumps(specs)))
+        if not summarising and compression.needs_summary(ctx.conversation_id, first_kept):
+            summarising = _spawn(compression.refresh_history_summary(
+                ctx.conversation_id, "auto:fast" if router.is_auto(model) else model, first_kept))
+        msgs = [{"role": "system", "content": system}, *history]
         try:
             res = await llm.chat(model, msgs, specs, trace=ctx.trace())
             if res.get("router"):  # the smart router answered: say who, what it skipped, and what is left

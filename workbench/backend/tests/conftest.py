@@ -310,6 +310,7 @@ def client(fake_url, tmp_path_factory):
         c.headers.update(h)
         c.pid = pid
         db.set_setting("learning_enabled", "1")
+        db.set_setting("compress_history", "0")  # tests that want rolling summaries turn them on (test_compression.py)
         yield c
 
 

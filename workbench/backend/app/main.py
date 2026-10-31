@@ -32,6 +32,7 @@ from .tools import tools
 async def lifespan(_: FastAPI):
     db.init()
     compression.init_compression_table()  # AIW-Phase1
+    compression.init_summary_table()  # rolling summary of messages that fall out of the window
     recovery.init_recovery_table()  # AIW-Phase1
     credentials.init_credentials_table()  # AIW-Phase1
     ratelimit.init_rate_limit_table()  # AIW-Phase1
