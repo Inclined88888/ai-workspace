@@ -38,11 +38,10 @@ def sse(gen):
     return StreamingResponse(body(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
+from .security import set_session_cookie
+
 def _login(response: Response) -> None:
-    response.set_cookie(
-        COOKIE, make_session(), max_age=config.SESSION_DAYS * 86400, httponly=True, samesite="lax",
-        secure=config.COOKIE_SECURE, path="/",
-    )
+    set_session_cookie(response, make_session())
 
 
 # Status, setup, auth

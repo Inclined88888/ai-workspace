@@ -1,7 +1,7 @@
 import asyncio
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
@@ -23,7 +23,7 @@ from . import auto_tools, automations, jobs, v02_api  # noqa: E402 - feat/v02-au
 from .team import loop as team_loop, routes as team_routes, tools as team_tools  # feat/team-lead
 from . import v02_hooks  # feat/v02-core: projects, action history with undo, checked answers
 from .packs import mobile_routes as packs_mobile, routes as packs_routes, tools as packs_tools  # feat/v02-packs: Trade, Legal, Study packs
-from .security import check_bearer
+from .security import check_bearer, require_user
 from .tools import tools
 
 
@@ -76,9 +76,18 @@ async def guard(request: Request, call_next):
     # CSRF: state changing API calls must carry a custom header, which cross site pages cannot send without CORS.
     if request.url.path.startswith("/mcp") and not check_bearer(request):
         return JSONResponse({"detail": "Invalid or missing bearer token"}, status_code=401)
-    if request.url.path.startswith("/api/") and request.method not in ("GET", "HEAD", "OPTIONS"):
-        if request.headers.get("x-workbench") != "1":
-            return JSONResponse({"detail": "Missing X-Workbench header"}, status_code=403)
+    # Session auth: all API routes require a valid session (AIW-001)
+    if request.url.path.startswith("/api/"):
+        if request.url.path in ("/api/status", "/api/setup", "/api/login"):
+            pass  # public endpoints
+        else:
+            try:
+                require_user(request)
+            except HTTPException:
+                return JSONResponse({"detail": "Not signed in"}, status_code=401)
+        if request.method not in ("GET", "HEAD", "OPTIONS"):
+            if request.headers.get("x-workbench") != "1":
+                return JSONResponse({"detail": "Missing X-Workbench header"}, status_code=403)
     response = await call_next(request)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("Referrer-Policy", "same-origin")
@@ -90,6 +99,11 @@ async def guard(request: Request, call_next):
 # R7: error messages reach clients redacted. Provider errors can quote keys; 422 errors echo the rejected input.
 @app.exception_handler(StarletteHTTPException)
 async def http_error(_: Request, exc: StarletteHTTPException):
+    return JSONResponse({"detail": redact.redact_obj(exc.detail)}, status_code=exc.status_code, headers=exc.headers)
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(_: Request, exc: HTTPException):
     return JSONResponse({"detail": redact.redact_obj(exc.detail)}, status_code=exc.status_code, headers=exc.headers)
 
 
