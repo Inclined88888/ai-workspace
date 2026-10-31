@@ -17,19 +17,24 @@ from . import egress  # noqa: E402
 egress.install()  # before anything connects: every outbound request is in the audit log (R8, item 75)
 
 from . import actions, api, appearance, assistant_api, bridge, browser_proxy, cli_agents_api, company, config, connect, db, desk_proxy, health, llm, mobile, scheduler, sites, skills_hub, telegram, work_api  # noqa: E402
+from . import compression, credentials, ratelimit, recovery  # AIW-Phase1: Hermes-inspired reliability
 from .mcp_server import mcp, mcp_app
 from .adapt import hooks as adapt_hooks, routes as adapt_routes  # adapt and learn (feat/learn-and-adapt)
 from . import auto_tools, automations, jobs, v02_api  # noqa: E402 - feat/v02-automations
 from .team import loop as team_loop, routes as team_routes, tools as team_tools  # feat/team-lead
 from . import v02_hooks  # feat/v02-core: projects, action history with undo, checked answers
 from .packs import mobile_routes as packs_mobile, routes as packs_routes, tools as packs_tools  # feat/v02-packs: Trade, Legal, Study packs
-from .security import check_bearer, require_user
+from .security import check_bearer
 from .tools import tools
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     db.init()
+    compression.init_compression_table()  # AIW-Phase1
+    recovery.init_recovery_table()  # AIW-Phase1
+    credentials.init_credentials_table()  # AIW-Phase1
+    ratelimit.init_rate_limit_table()  # AIW-Phase1
     llm.seed_connections()
     api.recover_interrupted()
     actions.recover()
@@ -76,18 +81,12 @@ async def guard(request: Request, call_next):
     # CSRF: state changing API calls must carry a custom header, which cross site pages cannot send without CORS.
     if request.url.path.startswith("/mcp") and not check_bearer(request):
         return JSONResponse({"detail": "Invalid or missing bearer token"}, status_code=401)
-    # Session auth: all API routes require a valid session (AIW-001)
-    if request.url.path.startswith("/api/"):
-        if request.url.path in ("/api/status", "/api/setup", "/api/login"):
-            pass  # public endpoints
-        else:
-            try:
-                require_user(request)
-            except HTTPException:
-                return JSONResponse({"detail": "Not signed in"}, status_code=401)
-        if request.method not in ("GET", "HEAD", "OPTIONS"):
-            if request.headers.get("x-workbench") != "1":
-                return JSONResponse({"detail": "Missing X-Workbench header"}, status_code=403)
+    # Auth lives on each router (require_user, require_device, require_user_or_cli, desktop token), not here:
+    # a blanket session check here locked out paired phones, the CLI and desktop sign-in (AIW-001 follow-up).
+    # tests/test_route_auth.py fails if any /api route ships without an auth dependency or an allowlist entry.
+    if request.url.path.startswith("/api/") and request.method not in ("GET", "HEAD", "OPTIONS"):
+        if request.headers.get("x-workbench") != "1":
+            return JSONResponse({"detail": "Missing X-Workbench header"}, status_code=403)
     response = await call_next(request)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("Referrer-Policy", "same-origin")
