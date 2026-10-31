@@ -155,6 +155,11 @@ def render(segs: list[dict]) -> str:
 
 
 # --- routes ---------------------------------------------------------------------------------------------------------
+@router.get("/templates")  # before /{mid}, which would otherwise claim the path
+def list_templates():
+    return templates()
+
+
 @router.get("")
 def list_meetings():
     ensure()
@@ -309,7 +314,8 @@ def _clean(n: dict) -> dict:
     fu = n.get("follow_up") if isinstance(n.get("follow_up"), dict) else {}
     return {"summary": str(n.get("summary") or "").strip(), "notes": strs(n.get("notes")), "decisions": strs(n.get("decisions")),
             "actions": acts, "attendees": strs(n.get("attendees")),
-            "follow_up": {"subject": str(fu.get("subject") or "").strip(), "body": str(fu.get("body") or "").strip()}}
+            "follow_up": {"subject": str(fu.get("subject") or "").strip(), "body": str(fu.get("body") or "").strip()},
+            **({"template": n["template"]} if n.get("template") in TEMPLATES else {})}
 
 
 async def _ask(model: str | None, system: str, user: str) -> dict:
@@ -327,8 +333,33 @@ async def _ask(model: str | None, system: str, user: str) -> dict:
     return data
 
 
+# Phase 4: meeting templates steer what the notes focus on; the JSON shape (NOTES_SCHEMA) stays the same.
+TEMPLATES = {
+    "general": ("General", ""),
+    "standup": ("Stand-up", "This is a stand-up. In notes, give one line per person: done, doing next, blockers. Decisions are "
+                "only real changes of plan. Actions are blockers someone took on."),
+    "retro": ("Retrospective", "This is a retrospective. In notes, group points under 'Went well:', 'Didn't go well:' and "
+              "'Try next:' prefixes. Actions are the experiments the team agreed to try, with owners."),
+    "one_on_one": ("1:1", "This is a one-to-one. In notes, cover wins, concerns, feedback given both ways, and career or growth "
+                   "topics. Keep personal matters brief and neutral. Actions are commitments either person made."),
+    "sales": ("Sales call", "This is a sales or customer call. In notes, capture the customer's needs, pain points, budget, "
+              "timeline, decision makers and objections. Decisions are what was agreed with the customer. Make the follow-up "
+              "email go to the customer, recapping their needs and the agreed next steps."),
+    "interview": ("Interview", "This is a job interview. In notes, list the evidence heard for each skill discussed, quoting "
+                  "briefly, without judging the candidate on anything unrelated to the role. Decisions: none unless one was "
+                  "stated. Make the follow-up email a neutral thank-you to the candidate."),
+    "planning": ("Planning", "This is a planning meeting. In notes, list goals, scope, risks and dependencies. Decisions are "
+                 "priorities and cuts that were agreed. Actions carry owners and dates."),
+}
+
+
+def templates():
+    return [{"id": k, "name": v[0]} for k, v in TEMPLATES.items()]
+
+
 class SummariseIn(BaseModel):
     model: str | None = None
+    template: str = "general"
 
 
 @router.post("/{mid}/summarise")
@@ -337,15 +368,19 @@ async def summarise(mid: int, data: SummariseIn):
     transcript = m["transcript"].strip()
     if not transcript:
         raise HTTPException(422, "There's no transcript yet.")
+    if data.template not in TEMPLATES:
+        raise HTTPException(422, f"Unknown template. Pick one of: {', '.join(TEMPLATES)}")
+    prompt = PROMPT + (" " + TEMPLATES[data.template][1] if TEMPLATES[data.template][1] else "")
     head = f"Meeting: {m['title']}\nMeeting date: {m['created_at'][:10]} (today is {date.today().isoformat()})\n\nTranscript:\n"
     limit = 60_000
     if len(transcript) <= limit:
-        notes = _clean(await _ask(data.model, PROMPT, head + transcript))
+        notes = _clean(await _ask(data.model, prompt, head + transcript))
     else:  # long meeting: notes per part, then one set of notes from those
         parts = [transcript[i:i + limit] for i in range(0, len(transcript), limit)]
-        partial = [_clean(await _ask(data.model, PROMPT, head + f"(part {i + 1} of {len(parts)})\n" + p)) for i, p in enumerate(parts)]
-        notes = _clean(await _ask(data.model, PROMPT + " You are given notes from consecutive parts of one meeting: merge them, "
+        partial = [_clean(await _ask(data.model, prompt, head + f"(part {i + 1} of {len(parts)})\n" + p)) for i, p in enumerate(parts)]
+        notes = _clean(await _ask(data.model, prompt + " You are given notes from consecutive parts of one meeting: merge them, "
                                   "removing repeats.", head + json.dumps(partial, ensure_ascii=False)))
+    notes["template"] = data.template
     db.run("UPDATE meetings SET notes = ?, status = 'summarised', updated_at = ? WHERE id = ?", json.dumps(notes), db.now(), mid)
     return _out(_get(mid))
 

@@ -13,7 +13,7 @@ import { extFor, mimeType } from "../voice/engine";
 import { Action, actionMeta, clock, notesText } from "../voice/logic";
 import "../voice/voice.css";
 
-type Notes = { summary: string; notes: string[]; decisions: string[]; actions: Action[]; attendees: string[]; follow_up: { subject: string; body: string } };
+type Notes = { summary: string; notes: string[]; decisions: string[]; actions: Action[]; attendees: string[]; follow_up: { subject: string; body: string }; template?: string };
 type Seg = { start: number; end: number; speaker: string; text: string };
 type Meeting = {
   id: number; title: string; source: "recording" | "audio" | "transcript"; status: "recording" | "ready" | "summarised"; consent_at: string | null;
@@ -160,11 +160,15 @@ function Detail({ m, onChange, onDelete }: { m: Meeting; onChange: (m: Meeting) 
   const [draftSaved, setDraftSaved] = useState(false);
   const [showT, setShowT] = useState(!m.notes);
   const [model, setModel] = useState("");
+  const [template, setTemplate] = useState(m.notes?.template ?? "general");
+  const [templates, setTemplates] = useState<{ id: string; name: string }[]>([]);
   const { models } = useModels();
   const toast = useToast();
   const n = m.notes;
 
+  useEffect(() => { api<{ id: string; name: string }[]>("/meetings/templates").then(setTemplates).catch(() => setTemplates([])); }, []);
   useEffect(() => {
+    setTemplate(m.notes?.template ?? "general");
     setSubject(m.notes?.follow_up.subject ?? ""); setBody(m.notes?.follow_up.body ?? ""); setProject(m.project);
     setPicked(new Set((m.notes?.actions ?? []).map((a, i) => (a.task_id ? -1 : i)).filter((i) => i >= 0)));
     setDraftSaved(false);
@@ -172,7 +176,7 @@ function Detail({ m, onChange, onDelete }: { m: Meeting; onChange: (m: Meeting) 
 
   const summarise = async () => {
     setBusy("notes");
-    try { onChange(await api<Meeting>(`/meetings/${m.id}/summarise`, { body: { model: model || null } })); setShowT(false); } catch (e) { toast.err(e); }
+    try { onChange(await api<Meeting>(`/meetings/${m.id}/summarise`, { body: { model: model || null, template } })); setShowT(false); } catch (e) { toast.err(e); }
     setBusy("");
   };
   const addTasks = async () => {
@@ -197,6 +201,12 @@ function Detail({ m, onChange, onDelete }: { m: Meeting; onChange: (m: Meeting) 
     if (title.trim() && title !== m.title) onChange(await api<Meeting>(`/meetings/${m.id}`, { method: "PATCH", body: { title } }));
   };
 
+  const templatePick = templates.length > 1 && (
+    <select className="input" style={{ width: "auto" }} value={template} onChange={(e) => setTemplate(e.target.value)} aria-label="Kind of meeting">
+      {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+    </select>
+  );
+
   return (
     <div className="col gap-lg">
       <div className="row wrap">
@@ -209,6 +219,7 @@ function Detail({ m, onChange, onDelete }: { m: Meeting; onChange: (m: Meeting) 
         <div className="card col">
           <div className="small muted">Ready to write the notes: a summary, what was decided, and who's doing what by when.</div>
           <div className="row wrap"><div style={{ minWidth: 220 }}><ModelSelect value={model} onChange={setModel} models={models} /></div>
+            {templatePick}
             <button className="btn primary" onClick={summarise} disabled={!!busy}>{busy === "notes" ? <Loader2 size={14} className="spin" /> : <NotebookPen size={14} />} Write the notes</button></div>
         </div>
       ) : (
@@ -216,6 +227,7 @@ function Detail({ m, onChange, onDelete }: { m: Meeting; onChange: (m: Meeting) 
           <section className="card col">
             <div className="row"><h2 className="grow">Summary</h2>
               <button className="btn ghost sm" onClick={() => navigator.clipboard.writeText(notesText(m.title, n)).then(() => toast.ok("Notes copied"))}><Copy size={13} /> Copy notes</button>
+              {templatePick}
               <button className="btn ghost sm" onClick={summarise} disabled={!!busy}>{busy === "notes" ? <Loader2 size={13} className="spin" /> : null} Write again</button></div>
             <p style={{ margin: 0 }}>{n.summary}</p>
             {n.attendees.length > 0 && <div className="small muted row"><Users size={13} /> {n.attendees.join(", ")}</div>}
