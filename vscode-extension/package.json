@@ -1,0 +1,96 @@
+{
+  "name": "ai-workspace",
+  "displayName": "AI Workspace",
+  "description": "Ask your self-hosted AI Workspace assistant from VS Code: same memory, tools and approvals as the app.",
+  "version": "0.1.0",
+  "publisher": "ai-workspace",
+  "license": "SEE LICENSE IN ../LICENSE",
+  "private": true,
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "AI",
+    "Chat"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      {
+        "command": "aiWorkspace.ask",
+        "title": "Ask",
+        "category": "AI Workspace"
+      },
+      {
+        "command": "aiWorkspace.askAboutSelection",
+        "title": "Ask about selection",
+        "category": "AI Workspace"
+      },
+      {
+        "command": "aiWorkspace.explainSelection",
+        "title": "Explain selection",
+        "category": "AI Workspace"
+      },
+      {
+        "command": "aiWorkspace.newConversation",
+        "title": "New conversation",
+        "category": "AI Workspace"
+      },
+      {
+        "command": "aiWorkspace.setToken",
+        "title": "Set terminal access token",
+        "category": "AI Workspace"
+      },
+      {
+        "command": "aiWorkspace.openApp",
+        "title": "Open AI Workspace",
+        "category": "AI Workspace"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "aiWorkspace.explainSelection",
+          "when": "editorHasSelection",
+          "group": "9_aiworkspace@1"
+        },
+        {
+          "command": "aiWorkspace.askAboutSelection",
+          "when": "editorHasSelection",
+          "group": "9_aiworkspace@2"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "AI Workspace",
+      "properties": {
+        "aiWorkspace.url": {
+          "type": "string",
+          "default": "http://127.0.0.1:3100",
+          "description": "Address of your AI Workspace (the Workbench)."
+        },
+        "aiWorkspace.model": {
+          "type": "string",
+          "default": "",
+          "description": "Model ref to use (empty = the workspace default, e.g. auto)."
+        },
+        "aiWorkspace.maxSelectionChars": {
+          "type": "number",
+          "default": 20000,
+          "description": "Longest selection sent with a question."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc -p .",
+    "test": "tsc -p . && node --test test/*.test.mjs",
+    "package": "npx @vscode/vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.4.0"
+  }
+}
