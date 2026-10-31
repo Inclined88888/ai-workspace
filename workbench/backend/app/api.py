@@ -72,6 +72,7 @@ class SetupIn(BaseModel):
     workspace_name: str = Field("", max_length=80)
 
 
+
 @public.post("/setup")
 def setup(data: SetupIn, request: Request, response: Response):
     throttle(request.client.host if request.client else "?")
@@ -894,3 +895,25 @@ async def calendar_loop():
 def recover_interrupted():
     db.run("UPDATE research SET status = 'error', error = 'Interrupted by a restart', progress = 'Failed' WHERE status = 'running'")
 
+
+# AIW-Phase1: Compression and recovery status
+@api.get("/compression/status")
+def compression_status():
+    """Compression and recovery statistics."""
+    from . import compression, recovery
+    return {
+        "compressions": db.one("SELECT COUNT(*) as c, SUM(original_tokens) as orig, SUM(compressed_tokens) as comp FROM compressions"),
+        "recoveries": db.all("SELECT error_type, COUNT(*) as count, AVG(delay_seconds) as avg_delay FROM recovery_attempts GROUP BY error_type"),
+    }
+
+@api.get("/credentials/status")
+def credentials_status():
+    """Credential pool status (without keys)."""
+    from . import credentials
+    return {"providers": {p: credentials.get_pool(p).list() for p in ["openai", "anthropic", "openrouter", "gemini", "groq"]}}
+
+@api.get("/ratelimit/status")
+def ratelimit_status():
+    """Rate limit status for all providers."""
+    from . import ratelimit
+    return {"providers": {p: ratelimit.get_tracker(p).get_status() for p in ["openai", "anthropic", "openrouter", "gemini", "groq"]}}
