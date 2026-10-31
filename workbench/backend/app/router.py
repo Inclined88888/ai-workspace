@@ -69,7 +69,7 @@ _SMALL = re.compile(r"(mini|nano|lite|small|haiku|instant|fast|flash|tiny|\b[0-9
 # Model names that take images. Matched loosely; text-only exceptions first.
 _BLIND = re.compile(r"(gpt-oss|coder|codestral|deepseek-(chat|reasoner|r1|v3)|kimi|glm-4\.5|qwq|llama-3\.[0-3]-|mixtral|"
                     r"embed|whisper|tts|instant)", re.I)
-_SEES = re.compile(r"(gemini|gemma-3|gpt-4o|gpt-4\.1|gpt-5|gpt-6|\bo[34]\b|claude|grok-4|grok-2-vision|llama-4|llama3\.2-vision|"
+_SEES = re.compile(r"(gemini|gemma-[34]|gpt-4o|gpt-4\.1|gpt-5|gpt-6|\bo[34]\b|claude|grok-4|grok-2-vision|llama-4|llama3\.2-vision|"
                    r"-vl|vl[:-]|qwen3\.[5-9]|llava|pixtral|mistral-(medium|large|small)|muse-spark|minicpm-v|moondream)", re.I)
 _SKIP = re.compile(r"(embed|whisper|tts|guard|moderation|rerank|vision-preview|image|audio|transcribe|realtime|search)", re.I)
 

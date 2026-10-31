@@ -463,9 +463,11 @@ def models(fresh: bool = False):
     except HTTPException:
         default = ""
     from .receipts import reliability
+    from .router import sees
 
     stats = reliability()
-    return {"models": [m | {"reliability": stats.get(m["ref"])} for m in llm.list_models(fresh)], "default": default}
+    return {"models": [m | {"reliability": stats.get(m["ref"]), "vision": sees(m["model"]) if not m.get("virtual") else None}
+                       for m in llm.list_models(fresh)], "default": default}
 
 
 @api.get("/ollama/status")

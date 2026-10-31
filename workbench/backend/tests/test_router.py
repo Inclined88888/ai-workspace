@@ -259,7 +259,7 @@ def test_which_models_can_see():
     from app.router import sees
 
     for m in ("gemini-2.5-flash", "meta-llama/llama-4-scout-17b-16e-instruct", "qwen/qwen3.8-27b", "gpt-4o-mini", "claude-sonnet-4",
-              "google/gemma-3-27b-it:free", "qwen2.5vl:7b", "llava:13b", "o3-mini"):
+              "google/gemma-3-27b-it:free", "google/gemma-4-31b-it:free", "qwen2.5vl:7b", "llava:13b", "o3-mini"):
         assert sees(m), m
     for m in ("openai/gpt-oss-120b", "qwen2.5:7b", "llama-3.3-70b-versatile", "qwen/qwen3-coder:free", "deepseek-chat", "llama-3.1-8b-instant"):
         assert not sees(m), m

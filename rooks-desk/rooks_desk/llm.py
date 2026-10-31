@@ -152,8 +152,10 @@ def sees(provider: str, model: str, vision: str = "auto") -> bool:
         return vision == "on"
     if provider in ("scripted",):
         return False
-    if provider in ("openai", "anthropic", "gemini", "workbench"):
-        return True  # workbench: the smart router sends screenshots to a model that can see, or drops them
+    if provider in ("openai", "anthropic", "gemini"):
+        return True
+    if provider == "workbench" and model in ("default", "auto", "auto:fast", "auto:strong"):
+        return True  # the smart router can pick a vision model when it receives a screenshot
     return bool(_VISION_HINT.search(model or ""))
 
 

@@ -35,7 +35,8 @@ AGENTS: dict[str, dict[str, Any]] = {
     "claude": {
         "id": "claude", "name": "Claude Code", "bin": "claude", "env": "WORKBENCH_CLAUDE_BIN",
         "plan": "Claude Pro, Max, Team or Enterprise",
-        "install": "npm install -g @anthropic-ai/claude-code", "login": "claude",
+        "install": "irm https://claude.ai/install.ps1 | iex" if sys.platform == "win32" else "curl -fsSL https://claude.ai/install.sh | bash",
+        "login": "claude",
         "login_hint": "Run claude in a terminal and pick \"Claude account with subscription\". Anthropic's own sign-in opens in your browser.",
         "docs": "https://code.claude.com/docs/en/setup",
         "terms": "https://code.claude.com/docs/en/legal-and-compliance",

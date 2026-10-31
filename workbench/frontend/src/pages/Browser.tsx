@@ -35,6 +35,7 @@ export default function Browser() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { models } = useModels();
+  const [showAllModels, setShowAllModels] = useState(false);
   const [usage, setUsage] = useState<{ used: number; limit: number } | null>(null);
   const [bridgeReady, setBridgeReady] = useState(false);
   const [checkingService, setCheckingService] = useState(true);
@@ -45,6 +46,7 @@ export default function Browser() {
   const [openStep, setOpenStep] = useState<number | null>(null);
   const [form, setForm] = useState({ goal: "", provider: "", model: "", max_steps: 25, domains: "" });
   const toast = useToast();
+  const visionModels = models.filter((m) => m.virtual || m.vision);
 
   const loadJobs = () => api<JobSummary[]>("/browser/jobs").then(setJobs).catch(toast.err);
   const checkService = () => { setCheckingService(true); return api<{ usage: { used: number; limit: number }; providers: { name: string; ready: boolean }[] }>("/browser/providers")
@@ -113,16 +115,17 @@ export default function Browser() {
         <div><h1>Browser agent</h1><p className="muted">Describe a goal. The agent opens a real browser, clicks, types and reads until it is done.</p></div>
       </div>
 
-      {!checkingService && (serviceError || !bridgeReady || models.length === 0) && <div className="card col" role="status" style={{ marginBottom: 16 }}>
+      {!checkingService && (serviceError || !bridgeReady || models.length === 0 || (jobs.length === 0 && !job)) && <div className="card col" role="status" style={{ marginBottom: 16 }}>
         <h2>Before your first browser task</h2>
         {serviceError && <div className="alert err">Browser service: {serviceError}</div>}
         {!serviceError && !bridgeReady && <div className="alert">The browser service is running but cannot reach AI Workspace's model bridge. Restart AI Workspace, then check again.</div>}
         <ol className="small">
-          <li>Connect a model in <Link to="/settings">Settings</Link>. A model that can read screenshots works best.</li>
+          <li>Connect a model in <Link to="/settings">Settings</Link>. Auto can choose a model that reads screenshots; the menu starts with vision models.</li>
           <li>For the one-command install, run <code>rooks-browser doctor</code> to check Chrome or Chromium, then restart AI Workspace.</li>
           <li>If it still fails, run <code>ai-workspace --logs</code> to see the browser service error.</li>
         </ol>
-        <div><button type="button" className="btn sm" onClick={checkService}>Check again</button></div>
+        <div className="row wrap"><button type="button" className="btn sm" onClick={checkService}>Check again</button>
+          {!serviceError && bridgeReady && models.length > 0 && <span className="small muted">Ready to start.</span>}</div>
       </div>}
 
       <form className="card col" onSubmit={start} style={{ marginBottom: 16 }}>
@@ -134,7 +137,11 @@ export default function Browser() {
           </div>
         )}
         <div className="row wrap">
-          <div style={{ width: 260 }}><ModelSelect value={form.model} onChange={(model) => setForm({ ...form, model })} models={models} /></div>
+          <div style={{ width: 260 }}><ModelSelect value={form.model} onChange={(model) => setForm({ ...form, model })} models={showAllModels ? models : visionModels} /></div>
+          <label className="row small muted"><input type="checkbox" checked={showAllModels} onChange={(e) => {
+            setShowAllModels(e.target.checked);
+            if (!e.target.checked && form.model && !visionModels.some((m) => m.ref === form.model)) setForm((f) => ({ ...f, model: "" }));
+          }} /> All models</label>
           <label className="row small muted">Max steps
             <input className="input" type="number" min={1} max={50} style={{ width: 80 }} value={form.max_steps} onChange={(e) => setForm({ ...form, max_steps: Number(e.target.value) })} />
           </label>

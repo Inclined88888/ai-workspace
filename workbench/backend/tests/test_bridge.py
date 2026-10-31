@@ -70,6 +70,8 @@ def test_the_bridge_needs_its_key(client, monkeypatch):
 def test_models_and_default(client, sdk):
     ids = [m.id for m in sdk.models.list().data]
     assert f"{client.pid}/fake-model" in ids
+    listed = client.get("/api/models").json()["models"]
+    assert next(m for m in listed if m["ref"] == f"{client.pid}/fake-model")["vision"] is False
     SCRIPT[:] = [{"role": "assistant", "content": "plain answer"}]
     assert sdk.chat.completions.create(model="default", messages=[{"role": "user", "content": "hi"}]).choices[0].message.content == "plain answer"
 

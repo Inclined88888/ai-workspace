@@ -56,6 +56,7 @@ export default function Computer() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { models } = useModels();
+  const [showAllModels, setShowAllModels] = useState(false);
   const [desk, setDesk] = useState<DeskStatus | null>(null);
   const [serviceError, setServiceError] = useState("");
   const [jobs, setJobs] = useState<JobSummary[]>([]);
@@ -66,6 +67,7 @@ export default function Computer() {
   const [form, setForm] = useState({ goal: "", model: "", max_steps: 30, dry_run: false, approve: [] as string[] });
   const [lists, setLists] = useState<{ folders: string; allow_apps: string } | null>(null);
   const toast = useToast();
+  const visionModels = models.filter((m) => m.virtual || m.vision);
 
   const loadJobs = () => api<JobSummary[]>("/desk/jobs").then(setJobs).catch(toast.err);
   const loadDesk = () => api<DeskStatus>("/desk/status").then((d) => {
@@ -154,7 +156,7 @@ export default function Computer() {
         </button>
       </div>
 
-      {(serviceError || !desk?.ok || missing.length > 0 || models.length === 0) && <div className="card col" role="status" style={{ marginBottom: 16 }}>
+      {(serviceError || !desk?.ok || missing.length > 0 || models.length === 0 || (jobs.length === 0 && !job)) && <div className="card col" role="status" style={{ marginBottom: 16 }}>
         <h2>Set up Computer before starting</h2>
         {serviceError && <div className="alert err">Rooks Desk: {serviceError}</div>}
         {desk && !desk.ok && <div className="alert err">Rooks Desk cannot see this screen: {desk.error}</div>}
@@ -181,7 +183,11 @@ export default function Computer() {
           {EXAMPLES.map((ex) => <button type="button" key={ex} className="btn sm ghost" onClick={() => setForm({ ...form, goal: ex })}>{ex.slice(0, 52)}…</button>)}
         </div>
         <div className="row wrap">
-          <div style={{ width: 260 }}><ModelSelect value={form.model} onChange={(model) => setForm({ ...form, model })} models={models} /></div>
+          <div style={{ width: 260 }}><ModelSelect value={form.model} onChange={(model) => setForm({ ...form, model })} models={showAllModels ? models : visionModels} /></div>
+          <label className="row small muted"><input type="checkbox" checked={showAllModels} onChange={(e) => {
+            setShowAllModels(e.target.checked);
+            if (!e.target.checked && form.model && !visionModels.some((m) => m.ref === form.model)) setForm((f) => ({ ...f, model: "" }));
+          }} /> All models</label>
           <label className="row small muted">Max steps
             <input className="input" type="number" min={1} max={100} style={{ width: 80 }} value={form.max_steps} onChange={(e) => setForm({ ...form, max_steps: Number(e.target.value) })} />
           </label>

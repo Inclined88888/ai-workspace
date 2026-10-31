@@ -56,7 +56,7 @@ NO_MODEL_HELP = ("No AI model is set up yet. Either open the app (run `ai-worksp
                  "    export GROQ_API_KEY=...     (free at https://console.groq.com/keys)\n"
                  "    export GEMINI_API_KEY=...   (free at https://aistudio.google.com/apikey)\n"
                  "On Windows PowerShell: $env:GROQ_API_KEY=\"...\"")
-_VISION_HINT = re.compile(r"(gpt-4o|gpt-4\.1|gpt-5|o3|o4|claude|gemini|llava|vision|-vl|vl:|qwen2\.5vl|qwen3-vl|gemma3|minicpm-v|moondream|pixtral|llama4)", re.I)
+_VISION_HINT = re.compile(r"(gpt-4o|gpt-4\.1|gpt-5|gpt-6|o3|o4|claude|gemini|llava|vision|-vl|vl:|qwen2\.5vl|qwen3-vl|gemma-?[34]|minicpm-v|moondream|pixtral|llama-?4)", re.I)
 
 
 def _env(*names: str) -> str:
@@ -151,7 +151,11 @@ def sees(provider: str, model: str, vision: str = "auto") -> bool:
         return vision == "on"
     if provider in ("scripted",):
         return False
-    if provider in ("openai", "anthropic"):
+    if provider in ("openai", "anthropic", "gemini"):
+        return True
+    # "default" is AI Workspace's smart router. Sending the screenshot lets it pick a vision model;
+    # omitting it forces a text-only route even when the user has a vision model connected.
+    if provider == "workbench" and model in ("default", "auto", "auto:fast", "auto:strong"):
         return True
     return bool(_VISION_HINT.search(model or ""))
 

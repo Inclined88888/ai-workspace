@@ -49,7 +49,7 @@ def test_detects_signed_in_claude_and_codex(client, fakes):
     by = {a["id"]: a for a in r["agents"]}
     assert by["claude"]["installed"] and by["claude"]["signed_in"] and by["claude"]["auth"] == "subscription"
     assert by["claude"]["version"].startswith("2.1.314")
-    assert by["claude"]["install"] == "npm install -g @anthropic-ai/claude-code"
+    assert by["claude"]["install"] == "curl -fsSL https://claude.ai/install.sh | bash"
     assert by["codex"]["ready"] and by["codex"]["auth"] == "subscription"
     # nothing identifying or secret comes back
     assert not any(k in json.dumps(r).lower() for k in ("email", "token", "oauth"))
