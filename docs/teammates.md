@@ -1,7 +1,7 @@
 # Teammates, groups, Vault, drafts, Pages, channels and the phone link (feat/grok-style)
 
 Backend: `workbench/backend/app/teammates/`. Shared files get one tagged hook line each (`# feat/grok-style`):
-`main.py` (routers + Slack and phone-relay loops), `assistant.system_prompt`, `assistant.available_tools`, `telegram._conversation`.
+`main.py` (routers + Slack, Discord and phone-relay loops), `assistant.system_prompt`, `assistant.available_tools`, `telegram._conversation`.
 
 | Area | API | Notes |
 |---|---|---|
@@ -14,5 +14,5 @@ Backend: `workbench/backend/app/teammates/`. Shared files get one tagged hook li
 | Vault | `/api/vault`, `/api/vault/forms/{id}` | Keychain when enabled, otherwise Fernet. Masked hints only; the model never sees secrets. Luhn check on cards. |
 | Drafts | `/api/outbox`, `POST /api/outbox/{id}/send` | `draft_message` tool. Sending happens only from web, desktop or mobile (user press), claimed atomically, and never twice. |
 | Pages | `/api/pages`, `/api/pages/{id}/export.html`, public `/p/{token}` | Safe Markdown, self-contained HTML with CSP and no scripts. Sunshine is the default palette. |
-| Channels | `GET /api/channels`, `PUT /api/channels/slack`, `PUT /api/channels/telegram` | Slack Socket Mode with a manifest and steps; allowlist; idempotent per message. Inbound messages never send: anything outbound waits for approval in the app. WhatsApp: docs only. |
+| Channels | `GET /api/channels`, `PUT /api/channels/slack`, `PUT /api/channels/discord` (+ `/test`), `PUT /api/channels/telegram` | Slack Socket Mode with a manifest and steps; Discord Gateway (DMs and @mentions only, no privileged intents, invite link generated after Test); allowlist; idempotent per message. Inbound messages never send: anything outbound waits for approval in the app. WhatsApp: docs only. |
 | Phone link | `/api/link`, `/api/mobile/link/keys`, `/api/mobile/link/sealed`, `/api/mobile/files/*`, handoffs | X25519 + HKDF-SHA256 + ChaCha20-Poly1305. The device token travels inside the ciphertext. Replay-protected, `/api/mobile/*` only. LAN first, relay (`link_relay_url`, https only) as fallback. |

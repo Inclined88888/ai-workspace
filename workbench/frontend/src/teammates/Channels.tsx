@@ -1,11 +1,12 @@
-// feat/grok-style: talk to your teammates from Slack or Telegram, plus the phone link settings.
+// feat/grok-style: talk to your teammates from Slack, Discord or Telegram, plus the phone link settings.
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
 import "./teammates.css";
 
 type Mate = { id: number; name: string };
 type Status = {
-  slack: { configured: boolean; connected?: boolean; error?: string; allowed_users: string; teammate: number; steps: string[]; manifest: unknown };
+  slack: { configured: boolean; running?: boolean; error?: string; allowed_users: string; teammate: number; steps: string[]; manifest: unknown };
+  discord: { configured: boolean; running: boolean; bot?: string; error?: string; allowed_users: string; teammate: number; steps: string[]; invite_url: string };
   telegram: { configured: boolean; running: boolean; bot?: string; error?: string; allowed_users?: string; teammate: number; steps: string[] };
   whatsapp: { available: boolean; why: string };
 };
@@ -27,6 +28,7 @@ export default function Channels() {
   const [mates, setMates] = useState<Mate[]>([]);
   const [slack, setSlack] = useState({ bot_token: "", app_token: "", allowed_users: "" });
   const [tg, setTg] = useState({ bot_token: "", allowed_users: "" });
+  const [dc, setDc] = useState({ bot_token: "", allowed_users: "" });
   const [folders, setFolders] = useState("");
   const [relay, setRelay] = useState("");
   const [msg, setMsg] = useState("");
@@ -34,6 +36,7 @@ export default function Channels() {
     const [s, l, m] = await Promise.all([api<Status>("/channels"), api<Link>("/link"), api<{ teammates: Mate[] }>("/teammates")]);
     setSt(s); setLink(l); setMates(m.teammates); setFolders(l.shared_folders.join("\n")); setRelay(l.relay_url);
     setSlack((x) => ({ ...x, allowed_users: s.slack.allowed_users })); setTg((x) => ({ ...x, allowed_users: s.telegram.allowed_users ?? "" }));
+    setDc((x) => ({ ...x, allowed_users: s.discord.allowed_users }));
   }, []);
   useEffect(() => { load().catch((e) => setMsg(e.message)); }, [load]);
   const save = async (path: string, body: unknown, method = "PUT") => {
@@ -44,11 +47,11 @@ export default function Channels() {
   const pickMate = (v: number, f: (n: number) => void) => <label>Who answers<select value={v} onChange={(e) => f(Number(e.target.value))}>
     {mates.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label>;
   return <div className="tm-page">
-    <header><h1>Channels &amp; phone</h1><p className="tm-muted">Message your teammates from Slack or Telegram. They answer there, but anything that
+    <header><h1>Channels &amp; phone</h1><p className="tm-muted">Message your teammates from Slack, Discord or Telegram. They answer there, but anything that
       sends or changes things waits for you in the app.</p></header>
     {msg && <p className="tm-muted" role="status">{msg}</p>}
     <section className="tm-card wide">
-      <div className="tm-card-head"><b>Slack</b><span className="tm-pill">{st.slack.configured ? (st.slack.connected ? "Connected" : "Set up") : "Not set up"}</span></div>
+      <div className="tm-card-head"><b>Slack</b><span className="tm-pill">{st.slack.configured ? (st.slack.running ? "Connected" : "Set up") : "Not set up"}</span></div>
       <Wizard steps={st.slack.steps}>
         <details><summary>App manifest</summary><pre className="tm-pre">{JSON.stringify(st.slack.manifest, null, 2)}</pre>
           <button className="btn ghost sm" onClick={() => navigator.clipboard.writeText(JSON.stringify(st.slack.manifest, null, 2))}>Copy manifest</button></details>
@@ -60,6 +63,18 @@ export default function Channels() {
         <div className="tm-row"><button className="btn primary sm" onClick={() => save("/channels/slack", {
           ...(slack.bot_token ? { bot_token: slack.bot_token } : {}), ...(slack.app_token ? { app_token: slack.app_token } : {}), allowed_users: slack.allowed_users })}>Save</button>
           <button className="btn ghost sm" onClick={() => save("/channels/slack/test", {}, "POST")}>Test connection</button></div>
+      </Wizard>
+    </section>
+    <section className="tm-card wide">
+      <div className="tm-card-head"><b>Discord</b><span className="tm-pill">{st.discord.running ? `Connected${st.discord.bot ? ` as ${st.discord.bot}` : ""}` : st.discord.configured ? "Set up" : "Not set up"}</span></div>
+      <Wizard steps={st.discord.steps}>
+        <label>Bot token<input type="password" autoComplete="off" value={dc.bot_token} onChange={(e) => setDc({ ...dc, bot_token: e.target.value })} /></label>
+        <label>Your Discord user IDs (comma separated)<input value={dc.allowed_users} onChange={(e) => setDc({ ...dc, allowed_users: e.target.value })} /></label>
+        {pickMate(st.discord.teammate, (n) => save("/channels/discord", { teammate_id: n }))}
+        {st.discord.invite_url && <p className="tm-muted"><a href={st.discord.invite_url} target="_blank" rel="noreferrer">Invite the bot to a server</a> (DMs work without one). It answers DMs and messages that @mention it.</p>}
+        {st.discord.error && <p className="tm-err">{st.discord.error}</p>}
+        <div className="tm-row"><button className="btn primary sm" onClick={() => save("/channels/discord", { ...(dc.bot_token ? { bot_token: dc.bot_token } : {}), allowed_users: dc.allowed_users })}>Save</button>
+          <button className="btn ghost sm" onClick={() => save("/channels/discord/test", {}, "POST")}>Test connection</button></div>
       </Wizard>
     </section>
     <section className="tm-card wide">

@@ -371,6 +371,12 @@ class SlackIn(BaseModel):
     teammate_id: int | None = None
 
 
+class DiscordIn(BaseModel):
+    bot_token: str | None = None
+    allowed_users: str | None = None
+    teammate_id: int | None = None
+
+
 class TelegramIn(BaseModel):
     bot_token: str | None = None
     allowed_users: str | None = None
@@ -390,6 +396,16 @@ def channels_slack(body: SlackIn):
 @router.post("/channels/slack/test")
 async def channels_slack_test():
     return await channels.test_slack()
+
+
+@router.put("/channels/discord")
+def channels_discord(body: DiscordIn):
+    return channels.configure_discord(body.bot_token, body.allowed_users, body.teammate_id)
+
+
+@router.post("/channels/discord/test")
+async def channels_discord_test():
+    return await channels.test_discord()
 
 
 @router.put("/channels/telegram")
@@ -505,4 +521,4 @@ def install(app) -> None:
 
 
 def background():
-    return [("Slack", channels.slack_loop), ("Phone relay", phonelink.relay_loop)]
+    return [("Slack", channels.slack_loop), ("Discord", channels.discord_loop), ("Phone relay", phonelink.relay_loop)]
