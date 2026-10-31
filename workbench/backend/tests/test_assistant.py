@@ -1,6 +1,8 @@
 import asyncio
+import io
 import json
 import time
+import zipfile
 
 from conftest import CALLS, SCRIPT, events, tool_call
 
@@ -31,6 +33,21 @@ def test_chat_runs_tools_and_answers(client):
     first = next(c for c in CALLS if c.get("tools"))
     assert {"create_task", "remember", "load_skill", "schedule_task"} <= {t["function"]["name"] for t in first["tools"]}
     assert "temperature" not in first
+
+
+def test_zip_can_be_attached_to_chat(client):
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as z:
+        z.writestr("notes.txt", "The project deadline is Friday.")
+    uploaded = client.post("/api/files/upload", params={"name": "project.zip"}, content=archive.getvalue())
+    assert uploaded.status_code == 200, uploaded.text
+    fid = uploaded.json()["id"]
+    SCRIPT[:] = [lambda msgs: {"role": "assistant", "content": "I can see the attachment." if f"#{fid}" in msgs[-1]["content"] else "Missing attachment."}]
+    ev = events(client.post("/api/assistant/chat", json={"message": "", "file_ids": [fid]}))
+    assert next(e for e in ev if e["type"] == "message")["content"] == "I can see the attachment."
+    assert "notes.txt" in str(client.get(f"/api/files/{fid}").json()["extract"])
+    assert client.post("/api/assistant/chat", json={"message": "", "file_ids": [999999]}).status_code == 404
+    assert client.post("/api/assistant/chat", json={"message": ""}).status_code == 422
 
 
 def test_memory_is_learned_and_used_next_time(client):

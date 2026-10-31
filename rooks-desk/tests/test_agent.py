@@ -7,6 +7,13 @@ from rooks_desk import llm, receipts, runner
 from rooks_desk.backends.fake import FakeBackend
 
 
+def test_workbench_auto_uses_screenshots_but_explicit_text_model_does_not():
+    assert llm.sees("workbench", "default")
+    assert llm.sees("workbench", "auto:strong")
+    assert not llm.sees("workbench", "1/text-only-model")
+    assert llm.sees("workbench", "2/nvidia/nemotron-3.5-super-vl:free")
+
+
 def run(script, backend=None, approver=lambda a: True, mailer=None, **settings):
     b = backend or FakeBackend()
     asked = []

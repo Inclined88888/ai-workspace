@@ -1,6 +1,6 @@
 import { ExternalLink, FileText, Loader2, Search, Trash2 } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import { Tracer } from "../Tracer";
 import { Empty, Markdown, ModelSelect, relTime, useModels, useToast } from "../util";
@@ -16,11 +16,12 @@ export default function Research() {
   const [question, setQuestion] = useState("");
   const [depth, setDepth] = useState(3);
   const [model, setModel] = useState("");
+  const [setup, setSetup] = useState<{ ready: boolean; search_provider: string } | null>(null);
   const { models } = useModels();
   const toast = useToast();
 
   const loadList = () => api<Item[]>("/research").then(setItems).catch(toast.err);
-  useEffect(() => { loadList(); }, []);
+  useEffect(() => { loadList(); api<{ ready: boolean; search_provider: string }>("/research/setup").then(setSetup).catch(toast.err); }, []);
 
   useEffect(() => {
     if (!id) return setCurrent(null);
@@ -69,8 +70,13 @@ export default function Research() {
   return (
     <div className="page">
       <div className="page-head">
-        <div><h1>Research</h1><p className="muted">Plans searches, reads the pages and writes a cited report. Runs on your SearXNG, nothing is sent to a search company directly.</p></div>
+        <div><h1>Research</h1><p className="muted">Plans searches, reads the pages and writes a cited report using your configured search provider.</p></div>
       </div>
+      {setup && !setup.ready && <div className="card col" role="status" style={{ marginBottom: 16 }}>
+        <h2>Set up web search first</h2>
+        <p className="muted small">Research needs a Brave Search or Tavily key, or the SearXNG add-on. Add one in Chat settings before starting a report.</p>
+        <div><Link className="btn primary" to="/assistant-settings">Open Chat settings</Link></div>
+      </div>}
       <form className="card col" onSubmit={start} style={{ marginBottom: 20 }}>
         <textarea className="input" rows={3} value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="What do you want to know? Be specific: scope, timeframe, region…" />
         <div className="row wrap">
@@ -81,7 +87,7 @@ export default function Research() {
             </select>
           </label>
           <div className="spacer" />
-          <button className="btn primary" disabled={question.trim().length < 5}><Search size={15} /> Start research</button>
+          <button className="btn primary" disabled={!setup?.ready || models.length === 0 || question.trim().length < 5}><Search size={15} /> Start research</button>
         </div>
       </form>
 

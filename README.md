@@ -179,7 +179,7 @@ Install on macOS, Windows and Linux, configuration, MCP servers and limits: [roo
 
 ### Your Claude plan, through Claude Code
 
-Have a Claude Pro or Max plan? Install Anthropic's Claude Code (`npm i -g @anthropic-ai/claude-code`), run `claude` once to
+Have a Claude Pro or Max plan? Install Anthropic's Claude Code (`curl -fsSL https://claude.ai/install.sh | bash` on macOS/Linux), run `claude` once to
 sign in, and hand it coding jobs from the app's **Coding agent** page or with `rooks -P claude-code "..."`. You approve
 each edit and command, and see the diff. The app never sees your sign-in. Codex with a ChatGPT plan works the same way.
 Details and Anthropic's terms: [docs/CLAUDE-CODE.md](docs/CLAUDE-CODE.md).
@@ -323,7 +323,7 @@ in five steps:
 
 **Cloud.** Settings → Model providers. Each connection is a credential type plus the wire protocol the provider speaks: OpenAI uses the Responses API, Anthropic its native Messages API, and everything else (OpenRouter, Gemini, Groq, Together, Mistral, LM Studio, vLLM, LiteLLM, llama.cpp server) Chat Completions. Enter the base URL and key; for local OpenAI compatible servers the key is optional. If a provider does not expose a model list, type model ids in the Models field.
 
-**Claude.** Use a Claude API key (console.anthropic.com) with the Anthropic preset. A Claude Pro or Max subscription cannot be connected: Anthropic's terms say "Anthropic does not permit third-party developers to offer Claude.ai login into their own applications, or to route requests through Free, Pro, or Max plan credentials on behalf of their users … developers may not collect, store, or intermediate Claude.ai credentials or session tokens" ([source](https://code.claude.com/docs/en/legal-and-compliance)). The same page allows a user to sign in to the unmodified Claude Code program with their own subscription; a planned add-on will start your own installed Claude Code for agent tasks, with you signing in through Anthropic, and Workbench never touching the token. It is not built yet.
+**Claude.** Use a Claude API key (console.anthropic.com) with the Anthropic preset for Chat. A Claude Pro or Max subscription cannot be connected directly to Chat: Anthropic's [terms](https://code.claude.com/docs/en/legal-and-compliance) do not permit third-party apps to route Chat requests through plan credentials. You can use that subscription for coding jobs through the official Claude Code CLI on the **Coding agent** page. Sign in with Anthropic in Claude Code; AI Workspace does not handle its token.
 
 **ChatGPT plans.** Sign in with ChatGPT on the welcome screen or under Models: OpenAI's official open-source flow lets your ChatGPT plan pay for the app's requests, with no API key. Claude, SuperGrok and Google AI subscriptions can't be connected (their terms don't allow it or there's no public sign-in yet); the screen says why and offers a key instead. Details and sources: `docs/models-and-router.md`.
 

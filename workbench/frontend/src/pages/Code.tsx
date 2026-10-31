@@ -48,6 +48,7 @@ export function AgentSetup({ agent, onRecheck, checking }: { agent: CliAgent; on
           <li>Come back and press Check again.</li>
         </ol>
       )}
+      {!agent.ready && <a className="small" href={agent.docs} target="_blank" rel="noreferrer">Official {agent.name} setup guide</a>}
       {agent.ready && agent.auth === "api_key" && <div className="small muted">{agent.detail}</div>}
       {agent.ready && agent.version && <div className="small faint">{agent.name} {agent.version.replace(/\(.*\)/, "").trim()}</div>}
     </div>

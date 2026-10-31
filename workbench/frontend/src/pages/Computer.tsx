@@ -1,6 +1,6 @@
 import { CircleStop, FolderOpen, Loader2, Monitor, OctagonX, Play, ShieldAlert, ShieldCheck, Trash2, XCircle } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import { Tracer } from "../Tracer";
 import { CursorOverlay, DoneTick, LiveShot, parsePointer, Pointer } from "../motion";
@@ -56,7 +56,9 @@ export default function Computer() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { models } = useModels();
+  const [showAllModels, setShowAllModels] = useState(false);
   const [desk, setDesk] = useState<DeskStatus | null>(null);
+  const [serviceError, setServiceError] = useState("");
   const [jobs, setJobs] = useState<JobSummary[]>([]);
   const [job, setJob] = useState<Job | null>(null);
   const [shotKey, setShotKey] = useState(0);
@@ -65,12 +67,14 @@ export default function Computer() {
   const [form, setForm] = useState({ goal: "", model: "", max_steps: 30, dry_run: false, approve: [] as string[] });
   const [lists, setLists] = useState<{ folders: string; allow_apps: string } | null>(null);
   const toast = useToast();
+  const visionModels = models.filter((m) => m.virtual || m.vision);
 
   const loadJobs = () => api<JobSummary[]>("/desk/jobs").then(setJobs).catch(toast.err);
   const loadDesk = () => api<DeskStatus>("/desk/status").then((d) => {
     setDesk(d);
+    setServiceError("");
     setLists((l) => l ?? { folders: d.policy.folders.join("\n"), allow_apps: d.policy.allow_apps.join(", ") });
-  }).catch(toast.err);
+  }).catch((e) => { setDesk(null); setServiceError((e as Error).message); });
   useEffect(() => { loadDesk(); loadJobs(); }, []);
 
   useEffect(() => {
@@ -152,7 +156,18 @@ export default function Computer() {
         </button>
       </div>
 
-      {desk && !desk.ok && <div className="alert err" style={{ marginBottom: 16 }}>Rooks Desk cannot see this screen: {desk.error}</div>}
+      {(serviceError || !desk?.ok || missing.length > 0 || models.length === 0 || (jobs.length === 0 && !job)) && <div className="card col" role="status" style={{ marginBottom: 16 }}>
+        <h2>Set up Computer before starting</h2>
+        {serviceError && <div className="alert err">Rooks Desk: {serviceError}</div>}
+        {desk && !desk.ok && <div className="alert err">Rooks Desk cannot see this screen: {desk.error}</div>}
+        <ol className="small">
+          <li>Connect a model in <Link to="/settings">Settings</Link>.</li>
+          <li>Run <code>rooks-desk setup</code> from Terminal.</li>
+          <li>On macOS, allow Screen &amp; System Audio Recording and Accessibility for the app running AI Workspace, then quit and reopen it.</li>
+          <li>Run <code>rooks-desk doctor</code> to check permissions. If the service is unavailable, run <code>ai-workspace --logs</code>.</li>
+        </ol>
+        <div><button type="button" className="btn sm" onClick={loadDesk}>Check again</button></div>
+      </div>}
       {missing.length > 0 && (
         <div className="alert col" style={{ marginBottom: 16, gap: 4 }}>
           <strong className="row"><ShieldAlert size={15} /> Rooks Desk needs permission</strong>
@@ -168,12 +183,16 @@ export default function Computer() {
           {EXAMPLES.map((ex) => <button type="button" key={ex} className="btn sm ghost" onClick={() => setForm({ ...form, goal: ex })}>{ex.slice(0, 52)}…</button>)}
         </div>
         <div className="row wrap">
-          <div style={{ width: 260 }}><ModelSelect value={form.model} onChange={(model) => setForm({ ...form, model })} models={models} /></div>
+          <div style={{ width: 260 }}><ModelSelect value={form.model} onChange={(model) => setForm({ ...form, model })} models={showAllModels ? models : visionModels} /></div>
+          <label className="row small muted"><input type="checkbox" checked={showAllModels} onChange={(e) => {
+            setShowAllModels(e.target.checked);
+            if (!e.target.checked && form.model && !visionModels.some((m) => m.ref === form.model)) setForm((f) => ({ ...f, model: "" }));
+          }} /> All models</label>
           <label className="row small muted">Max steps
             <input className="input" type="number" min={1} max={100} style={{ width: 80 }} value={form.max_steps} onChange={(e) => setForm({ ...form, max_steps: Number(e.target.value) })} />
           </label>
           <label className="row small"><input type="checkbox" checked={form.dry_run} onChange={(e) => setForm({ ...form, dry_run: e.target.checked })} /> Dry run (look and plan, change nothing)</label>
-          <button className="btn primary" disabled={form.goal.trim().length < 3}><Play size={15} /> Start</button>
+          <button className="btn primary" disabled={!desk?.ok || missing.length > 0 || models.length === 0 || form.goal.trim().length < 3}><Play size={15} /> Start</button>
         </div>
         <div className="row wrap small">
           <span className="muted">Don't ask me this time before it:</span>

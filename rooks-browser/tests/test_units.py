@@ -104,6 +104,9 @@ def test_resolve_and_vision(monkeypatch):
     assert llm.sees("anthropic", "claude-sonnet-4-5") and llm.sees("openai", "gpt-4.1-mini")
     assert not llm.sees("ollama", "qwen2.5:7b") and llm.sees("ollama", "qwen2.5vl:7b") and llm.sees("ollama", "llava")
     assert llm.sees("ollama", "qwen2.5:7b", "on") and not llm.sees("openai", "gpt-4o", "off")
+    assert llm.sees("workbench", "default") and llm.sees("workbench", "auto:fast")
+    assert not llm.sees("workbench", "1/text-only-model")
+    assert llm.sees("workbench", "2/nvidia/nemotron-3.5-super-vl:free")
 
 
 class Recorder(BaseHTTPRequestHandler):
