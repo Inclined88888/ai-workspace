@@ -71,3 +71,48 @@ def summary() -> dict:
                         f"{_CALLS} AND ts >= ? GROUP BY channel", start)
     return {"month_cents": round(total["c"], 2), "month_tokens": total["t"], "by_model": by_model, "by_channel": by_channel,
             "prices": prices()}
+
+
+def daily(days: int = 30) -> dict:
+    """Per-day model call trends for the Insights page: calls, failures, tokens, cost, latency, and who answered.
+
+    Days are UTC dates with no gaps (a quiet day is a zero row), oldest first. p95 latency is computed per day from the
+    successful calls only, so a provider timing out doesn't hide behind its own error. Cost is None for a day whose
+    calls were all unpriced (local models, unknown prices), never a misleading $0.
+    """
+    from datetime import timedelta
+
+    days = max(1, min(int(days), 90))
+    today = datetime.now(timezone.utc).date()
+    first = today - timedelta(days=days - 1)
+    rows = db.all(
+        "SELECT substr(ts, 1, 10) AS day, COUNT(*) AS calls, SUM(outcome != 'ok') AS failures, "
+        "COALESCE(SUM(tokens_in), 0) AS tokens_in, COALESCE(SUM(tokens_out), 0) AS tokens_out, "
+        "SUM(usd_cost) AS usd, SUM(usd_cost IS NULL) AS unpriced, "
+        "CAST(AVG(CASE WHEN outcome = 'ok' THEN latency_ms END) AS INTEGER) AS avg_ms "
+        f"{_CALLS} AND ts >= ? GROUP BY day", first.isoformat())
+    lat: dict[str, list[int]] = {}
+    for r in db.all(f"SELECT substr(ts, 1, 10) AS day, latency_ms {_CALLS} AND ts >= ? AND outcome = 'ok' ORDER BY day, latency_ms",
+                    first.isoformat()):
+        lat.setdefault(r["day"], []).append(r["latency_ms"])
+    by_day = {r["day"]: r for r in rows}
+    out = []
+    for i in range(days):
+        d = (first + timedelta(days=i)).isoformat()
+        r = by_day.get(d) or {}
+        ms = lat.get(d) or []
+        out.append({"day": d, "calls": r.get("calls") or 0, "failures": r.get("failures") or 0,
+                    "tokens_in": r.get("tokens_in") or 0, "tokens_out": r.get("tokens_out") or 0,
+                    "usd": round(r["usd"], 6) if r.get("usd") is not None else None, "unpriced": r.get("unpriced") or 0,
+                    "avg_ms": r.get("avg_ms") or 0, "p95_ms": ms[min(len(ms) - 1, int(len(ms) * 0.95))] if ms else 0})
+    providers = db.all(
+        f"SELECT provider, COUNT(*) AS calls, SUM(outcome != 'ok') AS failures, "
+        f"CAST(AVG(CASE WHEN outcome = 'ok' THEN latency_ms END) AS INTEGER) AS avg_ms {_CALLS} AND ts >= ? "
+        "GROUP BY provider ORDER BY calls DESC", first.isoformat())
+    channels = db.all(f"SELECT channel, COUNT(*) AS calls {_CALLS} AND ts >= ? GROUP BY channel ORDER BY calls DESC LIMIT 12",
+                      first.isoformat())
+    tot = {k: sum(x[k] for x in out) for k in ("calls", "failures", "tokens_in", "tokens_out", "unpriced")}
+    priced = [x["usd"] for x in out if x["usd"] is not None]
+    tot["usd"] = round(sum(priced), 6) if priced else None
+    return {"days": out, "providers": providers, "channels": channels, "totals": tot}
+

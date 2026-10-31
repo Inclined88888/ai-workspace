@@ -9,7 +9,7 @@ import json
 import re
 import secrets
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -378,6 +378,11 @@ def usage_summary():
 
 class PricesIn(BaseModel):
     prices: dict[str, dict[str, float]]
+
+
+@router.get("/usage/daily")
+def usage_daily(days: int = Query(30, ge=1, le=90)):
+    return usage.daily(days)
 
 
 @router.put("/usage/prices")

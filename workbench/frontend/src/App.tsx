@@ -33,6 +33,7 @@ import SitesPage from "./pages/Sites";
 import MailPage from "./pages/Mail";
 import Research from "./pages/Research";
 import Runs from "./pages/Runs";
+import Insights from "./pages/Insights"; // phase 3: usage trends
 import Status from "./pages/Status";
 import Settings from "./pages/Settings";
 import Skills from "./pages/Skills";
@@ -51,6 +52,7 @@ import Meetings from "./pages/Meetings";
 import Talk from "./pages/Talk";
 import VoiceSettings from "./pages/VoiceSettings";
 import { FolderKanban, History as HistoryIcon } from "lucide-react"; // feat/v02-core
+import { LineChart as LineChartIcon } from "lucide-react"; // phase 3: Insights
 import { FileText as FileTextIcon, Lock as LockIcon, MessageCircle as MessageCircleIcon } from "lucide-react"; // feat/grok-style
 import Projects from "./pages/Projects"; // feat/v02-core
 import HistoryPage from "./pages/History"; // feat/v02-core
@@ -133,6 +135,7 @@ const NAV: NavGroup[] = [
     { to: "/company", label: "Company", icon: Building2 },
     { to: "/compare", label: "Compare models", icon: Columns3 },
     { to: "/runs", label: "Run log", icon: ListTree },
+    { to: "/insights", label: "Insights", icon: LineChartIcon },
     { to: "/status", label: "System status", icon: Activity },
   ] },
 ];
@@ -331,6 +334,7 @@ export default function App() {
           <Route path="/projects/:id" element={<Projects />} />{/* feat/v02-core */}
           <Route path="/history" element={<HistoryPage />} />{/* feat/v02-core */}
           <Route path="/runs" element={<Runs />} />
+          <Route path="/insights" element={<Insights />} />
           <Route path="/runs/:id" element={<Runs />} />
           <Route path="/status" element={<Status />} />
           <Route path="/notes" element={<Docs kind="note" />} />
