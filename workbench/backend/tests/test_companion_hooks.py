@@ -30,17 +30,19 @@ def _port() -> int:
 @pytest.fixture(scope="session")
 def companion_url(tmp_path_factory):
     """Start a real uvicorn server for the companion API."""
-    from app import main, db
-    
     data_dir = tmp_path_factory.mktemp("data")
     companion_file = tmp_path_factory.mktemp("companion") / "companion.json"
-    
+
+    # Env vars must be set BEFORE importing app.config (it resolves DATA_DIR at import time).
     os.environ.update(
         APP_SECRET="a" * 40,
         TOOLS_API_KEY="k" * 30,
         DATA_DIR=str(data_dir),
         ROOKS_COMPANION_FILE=str(companion_file),
     )
+    from app import main, db, config
+    config.DATA_DIR = data_dir
+    config.DB_PATH = data_dir / "workbench.db"
     
     port = _port()
     server = uvicorn.Server(uvicorn.Config(main.app, host="127.0.0.1", port=port, log_level="error"))
@@ -59,12 +61,22 @@ def companion_url(tmp_path_factory):
     import requests
     base_url = f"http://127.0.0.1:{port}"
     headers = {"X-Workbench": "1"}
-    requests.post(f"{base_url}/api/setup", json={"password": "testpassword1"}, headers=headers)
-    r = requests.post(f"{base_url}/api/providers", json={"name": "Fake", "kind": "openai", "base_url": "http://fake", "api_key": "x"}, headers=headers)
+    # The desktop-token path signs us in without a password round-trip: the companion
+    # is a local, same-machine API, so a same-machine test can log in like the desktop app.
+    import app.config as _cfg
+    _cfg.DESKTOP = True
+    _cfg.DESKTOP_TOKEN = "test-desktop-token"
+    s = requests.Session()
+    s.headers.update(headers)
+    r = s.get(f"{base_url}/api/desktop/session?token=test-desktop-token", allow_redirects=False)
+    assert r.status_code in (302, 303, 307), f"desktop session failed: {r.status_code} {r.text}"
+    requests.post(f"{base_url}/api/setup", json={"password": "testpassword1"}, headers=headers, cookies=s.cookies)
+    r = s.post(f"{base_url}/api/providers", json={"name": "Fake", "kind": "openai", "base_url": "http://fake", "api_key": "x"})
+    assert "id" in r.json(), f"provider create failed: {r.status_code} {r.text}"
     pid = r.json()["id"]
-    requests.put(f"{base_url}/api/settings", json={"default_model": f"{pid}/fake-model"}, headers=headers)
+    s.put(f"{base_url}/api/settings", json={"default_model": f"{pid}/fake-model"})
     # Set companion settings
-    requests.post(f"{base_url}/api/settings", json={"learning_enabled": "1", "compress_history": "0"}, headers=headers)
+    s.post(f"{base_url}/api/settings", json={"learning_enabled": "1", "compress_history": "0"})
     
     yield base_url
     
