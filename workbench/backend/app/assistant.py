@@ -19,9 +19,12 @@ from zoneinfo import ZoneInfo
 import httpx
 from fastapi import HTTPException
 
-from . import actions, compression, config, db, llm, receipts, research, router, services, tools
+from . import actions, compression, config, db, llm, receipts, research, router, services, tool_results, tools
 
-MAX_STEPS = 12
+MAX_STEPS = 12          # default model calls per turn; the user can change it per channel (max_steps())
+MAX_STEPS_CEILING = 100
+REPEAT_LIMIT = 3        # identical failing calls in a row before that exact call is blocked for the rest of the turn
+REPEAT_FAULTS = ("tool_error", "bad_args", "rejected", "check_failed", "unknown_tool")
 HISTORY_MESSAGES = 40
 _BACKGROUND: set[asyncio.Task] = set()  # strong refs so background jobs (history summaries) are not garbage collected
 
@@ -49,6 +52,9 @@ class Ctx:
     turn_action_id: int | None = None  # this turn's row in `actions`; its model and tool calls point at it
     request_key: str = ""              # caller's idempotency key: a retried request with the same key is refused (item 28)
     started: float = 0.0
+    fail_streak: tuple[str, str, int] = ("", "", 0)  # (call signature, error text, count) of the latest failing calls
+    blocked_calls: set[str] = field(default_factory=set)  # signatures blocked after REPEAT_LIMIT identical failures
+    blocked_hits: int = 0              # attempts to run a blocked call; the second one ends the turn
 
     def trace(self) -> dict:
         return {"channel": self.channel, "conversation_id": self.conversation_id,
@@ -246,6 +252,29 @@ def _team(ctx: Ctx) -> list[dict]:
     return team_for(ctx.agent)
 
 
+def _has_tool_results(ctx: Ctx) -> bool:
+    return bool(ctx.conversation_id and db.one("SELECT 1 FROM tool_results WHERE conversation_id = ? LIMIT 1",
+                                               ctx.conversation_id))
+
+
+def _read_tool_result(result_id: str, offset: int = 0, find: str = "", ctx: "Ctx | None" = None) -> dict:
+    try:
+        return tool_results.read(ctx.conversation_id if ctx else None, result_id, offset, find=find or "")
+    except LookupError as e:
+        raise HTTPException(404, str(e)) from None
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+
+
+def max_steps(channel: str) -> int:
+    """Model calls allowed per turn: the setting for this channel (max_steps_<channel>), else max_steps, else 12."""
+    for key in (f"max_steps_{channel}", "max_steps"):
+        raw = (db.get_setting(key, "") or "").strip()
+        if raw.isdigit() and int(raw) > 0:
+            return min(int(raw), MAX_STEPS_CEILING)
+    return MAX_STEPS
+
+
 def _search_ready() -> bool:
     """Offer web_search only when a search provider is set up; small local models otherwise call it and stall."""
     from .search import provider
@@ -407,6 +436,12 @@ TOOLS: list[Tool] = [
          lambda agent_name, title, description="", ctx=None: _delegate(agent_name, title, description, ctx),
          ("agent_name", "title"), when=lambda ctx: ctx.agent is not None, effect="external"),
     Tool("list_team", "List the people who report to you.", {}, lambda ctx=None: _team(ctx), when=lambda ctx: ctx.agent is not None),
+    # Long results (tool_results.py): only offered once this conversation has one stored
+    Tool("read_tool_result", "Read more of a tool result that was too long to show in full: pass its result_id and an "
+         "offset to continue, or find to get the passages that mention a phrase.",
+         {"result_id": S(), "offset": I("character offset to start at, default 0"), "find": S("phrase to search for")},
+         lambda result_id, offset=0, find="", ctx=None: _read_tool_result(result_id, offset, find, ctx), ("result_id",),
+         when=lambda ctx: _has_tool_results(ctx)),
 ]
 from . import work_tools  # noqa: E402 - files, analysis and work sites
 
@@ -478,7 +513,47 @@ def available_tools(ctx: Ctx) -> list[Tool]:
 _ENVIRONMENT = re.compile(r"not set up|not enabled|no mail account|not configured|unreachable", re.I)
 
 
+def _call_signature(name: str, raw_args: str) -> str:
+    try:
+        canon = json.dumps(json.loads(raw_args or "{}"), sort_keys=True)
+    except ValueError:
+        canon = (raw_args or "").strip()
+    return hashlib.sha256(f"{name}|{canon}".encode()).hexdigest()[:32]
+
+
+REPEAT_BLOCKED = ("Blocked: {name} with these exact arguments already failed {n} times in a row this turn "
+                  "({error}). It will not be run again. Change the arguments or approach, ask the user, or answer "
+                  "without it.")
+
+
 async def run_tool(name: str, raw_args: str, ctx: Ctx, approved: bool = False) -> tuple[bool, str]:
+    """Run one tool call, with the repeat guard: after REPEAT_LIMIT identical failures in a row (same tool, same
+    arguments, same error) that exact call is refused for the rest of the turn instead of failing again."""
+    sig = _call_signature(name, raw_args)
+    if sig in ctx.blocked_calls and not approved:
+        ctx.blocked_hits += 1
+        aid = receipts.record_tool(ctx, name, "repeat_blocked", None, "", ctx.from_text, 0,
+                                   effect=TOOL_MAP[name].effect if name in TOOL_MAP else "", args=raw_args,
+                                   failure="blocked after repeated identical failures")
+        ctx.receipts.append({"tool": name, "effect": TOOL_MAP[name].effect if name in TOOL_MAP else "read",
+                             "outcome": "repeat_blocked", "verified": None, "evidence": "", "ref": None, "action_id": aid})
+        return False, REPEAT_BLOCKED.format(name=name, n=REPEAT_LIMIT, error=ctx.fail_streak[1][:200] or "same error")
+    ok, out = await _run_tool(name, raw_args, ctx, approved)
+    outcome = ctx.receipts[-1]["outcome"] if ctx.receipts else ""
+    if ok or outcome not in REPEAT_FAULTS:
+        ctx.fail_streak = ("", "", 0)
+        return ok, out
+    last_sig, last_err, n = ctx.fail_streak
+    n = n + 1 if (sig, out) == (last_sig, last_err) else 1
+    ctx.fail_streak = (sig, out, n)
+    if n >= REPEAT_LIMIT:
+        ctx.blocked_calls.add(sig)
+        out += (f"\n[This exact call has now failed {n} times in a row with the same error and is blocked for the rest "
+                "of this turn. Try something different or tell the user what is wrong.]")
+    return ok, out
+
+
+async def _run_tool(name: str, raw_args: str, ctx: Ctx, approved: bool = False) -> tuple[bool, str]:
     """Run one tool call, check what it changed, and record the outcome against the model."""
     started = time.monotonic()
     t = TOOL_MAP.get(name)
@@ -535,8 +610,9 @@ async def run_tool(name: str, raw_args: str, ctx: Ctx, approved: bool = False) -
         result = t.fn(**args)
         if inspect.isawaitable(result):
             result = await asyncio.wait_for(result, TOOL_TIMEOUT_S)
-        out = json.dumps(result, default=str, ensure_ascii=False)[:20000]
-        if t.untrusted:
+        untrusted = t.untrusted or (name == "read_tool_result" and isinstance(result, dict) and bool(result.get("untrusted")))
+        out = tool_results.fit(ctx.conversation_id, name, json.dumps(result, default=str, ensure_ascii=False), untrusted)
+        if untrusted:
             ctx.tainted = True
             out = UNTRUSTED_NOTE.format(name=name) + out
     except HTTPException as e:
@@ -710,7 +786,6 @@ async def _run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> Async
     ctx.turn_action_id = actions.add("turn", "running", trace=ctx.trace(), model=ctx.model,
                                      request_id=("turn:" + ctx.request_key) if ctx.request_key else None)
     _save(ctx.conversation_id, "user", user_text)
-    specs = [t.spec() for t in available_tools(ctx)]
     ctx.tainted = ctx.tainted or bool(db.one(
         f"SELECT 1 FROM (SELECT name FROM messages WHERE conversation_id = ? ORDER BY id DESC LIMIT ?) "
         f"WHERE name IN ({','.join('?' * len(UNTRUSTED_TOOLS))}) LIMIT 1", ctx.conversation_id, HISTORY_MESSAGES, *UNTRUSTED_TOOLS))
@@ -719,7 +794,9 @@ async def _run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> Async
     nudged = False
     cost = 0.0
     final = ""
-    for _ in range(MAX_STEPS):
+    limit = max_steps(ctx.channel)
+    for _ in range(limit):
+        specs = [t.spec() for t in available_tools(ctx)]  # per step: read_tool_result appears once a result is stored
         if ctx.agent:
             from .usage import over_budget
 
@@ -793,8 +870,15 @@ async def _run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> Async
             if r.get("outcome") in ("held", "denied"):
                 yield {"type": "approval_required" if r["outcome"] == "held" else "approval_denied", "id": r["action_id"],
                        "tool": fn["name"], "args": fn["arguments"][:500], "effect": r["effect"], "reason": r.get("reason") or HOLD_REASON}
+        if ctx.blocked_hits >= 2:  # it was told the call is blocked and tried it again: stop instead of spinning
+            final = ("I stopped because I kept retrying a step that failed the same way "
+                     f"{REPEAT_LIMIT} times. " + (receipts.summary(ctx.receipts) or "Nothing was changed.") +
+                     " Tell me how you would like to continue.")
+            _save(ctx.conversation_id, "assistant", final)
+            receipts.record_turn(ctx, "repeat_blocked")
+            break
     else:
-        final = f"I stopped after {MAX_STEPS} steps without finishing. Tell me how to continue."
+        final = f"I stopped after {limit} steps without finishing. Tell me how to continue."
         _save(ctx.conversation_id, "assistant", final)
         receipts.record_turn(ctx, "step_limit")
     yield {"type": "message", "content": final}

@@ -4,6 +4,32 @@ Every user-visible change that needs action, or changes data on upgrade, gets an
 migration steps, rollback steps. Workbench has no release numbers yet (BACKLOG). Entries are identified by schema
 version and the merge commit on `main`.
 
+## 2026-11-01 · Long tool results, step limit setting, repeat guard · branch feat/rea-p0-harness
+
+From the competitor review (P0 items 1, 2 and 4):
+
+- **Long tool results are kept, not cut.**
+  - Before: a tool result over 20,000 characters (a long email thread, web page or listing) was cut there and the
+    model never knew. Now the full result (up to 2 million characters) is stored with its conversation.
+  - The model sees the first 14,000 and the last 4,000 characters, the size, and an id. The new `read_tool_result`
+    tool reads any part by offset, or finds the passages that mention a phrase. It is offered only once a conversation
+    has a stored result.
+  - Reads are scoped to the conversation that produced the result. A result from web or email stays untrusted when read
+    back, so approval holds still apply.
+- **Step limit is a setting.**
+  - The default is still 12 model calls per turn.
+  - `PUT /api/settings` accepts `max_steps` (overall, 1 to 100, 0 restores the default) and `max_steps_channels`, for
+    example `{"schedule": 30}` (0 removes an override). `GET /api/settings` reports them.
+- **Repeat guard.**
+  - After 3 identical failures in a row (same tool, same arguments, same error), that exact call is refused for the
+    rest of the turn. The model is told why.
+  - A second attempt at a blocked call ends the turn with an honest summary.
+  - New outcome `repeat_blocked` for tool calls and turns; it counts as a failure in the run log. A success, or a
+    different call in between, resets the count.
+- Migration: new table `tool_results`, created on start, with no data change and no schema version bump. Rows are
+  deleted with their conversation.
+- Rollback: check out the previous commit. The leftover `tool_results` table is ignored.
+
 ## 2026-10-30 · Sunshine theme and Claude plan via Claude Code · branch feat/sunshine-claude
 
 - **Sunshine theme (new default)**: bright, warm and airy: near-white warm background, soft cards, a clean sans
