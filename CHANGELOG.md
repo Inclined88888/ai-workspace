@@ -4,16 +4,19 @@ Every user-visible change that needs action, or changes data on upgrade, gets an
 migration steps, rollback steps. Workbench has no release numbers yet (BACKLOG). Entries are identified by schema
 version and the merge commit on `main`.
 
-## 2026-11-01 · Conversation ID reuse fix (schema v3) · branch feat/rea-convid
+## 2026-11-01 · macOS Seatbelt sandbox for skill scripts · branch feat/rea-sandbox
 
-- **Fix conversation ID reuse on delete**: `conversations` table migrated to `INTEGER PRIMARY KEY AUTOINCREMENT` so deleted
-  conversation IDs are never reused. Prevents actions/memories/agent_tasks from a deleted conversation appearing in
-  a new conversation's trace.
-- **On delete, detach dependents**: deleting a conversation now nulls `conversation_id` in `actions` (audit log keeps rows),
-  `memories`, and `agent_tasks`. `messages` are cascade-deleted as before.
-- **Migration v3**: safe table rebuild preserving all data, indexes, and foreign keys; seeds `sqlite_sequence` with max
-  existing ID; transactional and idempotent.
-- **Rollback**: stop Workbench, replace `workbench.db` with the newest `workbench.db.pre-v3-*.bak`, run the previous image.
+- **Real macOS Seatbelt isolation** (`/usr/bin/sandbox-exec`) for skill scripts on macOS. The deny-by-default profile
+  (modelled on Codex's `seatbelt_base_policy.sbpl`, Apache-2.0) restricts reads to the skill folder, Python runtime/venv,
+  and system libraries; writes only to the skill's folder/work dir and private temp; network blocked unless the skill's
+  manifest grants it. `isolation_layers()` now reports "Seatbelt filesystem + network isolation" on macOS.
+- **FAIL CLOSED**: if `sandbox-exec` is missing or the profile fails validation, the skill script is refused with a clear
+  error message — it never runs unsandboxed.
+- **Linux**: existing bubblewrap (`bwrap`) and `unshare -rn` isolation unchanged; `isolation_layers()` reports truthfully.
+- **Windows**: isolation not implemented (AppContainer/Job objects planned); `isolation_layers()` reports "Windows isolation
+  not implemented (AppContainer/Job objects planned)" and the gap is recorded in BACKLOG.md.
+- Tests: writing outside the skill folder is blocked, inside works, network blocked when not granted (skipped on non-macOS).
+- Migration: none. Rollback: check out previous branch; the Seatbelt profile file and skill_sandbox.py changes are reverted.
 
 ## 2026-10-30 · Sunshine theme and Claude plan via Claude Code · branch feat/sunshine-claude
 
