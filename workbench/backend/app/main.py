@@ -18,7 +18,7 @@ egress.install()  # before anything connects: every outbound request is in the a
 
 from . import actions, api, appearance, assistant_api, bridge, browser_proxy, cli_agents_api, company, config, connect, db, desk_proxy, health, llm, mobile, scheduler, sites, skills_hub, telegram, work_api  # noqa: E402
 from . import compression, credentials, ratelimit, recovery  # AIW-Phase1: Hermes-inspired reliability
-from . import media  # noqa: E402 - phase 4
+from . import finetune, media  # noqa: E402 - phase 4
 from .mcp_server import mcp, mcp_app
 from .adapt import hooks as adapt_hooks, routes as adapt_routes  # adapt and learn (feat/learn-and-adapt)
 from . import auto_tools, automations, jobs, v02_api  # noqa: E402 - feat/v02-automations
@@ -34,6 +34,7 @@ async def lifespan(_: FastAPI):
     db.init()
     compression.init_compression_table()  # AIW-Phase1
     compression.init_summary_table()  # rolling summary of messages that fall out of the window
+    finetune.ensure()  # phase 4
     recovery.init_recovery_table()  # AIW-Phase1
     credentials.init_credentials_table()  # AIW-Phase1
     ratelimit.init_rate_limit_table()  # AIW-Phase1
@@ -150,6 +151,7 @@ app.include_router(voice.router)
 app.include_router(voice.device)
 app.include_router(meetings.router)
 app.include_router(media.router)  # phase 4: images through connected providers, saved to Files
+app.include_router(finetune.router)  # phase 4: datasets from your chats, hosted fine-tuning jobs
 v02_hooks.install(app)  # feat/v02-core: /api/projects, /api/history (undo), /api/checked
 from .knowledge import routes as knowledge_routes  # feat/memory-core: shared memory and data layer
 app.include_router(knowledge_routes.router)  # feat/memory-core

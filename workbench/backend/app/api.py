@@ -300,6 +300,7 @@ def delete_provider(pid: int):
     if old:
         forget_connection_secret(old["secret_enc"])
     db.run("DELETE FROM connections WHERE id = ?", pid)
+    db.run("DELETE FROM settings WHERE key = ?", f"image_model:{pid}")  # ids are reused: never hand it to the next connection
     llm._model_cache.pop(pid, None)
     return {"ok": True}
 

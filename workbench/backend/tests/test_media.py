@@ -3,6 +3,8 @@
 import base64
 import json
 
+import pytest
+
 from fastapi import Request
 
 import conftest
@@ -23,10 +25,21 @@ async def fake_images(request: Request):
     return {"data": [{"b64_json": base64.b64encode(PNG).decode()}]}
 
 
+CREATED: list[int] = []
+
+
 def _conn(client, fake_url, name="Images"):
     r = client.post("/api/providers", json={"name": name, "kind": "openai", "base_url": fake_url, "api_key": "img-key"})
     assert r.status_code == 200, r.text
+    CREATED.append(r.json()["id"])
     return r.json()["id"]
+
+
+@pytest.fixture(autouse=True)
+def _cleanup(client):
+    yield
+    while CREATED:  # the test session shares one app: don't leave extra providers for later tests
+        client.delete(f"/api/providers/{CREATED.pop()}")
 
 
 def test_needs_a_capable_provider_then_makes_and_saves_an_image(client, fake_url):
@@ -87,3 +100,12 @@ def test_the_assistant_can_make_an_image(client, fake_url):
     res = next(e for e in events if e.get("type") == "tool_result" and e["name"] == "generate_image")
     assert res["ok"], res
     assert db.one("SELECT COUNT(*) AS n FROM work_files")["n"] == before + 1
+
+
+def test_a_deleted_connection_does_not_pass_its_image_model_on(client, fake_url):
+    cid = _conn(client, fake_url, "Gone")
+    client.put("/api/media/images/model", json={"connection_id": cid, "model": "old-model"})
+    client.delete(f"/api/providers/{cid}")
+    CREATED.remove(cid)
+    again = _conn(client, fake_url, "New")
+    assert all(p["connection_id"] != again for p in client.get("/api/media/images/providers").json()["providers"])
