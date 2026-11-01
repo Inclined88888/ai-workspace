@@ -25,6 +25,7 @@ import secrets
 import threading
 import time
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -234,9 +235,19 @@ def _notify_phone(r: dict) -> None:
     try:
         from . import push
 
-        body = r["title"] if r["kind"] == "permission" else (r["title"] + (" — " + ", ".join(r["options"][:4]) if r["options"] else ""))
-        push.notify(f"{r['agent']} needs you", body[:180], type="companion", request_id=r["id"], kind=r["kind"],
-                    options=r["options"][:4])
+        if r["kind"] == "permission":
+            body = r["title"]
+        else:
+            body = r["title"] + (" — " + ", ".join(r["options"][:4]) if r["options"] else "")
+        push.notify(
+            f"{r['agent']} needs you",
+            body[:180],
+            type="companion",
+            request_id=r["id"],
+            kind=r["kind"],
+            options=r["options"][:4],
+            request_kind=r["kind"],  # "permission" or "question" for categoryId
+        )
     except Exception:  # noqa: BLE001 - a phone that can't be reached never blocks the agent
         pass
 
@@ -293,9 +304,15 @@ def _rooks_items() -> tuple[list[dict], list[dict]]:
         from . import actions
 
         for p in actions.pending()[:20]:
+            ca = p["created_at"]
+            if isinstance(ca, str):
+                try:
+                    ca = datetime.fromisoformat(ca.replace("Z", "+00:00")).timestamp()
+                except ValueError:
+                    ca = time.time()
             reqs.append({"id": f"rooks:{p['id']}", "tool": "rooks", "agent": "Rooks", "kind": "permission",
                          "title": f"Rooks wants to {p['tool'].replace('_', ' ')}", "detail": str(p.get("args") or "")[:600],
-                         "action": p["tool"], "target": "", "options": [], "status": "pending", "created_at": p["created_at"],
+                         "action": p["tool"], "target": "", "options": [], "status": "pending", "created_at": ca,
                          "always": False})
     except Exception:  # noqa: BLE001
         pass
@@ -312,10 +329,16 @@ def _rooks_items() -> tuple[list[dict], list[dict]]:
                                                             "failed": "error"}.get(run.status, "done"),
                            "steps": steps, "usage": None, "updated_at": run.ended_at or time.time(), "started_at": run.created_at})
             if run.status == "needs_approval":
+                rca = run.created_at
+                if isinstance(rca, str):
+                    try:
+                        rca = datetime.fromisoformat(rca.replace("Z", "+00:00")).timestamp()
+                    except ValueError:
+                        rca = time.time()
                 reqs.append({"id": f"job:{run.id}", "tool": run.agent, "agent": run.summary()["agent_name"], "kind": "permission",
                              "title": f"{run.summary()['agent_name']} needs approval for {len(run.pending)} step(s)",
                              "detail": "\n".join(str(p.get("summary") or p.get("tool") or p)[:200] for p in run.pending[:5]),
-                             "action": "job", "target": "", "options": [], "status": "pending", "created_at": run.created_at,
+                             "action": "job", "target": "", "options": [], "status": "pending", "created_at": rca,
                              "always": False})
     except Exception:  # noqa: BLE001
         pass

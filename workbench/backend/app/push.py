@@ -36,7 +36,14 @@ def messages(title: str, body: str, data: dict) -> list[dict]:
     """The Expo push payloads for every registered phone, or none when push is off."""
     if not enabled():
         return []
-    extra = {"categoryId": "approval"} if data.get("kind") == "approval" else {}  # feat/grok-style: lock-screen Approve/Decline
+    extra = {}
+    if data.get("kind") == "approval":
+        extra = {"categoryId": "approval"}
+    elif data.get("kind") == "companion":
+        if data.get("request_kind") == "permission":
+            extra = {"categoryId": "companion-permission"}
+        elif data.get("request_kind") == "question":
+            extra = {"categoryId": "companion-question"}
     return [{"to": t, "title": title[:80], "body": body[:160], "data": data, "sound": "default", "priority": "high", **extra}
             for t in tokens()]
 

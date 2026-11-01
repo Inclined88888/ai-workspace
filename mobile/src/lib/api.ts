@@ -60,6 +60,53 @@ export type Home = {
 export type Model = { ref: string; name?: string; model?: string; provider?: string; free?: boolean };
 export type Me = { id: number; name: string; platform: string; push: boolean; workspace_name: string; push_enabled_on_desktop: boolean };
 
+// Companion types
+export type CompanionAgentStep = { t: number; kind: string; text: string };
+export type CompanionAgent = {
+  key: string;
+  tool: string;
+  name: string;
+  folder: string;
+  status: 'idle' | 'working' | 'thinking' | 'waiting' | 'done' | 'error';
+  steps: CompanionAgentStep[];
+  usage: Record<string, unknown> | null;
+  updated_at: number;
+  started_at: number;
+};
+export type CompanionRequest = {
+  id: string;
+  tool: string;
+  session: string;
+  agent: string;
+  agent_key: string;
+  kind: 'permission' | 'question';
+  title: string;
+  detail: string;
+  action: string;
+  target: string;
+  options: string[];
+  multi: boolean;
+  status: 'pending' | 'allow' | 'deny' | 'always' | 'answered';
+  answer: unknown;
+  decided_by: string;
+  created_at: number;
+  decided_at: number | null;
+  always: boolean;
+};
+export type CompanionUsage = {
+  rooks_month: { cents: number; tokens: number } | null;
+  agents: { name: string; label: string; used?: number }[];
+};
+export type CompanionRule = { tool: string; action: string; pattern: string; created_at: number };
+export type CompanionState = {
+  version: number;
+  mood: 'idle' | 'working' | 'waiting' | 'done';
+  agents: CompanionAgent[];
+  requests: CompanionRequest[];
+  usage: CompanionUsage;
+  rules: CompanionRule[];
+};
+
 type FetchLike = typeof fetch;
 
 /* Called through a wrapper: browsers throw "Illegal invocation" when fetch is called as a method of another object. */
@@ -168,6 +215,13 @@ export class Client {
     if (idempotencyKey) h['Idempotency-Key'] = idempotencyKey;
     return streamPost(`${this.base}/api/mobile/chat`, h, body, onEvent, XHR);
   }
+
+  // Companion -------------------------------------------------------------------
+  /** Poll /api/companion/state for the live view of all agents and requests. */
+  companionState = () => this.req<CompanionState>('GET', '/companion/state');
+  /** Decide on a companion request (allow, deny, always, or answer). */
+  companionDecide = (id: string, decision: 'allow' | 'deny' | 'always' | 'answer', answer?: unknown) =>
+    this.req<CompanionRequest>('POST', `/companion/requests/${id}/decide`, { decision, answer });
 }
 
 export function newKey(): string {
