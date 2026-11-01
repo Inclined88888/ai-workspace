@@ -74,6 +74,8 @@ def test_fixes_a_bug_with_approval_diff_command_and_receipt(project, fake):
     turn = next(r for r in rows if r["kind"] == "turn")
     assert turn["tokens_in"] == 700 and turn["tokens_out"] == 95 and turn["usd_cost"] is None  # unknown price: not guessed
     assert all(r["channel"] == "rooks-code" for r in rows)
+    # non-tty stdin (this test, a pipe, CI): no stream is requested, so the scripted fake is not consumed twice
+    assert all(not req["body"].get("stream") for req in m.requests)
 
 
 def test_denied_edit_is_not_applied_and_model_is_told(project, fake):

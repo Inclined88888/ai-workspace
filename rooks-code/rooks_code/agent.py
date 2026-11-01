@@ -74,7 +74,8 @@ class Agent:
         self.s, self.ui = settings, ui
         self.root: Path = settings.root.resolve()
         self.log = log or RunLog(self.root, provider=settings.provider, model=settings.model)
-        self.model = model or providers.make(settings, on_egress=self._egress)
+        self.model = model or providers.make(settings, on_egress=self._egress, on_token=self._token)
+        self._streamed = False  # True while a reply is arriving token by token
         self._cancel = threading.Event()  # set by Esc/Ctrl-C: the running tool stops, the session goes on
         self.tools = Toolbox(self.root, settings.command_timeout, cancel=self._cancel)
         self.changes = ChangeSets(self.root)
@@ -96,6 +97,13 @@ class Agent:
         self.log.add("egress", outcome, parent=self._turn, provider=host, tool="model", effect="local" if _is_local(host) else "external",
                      args=f"{method} {u.scheme}://{host}{f':{u.port}' if u.port else ''}{u.path}", latency_ms=ms,
                      failure_reason=error)
+
+    def _token(self, text: str, style: str) -> None:
+        """A streamed delta from the provider: stop the spinner once, then print raw (reasoning dimmed)."""
+        if not self._streamed:
+            self.ui.thinking(False)
+            self._streamed = True
+        self.ui.token(text, style)
 
     def tool_specs(self) -> list[dict]:
         return SPECS + (self.mcp.tool_specs() if self.mcp else [])
@@ -129,6 +137,7 @@ class Agent:
                     self.ui.warn(answer)
                     break
                 self.ui.thinking(True)
+                self._streamed = False
                 t0 = time.monotonic()
                 try:
                     reply = self.model.complete(self.system, self.messages, self.tool_specs())
@@ -162,7 +171,10 @@ class Agent:
                         "name": c.name, "arguments": json.dumps(c.arguments)}} for c in reply.tool_calls]
                 self.messages.append(msg)
                 nudge = (not reply.tool_calls and self.s.nudge and nudges < NUDGES and announces_step(reply.text))
-                if reply.text:
+                if self._streamed:
+                    self.ui.stream_end()  # the text already reached the screen token by token
+                    self._streamed = False
+                elif reply.text:
                     self.ui.assistant(reply.text, final=not reply.tool_calls and not nudge)
                 if nudge:
                     nudges += 1

@@ -9,11 +9,12 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
-from typing import Callable
+from typing import Callable, Iterator
 
 # USD per million tokens [input, output]. Approximate list prices; unknown models are recorded as cost unknown (NULL),
 # never guessed. Override or extend with [prices] in the config.
@@ -123,6 +124,30 @@ def cost(model: str, tokens_in: int, tokens_out: int, overrides: dict, local: bo
 
 
 Egress = Callable[[str, str, str, int, str], None]
+OnToken = Callable[[str, str], None]  # (text, style): style "text" or "reasoning" (printed dimmed)
+
+
+def _want_stream(on_token: OnToken | None) -> bool:
+    """Stream only to a real terminal. On a pipe or in tests on_token is never set, so a scripted reply is read once."""
+    return on_token is not None and sys.stdout.isatty()
+
+
+def _sse_events(stream) -> Iterator[tuple[str, str]]:
+    """Yield (event, data) from a text/event-stream byte stream (http.client reads at the byte level)."""
+    event, data = "message", ""
+    for raw in stream:
+        line = raw.decode("utf-8", "replace").rstrip("\r\n")
+        if not line:
+            if data:
+                yield event, data.rstrip("\n")
+            event, data = "message", ""
+            continue
+        if line.startswith(":"):
+            continue
+        if line.startswith("event:"):
+            event = line[6:].strip()
+        elif line.startswith("data:"):
+            data += line[5:].lstrip() + "\n"
 
 
 def _post(url: str, body: dict, headers: dict, on_egress: Egress | None, timeout: int = 600) -> dict:
@@ -156,19 +181,78 @@ def _post(url: str, body: dict, headers: dict, on_egress: Egress | None, timeout
             on_egress("POST", url, outcome, int((time.monotonic() - started) * 1000), error)
 
 
+def _post_stream(url: str, body: dict, headers: dict, on_egress: Egress | None, timeout: int = 600):
+    """Open an SSE POST with http.client (stdlib) and return the live response. Caller closes it. Raises
+    ProviderError on a non-2xx answer (the error body is read first, so it is small and complete)."""
+    import http.client
+    from urllib.parse import urlsplit
+
+    u = urlsplit(url)
+    host = u.hostname or "localhost"
+    conn = (http.client.HTTPSConnection if u.scheme == "https" else http.client.HTTPConnection)(
+        host, u.port, timeout=timeout)
+    payload = json.dumps(body).encode()
+    hdrs = {"Content-Type": "application/json", "Accept": "text/event-stream", "User-Agent": "rooks-code", **headers}
+    started, outcome, error = time.monotonic(), "ok", ""
+    try:
+        conn.request("POST", (u.path or "/") + (("?" + u.query) if u.query else ""), body=payload, headers=hdrs)
+        resp = conn.getresponse()
+        if resp.status >= 400:
+            detail = resp.read()[:2000].decode("utf-8", "replace")
+            conn.close()
+            try:
+                d = json.loads(detail)
+                d = d.get("error", d)
+                d = d.get("message", d) if isinstance(d, dict) else d
+            except ValueError:
+                d = detail
+            outcome, error = f"http_{resp.status}", str(d)
+            raise ProviderError(f"{url} answered {resp.status}: {d}")
+        return conn, resp
+    except (ProviderError,):
+        raise
+    except (OSError, TimeoutError) as e:
+        outcome, error = "error", e.__class__.__name__
+        conn.close()
+        raise ProviderError(f"cannot reach {url}: {e}") from None
+    finally:
+        if on_egress:
+            on_egress("POST", url, outcome, int((time.monotonic() - started) * 1000), error)
+
+
 class OpenAIChat:
     """OpenAI Chat Completions with tools: OpenAI, OpenRouter, Ollama, LM Studio and any compatible server."""
 
-    def __init__(self, base_url: str, api_key: str, model: str, on_egress: Egress | None = None, headers: dict | None = None):
+    def __init__(self, base_url: str, api_key: str, model: str, on_egress: Egress | None = None, headers: dict | None = None,
+                 on_token: OnToken | None = None, stream: bool = True):
         self.base_url, self.api_key, self.model, self.on_egress = base_url, api_key, model, on_egress
         self.headers = headers or {}
+        self.on_token = on_token
+        self.stream = stream
 
-    def complete(self, system: str, messages: list[dict], tools: list[dict]) -> Reply:
+    def _body(self, system: str, messages: list[dict], tools: list[dict]) -> dict:
         body: dict = {"model": self.model, "messages": [{"role": "system", "content": system}, *messages]}
         if tools:
             body["tools"] = [{"type": "function", "function": t} for t in tools]
+        return body
+
+    def complete(self, system: str, messages: list[dict], tools: list[dict]) -> Reply:
         headers = {**self.headers, **({"Authorization": f"Bearer {self.api_key}"} if self.api_key else {})}
+        body = self._body(system, messages, tools)
+        if self.stream and self.on_token and _want_stream(self.on_token):
+            try:
+                return self._complete_stream(body, headers)
+            except ProviderError as e:
+                if "answered" in str(e) or "stream" in str(e).lower():
+                    pass  # a server that refuses stream: fall back to a plain call
+                else:
+                    raise
+            except ValueError:  # a non-SSE body (a proxy ignoring stream:1): same fallback
+                pass
         data = _post(self.base_url + "/chat/completions", body, headers, self.on_egress)
+        return self._parse(data)
+
+    def _parse(self, data: dict) -> Reply:
         try:
             msg = data["choices"][0]["message"]
         except (KeyError, IndexError, TypeError):
@@ -186,12 +270,70 @@ class OpenAIChat:
         return Reply(msg.get("content") or "", calls, int(usage.get("prompt_tokens") or 0),
                      int(usage.get("completion_tokens") or 0))
 
+    def _complete_stream(self, body: dict, headers: dict) -> Reply:
+        """SSE chat completions: text deltas printed live, reasoning dimmed, index-based tool call deltas assembled,
+        usage from the final chunk (stream_options include_usage)."""
+        body = {**body, "stream": True, "stream_options": {"include_usage": True}}
+        conn, resp = _post_stream(self.base_url + "/chat/completions", body, headers, self.on_egress)
+        text_parts: list[str] = []
+        calls: dict[int, dict] = {}  # tool call index -> {id, name, args (json text)}
+        tin = tout = 0
+        try:
+            for _event, data in _sse_events(resp):
+                if data.strip() == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(data)
+                except ValueError:
+                    continue
+                if chunk.get("usage"):
+                    u = chunk["usage"]
+                    tin, tout = int(u.get("prompt_tokens") or 0), int(u.get("completion_tokens") or 0)
+                for choice in chunk.get("choices") or []:
+                    delta = choice.get("delta") or {}
+                    if delta.get("reasoning_content") or delta.get("reasoning"):
+                        if self.on_token:
+                            self.on_token(delta.get("reasoning_content") or delta.get("reasoning") or "", "reasoning")
+                    if delta.get("content"):
+                        text_parts.append(delta["content"])
+                        if self.on_token:
+                            self.on_token(delta["content"], "text")
+                    for tc in delta.get("tool_calls") or []:
+                        idx = int(tc.get("index", 0))
+                        slot = calls.setdefault(idx, {"id": "", "name": "", "args": ""})
+                        if tc.get("id"):
+                            slot["id"] = tc["id"]
+                        fn = tc.get("function") or {}
+                        if fn.get("name"):
+                            slot["name"] = fn["name"]
+                        if fn.get("arguments"):
+                            slot["args"] += fn["arguments"]
+        except ProviderError:
+            conn.close()
+            raise
+        except (OSError, ValueError) as e:
+            conn.close()
+            raise ProviderError(f"stream from {self.base_url} broke: {e}") from None
+        conn.close()
+        out_calls = []
+        for idx in sorted(calls):
+            c = calls[idx]
+            try:
+                args, bad = json.loads(c["args"] or "{}"), ""
+            except ValueError:
+                args, bad = {}, c["args"]
+            out_calls.append(ToolCall(c["id"] or f"call_{idx}", c["name"], args, bad))
+        return Reply("".join(text_parts), out_calls, tin, tout)
+
 
 class Anthropic:
     """Anthropic Messages API with tools."""
 
-    def __init__(self, base_url: str, api_key: str, model: str, on_egress: Egress | None = None, max_tokens: int = 8192):
+    def __init__(self, base_url: str, api_key: str, model: str, on_egress: Egress | None = None, max_tokens: int = 8192,
+                 on_token: OnToken | None = None, stream: bool = True):
         self.base_url, self.api_key, self.model, self.on_egress, self.max_tokens = base_url, api_key, model, on_egress, max_tokens
+        self.on_token = on_token
+        self.stream = stream
 
     @staticmethod
     def convert(messages: list[dict]) -> list[dict]:
@@ -221,6 +363,16 @@ class Anthropic:
         if tools:
             body["tools"] = [{"name": t["name"], "description": t["description"], "input_schema": t["parameters"]} for t in tools]
         headers = {"x-api-key": self.api_key, "anthropic-version": "2023-06-01"}
+        if self.stream and self.on_token and _want_stream(self.on_token):
+            try:
+                return self._complete_stream(body, headers)
+            except ProviderError as e:
+                if "answered" in str(e) or "stream" in str(e).lower():
+                    pass
+                else:
+                    raise
+            except ValueError:
+                pass
         data = _post(self.base_url + "/messages", body, headers, self.on_egress)
         if "content" not in data:
             raise ProviderError(f"unexpected reply from {self.base_url}: {str(data)[:300]}")
@@ -229,10 +381,69 @@ class Anthropic:
         usage = data.get("usage") or {}
         return Reply(text, calls, int(usage.get("input_tokens") or 0), int(usage.get("output_tokens") or 0))
 
+    def _complete_stream(self, body: dict, headers: dict) -> Reply:
+        """Messages API events: content_block_start/delta/stop, message_delta carries the final usage. Text is printed
+        live, thinking deltas are dimmed, tool_use input arrives as input_json_delta partial JSON."""
+        conn, resp = _post_stream(self.base_url + "/messages", {**body, "stream": True}, headers, self.on_egress)
+        text_parts: list[str] = []
+        blocks: dict[int, dict] = {}  # content block index -> {type, id, name, json (text)}
+        tin = tout = 0
+        try:
+            for event, data in _sse_events(resp):
+                try:
+                    ev = json.loads(data)
+                except ValueError:
+                    continue
+                etype = ev.get("type", event)
+                if etype == "message_start":
+                    u = (ev.get("message") or {}).get("usage") or {}
+                    tin = int(u.get("input_tokens") or 0)
+                elif etype == "content_block_start":
+                    i = int(ev.get("index", 0))
+                    b = ev.get("content_block") or {}
+                    blocks[i] = {"type": b.get("type", "text"), "id": b.get("id", ""), "name": b.get("name", ""), "json": ""}
+                elif etype == "content_block_delta":
+                    i = int(ev.get("index", 0))
+                    d = ev.get("delta") or {}
+                    if d.get("type") == "text_delta":
+                        text_parts.append(d.get("text", ""))
+                        if self.on_token:
+                            self.on_token(d.get("text", ""), "text")
+                    elif d.get("type") == "thinking_delta":
+                        if self.on_token:
+                            self.on_token(d.get("thinking", ""), "reasoning")
+                    elif d.get("type") == "input_json_delta":
+                        blocks.setdefault(i, {"type": "tool_use", "id": "", "name": "", "json": ""})
+                        blocks[i]["json"] += d.get("partial_json", "")
+                elif etype == "message_delta":
+                    u = ev.get("usage") or {}
+                    tout = int(u.get("output_tokens") or 0)
+                elif etype == "error":
+                    raise ProviderError(f"stream error from {self.base_url}: {(ev.get('error') or {}).get('message', ev)}")
+        except ProviderError:
+            conn.close()
+            raise
+        except (OSError, ValueError) as e:
+            conn.close()
+            raise ProviderError(f"stream from {self.base_url} broke: {e}") from None
+        conn.close()
+        calls = []
+        for i in sorted(blocks):
+            b = blocks[i]
+            if b["type"] != "tool_use":
+                continue
+            try:
+                args, bad = json.loads(b["json"] or "{}"), ""
+            except ValueError:
+                args, bad = {}, b["json"]
+            calls.append(ToolCall(b["id"] or f"toolu_{i}", b["name"], args, bad))
+        return Reply("".join(text_parts), calls, tin, tout)
 
-def make(settings, on_egress: Egress | None = None):
+
+def make(settings, on_egress: Egress | None = None, on_token: OnToken | None = None):
     if settings.kind == "anthropic":
-        return Anthropic(settings.base_url, settings.api_key, settings.model, on_egress)
+        return Anthropic(settings.base_url, settings.api_key, settings.model, on_egress, on_token=on_token)
     if settings.kind == "openai":
-        return OpenAIChat(settings.base_url, settings.api_key, settings.model, on_egress, getattr(settings, "headers", None))
+        return OpenAIChat(settings.base_url, settings.api_key, settings.model, on_egress,
+                          getattr(settings, "headers", None), on_token=on_token)
     raise SystemExit(f"rooks: provider kind {settings.kind!r} is not supported (use openai or anthropic)")

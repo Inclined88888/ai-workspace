@@ -59,6 +59,18 @@ class UI:
     def assistant(self, text: str, final: bool) -> None:
         self.p(("" if final else self.c("2", "· ")) + text.strip())
 
+    def token(self, text: str, style: str) -> None:
+        """A streamed delta: text plain, reasoning dimmed. Written raw; the agent's thinking spinner is off by now."""
+        if style == "reasoning":
+            self.out.write(self.c("2", text))
+        else:
+            self.out.write(text)
+        self.out.flush()
+
+    def stream_end(self) -> None:
+        self.out.write("\n")
+        self.out.flush()
+
     def tool_note(self, text: str, read: bool = False) -> None:
         self.p(self.c("2", f"  {'→' if read else '·'} {text}"))
 
