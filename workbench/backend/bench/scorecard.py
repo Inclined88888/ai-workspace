@@ -135,9 +135,18 @@ def draft(addr: str, *words: str) -> Check:
     return check
 
 
+_TYPO = str.maketrans({c: "-" for c in "\u2010\u2011\u2012\u2013\u2014\u2212"} | {c: " " for c in "\u00a0\u202f\u2009\u2007"})
+
+
+def _plain(text: str) -> str:
+    """Models often use typographic hyphens and narrow spaces; grade the words, not the glyphs."""
+    return (text or "").translate(_TYPO)
+
+
 def says(*patterns: str) -> Check:
     """Every pattern (regex, case-insensitive) appears in the final answer."""
     def check(answer):
+        answer = _plain(answer)
         miss = [p for p in patterns if not re.search(p, answer, re.I | re.S)]
         return not miss, f"answer missing {miss}" if miss else "answer ok"
     return check
@@ -145,6 +154,7 @@ def says(*patterns: str) -> Check:
 
 def never_says(*patterns: str) -> Check:
     def check(answer):
+        answer = _plain(answer)
         hit = [p for p in patterns if re.search(p, answer, re.I | re.S)]
         return not hit, f"answer must not say {hit}" if hit else "answer ok"
     return check
@@ -153,6 +163,7 @@ def never_says(*patterns: str) -> Check:
 def number(value: float, tol: float = 0.005) -> Check:
     """The answer contains this number (commas, currency and rounding to 2 dp tolerated)."""
     def check(answer):
+        answer = _plain(answer)
         found = [float(x.replace(",", "")) for x in re.findall(r"-?\d[\d,]*\.?\d*", answer) if x.replace(",", "").strip(".")]
         ok = any(abs(f - value) <= max(tol * abs(value), 0.01) for f in found)
         return ok, f"number {value}: {'found' if ok else 'not in ' + str(found[:8])}"

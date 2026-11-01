@@ -13,3 +13,10 @@ def test_scorecard_selftest():
     r = subprocess.run([sys.executable, "bench/scorecard.py", "--selftest"], cwd=here, env=env, capture_output=True, text=True, timeout=300)
     assert r.returncode == 0, r.stdout[-2000:] + r.stderr[-2000:]
     assert "0 problems" in r.stdout
+
+
+def test_says_tolerates_typographic_hyphens_and_spaces():
+    from bench import scorecard
+    ok, _ = scorecard.says(r"stand-?up", r"9:00 AM")("**9:00\u202fAM** Stand\u2011up")
+    assert ok
+    assert scorecard.number(-3.5)("balance \u22123.5")[0]
