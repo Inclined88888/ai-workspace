@@ -1,0 +1,918 @@
+{
+  "builtTestProducts" : [
+    {
+      "binaryPath" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/RooksCompanionPackageTests.xctest/Contents/MacOS/RooksCompanionPackageTests",
+      "packagePath" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos",
+      "productName" : "RooksCompanionPackageTests"
+    }
+  ],
+  "copyCommands" : {
+
+  },
+  "explicitTargetDependencyImportCheckingMode" : {
+    "none" : {
+
+    }
+  },
+  "generatedSourceTargetSet" : [
+
+  ],
+  "pluginDescriptions" : [
+
+  ],
+  "swiftCommands" : {
+    "C.CompanionCore-arm64-apple-macosx-debug.module" : {
+      "executable" : "/Library/Developer/CommandLineTools/usr/bin/swiftc",
+      "fileList" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCore.build/sources",
+      "importPath" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/Modules",
+      "inputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Sources/CompanionCore/Models.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Sources/CompanionCore/Networking.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Sources/CompanionCore/Utilities.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/swift-version--1AB21518FC5DEDBE.txt"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCore.build/sources"
+        }
+      ],
+      "isLibrary" : true,
+      "moduleName" : "CompanionCore",
+      "moduleOutputPath" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/Modules/CompanionCore.swiftmodule",
+      "objects" : [
+        "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCore.build/Models.swift.o",
+        "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCore.build/Networking.swift.o",
+        "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCore.build/Utilities.swift.o"
+      ],
+      "otherArguments" : [
+        "-target",
+        "arm64-apple-macosx13.0",
+        "-incremental",
+        "-enable-batch-mode",
+        "-serialize-diagnostics",
+        "-index-store-path",
+        "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/index/store",
+        "-Onone",
+        "-enable-testing",
+        "-j8",
+        "-DSWIFT_PACKAGE",
+        "-DDEBUG",
+        "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+        "-module-cache-path",
+        "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/ModuleCache",
+        "-parseable-output",
+        "-parse-as-library",
+        "-emit-objc-header",
+        "-emit-objc-header-path",
+        "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCore.build/include/CompanionCore-Swift.h",
+        "-swift-version",
+        "5",
+        "-I",
+        "/Library/Developer/CommandLineTools/Library/Developer/Frameworks",
+        "-L",
+        "/Library/Developer/CommandLineTools/Library/Developer/Frameworks",
+        "-plugin-path",
+        "/Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing",
+        "-sdk",
+        "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+        "-g",
+        "-Xcc",
+        "-isysroot",
+        "-Xcc",
+        "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+        "-Xcc",
+        "-fPIC",
+        "-Xcc",
+        "-g",
+        "-package-name",
+        "macos"
+      ],
+      "outputFileMapPath" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCore.build/output-file-map.json",
+      "outputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCore.build/Models.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCore.build/Networking.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCore.build/Utilities.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/Modules/CompanionCore.swiftmodule"
+        }
+      ],
+      "prepareForIndexing" : false,
+      "sources" : [
+        "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Sources/CompanionCore/Models.swift",
+        "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Sources/CompanionCore/Networking.swift",
+        "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Sources/CompanionCore/Utilities.swift"
+      ],
+      "tempsPath" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCore.build",
+      "wholeModuleOptimization" : false
+    },
+    "C.CompanionCoreTests-arm64-apple-macosx-debug.module" : {
+      "executable" : "/Library/Developer/CommandLineTools/usr/bin/swiftc",
+      "fileList" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/sources",
+      "importPath" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/Modules",
+      "inputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Tests/CompanionCoreTests/ConfigDiscoveryTests.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Tests/CompanionCoreTests/ModelsTests.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Tests/CompanionCoreTests/MoodMascotMappingTests.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Tests/CompanionCoreTests/RequestBuildingTests.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Tests/CompanionCoreTests/SSEParserTests.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/swift-version--1AB21518FC5DEDBE.txt"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/Modules/CompanionCore.swiftmodule"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/sources"
+        }
+      ],
+      "isLibrary" : true,
+      "moduleName" : "CompanionCoreTests",
+      "moduleOutputPath" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/Modules/CompanionCoreTests.swiftmodule",
+      "objects" : [
+        "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/ConfigDiscoveryTests.swift.o",
+        "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/ModelsTests.swift.o",
+        "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/MoodMascotMappingTests.swift.o",
+        "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/RequestBuildingTests.swift.o",
+        "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/SSEParserTests.swift.o"
+      ],
+      "otherArguments" : [
+        "-target",
+        "arm64-apple-macosx13.0",
+        "-incremental",
+        "-enable-batch-mode",
+        "-serialize-diagnostics",
+        "-index-store-path",
+        "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/index/store",
+        "-Onone",
+        "-enable-testing",
+        "-Xfrontend",
+        "-enable-cross-import-overlays",
+        "-j8",
+        "-DSWIFT_PACKAGE",
+        "-DDEBUG",
+        "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+        "-module-cache-path",
+        "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/ModuleCache",
+        "-parseable-output",
+        "-parse-as-library",
+        "-swift-version",
+        "5",
+        "-I",
+        "/Library/Developer/CommandLineTools/Library/Developer/Frameworks",
+        "-L",
+        "/Library/Developer/CommandLineTools/Library/Developer/Frameworks",
+        "-plugin-path",
+        "/Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing",
+        "-sdk",
+        "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+        "-g",
+        "-Xcc",
+        "-isysroot",
+        "-Xcc",
+        "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+        "-Xcc",
+        "-fPIC",
+        "-Xcc",
+        "-g",
+        "-package-name",
+        "macos"
+      ],
+      "outputFileMapPath" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/output-file-map.json",
+      "outputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/ConfigDiscoveryTests.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/ModelsTests.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/MoodMascotMappingTests.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/RequestBuildingTests.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/SSEParserTests.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/Modules/CompanionCoreTests.swiftmodule"
+        }
+      ],
+      "prepareForIndexing" : false,
+      "sources" : [
+        "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Tests/CompanionCoreTests/ConfigDiscoveryTests.swift",
+        "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Tests/CompanionCoreTests/ModelsTests.swift",
+        "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Tests/CompanionCoreTests/MoodMascotMappingTests.swift",
+        "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Tests/CompanionCoreTests/RequestBuildingTests.swift",
+        "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Tests/CompanionCoreTests/SSEParserTests.swift"
+      ],
+      "tempsPath" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build",
+      "wholeModuleOptimization" : false
+    },
+    "C.RooksCompanion-arm64-apple-macosx-debug.module" : {
+      "executable" : "/Library/Developer/CommandLineTools/usr/bin/swiftc",
+      "fileList" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/RooksCompanion.build/sources",
+      "importPath" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/Modules",
+      "inputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Sources/RooksCompanion/App.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Sources/RooksCompanion/PanelView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Sources/RooksCompanion/PanelViewModel.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/swift-version--1AB21518FC5DEDBE.txt"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/Modules/CompanionCore.swiftmodule"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/RooksCompanion.build/sources"
+        }
+      ],
+      "isLibrary" : false,
+      "moduleName" : "RooksCompanion",
+      "moduleOutputPath" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/Modules/RooksCompanion.swiftmodule",
+      "objects" : [
+        "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/RooksCompanion.build/App.swift.o",
+        "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/RooksCompanion.build/PanelView.swift.o",
+        "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/RooksCompanion.build/PanelViewModel.swift.o"
+      ],
+      "otherArguments" : [
+        "-target",
+        "arm64-apple-macosx13.0",
+        "-incremental",
+        "-enable-batch-mode",
+        "-serialize-diagnostics",
+        "-index-store-path",
+        "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/index/store",
+        "-Onone",
+        "-enable-testing",
+        "-j8",
+        "-DSWIFT_PACKAGE",
+        "-DDEBUG",
+        "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+        "-module-cache-path",
+        "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/ModuleCache",
+        "-parseable-output",
+        "-Xfrontend",
+        "-entry-point-function-name",
+        "-Xfrontend",
+        "RooksCompanion_main",
+        "-swift-version",
+        "5",
+        "-I",
+        "/Library/Developer/CommandLineTools/Library/Developer/Frameworks",
+        "-L",
+        "/Library/Developer/CommandLineTools/Library/Developer/Frameworks",
+        "-plugin-path",
+        "/Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing",
+        "-sdk",
+        "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+        "-g",
+        "-Xcc",
+        "-isysroot",
+        "-Xcc",
+        "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+        "-Xcc",
+        "-fPIC",
+        "-Xcc",
+        "-g",
+        "-package-name",
+        "macos"
+      ],
+      "outputFileMapPath" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/RooksCompanion.build/output-file-map.json",
+      "outputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/RooksCompanion.build/App.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/RooksCompanion.build/PanelView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/RooksCompanion.build/PanelViewModel.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/Modules/RooksCompanion.swiftmodule"
+        }
+      ],
+      "prepareForIndexing" : false,
+      "sources" : [
+        "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Sources/RooksCompanion/App.swift",
+        "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Sources/RooksCompanion/PanelView.swift",
+        "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Sources/RooksCompanion/PanelViewModel.swift"
+      ],
+      "tempsPath" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/RooksCompanion.build",
+      "wholeModuleOptimization" : false
+    },
+    "C.RooksCompanionPackageTests-arm64-apple-macosx-debug.module" : {
+      "executable" : "/Library/Developer/CommandLineTools/usr/bin/swiftc",
+      "fileList" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/RooksCompanionPackageTests.build/sources",
+      "importPath" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/Modules",
+      "inputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/RooksCompanionPackageTests.derived/runner.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/swift-version--1AB21518FC5DEDBE.txt"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/Modules/CompanionCoreTests.swiftmodule"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/RooksCompanionPackageTests.build/sources"
+        }
+      ],
+      "isLibrary" : true,
+      "moduleName" : "RooksCompanionPackageTests",
+      "moduleOutputPath" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/Modules/RooksCompanionPackageTests.swiftmodule",
+      "objects" : [
+        "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/RooksCompanionPackageTests.build/runner.swift.o"
+      ],
+      "otherArguments" : [
+        "-target",
+        "arm64-apple-macosx13.0",
+        "-incremental",
+        "-enable-batch-mode",
+        "-serialize-diagnostics",
+        "-index-store-path",
+        "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/index/store",
+        "-Onone",
+        "-enable-testing",
+        "-Xfrontend",
+        "-enable-cross-import-overlays",
+        "-j8",
+        "-DSWIFT_PACKAGE",
+        "-DDEBUG",
+        "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+        "-module-cache-path",
+        "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/ModuleCache",
+        "-parseable-output",
+        "-parse-as-library",
+        "-emit-objc-header",
+        "-emit-objc-header-path",
+        "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/RooksCompanionPackageTests.build/include/RooksCompanionPackageTests-Swift.h",
+        "-I",
+        "/Library/Developer/CommandLineTools/Library/Developer/Frameworks",
+        "-L",
+        "/Library/Developer/CommandLineTools/Library/Developer/Frameworks",
+        "-plugin-path",
+        "/Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing",
+        "-sdk",
+        "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+        "-g",
+        "-Xcc",
+        "-isysroot",
+        "-Xcc",
+        "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+        "-Xcc",
+        "-fPIC",
+        "-Xcc",
+        "-g",
+        "-package-name",
+        "macos"
+      ],
+      "outputFileMapPath" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/RooksCompanionPackageTests.build/output-file-map.json",
+      "outputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/RooksCompanionPackageTests.build/runner.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/Modules/RooksCompanionPackageTests.swiftmodule"
+        }
+      ],
+      "prepareForIndexing" : false,
+      "sources" : [
+        "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/RooksCompanionPackageTests.derived/runner.swift"
+      ],
+      "tempsPath" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/RooksCompanionPackageTests.build",
+      "wholeModuleOptimization" : false
+    }
+  },
+  "swiftFrontendCommands" : {
+
+  },
+  "swiftTargetScanArgs" : {
+    "CompanionCore" : [
+      "/Library/Developer/CommandLineTools/usr/bin/swiftc",
+      "-module-name",
+      "CompanionCore",
+      "-package-name",
+      "macos",
+      "-c",
+      "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Sources/CompanionCore/Models.swift",
+      "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Sources/CompanionCore/Networking.swift",
+      "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Sources/CompanionCore/Utilities.swift",
+      "-I",
+      "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/Modules",
+      "-target",
+      "arm64-apple-macosx13.0",
+      "-incremental",
+      "-enable-batch-mode",
+      "-serialize-diagnostics",
+      "-index-store-path",
+      "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/index/store",
+      "-Onone",
+      "-enable-testing",
+      "-j8",
+      "-DSWIFT_PACKAGE",
+      "-DDEBUG",
+      "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+      "-module-cache-path",
+      "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/ModuleCache",
+      "-parseable-output",
+      "-parse-as-library",
+      "-emit-objc-header",
+      "-emit-objc-header-path",
+      "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCore.build/include/CompanionCore-Swift.h",
+      "-swift-version",
+      "5",
+      "-I",
+      "/Library/Developer/CommandLineTools/Library/Developer/Frameworks",
+      "-L",
+      "/Library/Developer/CommandLineTools/Library/Developer/Frameworks",
+      "-plugin-path",
+      "/Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing",
+      "-sdk",
+      "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+      "-g",
+      "-Xcc",
+      "-isysroot",
+      "-Xcc",
+      "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+      "-Xcc",
+      "-fPIC",
+      "-Xcc",
+      "-g",
+      "-package-name",
+      "macos",
+      "-driver-use-frontend-path",
+      "/Library/Developer/CommandLineTools/usr/bin/swiftc"
+    ],
+    "CompanionCoreTests" : [
+      "/Library/Developer/CommandLineTools/usr/bin/swiftc",
+      "-module-name",
+      "CompanionCoreTests",
+      "-package-name",
+      "macos",
+      "-c",
+      "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Tests/CompanionCoreTests/ConfigDiscoveryTests.swift",
+      "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Tests/CompanionCoreTests/ModelsTests.swift",
+      "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Tests/CompanionCoreTests/MoodMascotMappingTests.swift",
+      "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Tests/CompanionCoreTests/RequestBuildingTests.swift",
+      "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Tests/CompanionCoreTests/SSEParserTests.swift",
+      "-I",
+      "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/Modules",
+      "-target",
+      "arm64-apple-macosx13.0",
+      "-incremental",
+      "-enable-batch-mode",
+      "-serialize-diagnostics",
+      "-index-store-path",
+      "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/index/store",
+      "-Onone",
+      "-enable-testing",
+      "-Xfrontend",
+      "-enable-cross-import-overlays",
+      "-j8",
+      "-DSWIFT_PACKAGE",
+      "-DDEBUG",
+      "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+      "-module-cache-path",
+      "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/ModuleCache",
+      "-parseable-output",
+      "-parse-as-library",
+      "-swift-version",
+      "5",
+      "-I",
+      "/Library/Developer/CommandLineTools/Library/Developer/Frameworks",
+      "-L",
+      "/Library/Developer/CommandLineTools/Library/Developer/Frameworks",
+      "-plugin-path",
+      "/Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing",
+      "-sdk",
+      "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+      "-g",
+      "-Xcc",
+      "-isysroot",
+      "-Xcc",
+      "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+      "-Xcc",
+      "-fPIC",
+      "-Xcc",
+      "-g",
+      "-package-name",
+      "macos",
+      "-driver-use-frontend-path",
+      "/Library/Developer/CommandLineTools/usr/bin/swiftc"
+    ],
+    "RooksCompanion" : [
+      "/Library/Developer/CommandLineTools/usr/bin/swiftc",
+      "-module-name",
+      "RooksCompanion",
+      "-package-name",
+      "macos",
+      "-c",
+      "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Sources/RooksCompanion/App.swift",
+      "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Sources/RooksCompanion/PanelView.swift",
+      "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Sources/RooksCompanion/PanelViewModel.swift",
+      "-I",
+      "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/Modules",
+      "-target",
+      "arm64-apple-macosx13.0",
+      "-incremental",
+      "-enable-batch-mode",
+      "-serialize-diagnostics",
+      "-index-store-path",
+      "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/index/store",
+      "-Onone",
+      "-enable-testing",
+      "-j8",
+      "-DSWIFT_PACKAGE",
+      "-DDEBUG",
+      "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+      "-module-cache-path",
+      "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/ModuleCache",
+      "-parseable-output",
+      "-Xfrontend",
+      "-entry-point-function-name",
+      "-Xfrontend",
+      "RooksCompanion_main",
+      "-swift-version",
+      "5",
+      "-I",
+      "/Library/Developer/CommandLineTools/Library/Developer/Frameworks",
+      "-L",
+      "/Library/Developer/CommandLineTools/Library/Developer/Frameworks",
+      "-plugin-path",
+      "/Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing",
+      "-sdk",
+      "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+      "-g",
+      "-Xcc",
+      "-isysroot",
+      "-Xcc",
+      "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+      "-Xcc",
+      "-fPIC",
+      "-Xcc",
+      "-g",
+      "-package-name",
+      "macos",
+      "-driver-use-frontend-path",
+      "/Library/Developer/CommandLineTools/usr/bin/swiftc"
+    ],
+    "RooksCompanionPackageTests" : [
+      "/Library/Developer/CommandLineTools/usr/bin/swiftc",
+      "-module-name",
+      "RooksCompanionPackageTests",
+      "-package-name",
+      "macos",
+      "-c",
+      "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/RooksCompanionPackageTests.derived/runner.swift",
+      "-I",
+      "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/Modules",
+      "-target",
+      "arm64-apple-macosx13.0",
+      "-incremental",
+      "-enable-batch-mode",
+      "-serialize-diagnostics",
+      "-index-store-path",
+      "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/index/store",
+      "-Onone",
+      "-enable-testing",
+      "-Xfrontend",
+      "-enable-cross-import-overlays",
+      "-j8",
+      "-DSWIFT_PACKAGE",
+      "-DDEBUG",
+      "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+      "-module-cache-path",
+      "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/ModuleCache",
+      "-parseable-output",
+      "-parse-as-library",
+      "-emit-objc-header",
+      "-emit-objc-header-path",
+      "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/RooksCompanionPackageTests.build/include/RooksCompanionPackageTests-Swift.h",
+      "-I",
+      "/Library/Developer/CommandLineTools/Library/Developer/Frameworks",
+      "-L",
+      "/Library/Developer/CommandLineTools/Library/Developer/Frameworks",
+      "-plugin-path",
+      "/Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing",
+      "-sdk",
+      "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+      "-g",
+      "-Xcc",
+      "-isysroot",
+      "-Xcc",
+      "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+      "-Xcc",
+      "-fPIC",
+      "-Xcc",
+      "-g",
+      "-package-name",
+      "macos",
+      "-driver-use-frontend-path",
+      "/Library/Developer/CommandLineTools/usr/bin/swiftc"
+    ]
+  },
+  "targetDependencyMap" : {
+    "CompanionCore" : [
+
+    ],
+    "CompanionCoreTests" : [
+      "CompanionCore"
+    ],
+    "RooksCompanion" : [
+      "CompanionCore"
+    ],
+    "RooksCompanionPackageTests" : [
+      "CompanionCoreTests",
+      "CompanionCore"
+    ]
+  },
+  "testDiscoveryCommands" : {
+
+  },
+  "testEntryPointCommands" : {
+    "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/RooksCompanionPackageTests.derived/runner.swift" : {
+      "inputs" : [
+
+      ],
+      "outputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/RooksCompanionPackageTests.derived/runner.swift"
+        }
+      ]
+    }
+  },
+  "traitConfiguration" : {
+    "default" : {
+
+    }
+  },
+  "writeCommands" : {
+    "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCore.build/sources" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<sources-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Sources/CompanionCore/Models.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Sources/CompanionCore/Networking.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Sources/CompanionCore/Utilities.swift"
+        }
+      ],
+      "outputFilePath" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCore.build/sources"
+    },
+    "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/sources" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<sources-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Tests/CompanionCoreTests/ConfigDiscoveryTests.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Tests/CompanionCoreTests/ModelsTests.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Tests/CompanionCoreTests/MoodMascotMappingTests.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Tests/CompanionCoreTests/RequestBuildingTests.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Tests/CompanionCoreTests/SSEParserTests.swift"
+        }
+      ],
+      "outputFilePath" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/sources"
+    },
+    "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/RooksCompanion-entitlement.plist" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<entitlement-plist>"
+        },
+        {
+          "kind" : "virtual",
+          "name" : "<com.apple.security.get-task-allow>"
+        }
+      ],
+      "outputFilePath" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/RooksCompanion-entitlement.plist"
+    },
+    "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/RooksCompanion.build/sources" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<sources-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Sources/RooksCompanion/App.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Sources/RooksCompanion/PanelView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Sources/RooksCompanion/PanelViewModel.swift"
+        }
+      ],
+      "outputFilePath" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/RooksCompanion.build/sources"
+    },
+    "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/RooksCompanion.product/Objects.LinkFileList" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<link-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCore.build/Models.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCore.build/Networking.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCore.build/Utilities.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/RooksCompanion.build/App.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/RooksCompanion.build/PanelView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/RooksCompanion.build/PanelViewModel.swift.o"
+        }
+      ],
+      "outputFilePath" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/RooksCompanion.product/Objects.LinkFileList"
+    },
+    "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/RooksCompanionPackageTests.build/sources" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<sources-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/RooksCompanionPackageTests.derived/runner.swift"
+        }
+      ],
+      "outputFilePath" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/RooksCompanionPackageTests.build/sources"
+    },
+    "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/RooksCompanionPackageTests.product/Objects.LinkFileList" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<link-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCore.build/Models.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCore.build/Networking.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCore.build/Utilities.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/ConfigDiscoveryTests.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/ModelsTests.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/MoodMascotMappingTests.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/RequestBuildingTests.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/SSEParserTests.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/RooksCompanionPackageTests.build/runner.swift.o"
+        }
+      ],
+      "outputFilePath" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/RooksCompanionPackageTests.product/Objects.LinkFileList"
+    },
+    "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/swift-version--1AB21518FC5DEDBE.txt" : {
+      "alwaysOutOfDate" : true,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<swift-get-version>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Library/Developer/CommandLineTools/usr/bin/swiftc"
+        }
+      ],
+      "outputFilePath" : "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/swift-version--1AB21518FC5DEDBE.txt"
+    }
+  }
+}

@@ -218,29 +218,48 @@ class TestHookBridge:
         assert agent["steps"][-1]["text"] == "Please read the file app.py"
     
     def test_claude_pre_tool_use_posts_step(self, hook_script_path, companion_url):
-        """PreToolUse posts step event with tool info."""
+        """PreToolUse posts step event with tool info, then companion decision drives permission."""
         auth = _token_from_url(companion_url)
-        
+
         companion_dir = Path(os.environ["HOME"]) / ".rooks"
         companion_dir.mkdir(exist_ok=True)
         (companion_dir / "companion.json").write_text(json.dumps({
             "url": companion_url,
             "token": auth["Authorization"].split(" ")[1]
         }))
-        
+
+        import requests, threading
+
+        def decide_later():
+            # The hook now blocks on PreToolUse waiting for a companion decision.
+            for _ in range(40):
+                time.sleep(0.25)
+                st = requests.get(f"{companion_url}/api/companion/state", headers=auth).json()
+                pend = [r for r in st["requests"] if r["status"] == "pending"]
+                if pend:
+                    requests.post(f"{companion_url}/api/companion/requests/{pend[0]['id']}/decide",
+                                  json={"decision": "allow"}, headers=auth)
+                    return
+            raise AssertionError("hook never created a pending request")
+
+        t = threading.Thread(target=decide_later, daemon=True)
+        t.start()
+
         code, out, err = _run_hook(hook_script_path, "claude", "PreToolUse", {
             "session_id": "test-session-3",
             "cwd": "/tmp/project",
             "tool_name": "Bash",
             "tool_input": {"command": "npm test"}
-        })
-        
+        }, timeout=15)
+
+        t.join(timeout=15)
         assert code == 0
-        
-        import requests
+        # PreToolUse must emit the Claude Code permission decision on stdout.
+        decision = json.loads(out)
+        assert decision["hookSpecificOutput"]["permissionDecision"] == "allow"
+
         state = requests.get(f"{companion_url}/api/companion/state", headers=auth).json()
         agent = next(a for a in state["agents"] if a["key"] == "claude-code:test-session-3")
-        assert agent["status"] == "working"
         assert "Ran npm test" in agent["steps"][-1]["text"]
         assert agent["steps"][-1]["kind"] == "run"
     
@@ -350,7 +369,7 @@ class TestHookBridge:
             "tool_input": {"command": "pytest tests/"},
             "title": "Run pytest",
             "detail": "Running tests"
-        })
+        }, timeout=15)
         
         assert code == 0
         decision = json.loads(out)

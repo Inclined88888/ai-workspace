@@ -1,0 +1,40 @@
+{
+  "": {
+    "swift-dependencies": "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/primary.swiftdeps"
+  },
+  "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Tests/CompanionCoreTests/ConfigDiscoveryTests.swift": {
+    "dependencies": "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/ConfigDiscoveryTests.d",
+    "object": "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/ConfigDiscoveryTests.swift.o",
+    "swiftmodule": "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/ConfigDiscoveryTests~partial.swiftmodule",
+    "swift-dependencies": "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/ConfigDiscoveryTests.swiftdeps",
+    "diagnostics": "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/ConfigDiscoveryTests.dia"
+  },
+  "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Tests/CompanionCoreTests/ModelsTests.swift": {
+    "dependencies": "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/ModelsTests.d",
+    "object": "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/ModelsTests.swift.o",
+    "swiftmodule": "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/ModelsTests~partial.swiftmodule",
+    "swift-dependencies": "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/ModelsTests.swiftdeps",
+    "diagnostics": "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/ModelsTests.dia"
+  },
+  "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Tests/CompanionCoreTests/MoodMascotMappingTests.swift": {
+    "dependencies": "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/MoodMascotMappingTests.d",
+    "object": "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/MoodMascotMappingTests.swift.o",
+    "swiftmodule": "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/MoodMascotMappingTests~partial.swiftmodule",
+    "swift-dependencies": "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/MoodMascotMappingTests.swiftdeps",
+    "diagnostics": "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/MoodMascotMappingTests.dia"
+  },
+  "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Tests/CompanionCoreTests/RequestBuildingTests.swift": {
+    "dependencies": "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/RequestBuildingTests.d",
+    "object": "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/RequestBuildingTests.swift.o",
+    "swiftmodule": "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/RequestBuildingTests~partial.swiftmodule",
+    "swift-dependencies": "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/RequestBuildingTests.swiftdeps",
+    "diagnostics": "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/RequestBuildingTests.dia"
+  },
+  "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/Tests/CompanionCoreTests/SSEParserTests.swift": {
+    "dependencies": "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/SSEParserTests.d",
+    "object": "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/SSEParserTests.swift.o",
+    "swiftmodule": "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/SSEParserTests~partial.swiftmodule",
+    "swift-dependencies": "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/SSEParserTests.swiftdeps",
+    "diagnostics": "/Users/azad_mavi/.hermes/cache/scratch/wt-testall/companion/macos/.build/arm64-apple-macosx/debug/CompanionCoreTests.build/SSEParserTests.dia"
+  }
+}

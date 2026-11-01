@@ -240,7 +240,7 @@ def _claude_tool_text(tool_name: str, tool_input: dict) -> tuple[str, str]:
     return tool_name, kind
 
 
-def _handle_claude(hook_event: str, data: dict, url: str, token: str) -> None:
+def _handle_claude(hook_event: str, data: dict, url: str, token: str) -> dict | None:
     session = data.get("session_id", "")[:200]
     cwd = data.get("cwd", "")
     tool_name = data.get("tool_name", "")
@@ -248,22 +248,49 @@ def _handle_claude(hook_event: str, data: dict, url: str, token: str) -> None:
 
     mapped = CLAUDE_EVENT_MAP.get(hook_event)
     if not mapped:
-        return
+        return None
 
     # Session start / user prompt
     if hook_event in ("SessionStart", "UserPromptSubmit"):
         prompt = data.get("prompt", "") if hook_event == "UserPromptSubmit" else ""
         _post_event(url, token, "claude-code", session, "start",
                     name="Claude Code", folder=cwd, text=prompt[:200], kind="think")
-        return
+        return None
 
-    # Tool events
-    if hook_event in ("PreToolUse", "PostToolUse", "PostToolUseFailure"):
+    # PreToolUse: post the step, then ask the companion for a permission decision.
+    # Per Claude Code hook docs, printing hookSpecificOutput.permissionDecision on
+    # stdout lets the companion Allow / Ask / Deny instead of the terminal prompt.
+    if hook_event == "PreToolUse":
+        text, kind = _claude_tool_text(tool_name, tool_input)
+        _post_event(url, token, "claude-code", session, "step",
+                    name="Claude Code", folder=cwd, text=text, kind=kind)
+        req = _create_request(url, token, "claude-code", session, "permission",
+                              f"Allow {tool_name}?", text, tool_name,
+                              json.dumps(tool_input)[:1000], [], name="Claude Code")
+        if not req:
+            return None
+        rid = req.get("id")
+        if req.get("status") == "allow":
+            return {"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                                           "permissionDecision": "allow"}}
+        if not rid:
+            return None
+        decided = _wait_for_decision(url, token, rid)
+        status = (decided or {}).get("status", "ask")
+        if status in ("allow", "always"):
+            return {"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                                           "permissionDecision": "allow"}}
+        if status == "deny":
+            return {"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                                           "permissionDecision": "deny"}}
+        return None  # ask: let Claude Code show its own prompt
+
+    if hook_event in ("PostToolUse", "PostToolUseFailure"):
         text, kind = _claude_tool_text(tool_name, tool_input)
         event_type = "error" if hook_event == "PostToolUseFailure" else mapped
         _post_event(url, token, "claude-code", session, event_type,
                     name="Claude Code", folder=cwd, text=text, kind=kind)
-        return
+        return None
 
     # Notification -> idle or question
     if hook_event == "Notification":
@@ -439,7 +466,9 @@ def main() -> int:
 
     try:
         if agent == "claude":
-            _handle_claude(hook_event, data, url, token)
+            decision = _handle_claude(hook_event, data, url, token)
+            if decision:
+                json.dump(decision, sys.stdout)
         elif agent == "codex":
             decision = _handle_codex(hook_event, data, url, token)
             if decision:
