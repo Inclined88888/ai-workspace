@@ -124,6 +124,66 @@ def delete_conversation(cid: int):
     return {"ok": True}
 
 
+# Goals
+from .goals import GoalIn, GoalPatch
+
+
+@router.post("/goals")
+def create_goal(data: GoalIn):
+    """Create a new goal for a conversation."""
+    from . import goals
+
+    return goals.create(data)
+
+
+@router.get("/goals")
+def list_goals(conversation_id: int | None = None):
+    """List all goals, optionally filtered by conversation."""
+    from . import goals
+
+    return goals.listing(conversation_id)
+
+
+@router.get("/goals/{goal_id}")
+def get_goal(goal_id: int):
+    """Get a specific goal by ID."""
+    from . import goals
+
+    return goals.get(goal_id)
+
+
+@router.patch("/goals/{goal_id}")
+def update_goal(goal_id: int, data: GoalPatch):
+    """Update a goal's objective, max_rounds, or resume_on_restart."""
+    from . import goals
+
+    return goals.update(goal_id, data)
+
+
+@router.post("/goals/{goal_id}/cancel")
+def cancel_goal(goal_id: int):
+    """Cancel an active goal."""
+    from . import goals
+
+    return goals.cancel(goal_id)
+
+
+@router.post("/goals/{goal_id}/pause")
+def pause_goal(goal_id: int):
+    """Pause an active goal."""
+    from . import goals
+
+    return goals.pause(goal_id)
+
+
+@router.post("/goals/{goal_id}/resume")
+def resume_goal(goal_id: int):
+    """Resume a paused or blocked goal."""
+    from . import goals
+
+    return goals.resume(goal_id)
+
+
 # Approvals: actions held by assistant.needs_approval
 @router.get("/approvals")
 def approvals(conversation_id: int | None = None):
