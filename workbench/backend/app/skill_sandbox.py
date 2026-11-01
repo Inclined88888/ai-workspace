@@ -1,16 +1,19 @@
 """Run a skill's helper scripts in isolation: for the trial run before install, and at run time with granted permissions.
 
 Layers, strongest available first:
-1. Linux: bubblewrap (`bwrap`) gives the script a private filesystem view (system folders read-only, its own copy of
+1. macOS: Seatbelt (`sandbox-exec`) gives the script a deny-by-default filesystem and network profile.
+   Reads limited to skill folder, Python runtime/venv, system libs; writes ONLY in skill's folder/work dir + private temp.
+   Network denied unless the skill's manifest grants it.
+2. Linux: bubblewrap (`bwrap`) gives the script a private filesystem view (system folders read-only, its own copy of
    the skill read-write, no home folder, no secrets) and no network unless network was granted. `unshare -rn` is the
    fallback for network isolation when bwrap is missing.
-2. Every platform: a clean environment (no API keys, HOME pointed at the scratch folder), a time limit, CPU and memory
+3. Every platform: a clean environment (no API keys, HOME pointed at the scratch folder), a time limit, CPU and memory
    limits where the OS supports them.
-3. Python scripts additionally run under an audit hook that checks every connect, DNS lookup, file open and subprocess
+4. Python scripts additionally run under an audit hook that checks every connect, DNS lookup, file open and subprocess
    against the grants, blocks the ones outside them and reports each attempt. This is what turns an out-of-grant action
    into an approval request instead of a silent failure.
-macOS (sandbox-exec profiles) and Windows (AppContainer / job objects) are documented in docs/skills-security.md and
-are not wired into the desktop app yet; there, layers 2 and 3 apply.
+Windows (AppContainer / job objects) are documented in docs/skills-security.md and are not wired in; there, layers 3 and 4 apply.
+FAIL CLOSED: sandbox-exec missing or profile fails -> refuse with a clear message, never silently run unsandboxed.
 """
 
 from __future__ import annotations
@@ -28,6 +31,27 @@ TIMEOUT = 20
 PYTHON = os.path.realpath(sys.executable)  # the base interpreter: scripts get the standard library, not our packages
 NET_SHIMS = ("curl", "wget", "nc", "ncat", "ssh", "scp", "ftp", "telnet")
 PERSIST_SHIMS = ("crontab", "launchctl", "systemctl", "schtasks", "sudo")
+
+# Path to the Seatbelt profile (relative to this file)
+SEATBELT_PROFILE = Path(__file__).with_name("seatbelt_skill_profile.sbpl")
+
+# Network policy additions (from Codex's seatbelt_network_policy.sbpl)
+SEATBELT_NETWORK_POLICY = """
+; Network access (granted)
+(allow network-outbound)
+(allow network-inbound)
+(allow mach-lookup
+  (global-name "com.apple.bsd.dirhelper")
+  (global-name "com.apple.system.opendirectoryd.membership")
+  (global-name "com.apple.SecurityServer")
+  (global-name "com.apple.networkd")
+  (global-name "com.apple.ocspd")
+  (global-name "com.apple.trustd.agent")
+  (global-name "com.apple.SystemConfiguration.DNSConfiguration")
+  (global-name "com.apple.SystemConfiguration.configd"))
+(allow sysctl-read
+  (sysctl-name-regex #"^net.routetable"))
+"""
 
 # Installed into the child before the script runs. Reads its config from an env var it then deletes.
 BOOTSTRAP = r'''
@@ -74,10 +98,18 @@ NET_ERRORS = ("Could not resolve host", "Temporary failure in name resolution", 
 
 def isolation_layers() -> list[str]:
     layers = ["clean environment", "time and memory limits", "Python audit hook"]
-    if sys.platform.startswith("linux") and shutil.which("bwrap"):
-        layers.insert(0, "bubblewrap filesystem + network isolation")
-    elif sys.platform.startswith("linux") and shutil.which("unshare"):
-        layers.insert(0, "network namespace (unshare)")
+    if sys.platform == "darwin":
+        if shutil.which("sandbox-exec") and SEATBELT_PROFILE.exists():
+            layers.insert(0, "Seatbelt filesystem + network isolation")
+        else:
+            layers.insert(0, "Seatbelt unavailable (sandbox-exec or profile missing)")
+    elif sys.platform.startswith("linux"):
+        if shutil.which("bwrap"):
+            layers.insert(0, "bubblewrap filesystem + network isolation")
+        elif shutil.which("unshare"):
+            layers.insert(0, "network namespace (unshare)")
+    elif sys.platform == "win32":
+        layers.insert(0, "Windows isolation not implemented (AppContainer/Job objects planned)")
     return layers
 
 
@@ -101,7 +133,53 @@ def _bwrap_ok() -> bool:
         return False
 
 
-def _wrap(cmd: list[str], work: Path, network: bool) -> tuple[list[str], str]:
+def _seatbelt_ok() -> bool:
+    """Check if sandbox-exec and the profile are available and the profile is valid."""
+    if sys.platform != "darwin":
+        return False
+    if not shutil.which("sandbox-exec"):
+        return False
+    if not SEATBELT_PROFILE.exists():
+        return False
+    # Quick validation: try to parse the profile
+    try:
+        profile_text = SEATBELT_PROFILE.read_text(encoding="utf-8")
+        result = subprocess.run(
+            ["sandbox-exec", "-p", profile_text, "true"],
+            capture_output=True, timeout=5
+        )
+        return result.returncode == 0
+    except (subprocess.SubprocessError, OSError):
+        return False
+
+
+def _build_seatbelt_profile(network: bool) -> str:
+    """Build the Seatbelt profile string, optionally with network permissions."""
+    profile = SEATBELT_PROFILE.read_text(encoding="utf-8")
+    if network:
+        profile += SEATBELT_NETWORK_POLICY
+    return profile
+
+
+def _wrap(cmd: list[str], work: Path, network: bool, skill_dir: Path, tmp: Path) -> tuple[list[str], str]:
+    """Wrap the command with the appropriate sandbox for the platform."""
+    # macOS: Seatbelt
+    if sys.platform == "darwin":
+        if _seatbelt_ok():
+            profile = _build_seatbelt_profile(network)
+            seatbelt_cmd = [
+                "sandbox-exec",
+                "-p", profile,
+            ]
+            return seatbelt_cmd + cmd, "seatbelt"
+        else:
+            # FAIL CLOSED: refuse to run without sandbox
+            raise RuntimeError(
+                "macOS Seatbelt sandbox unavailable: sandbox-exec not found or profile invalid. "
+                "Refusing to run skill script unsandboxed (fail-closed)."
+            )
+
+    # Linux: bubblewrap
     if _bwrap_ok():
         w = ["bwrap", "--die-with-parent", "--new-session", "--unshare-pid", "--unshare-ipc", "--unshare-uts"]
         if not network:
@@ -117,6 +195,12 @@ def _wrap(cmd: list[str], work: Path, network: bool) -> tuple[list[str], str]:
     if not network and sys.platform.startswith("linux") and shutil.which("unshare"):
         if subprocess.run(["unshare", "-rn", "true"], capture_output=True).returncode == 0:
             return ["unshare", "-rn", *cmd], "unshare"
+
+    # Windows: no isolation (planned)
+    if sys.platform == "win32":
+        return cmd, "none"
+
+    # Fallback: no filesystem isolation
     return cmd, "process"
 
 
@@ -164,7 +248,11 @@ def run(skill_dir: Path, script: str, args: list[str] | None = None, grants: dic
     else:
         shutil.rmtree(tmp, ignore_errors=True)
         return {"script": script, "status": "skipped", "exit": None, "stdout": "", "stderr": f"no runner for {target.name}", "violations": []}
-    full, layer = _wrap(cmd, work, network=bool(grants.get("network")))
+    try:
+        full, layer = _wrap(cmd, work, network=bool(grants.get("network")), skill_dir=skill_dir, tmp=tmp)
+    except RuntimeError as e:
+        shutil.rmtree(tmp, ignore_errors=True)
+        return {"script": script, "status": "error", "exit": None, "stdout": "", "stderr": str(e), "violations": [], "isolation": "none"}
     violations: list[dict] = []
     try:
         p = subprocess.run(full, cwd=work, env=env, capture_output=True, text=True, timeout=TIMEOUT, stdin=subprocess.DEVNULL,

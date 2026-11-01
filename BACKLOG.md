@@ -27,6 +27,7 @@ Out of scope for the current branch, dropped, or blocked. Nothing is dropped sil
 
 ## Found during work, not yet scheduled
 
+* **Windows skill sandbox (AppContainer/Job objects).** macOS Seatbelt and Linux bubblewrap are implemented; Windows isolation is planned but not wired. `isolation_layers()` reports "Windows isolation not implemented (AppContainer/Job objects planned)". See docs/skills-security.md for the design.
 * **Bridge tokens for other local tools (item 103, Phase 1).** `/v1` accepts only `BROWSER_API_KEY` today. Other OpenAI-only tools (editors, scripts) need user-created, revocable bridge tokens and streaming (`stream: true` is refused with 400 for now).
 * **Browser runs are not linked to the chat turn that started them.** Their `model_call` rows carry channel `browser` but no `parent_action_id`. Passing the turn id through the job would put them in the turn's trace (item 21 UI).
 * **Standalone browser-agent CLI keeps its own providers.** Outside the stack (no `BROWSER_REQUIRE_WORKBENCH`), `browser-agent run` can call Anthropic, Gemini, Ollama and the like directly. That is a separate distribution, not core, but it is a second provider layer. Retire it if the CLI gains a `--workbench` default.
