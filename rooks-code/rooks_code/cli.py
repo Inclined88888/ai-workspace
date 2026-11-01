@@ -170,6 +170,14 @@ def main(argv: list[str] | None = None) -> int:
         ui.error(f"{s.provider} needs an API key in the {s.key_env} environment variable (or use --provider ollama)")
         return 2
     from .agent import Agent
+    from .tools import is_home_or_root
+    where = is_home_or_root(root)
+    if where == "home":
+        ui.warn(f"you are in your home folder ({root}); search and list stop early here. "
+                f"Run rooks -C <project> for the folder you are working on.")
+    elif where == "root":
+        ui.warn(f"you are in a filesystem root ({root}); search and list stop early here. "
+                f"Run rooks -C <project> for the folder you are working on.")
     agent = Agent(s, ui)
     try:
         if args.prompt:

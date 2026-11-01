@@ -5,14 +5,17 @@ from __future__ import annotations
 
 import json
 import platform
+import queue
 import re
+import sys
+import threading
 import time
 from pathlib import Path
 
 from . import providers
 from .mcp import MCPError, MCPManager
 from .receipts import RunLog
-from .tools import SPECS, Plan, Toolbox, ToolError
+from .tools import SPECS, Cancelled, Plan, Toolbox, ToolError
 from .undo import ChangeSets
 
 SYSTEM = """You are Rooks Code, a careful coding agent working in the user's project through tools.
@@ -72,7 +75,8 @@ class Agent:
         self.root: Path = settings.root.resolve()
         self.log = log or RunLog(self.root, provider=settings.provider, model=settings.model)
         self.model = model or providers.make(settings, on_egress=self._egress)
-        self.tools = Toolbox(self.root, settings.command_timeout)
+        self._cancel = threading.Event()  # set by Esc/Ctrl-C: the running tool stops, the session goes on
+        self.tools = Toolbox(self.root, settings.command_timeout, cancel=self._cancel)
         self.changes = ChangeSets(self.root)
         self.mcp = MCPManager(settings.mcp_servers, str(self.root), warn=ui.warn) if settings.mcp_servers else None
         self.messages: list[dict] = []
@@ -251,7 +255,13 @@ class Agent:
             self.changes.snapshot(plan.path)
         t0 = time.monotonic()
         try:
-            result, verified, evidence = plan.apply()
+            result, verified, evidence = self._apply(plan)
+        except Cancelled:
+            ms = int((time.monotonic() - t0) * 1000)
+            self.log.finish(action, "cancelled", failure_reason="cancelled by the user (Esc)", latency_ms=ms)
+            self.ui.tool_note("cancelled (Esc); the tool stopped, the session goes on")
+            return ("The tool was cancelled by the user (Esc). Do not retry it right away; continue without its result "
+                    "or ask what to do instead."), "cancelled"
         except (ToolError, MCPError, OSError) as e:
             self.log.finish(action, "tool_error", failure_reason=str(e)[:2000], latency_ms=int((time.monotonic() - t0) * 1000))
             self.ui.tool_note(f"failed: {str(e)[:300]}")
@@ -276,9 +286,82 @@ class Agent:
         ok, text = server.call(tool, arguments)
         return (text or "(no content)") if ok else f"Error from {server.name}: {text}", None, "" if ok else "mcp error"
 
+    def _apply(self, plan: Plan):
+        """Run plan.apply() on a worker thread. Esc or Ctrl-C sets the cancel event: the tool stops itself at its next
+        checkpoint (search/list do this every file, rg is killed) and the agent turn continues; a second Ctrl-C
+        interrupts the session. On a non-tty (tests, pipes) the tool runs inline and Ctrl-C interrupts as before."""
+        if not sys.stdin.isatty():
+            self._cancel.clear()
+            return plan.apply()
+        out: queue.Queue = queue.Queue(maxsize=1)
+
+        def work():
+            try:
+                out.put(("ok", plan.apply()))
+            except BaseException as e:
+                out.put(("err", e))
+
+        self._cancel.clear()
+        old = _install_esc_hook(self._cancel)
+        t = threading.Thread(target=work, daemon=True)
+        t.start()
+        try:
+            kind, payload = out.get()
+        except KeyboardInterrupt:
+            self._cancel.set()
+            kind, payload = out.get()  # the worker must honour the cancel; raise Cancelled whatever it returned
+            raise Cancelled() from None
+        finally:
+            _remove_esc_hook(old)
+        if kind == "err":
+            raise payload
+        return payload
+
     def close(self) -> None:
         if self.mcp:
             self.mcp.close()
+
+
+# Esc during a tool run: watch stdin in raw mode and set the cancel event. Only on a tty, only while a tool runs.
+_esc_state: dict = {}
+
+
+def _install_esc_hook(cancel: threading.Event):
+    if not sys.stdin.isatty() or sys.platform == "win32":
+        return None
+    import termios
+    import tty
+    fd = sys.stdin.fileno()
+    try:
+        old = termios.tcgetattr(fd)
+    except termios.error:
+        return None
+
+    def watch():
+        try:
+            tty.setraw(fd)
+            while not cancel.is_set():
+                ch = sys.stdin.read(1)
+                if ch in ("\x1b", "\x03"):  # Esc, Ctrl-C byte (raw mode turns off SIGINT)
+                    cancel.set()
+                    return
+        except (OSError, ValueError):
+            return
+
+    t = threading.Thread(target=watch, daemon=True)
+    t.start()
+    return (fd, old, t)
+
+
+def _remove_esc_hook(state) -> None:
+    if not state:
+        return
+    fd, old, t = state
+    import termios
+    try:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+    except termios.error:
+        pass
 
 
 def _listing(root: Path, limit: int = 60) -> str:
