@@ -5,7 +5,8 @@ here, so their model calls use the one adapter layer (R1), never hold provider k
 channel "browser"). Model ids are Workbench model refs ("3/claude-…") or "default".
 
 Auth: Bearer BROWSER_API_KEY, the secret the browser service already shares with Workbench (or DESK_API_KEY, Rooks
-Desk's). Refused when neither is set.
+Desk's). The per-user Terminal access token (Settings > Terminal access, the wb_… token whose sha256 is stored as the
+cli_token_hash setting) is accepted too, so the rooks CLI printed by setup.sh works. Refused when no key is set.
 
 /v1/desk/send_email lets Rooks Desk (computer use) email a result, with attachments, from the user's own mail account.
 Rooks Desk asks the user to approve every email before it calls this; the endpoint only answers the rooks-desk channel.
@@ -15,6 +16,7 @@ Streaming is not offered: no caller needs it yet.
 import asyncio
 import base64
 import binascii
+import hashlib
 import hmac
 import time
 import uuid
@@ -32,8 +34,13 @@ def require_bridge_key(request: Request) -> None:
     auth = request.headers.get("authorization", "")
     token = auth[7:] if auth.lower().startswith("bearer ") else ""
     keys = [k for k in (config.BROWSER_API_KEY, config.DESK_API_KEY) if k]
-    if not (token and any(hmac.compare_digest(token, k) for k in keys)):
-        raise HTTPException(401, "Invalid or missing bridge key")
+    if token and any(hmac.compare_digest(token, k) for k in keys):
+        return
+    # the per-user Terminal access token (wb_…), same check as assistant_api.require_user_or_cli
+    stored = db.get_setting("cli_token_hash", "") or ""
+    if token and stored and hmac.compare_digest(hashlib.sha256(token.encode()).hexdigest(), stored):
+        return
+    raise HTTPException(401, "Invalid or missing bridge key")
 
 
 router = APIRouter(prefix="/v1", dependencies=[Depends(require_bridge_key)])

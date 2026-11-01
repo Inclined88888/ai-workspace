@@ -77,6 +77,102 @@ def app_link() -> dict:
         return {}
 
 
+def workbench_probe(url: str = "") -> dict:
+    """A Workbench server that answers /healthz, or {}. url defaults to WORKBENCH_URL, then http://localhost:3100, so a
+    Docker Workbench is found with nothing configured."""
+    import urllib.request
+
+    for u in dict.fromkeys(u for u in (url or os.environ.get("WORKBENCH_URL", ""), "http://localhost:3100") if u):
+        u = u.rstrip("/")
+        try:
+            urllib.request.urlopen(f"{u}/healthz", timeout=1.5).close()
+            return {"url": u}
+        except (OSError, ValueError):
+            continue
+    return {}
+
+
+# --- stored keys -------------------------------------------------------------------------------------------------
+# `rooks login` keeps a key out of the TOML: in the OS keychain when `keyring` is importable, else in
+# ~/.config/ai-workspace/rooks.env (mode 600). resolve() loads both so a stored key works like an exported one.
+
+def _env_path() -> Path:
+    return config_path_dir() / "rooks.env"
+
+
+def _load_env_file() -> dict[str, str]:
+    out: dict[str, str] = {}
+    try:
+        for line in _env_path().read_text(encoding="utf-8").splitlines():
+            s = line.strip()
+            if s and not s.startswith("#") and "=" in s:
+                k, _, v = s.partition("=")
+                out[k.strip()] = v.strip().strip("'\"")
+    except OSError:
+        pass
+    return out
+
+
+def store_key(env_name: str, key: str) -> str:
+    """Put a key where resolve() finds it. Returns where it went ('keychain' or the rooks.env path). Never prints it."""
+    try:
+        import keyring
+        try:
+            keyring.set_password("rooks", env_name, key)
+            return "keychain"
+        except Exception:
+            pass  # no backend (headless Linux): fall through to the file
+    except ImportError:
+        pass
+    p = _env_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    lines = {k: v for k, v in _load_env_file().items() if k != env_name}
+    lines[env_name] = key
+    p.write_text("# written by `rooks login`; loaded by rooks at start. mode 600, never committed.\n"
+                 + "".join(f"{k}={v}\n" for k, v in lines.items()), encoding="utf-8")
+    os.chmod(p, 0o600)
+    return str(p)
+
+
+def _stored_keys() -> dict[str, str]:
+    keys = _load_env_file()
+    try:
+        import keyring
+        for name in KEY_ENV_NAMES:
+            if name not in keys:
+                try:
+                    v = keyring.get_password("rooks", name)
+                    if v:
+                        keys[name] = v
+                except Exception:
+                    continue
+    except ImportError:
+        pass
+    return keys
+
+
+KEY_ENV_NAMES = tuple(dict.fromkeys(p["key_env"] for p in PROVIDERS.values() if p.get("key_env")))
+
+# key prefix -> provider, for `rooks login` and for spotting a key in the environment. Only unambiguous prefixes.
+KEY_PREFIXES = (
+    ("sk-ant-", "anthropic"),
+    ("sk-or-v1-", "openrouter"),
+    ("wb_", "workbench"),
+    ("gsk_", "groq"),
+    ("AIza", "gemini"),
+    ("xai-", "xai"),
+    ("sk-", "openai"),       # checked last: DeepSeek and others share the sk- shape, so ask when it matters
+)
+
+
+def provider_for_key(key: str) -> str:
+    """The provider a pasted key belongs to, '' when the prefix is ambiguous."""
+    for prefix, name in KEY_PREFIXES:
+        if key.startswith(prefix):
+            return name
+    return ""
+
+
 NO_MODEL_HELP = ("No AI model is set up yet. Either open the app (run `ai-workspace`) and choose \"Free cloud\" "
                  "(a free Gemini or Groq key: two minutes, no card), or set a key in this terminal and run again:\n"
                  "    export GROQ_API_KEY=...     (free at https://console.groq.com/keys)\n"
@@ -146,7 +242,11 @@ class Settings:
 
     @property
     def api_key(self) -> str:
-        return (os.environ.get(self.key_env, "") if self.key_env else "") or self.key
+        if self.key:
+            return self.key
+        if not self.key_env:
+            return ""
+        return os.environ.get(self.key_env, "") or _stored_keys().get(self.key_env, "")
 
     def trusted(self) -> bool:
         root = self.root.resolve()
@@ -192,9 +292,12 @@ def resolve(flags: dict, root: Path, file: dict | None = None) -> Settings:
             link = app_link()
             if link and app_has_models(link):
                 name = "workbench"
+            elif workbench_probe():  # a Docker Workbench on :3100 (or WORKBENCH_URL) answers; use it
+                name = "workbench"
             else:
                 link = {}
-                name = next((n for n in KEY_ORDER if os.environ.get(PROVIDERS[n]["key_env"])), "")
+                name = next((n for n in KEY_ORDER if os.environ.get(PROVIDERS[n]["key_env"]) or
+                             PROVIDERS[n]["key_env"] in _stored_keys()), "")
                 if not name:
                     if not _ollama_up():
                         raise SystemExit(f"rooks: {NO_MODEL_HELP}")
@@ -214,7 +317,10 @@ def resolve(flags: dict, root: Path, file: dict | None = None) -> Settings:
             link = link or app_link()
             wb, s.key = link.get("url", ""), link.get("key", "")
         if not wb:
-            raise SystemExit("rooks: the workbench provider needs the AI Workspace app open (or WORKBENCH_URL / workbench_url)")
+            wb = workbench_probe().get("url", "")
+        if not wb:
+            raise SystemExit("rooks: the workbench provider needs the AI Workspace app open, a Docker Workbench on "
+                             ":3100, or WORKBENCH_URL / workbench_url")
         s.base_url = wb.rstrip("/") + "/v1"
     cfg_model = cfg.get("model", "") if name == cfg.get("provider") else ""  # a model named for another provider never leaks
     s.model = flags.get("model") or env["model"] or cfg_model or p.get("model", "")

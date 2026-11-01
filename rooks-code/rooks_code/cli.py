@@ -7,6 +7,7 @@ or local Ollama / LM Studio (works fully offline).
   rooks receipts [list|show|import --db PATH]
   rooks -P claude-code "task"   hand the job to your own signed-in Claude Code (your Claude plan); also -P codex
   rooks doctor                  check the provider, key and MCP servers
+  rooks login                   set up a model: connect to Workbench, paste a key, or use Ollama
   rooks init                    write an example config file
   rooks mcp                     list MCP servers and their tools
 
@@ -27,7 +28,7 @@ from . import __version__, config, receipts
 from . import theme as term_theme
 from .undo import ChangeSets
 
-SUBCOMMANDS = ("undo", "receipts", "doctor", "init", "mcp", "version")
+SUBCOMMANDS = ("undo", "receipts", "doctor", "init", "login", "mcp", "version")
 
 
 class UI:
@@ -281,6 +282,9 @@ def subcommand(name: str, rest: list[str]) -> int:
         ap.add_argument("--base-url")
     a = ap.parse_args(rest)
     root = Path(a.cwd).resolve()
+    if name == "login":
+        from . import login
+        return login.main()
     if name == "version":
         print(f"rooks {__version__}")
     elif name == "undo":
@@ -345,30 +349,67 @@ def subcommand(name: str, rest: list[str]) -> int:
 
 
 def doctor(root: Path, a) -> int:
+    """Every check is printed, with a one-line fix per failure. Never exits before the last check."""
     from . import providers
     ok = True
     print(f"rooks {__version__}, Python {sys.version.split()[0]}, {sys.platform}")
-    print(f"config: {config.config_path()} ({'found' if config.config_path().exists() else 'not found, using defaults'})")
-    s = config.resolve({"provider": a.provider, "model": a.model, "base_url": a.base_url}, root)
-    if s.kind == "delegate":
-        from . import delegate
-        return delegate.doctor(s.provider)
-    print(f"provider: {s.provider} ({s.kind}) at {s.base_url}, model {s.model}")
-    if s.key_env:
-        print(f"api key: {s.key_env} is {'set' if s.api_key else 'NOT set'}")
-        ok &= bool(s.api_key) or s.key_optional
+    cfg_file = config.config_path()
+    found = cfg_file.exists()
+    print(f"config file: {cfg_file} ({'found' if found else 'not found'})"
+          + ("" if found else "  -> run `rooks login` or `rooks init`"))
+    env_file = config._env_path()
+    stored = config._stored_keys()
+    if stored:
+        print(f"stored keys: {len(stored)} ({'keychain' if _keyring_ok() else str(env_file)})")
     try:
-        r = providers.make(s).complete("Reply with the single word: ready", [{"role": "user", "content": "ping"}], [])
-        print(f"model call: ok ({r.text.strip()[:40]!r}, {r.tokens_in}+{r.tokens_out} tokens)")
-    except providers.ProviderError as e:
+        s = config.resolve({"provider": a.provider, "model": a.model, "base_url": a.base_url}, root)
+    except SystemExit as e:
+        print(f"provider: FAILED: {e}")
+        print("  -> run `rooks login` to pick a model, or set WORKBENCH_URL for a Docker Workbench")
+        s = None
         ok = False
-        print(f"model call: FAILED: {e}")
-    print(f"trusted folder: {'yes' if s.trusted() else 'no'} ({root})")
-    if s.mcp_servers:
+    if s is not None:
+        if s.kind == "delegate":
+            from . import delegate
+            return delegate.doctor(s.provider)
+        print(f"provider: {s.provider} ({s.kind}) at {s.base_url}, model {s.model}")
+        if s.key_env:
+            have = bool(s.api_key)
+            src = "environment" if os.environ.get(s.key_env) else "stored" if have else "NOT set"
+            print(f"api key: {s.key_env} is {src}")
+            if not have and not s.key_optional:
+                ok = False
+                print(f"  -> run `rooks login` and paste the key, or export {s.key_env}=...")
+        if s.provider == "workbench":
+            probe = config.workbench_probe(s.base_url.removesuffix("/v1"))
+            print(f"workbench reachable: {'yes' if probe else 'NO'} ({s.base_url.removesuffix('/v1')})")
+            if not probe:
+                ok = False
+                print("  -> start the app or the Docker Workbench, or set WORKBENCH_URL")
+        try:
+            r = providers.make(s).complete("Reply with the single word: ready", [{"role": "user", "content": "ping"}], [])
+            print(f"model call: ok ({r.text.strip()[:40]!r}, {r.tokens_in}+{r.tokens_out} tokens)")
+        except providers.ProviderError as e:
+            ok = False
+            print(f"model call: FAILED: {e}")
+            print(f"  -> check the key and that {s.model} is available on {s.provider}; `rooks login` reconfigures")
+    print(f"trusted folder: {'yes' if (s and s.trusted()) else 'no'} ({root})")
+    if s and s.mcp_servers:
         from .mcp import MCPManager
         m = MCPManager(s.mcp_servers, str(root), warn=lambda msg: print(msg))
         for n, srv in m.servers.items():
             print(f"mcp {n}: ok, {len(srv.tools)} tools")
         ok &= len(m.servers) == len([x for x in s.mcp_servers.values() if not x.get("disabled")])
         m.close()
+    elif s is not None:
+        print("mcp: no servers configured")
     return 0 if ok else 1
+
+
+def _keyring_ok() -> bool:
+    try:
+        import keyring
+        keyring.get_keyring()
+        return True
+    except Exception:
+        return False
