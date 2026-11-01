@@ -28,7 +28,7 @@ from . import __version__, config, receipts
 from . import theme as term_theme
 from .undo import ChangeSets
 
-SUBCOMMANDS = ("undo", "receipts", "doctor", "init", "login", "mcp", "version")
+SUBCOMMANDS = ("undo", "receipts", "doctor", "init", "login", "mcp", "models", "version")
 
 
 class UI:
@@ -275,9 +275,36 @@ def repl(agent, ui: UI) -> int:
             elif cmd == "/yes":
                 s.auto_approve = not s.auto_approve
                 ui.p(f"auto-approve {'on' if s.auto_approve else 'off'}")
-            elif cmd == "/model" and rest.strip():
-                s.model = agent.model.model = agent.log.model = rest.strip()
-                ui.p(f"model is now {s.model}")
+            elif cmd == "/model":
+                if rest.strip():
+                    s.model = agent.model.model = agent.log.model = rest.strip()
+                    ui.p(f"model is now {s.model}")
+                else:
+                    from . import providers as _p
+                    ids = _p.list_models(s.base_url, s.api_key, s.headers)
+                    if not ids:
+                        ui.p("could not list models from this provider (is the key and base_url right?)")
+                    else:
+                        ui.p(f"{len(ids)} models; /model NAME switches. Current: {s.model}")
+                        for i, m in enumerate(ids[:40], 1):
+                            ui.p(f"  {i:>2}. {m}")
+            elif cmd == "/provider" and rest.strip():
+                from . import config as _cfg
+                name = rest.strip()
+                if name not in _cfg.PROVIDERS and name not in s.__dict__.get("_custom", {}):
+                    cfg_file = _cfg.load_file()
+                    if name not in cfg_file.get("providers", {}):
+                        ui.p(f"unknown provider {name!r}; built in: {', '.join(_cfg.PROVIDERS)}")
+                        continue
+                try:
+                    ns = _cfg.resolve({"provider": name}, agent.root)
+                except SystemExit as e:
+                    ui.p(str(e))
+                    continue
+                agent.s.provider, agent.s.model, agent.s.base_url, agent.s.key_env = ns.provider, ns.model, ns.base_url, ns.key_env
+                from . import providers as _p
+                agent.model = _p.make(ns, on_egress=agent._egress, on_token=agent._token)
+                ui.p(f"provider {ns.provider}, model {ns.model} (conversation kept)")
             elif cmd == "/receipt":
                 ui.p(str(agent.log.path))
             elif cmd == "/sessions":
@@ -331,11 +358,29 @@ def subcommand(name: str, rest: list[str]) -> int:
         ap.add_argument("-P", "--provider")
         ap.add_argument("-m", "--model")
         ap.add_argument("--base-url")
+    if name == "models":
+        ap.add_argument("-P", "--provider")
+        ap.add_argument("-m", "--model")
+        ap.add_argument("--base-url")
     a = ap.parse_args(rest)
     root = Path(a.cwd).resolve()
     if name == "login":
         from . import login
         return login.main()
+    if name == "models":
+        from . import providers as _p
+        try:
+            s = config.resolve({"provider": a.provider, "model": a.model or "x", "base_url": a.base_url}, root)
+        except SystemExit as e:
+            print(e)
+            return 1
+        ids = _p.list_models(s.base_url, s.api_key, s.headers)
+        if not ids:
+            print(f"could not list models from {s.provider} at {s.base_url} (key set? base_url right?)")
+            return 1
+        for i, m in enumerate(ids, 1):
+            print(f"{i:>3}. {m}")
+        return 0
     if name == "version":
         print(f"rooks {__version__}")
     elif name == "undo":

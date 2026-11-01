@@ -5,6 +5,38 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
+class FakeModels:
+    """A fake GET /models server for list_models tests."""
+
+    def __init__(self, ids=(), fail=False):
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                if fail:
+                    self.send_response(401)
+                    self.end_headers()
+                    return
+                data = json.dumps({"object": "list", "data": [{"id": i, "object": "model"} for i in ids]}).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def do_POST(self):
+                self.send_response(404)
+                self.end_headers()
+
+            def log_message(self, *a, **kw):
+                pass
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.url = f"http://127.0.0.1:{self.server.server_address[1]}/v1"
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def close(self):
+        self.server.shutdown()
+
+
 def openai_reply(text="", calls=(), tokens=(100, 20)):
     msg = {"role": "assistant", "content": text or None}
     if calls:
@@ -112,7 +144,7 @@ class FakeModel:
                 self.end_headers()
                 self.wfile.write(data)
 
-            def log_message(self, *a):
+            def log_message(self, *a, **kw):
                 pass
 
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)

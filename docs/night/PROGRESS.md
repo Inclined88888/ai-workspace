@@ -6,3 +6,4 @@
 | 01 connect | done | 012c47e | nothing |
 | 02 streaming | done | e77ce7a | nothing |
 | 02b tui | done | f92602d | input editing (history, Alt-Enter, Ctrl-R), rich extra, status bar wired into the live loop |
+| 03 sessions+compaction | done | 3d3cf10 | nothing |

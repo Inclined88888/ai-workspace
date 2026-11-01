@@ -37,6 +37,20 @@ PROVIDERS: dict[str, dict] = {
     "xai": {"kind": "openai", "base_url": "https://api.x.ai/v1", "key_env": "XAI_API_KEY", "model": "grok-4-fast"},
     "deepseek": {"kind": "openai", "base_url": "https://api.deepseek.com/v1", "key_env": "DEEPSEEK_API_KEY", "model": "deepseek-chat"},
     "mistral": {"kind": "openai", "base_url": "https://api.mistral.ai/v1", "key_env": "MISTRAL_API_KEY", "model": "mistral-large-latest"},
+    # Base URLs and key env names from the competitors' provider extensions
+    # (~/competitor-analysis/openclaw/extensions/<name>/), cited per task 04.
+    "nvidia": {"kind": "openai", "base_url": "https://integrate.api.nvidia.com/v1", "key_env": "NVIDIA_API_KEY",  # extensions/nvidia
+               "model": "nvidia/llama-3.3-nemotron-super-49b"},
+    "moonshot": {"kind": "openai", "base_url": "https://api.moonshot.ai/v1", "key_env": "MOONSHOT_API_KEY",  # extensions/moonshot
+                 "model": "kimi-k2-0905-preview"},
+    "cerebras": {"kind": "openai", "base_url": "https://api.cerebras.ai/v1", "key_env": "CEREBRAS_API_KEY",  # extensions/cerebras
+                 "model": "llama-3.3-70b"},
+    "together": {"kind": "openai", "base_url": "https://api.together.ai/v1", "key_env": "TOGETHER_API_KEY",  # extensions/together
+                 "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo"},
+    "fireworks": {"kind": "openai", "base_url": "https://api.fireworks.ai/inference/v1", "key_env": "FIREWORKS_API_KEY",  # extensions/fireworks
+                  "model": "accounts/fireworks/models/llama-v3p3-70b-instruct"},
+    "zai": {"kind": "openai", "base_url": "https://api.z.ai/api/paas/v4", "key_env": "ZAI_API_KEY",  # extensions/zai
+            "model": "glm-4.6"},
     # Delegates: hand the job to the user's own signed-in Claude Code or Codex CLI (their Claude or ChatGPT plan).
     # Rooks never sees a key or token for these; see rooks_code/delegate.py.
     "claude-code": {"kind": "delegate", "base_url": "", "key_env": "", "model": "default", "key_optional": True},
@@ -161,6 +175,9 @@ KEY_PREFIXES = (
     ("gsk_", "groq"),
     ("AIza", "gemini"),
     ("xai-", "xai"),
+    ("nvapi-", "nvidia"),
+    ("csk-", "cerebras"),
+    ("fw_", "fireworks"),
     ("sk-", "openai"),       # checked last: DeepSeek and others share the sk- shape, so ask when it matters
 )
 

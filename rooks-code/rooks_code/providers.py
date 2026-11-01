@@ -127,6 +127,28 @@ Egress = Callable[[str, str, str, int, str], None]
 OnToken = Callable[[str, str], None]  # (text, style): style "text" or "reasoning" (printed dimmed)
 
 
+_models_cache: dict[str, tuple[float, list[str]]] = {}  # url+key -> (fetched at, ids)
+_MODELS_TTL = 300.0
+
+
+def list_models(base_url: str, api_key: str, headers: dict | None = None) -> list[str]:
+    """GET /models, cached for 5 minutes. [] on any failure (the caller shows 'could not list')."""
+    url = base_url.rstrip("/") + "/models"
+    ck = url + "|" + api_key[:8]
+    if ck in _models_cache and time.monotonic() - _models_cache[ck][0] < _MODELS_TTL:
+        return _models_cache[ck][1]
+    try:
+        req = urllib.request.Request(url, headers={**(headers or {}),
+                                                   **({"Authorization": f"Bearer {api_key}"} if api_key else {})})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            data = json.loads(r.read() or b"{}")
+        ids = sorted(str(m.get("id")) for m in data.get("data", []) if m.get("id"))
+    except Exception:
+        ids = []
+    _models_cache[ck] = (time.monotonic(), ids)
+    return ids
+
+
 def _want_stream(on_token: OnToken | None) -> bool:
     """Stream only to a real terminal. On a pipe or in tests on_token is never set, so a scripted reply is read once."""
     return on_token is not None and sys.stdout.isatty()

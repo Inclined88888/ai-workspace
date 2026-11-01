@@ -128,3 +128,22 @@ def test_no_on_token_means_no_stream_request():
     m.complete("sys", [{"role": "user", "content": "hi"}], [])
     assert srv.requests[0]["body"].get("stream") is not True
     srv.close()
+
+
+def test_list_models_hits_the_fake_server_and_caches():
+    from fakes import FakeModels
+    srv = FakeModels(ids=["a-model", "b-model"])
+    providers._models_cache.clear()
+    ids = providers.list_models(srv.url, "key")
+    assert ids == ["a-model", "b-model"]
+    # cached: a second call does not hit the server again
+    srv.close()
+    assert providers.list_models(srv.url, "key") == ["a-model", "b-model"]
+
+
+def test_list_models_failure_returns_empty():
+    from fakes import FakeModels
+    srv = FakeModels(fail=True)
+    providers._models_cache.clear()
+    assert providers.list_models(srv.url, "bad") == []
+    srv.close()

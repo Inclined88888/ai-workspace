@@ -34,6 +34,27 @@ def test_discovery_picks_docker_workbench_on_3100_when_no_app(no_network, tmp_pa
     assert s.provider == "workbench" and s.base_url == "http://localhost:3100/v1"
 
 
+def test_every_builtin_provider_has_base_url_and_key_env():
+    """Task 04: the built-in table is complete; delegates and keyless locals are the documented exceptions."""
+    for name, p in config.PROVIDERS.items():
+        assert p.get("kind") in ("openai", "anthropic", "delegate"), f"{name}: bad kind"
+        if p.get("kind") == "delegate" or p.get("local"):
+            continue
+        if name in ("openai-compatible", "workbench"):
+            continue  # base_url comes from the user or runtime discovery
+        assert p.get("base_url"), f"{name}: no base_url"
+        assert p.get("key_env"), f"{name}: no key_env"
+    for name in ("nvidia", "moonshot", "cerebras", "together", "fireworks", "zai"):
+        assert name in config.PROVIDERS, f"{name} missing"
+        assert config.PROVIDERS[name]["base_url"].startswith("https://")
+
+
+def test_provider_for_key_new_prefixes():
+    assert config.provider_for_key("nvapi-abc") == "nvidia"
+    assert config.provider_for_key("csk-abc") == "cerebras"
+    assert config.provider_for_key("fw_abc") == "fireworks"
+
+
 def test_discovery_order_app_beats_probe_beats_env_key(no_network, tmp_path, monkeypatch):
     # app wins over the probe
     monkeypatch.setattr(config, "app_link", lambda: {"url": "http://app:9", "key": "k"})
