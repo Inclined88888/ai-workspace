@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from . import analysis, compute, sites
+from . import analysis, compute, media, sites
 
 
 def build(Tool, S, I, B) -> list:  # noqa: N803 - the registry's own constructors
@@ -33,6 +33,11 @@ def build(Tool, S, I, B) -> list:  # noqa: N803 - the registry's own constructor
              lambda a, b: analysis.compare(a, b), ("a", "b"), untrusted=True),
         Tool("describe_image", "Look at a picture or scanned page from a file (photos, plans, screenshots, scans) with the current model.",
              {"file": S(), "question": S()}, analysis.describe_image, ("file",), untrusted=True),
+        Tool("generate_image", "Create a picture from a description with the user's connected image provider (OpenAI, Gemini, "
+             "xAI or OpenRouter) and save it to Files. Costs money on most providers: only when the user asks for an image.",
+             {"prompt": S("what the image shows, style, mood"), "size": S("square, portrait or landscape")},
+             lambda prompt, size="square": media.generate(prompt, size if size in media.SIZES else "square"), ("prompt",),
+             effect="external"),
         Tool("run_python", "Run Python in a local sandbox for real calculations: pandas, numpy, matplotlib, sympy (exact maths, "
              "step checks). Files listed in file_ids are in ./inputs/<name>; save outputs to ./out/; open matplotlib figures are "
              "saved as charts automatically. No network. Print results.",

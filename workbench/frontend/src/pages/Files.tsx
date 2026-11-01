@@ -1,4 +1,4 @@
-import { BarChart3, Code2, Download, FileSearch, FileText, FolderOpen, GitCompare, Loader2, MessageSquare, Trash2, Upload } from "lucide-react";
+import { BarChart3, Code2, Download, FileSearch, FileText, FolderOpen, GitCompare, ImagePlus, Loader2, MessageSquare, Trash2, Upload } from "lucide-react";
 import { DragEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
@@ -86,6 +86,44 @@ async function dropped(e: DragEvent): Promise<{ file: File; name: string }[]> {
   return out;
 }
 
+// Phase 4: images from the user's connected provider (OpenAI, Gemini, xAI, OpenRouter), saved here as files.
+function MakeImage({ onMade, onError }: { onMade: (fileId: number) => void; onError: (e: unknown) => void }) {
+  const [providers, setProviders] = useState<{ connection_id: number; name: string; model: string }[] | null>(null);
+  const [prompt, setPrompt] = useState("");
+  const [size, setSize] = useState("square");
+  const [conn, setConn] = useState<number | "">("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { api<{ providers: { connection_id: number; name: string; model: string }[] }>("/media/images/providers").then((r) => setProviders(r.providers)).catch(() => setProviders([])); }, []);
+  if (!providers || !providers.length) return null;
+  const make = async () => {
+    if (!prompt.trim()) return;
+    setBusy(true);
+    try {
+      const r = await api<{ file_id: number }>("/media/images", { body: { prompt, size, connection_id: conn || null } });
+      setPrompt("");
+      onMade(r.file_id);
+    } catch (e) { onError(e); }
+    setBusy(false);
+  };
+  return (
+    <div className="card row wrap" style={{ marginBottom: 12, gap: 8 }}>
+      <ImagePlus size={16} />
+      <input className="input grow" style={{ minWidth: 240 }} placeholder="Describe an image to create (uses your image provider; usually costs a few cents)"
+        value={prompt} onChange={(e) => setPrompt(e.target.value)} onKeyDown={(e) => e.key === "Enter" && make()} maxLength={4000} />
+      <select className="input" style={{ width: "auto" }} value={size} onChange={(e) => setSize(e.target.value)} aria-label="Shape">
+        <option value="square">Square</option><option value="portrait">Portrait</option><option value="landscape">Landscape</option>
+      </select>
+      {providers.length > 1 && (
+        <select className="input" style={{ width: "auto" }} value={conn} onChange={(e) => setConn(e.target.value ? Number(e.target.value) : "")} aria-label="Provider">
+          <option value="">{providers[0].name} · {providers[0].model}</option>
+          {providers.slice(1).map((p) => <option key={p.connection_id} value={p.connection_id}>{p.name} · {p.model}</option>)}
+        </select>
+      )}
+      <button className="btn primary sm" onClick={make} disabled={busy || !prompt.trim()}>{busy ? <Loader2 size={14} className="spin" /> : null} Create image</button>
+    </div>
+  );
+}
+
 export default function Files() {
   const [list, setList] = useState<WorkFile[]>([]);
   const [sel, setSel] = useState<Detail | null>(null);
@@ -162,6 +200,7 @@ export default function Files() {
       </div>
 
       <HelperApps initial={caps?.helpers} />
+      <MakeImage onMade={(id) => { load(); open(id); }} onError={toast.err} />
       <div className={`work-drop ${over ? "over" : ""}`} onDragOver={(e) => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)} onDrop={onDrop}
         onClick={() => pick.current?.click()} role="button" tabIndex={0} onKeyDown={(e) => e.key === "Enter" && pick.current?.click()}>
         <Upload size={22} />
