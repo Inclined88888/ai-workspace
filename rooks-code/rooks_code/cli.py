@@ -151,6 +151,9 @@ def parser() -> argparse.ArgumentParser:
     ap.add_argument("--max-tokens", type=int, help="hard token cap for this session (0 = none)")
     ap.add_argument("--max-steps", type=int, help="model calls per prompt before stopping (default 40)")
     ap.add_argument("--no-mcp", action="store_true", help="do not start MCP servers")
+    ap.add_argument("-c", "--continue", dest="continue_", action="store_true",
+                    help="resume the newest session for this folder")
+    ap.add_argument("--session", help="resume the session with this id")
     ap.add_argument("--no-color", action="store_true")
     ap.add_argument("--theme", choices=term_theme.THEMES, help="terminal colours (default: the theme chosen in AI Workspace, or $ROOKS_THEME)")
     ap.add_argument("--version", action="version", version=f"rooks {__version__}")
@@ -191,7 +194,21 @@ def main(argv: list[str] | None = None) -> int:
     elif where == "root":
         ui.warn(f"you are in a filesystem root ({root}); search and list stop early here. "
                 f"Run rooks -C <project> for the folder you are working on.")
-    agent = Agent(s, ui)
+    session = None
+    if args.continue_ or args.session:
+        from . import sessions as _sessions
+        found = _sessions.newest_for(root) if args.continue_ else (
+            (lambda x: (_sessions.load(args.session)[0], _sessions.load(args.session)[1]) if x else None)(
+                _sessions.load(args.session)[0]))
+        if found and found[0]:
+            meta, _msgs = found
+            session = _sessions.SessionStore.__new__(_sessions.SessionStore)
+            session.id = meta["id"]
+            session.path = _sessions.sessions_dir() / f"{meta['id']}.jsonl"
+            ui.p(ui.c("2", f"  resumed session {meta['id']} ({meta.get('model', '')})"))
+        else:
+            ui.warn("no saved session for this folder" if args.continue_ else f"no session {args.session}")
+    agent = Agent(s, ui, session=session)
     try:
         if args.prompt:
             answer = agent.run(" ".join(args.prompt))
@@ -204,6 +221,8 @@ def main(argv: list[str] | None = None) -> int:
 
 HELP = """/undo     put back the files changed by the last prompt
 /cost     tokens and cost so far
+/sessions list saved sessions   /resume ID  switch to one
+/compact  compact the context now
 /dry-run  toggle dry run          /yes   toggle auto-approve
 /model X  switch model (same provider)
 /receipt  path of this session's receipt
@@ -261,6 +280,26 @@ def repl(agent, ui: UI) -> int:
                 ui.p(f"model is now {s.model}")
             elif cmd == "/receipt":
                 ui.p(str(agent.log.path))
+            elif cmd == "/sessions":
+                from . import sessions as _sessions
+                rows = _sessions.list_all(agent.root)
+                if not rows:
+                    ui.p("no saved sessions for this folder")
+                for r in rows[:20]:
+                    import time as _t
+                    age = _t.strftime("%Y-%m-%d %H:%M", _t.localtime(r["created"])) if r["created"] else ""
+                    ui.p(f"  {r['id']}  {r['model']}  {r['messages']} messages  {age}")
+            elif cmd == "/resume" and rest.strip():
+                from . import sessions as _sessions
+                meta, msgs = _sessions.load(rest.strip())
+                if not meta:
+                    ui.p(f"no session {rest.strip()}")
+                else:
+                    agent.messages = msgs
+                    ui.p(f"resumed {meta['id']}: {len(msgs)} messages")
+            elif cmd == "/compact":
+                from . import sessions as _sessions
+                ui.p("compacted" if _sessions.compact(agent, ui.warn) else "nothing to compact (too short)")
             elif cmd == "/clear":
                 agent.messages.clear()
                 ui.p("conversation cleared")

@@ -70,7 +70,7 @@ class Budget:
 
 
 class Agent:
-    def __init__(self, settings, ui, model=None, log: RunLog | None = None):
+    def __init__(self, settings, ui, model=None, log: RunLog | None = None, session=None):
         self.s, self.ui = settings, ui
         self.root: Path = settings.root.resolve()
         self.log = log or RunLog(self.root, provider=settings.provider, model=settings.model)
@@ -81,6 +81,12 @@ class Agent:
         self.changes = ChangeSets(self.root)
         self.mcp = MCPManager(settings.mcp_servers, str(self.root), warn=ui.warn) if settings.mcp_servers else None
         self.messages: list[dict] = []
+        from . import sessions as _sessions
+        self.store = session or _sessions.SessionStore(self.root, settings.provider, settings.model)
+        if session:  # --continue / --session / /resume: reload the saved messages
+            _meta, saved = _sessions.load(session.id)
+            self.messages = saved
+        self._sessions = _sessions
         self.always: set[str] = set()  # effects approved for the rest of the session ("a" at the prompt)
         self.budget = Budget(settings.max_tokens, settings.max_usd, settings.model, settings.prices, settings.local)
         self.system = SYSTEM.format(root=self.root, os=f"{platform.system()} {platform.release()}", listing=_listing(self.root))
@@ -124,7 +130,10 @@ class Agent:
 
     # one prompt --------------------------------------------------------------------------------------------------
     def run(self, prompt: str) -> str:
+        from . import sessions as _sessions
         self.messages.append({"role": "user", "content": prompt})
+        self.store.save_message({"role": "user", "content": prompt})
+        _sessions.maybe_compact(self, self.ui.warn)
         self._turn = turn = self.log.add("turn", "running", args=prompt)
         self.changes.begin(prompt)
         started, outcome, answer, writes, failed_checks, nudges = time.monotonic(), "no_claim", "", 0, 0, 0
@@ -170,6 +179,7 @@ class Agent:
                     msg["tool_calls"] = [{"id": c.id, "type": "function", "function": {
                         "name": c.name, "arguments": json.dumps(c.arguments)}} for c in reply.tool_calls]
                 self.messages.append(msg)
+                self.store.save_message(msg)
                 nudge = (not reply.tool_calls and self.s.nudge and nudges < NUDGES and announces_step(reply.text))
                 if self._streamed:
                     self.ui.stream_end()  # the text already reached the screen token by token
@@ -188,6 +198,7 @@ class Agent:
                     writes += kind in ("verified", "check_failed")
                     failed_checks += kind == "check_failed"
                     self.messages.append({"role": "tool", "tool_call_id": call.id, "content": result})
+                    self.store.save_message({"role": "tool", "tool_call_id": call.id, "content": result})
             else:
                 outcome, answer = "step_limit", f"Stopped after {self.s.max_steps} model calls without finishing (--max-steps)."
                 self.ui.warn(answer)

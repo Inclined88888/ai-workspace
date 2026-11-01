@@ -160,7 +160,7 @@ def test_home_warning_on_start(tmp_path, monkeypatch):
         def p(self, *a, **kw): pass
 
     class FakeAgent:
-        def __init__(self, s, ui): raise SystemExit(0)  # stop before any network/MCP
+        def __init__(self, s, ui, **kw): raise SystemExit(0)  # stop before any network/MCP
 
     monkeypatch.setattr(cli, "UI", FakeUI)
     monkeypatch.setattr(agent_mod, "Agent", FakeAgent)
@@ -186,7 +186,7 @@ def test_no_home_warning_in_a_project_folder(tmp_path, monkeypatch):
         def p(self, *a, **kw): pass
 
     class FakeAgent:
-        def __init__(self, s, ui): raise SystemExit(0)
+        def __init__(self, s, ui, **kw): raise SystemExit(0)
 
     proj = tmp_path / "proj"
     proj.mkdir()
