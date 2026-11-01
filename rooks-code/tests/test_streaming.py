@@ -141,6 +141,85 @@ def test_list_models_hits_the_fake_server_and_caches():
     assert providers.list_models(srv.url, "key") == ["a-model", "b-model"]
 
 
+def test_picker_selects_number_and_filters_unique_match():
+    from rooks_code.cli import choose_model
+
+    replies = iter(["bet", "2"])
+    selected = choose_model(["alpha", "beta", "better"], lambda _: next(replies), lambda _: None)
+    assert selected == "better"
+
+    selected = choose_model(["alpha", "beta", "better"], lambda _: "alp", lambda _: None)
+    assert selected == "alpha"
+
+
+def test_picker_exact_unique_and_cancel():
+    from rooks_code.cli import choose_model
+
+    assert choose_model(["alpha", "beta"], lambda _: "beta", lambda _: None) == "beta"
+    assert choose_model(["alpha", "beta"], lambda _: "", lambda _: None) is None
+
+
+def test_model_picker_fake_server_lists_filters_and_selects_number():
+    from fakes import FakeModels
+    from rooks_code.cli import choose_model
+
+    srv = FakeModels(ids=["alpha", "beta", "better"])
+    providers._models_cache.clear()
+    ids = providers.list_models(srv.url, "picker-test-key")
+    replies = iter(["bet", "2"])
+    shown = []
+    selected = choose_model(ids, lambda _: next(replies), shown.append)
+    srv.close()
+    assert selected == "better"
+    assert "beta" in "\n".join(shown) and "better" in "\n".join(shown)
+
+
+def test_model_command_picks_number_from_fake_server(monkeypatch, tmp_path):
+    import io
+    from types import SimpleNamespace
+    from fakes import FakeModels
+    from rooks_code import cli
+
+    server = FakeModels(ids=["first-model", "second-model"])
+    providers._models_cache.clear()
+    state = SimpleNamespace(provider="test", model="first-model", base_url=server.url, key_env="", key="", api_key="",
+                            kind="openai", local=False, key_optional=True, headers={}, trusted=lambda: False,
+                            dry_run=False, auto_approve=False)
+    model = SimpleNamespace(model="first-model")
+    agent = SimpleNamespace(s=state, model=model, messages=[], root=tmp_path,
+                            log=SimpleNamespace(model="first-model"), tool_specs=lambda: [], run=lambda _: None)
+    monkeypatch.setattr("sys.stdin", io.StringIO("/model\n2\n/exit\n"))
+    cli.repl(agent, cli.UI(out=io.StringIO(), color=False))
+    server.close()
+    assert state.model == model.model == agent.log.model == "second-model"
+
+
+def test_provider_command_switches_provider_and_keeps_messages(monkeypatch, tmp_path):
+    import io
+    from types import SimpleNamespace
+    from rooks_code import cli
+
+    messages = [{"role": "user", "content": "keep me"}]
+    state = SimpleNamespace(provider="old", model="old-model", base_url="http://old/v1", key_env="OLD_KEY",
+                            api_key="old-key", key="old-key", kind="openai", local=False, key_optional=False,
+                            headers={}, trusted=lambda: False, dry_run=False, auto_approve=False)
+    resolved = SimpleNamespace(provider="new", model="new-model", base_url="http://new/v1", key_env="NEW_KEY",
+                               api_key="new-key", key="new-key", kind="openai", local=False, key_optional=False,
+                               headers={})
+    agent = SimpleNamespace(s=state, messages=messages, root=tmp_path, model=object(), log=SimpleNamespace(model="old-model"),
+                            tool_specs=lambda: [], _egress=lambda *args: None, _token=lambda *args: None,
+                            run=lambda _: None, close=lambda: None)
+    monkeypatch.setitem(cli.config.PROVIDERS, "new", {"kind": "openai", "base_url": "http://new/v1", "key_env": "NEW_KEY", "model": "new-model"})
+    monkeypatch.setattr(cli.config, "resolve", lambda *_args: resolved)
+    monkeypatch.setattr(providers, "make", lambda *_args, **_kwargs: "new-model-instance")
+    output = io.StringIO()
+    monkeypatch.setattr("sys.stdin", io.StringIO("/provider new\n/exit\n"))
+    cli.repl(agent, cli.UI(out=output, color=False))
+    assert (state.provider, state.model, state.base_url, state.key_env) == ("new", "new-model", "http://new/v1", "NEW_KEY")
+    assert agent.model == "new-model-instance"
+    assert agent.messages is messages and messages == [{"role": "user", "content": "keep me"}]
+
+
 def test_list_models_failure_returns_empty():
     from fakes import FakeModels
     srv = FakeModels(fail=True)

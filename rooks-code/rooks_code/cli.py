@@ -229,6 +229,42 @@ HELP = """/undo     put back the files changed by the last prompt
 /clear    forget the conversation /exit  quit (or Ctrl-D)"""
 
 
+def choose_model(ids: list[str], read_input=input, write=print) -> str | None:
+    """List models and accept a number, exact ID, or unique case insensitive substring."""
+    visible = list(ids)
+    if not visible:
+        return None
+    write(f"{len(visible)} models. Type to filter, enter a number or unique match, or press Enter to cancel.")
+    for index, model_id in enumerate(visible, 1):
+        write(f"{index:>2}. {model_id}")
+    while True:
+        try:
+            answer = read_input("model> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            return None
+        if not answer:
+            return None
+        if answer.isdecimal():
+            choice = int(answer)
+            if 1 <= choice <= len(visible):
+                return visible[choice - 1]
+            write(f"enter a number from 1 to {len(visible)}")
+            continue
+        exact = [model_id for model_id in visible if model_id.casefold() == answer.casefold()]
+        if exact:
+            return exact[0]
+        matches = [model_id for model_id in visible if answer.casefold() in model_id.casefold()]
+        if len(matches) == 1:
+            return matches[0]
+        if matches:
+            visible = matches
+            write(f"{len(visible)} matches")
+            for index, model_id in enumerate(visible, 1):
+                write(f"{index:>2}. {model_id}")
+        else:
+            write("no matching models; type another filter or press Enter to cancel")
+
+
 def repl(agent, ui: UI) -> int:
     s = agent.s
     mode = " · trusted folder" if s.trusted() else ""
@@ -276,18 +312,17 @@ def repl(agent, ui: UI) -> int:
                 s.auto_approve = not s.auto_approve
                 ui.p(f"auto-approve {'on' if s.auto_approve else 'off'}")
             elif cmd == "/model":
+                from . import providers as _p
                 if rest.strip():
-                    s.model = agent.model.model = agent.log.model = rest.strip()
-                    ui.p(f"model is now {s.model}")
+                    selected = rest.strip()
                 else:
-                    from . import providers as _p
                     ids = _p.list_models(s.base_url, s.api_key, s.headers)
+                    selected = choose_model(ids, write=ui.p) if ids else None
                     if not ids:
                         ui.p("could not list models from this provider (is the key and base_url right?)")
-                    else:
-                        ui.p(f"{len(ids)} models; /model NAME switches. Current: {s.model}")
-                        for i, m in enumerate(ids[:40], 1):
-                            ui.p(f"  {i:>2}. {m}")
+                if selected:
+                    s.model = agent.model.model = agent.log.model = selected
+                    ui.p(f"model is now {selected}")
             elif cmd == "/provider" and rest.strip():
                 from . import config as _cfg
                 name = rest.strip()
@@ -301,9 +336,14 @@ def repl(agent, ui: UI) -> int:
                 except SystemExit as e:
                     ui.p(str(e))
                     continue
-                agent.s.provider, agent.s.model, agent.s.base_url, agent.s.key_env = ns.provider, ns.model, ns.base_url, ns.key_env
+                agent.s.provider, agent.s.model = ns.provider, ns.model
+                agent.s.base_url, agent.s.key_env = ns.base_url, ns.key_env
+                agent.s.key, agent.s.kind = ns.key, ns.kind
+                agent.s.local, agent.s.key_optional = ns.local, ns.key_optional
+                agent.s.headers = ns.headers
                 from . import providers as _p
                 agent.model = _p.make(ns, on_egress=agent._egress, on_token=agent._token)
+                agent.log.model = ns.model
                 ui.p(f"provider {ns.provider}, model {ns.model} (conversation kept)")
             elif cmd == "/receipt":
                 ui.p(str(agent.log.path))

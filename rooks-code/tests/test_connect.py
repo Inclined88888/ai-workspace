@@ -44,9 +44,17 @@ def test_every_builtin_provider_has_base_url_and_key_env():
             continue  # base_url comes from the user or runtime discovery
         assert p.get("base_url"), f"{name}: no base_url"
         assert p.get("key_env"), f"{name}: no key_env"
-    for name in ("nvidia", "moonshot", "cerebras", "together", "fireworks", "zai"):
-        assert name in config.PROVIDERS, f"{name} missing"
-        assert config.PROVIDERS[name]["base_url"].startswith("https://")
+    expected = {
+        "nvidia": ("https://integrate.api.nvidia.com/v1", "NVIDIA_API_KEY"),
+        "moonshot": ("https://api.moonshot.ai/v1", "MOONSHOT_API_KEY"),
+        "cerebras": ("https://api.cerebras.ai/v1", "CEREBRAS_API_KEY"),
+        "together": ("https://api.together.xyz/v1", "TOGETHER_API_KEY"),
+        "fireworks": ("https://api.fireworks.ai/inference/v1", "FIREWORKS_API_KEY"),
+        "zai": ("https://api.z.ai/api/paas/v4", "ZAI_API_KEY"),
+    }
+    for name, (base_url, key_env) in expected.items():
+        assert config.PROVIDERS[name]["base_url"] == base_url
+        assert config.PROVIDERS[name]["key_env"] == key_env
 
 
 def test_provider_for_key_new_prefixes():
