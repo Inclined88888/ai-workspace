@@ -7,4 +7,4 @@
 | 02 streaming | done | e77ce7a | nothing |
 | 02b tui | done | f92602d | input editing (history, Alt-Enter, Ctrl-R), rich extra, status bar wired into the live loop |
 | 03 sessions+compaction | done | 3d3cf10 | nothing |
-| 04 model picker | partial | ae24c84 | interactive filtering and numbered selection; verify remaining five provider sources |
+| 04 model picker | done | c640805 | nothing |
