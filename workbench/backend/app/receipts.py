@@ -70,6 +70,19 @@ def _draft(args: dict, r: Any) -> Check:
     return (True, f"draft #{d['id']} to {d['to_addr']} saved, not sent") if d else (False, "no draft was saved")
 
 
+def _outbox_draft(args: dict, r: Any) -> Check:
+    from .teammates import outbox
+
+    outbox.ensure()
+    d = db.one("SELECT * FROM outbox WHERE id = ?", (r or {}).get("draft_id"))
+    if not d or d["status"] != "draft":
+        return False, "no unsent draft was saved"
+    if (d["channel"] != args.get("channel") or d["recipients"] != (args.get("to") or "").strip()[:2000]
+            or d["body"] != (args.get("body") or "").strip()[:20000]):
+        return False, "saved draft does not match the requested channel, recipient or body"
+    return True, f"draft #{d['id']} to {d['recipients']} saved, not sent"
+
+
 def _memory(args: dict, r: Any) -> Check:
     if (r or {}).get("saved") is None and (r or {}).get("note"):
         return True, "already known, nothing new saved"
@@ -111,6 +124,7 @@ def _browse(args: dict, r: Any) -> Check:
 
 VERIFIERS: dict[str, Callable[[dict, Any], Check]] = {
     "create_task": _task, "update_task": _task_update, "create_note": _note, "append_to_note": _append,
+    "draft_message": _outbox_draft,
     "create_event": _event, "save_email_draft": _draft, "remember": _memory, "forget": _forget, "save_skill": _skill,
     "schedule_task": _schedule, "delegate_task": _delegated, "read_page": _page, "browse_web": _browse,
 }

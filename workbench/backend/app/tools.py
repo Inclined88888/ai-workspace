@@ -65,13 +65,38 @@ def update_task(task_id: int, data: services.TaskPatch) -> dict:
 
 
 @tools.get("/calendar/events", operation_id="list_events",
-           summary="List calendar events between two ISO dates. Defaults to the next 7 days. Times are UTC.")
+           summary="List events between ISO boundaries, end exclusive. Dates use the user's timezone; returned times are UTC.")
 def list_events(start: str | None = None, end: str | None = None) -> list[dict]:
+    from zoneinfo import ZoneInfo
+    from . import config
+
+    zone = ZoneInfo(db.get_setting("timezone", config.TIMEZONE) or "UTC")
     now = datetime.now(timezone.utc)
-    s = start or now.isoformat(timespec="seconds")
-    e = end or (now + timedelta(days=7)).isoformat(timespec="seconds")
+
+    def boundary(value, default):
+        if not value:
+            return default
+        try:
+            parsed = datetime.fromisoformat(value)
+        except ValueError as exc:
+            raise HTTPException(422, "Calendar boundaries must be ISO dates or datetimes") from exc
+        return parsed.replace(tzinfo=zone) if parsed.tzinfo is None else parsed
+
+    s = boundary(start, now)
+    e = boundary(end, s + timedelta(days=7))
+    if e <= s:
+        raise HTTPException(422, "Calendar end must be after start (end is exclusive)")
+    events = db.all(
+        "SELECT ev.*, c.name AS calendar_name FROM events ev JOIN calendars c ON c.id = ev.calendar_id "
+        "WHERE c.enabled = 1 AND ((ev.all_day = 0 AND ev.end > ? AND ev.start < ?) "
+        "OR (ev.all_day = 1 AND ev.end > ? AND ev.start < ?)) ORDER BY ev.start LIMIT 200",
+        s.astimezone(timezone.utc).isoformat(timespec="seconds"),
+        e.astimezone(timezone.utc).isoformat(timespec="seconds"),
+        s.astimezone(zone).date().isoformat(), e.astimezone(zone).isoformat(timespec="seconds")
+        if e.astimezone(zone).time().isoformat() != "00:00:00" else e.astimezone(zone).date().isoformat(),
+    )
     return [{k: ev[k] for k in ("id", "title", "start", "end", "all_day", "location", "calendar_name")}
-            for ev in services.list_events(s, e)][:200]
+            for ev in events]
 
 
 @tools.post("/calendar/events", operation_id="create_event",

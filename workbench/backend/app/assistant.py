@@ -328,7 +328,7 @@ TOOLS: list[Tool] = [
          lambda task_id, status=None, title=None, due=None: tools.update_task(task_id, services.TaskPatch(status=status, title=title, due=due or None)),
          ("task_id",), effect="write"),
     Tool("get_agenda", "The user's upcoming events and due or overdue tasks.", {"days": I()}, lambda days=7: tools.get_agenda(days)),
-    Tool("list_events", "Calendar events between two ISO dates (UTC). Defaults to the next 7 days.", {"start": S(), "end": S()},
+    Tool("list_events", "Calendar events between ISO dates/datetimes; dates mean midnight in the user's timezone. End is exclusive. Use the next date as end for a full day. Returned timed events are UTC.", {"start": S(), "end": S()},
          lambda start=None, end=None: tools.list_events(start or None, end or None)),
     Tool("create_event", "Create a calendar event. Timed events need an ISO time with offset; all day uses YYYY-MM-DD. "
          "attendees (comma separated emails) get an invitation from the user's Google, Microsoft or CalDAV calendar, which "
