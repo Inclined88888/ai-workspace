@@ -27,6 +27,12 @@ Out of scope for the current branch, dropped, or blocked. Nothing is dropped sil
 
 ## Found during work, not yet scheduled
 
+* **Deleted conversation ids are reused, and the run log follows the id.** `conversations.id` is a plain
+  `INTEGER PRIMARY KEY`, so deleting the newest conversation lets SQLite give its id to the next one. `actions` rows
+  are kept on delete (the ledger, R2) and still carry the old `conversation_id`. The new conversation's trace then
+  shows the deleted one's turns and tool calls. Found by a test in feat/rea-p0-harness. Fix: `AUTOINCREMENT` on
+  conversations (needs a table rebuild in a migration), or null `actions.conversation_id` on delete.
+
 * **Bridge tokens for other local tools (item 103, Phase 1).** `/v1` accepts only `BROWSER_API_KEY` today. Other OpenAI-only tools (editors, scripts) need user-created, revocable bridge tokens and streaming (`stream: true` is refused with 400 for now).
 * **Browser runs are not linked to the chat turn that started them.** Their `model_call` rows carry channel `browser` but no `parent_action_id`. Passing the turn id through the job would put them in the turn's trace (item 21 UI).
 * **Standalone browser-agent CLI keeps its own providers.** Outside the stack (no `BROWSER_REQUIRE_WORKBENCH`), `browser-agent run` can call Anthropic, Gemini, Ollama and the like directly. That is a separate distribution, not core, but it is a second provider layer. Retire it if the CLI gains a `--workbench` default.

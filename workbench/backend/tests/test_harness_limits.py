@@ -136,5 +136,7 @@ def test_stored_results_are_deleted_with_their_conversation(client, monkeypatch)
     SCRIPT[:] = [tool_call("list_tasks", {}), {"role": "assistant", "content": "Long list."}]
     cid = events(client.post("/api/assistant/chat", json={"message": "list"}))[0]["conversation_id"]
     assert db.one("SELECT COUNT(*) n FROM tool_results WHERE conversation_id = ?", cid)["n"] == 1
+    # a newer conversation keeps cid from being the highest id, so SQLite cannot hand it to the next test (BACKLOG)
+    events(client.post("/api/assistant/chat", json={"message": "hello"}))
     assert client.delete(f"/api/conversations/{cid}").status_code == 200
     assert db.one("SELECT COUNT(*) n FROM tool_results WHERE conversation_id = ?", cid)["n"] == 0
