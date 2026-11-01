@@ -4,6 +4,17 @@ Every user-visible change that needs action, or changes data on upgrade, gets an
 migration steps, rollback steps. Workbench has no release numbers yet (BACKLOG). Entries are identified by schema
 version and the merge commit on `main`.
 
+## 2026-11-01 · Conversation ID reuse fix (schema v3) · branch feat/rea-convid
+
+- **Fix conversation ID reuse on delete**: `conversations` table migrated to `INTEGER PRIMARY KEY AUTOINCREMENT` so deleted
+  conversation IDs are never reused. Prevents actions/memories/agent_tasks from a deleted conversation appearing in
+  a new conversation's trace.
+- **On delete, detach dependents**: deleting a conversation now nulls `conversation_id` in `actions` (audit log keeps rows),
+  `memories`, and `agent_tasks`. `messages` are cascade-deleted as before.
+- **Migration v3**: safe table rebuild preserving all data, indexes, and foreign keys; seeds `sqlite_sequence` with max
+  existing ID; transactional and idempotent.
+- **Rollback**: stop Workbench, replace `workbench.db` with the newest `workbench.db.pre-v3-*.bak`, run the previous image.
+
 ## 2026-10-30 · Sunshine theme and Claude plan via Claude Code · branch feat/sunshine-claude
 
 - **Sunshine theme (new default)**: bright, warm and airy: near-white warm background, soft cards, a clean sans

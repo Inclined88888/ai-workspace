@@ -44,3 +44,11 @@ Out of scope for the current branch, dropped, or blocked. Nothing is dropped sil
 * **Migrated legacy cost rows** keep the bare model name in `model`; new rows store the model ref. Reports group the two separately for the month of the upgrade.
 * **`browse_web` results cannot be verified** by receipts, and say so.
 
+* **Other tables with INTEGER PRIMARY KEY (no AUTOINCREMENT) that may reuse IDs on delete:**
+  - `actions` — audit log with `parent_action_id` self-reference; if decision rows are deleted, new decisions could reuse IDs and appear under wrong parent
+  - `messages` — has `ON DELETE CASCADE` from conversations, but individual message deletion could reuse IDs; `messages_fts` uses `content_rowid='id'`
+  - `memories` — has nullable `conversation_id`; if memories are deleted individually, new memories could get reused IDs
+  - `agent_tasks` — has nullable `conversation_id` and `parent_id` self-reference; similar reuse risk
+  - `connections`, `calendars`, `mail_accounts`, `linked_accounts`, `agents` — referenced by other tables; if deleted and IDs reused, dependent rows could attach to wrong parent
+  Consider migrating these to `AUTOINCREMENT` in a follow-up (schema v4+), or adding `ON DELETE SET NULL` FK constraints where missing.
+

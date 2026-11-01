@@ -114,6 +114,12 @@ def rename(cid: int, data: ConvPatch):
 
 @router.delete("/conversations/{cid}")
 def delete_conversation(cid: int):
+    # Detach dependents: actions is an audit log, so null conversation_id and keep rows.
+    # memories and agent_tasks also reference conversations but have no FK constraint.
+    db.run("UPDATE actions SET conversation_id = NULL WHERE conversation_id = ?", cid)
+    db.run("UPDATE memories SET conversation_id = NULL WHERE conversation_id = ?", cid)
+    db.run("UPDATE agent_tasks SET conversation_id = NULL WHERE conversation_id = ?", cid)
+    # messages has ON DELETE CASCADE, so it will be deleted automatically
     db.run("DELETE FROM conversations WHERE id = ?", cid)
     return {"ok": True}
 

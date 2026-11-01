@@ -176,7 +176,7 @@ CREATE TABLE IF NOT EXISTS research (
 
 -- Assistant: conversations from every channel share one memory
 CREATE TABLE IF NOT EXISTS conversations (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   title TEXT NOT NULL DEFAULT 'New chat',
   channel TEXT NOT NULL DEFAULT 'web',          -- web | cli | telegram | schedule | agent
   external_id TEXT NOT NULL DEFAULT '',         -- telegram chat id, agent task id, ...
@@ -406,7 +406,7 @@ def conn() -> sqlite3.Connection:
     return c
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 LEGACY_LEDGERS = ("usage", "tool_runs", "turn_checks", "pending_actions")
 LEGACY_TABLES = (*LEGACY_LEDGERS, "providers")
 
@@ -428,7 +428,11 @@ def migrate(c: sqlite3.Connection, path) -> None:
             c.backup(dest)
     c.executescript(SCHEMA)
     ensure_columns(c)
-    steps = [(1, lambda: migrate_v1(c, [t for t in legacy if t in LEGACY_LEDGERS])), (2, lambda: migrate_v2(c, "providers" in legacy))]
+    steps = [
+        (1, lambda: migrate_v1(c, [t for t in legacy if t in LEGACY_LEDGERS])),
+        (2, lambda: migrate_v2(c, "providers" in legacy)),
+        (3, lambda: migrate_v3(c)),
+    ]
     for target, step in steps:
         if version >= target:
             continue
@@ -531,6 +535,67 @@ def migrate_v2(c: sqlite3.Connection, has_providers: bool) -> None:
                   "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                   (p["id"], p["name"], auth, proto, p["base_url"], p["api_key_enc"], residency, p["models"], p["enabled"], p["created_at"]))
     c.execute("DROP TABLE providers")
+
+
+def migrate_v3(c: sqlite3.Connection) -> None:
+    """Rebuild conversations table with AUTOINCREMENT to prevent ID reuse after deletion.
+
+    This migration is idempotent: if the table already has AUTOINCREMENT, it's a no-op.
+    Preserves all data, indexes, triggers, and foreign key relationships.
+    Seeds sqlite_sequence with max(id) so new IDs continue from the highest existing.
+    """
+    # Check if conversations table already has AUTOINCREMENT
+    table_info = c.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='conversations'").fetchone()
+    if table_info and "AUTOINCREMENT" in table_info[0].upper():
+        return  # already migrated
+
+    # Get max id for sqlite_sequence seeding
+    max_id = c.execute("SELECT COALESCE(MAX(id), 0) FROM conversations").fetchone()[0]
+
+    # Disable foreign keys temporarily for the rebuild
+    c.execute("PRAGMA foreign_keys=OFF")
+
+    try:
+        # Create new table with AUTOINCREMENT
+        c.execute("""
+            CREATE TABLE conversations_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL DEFAULT 'New chat',
+                channel TEXT NOT NULL DEFAULT 'web',
+                external_id TEXT NOT NULL DEFAULT '',
+                agent_id INTEGER,
+                model TEXT NOT NULL DEFAULT '',
+                memory_cursor INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
+
+        # Copy data preserving IDs
+        c.execute("""
+            INSERT INTO conversations_new (id, title, channel, external_id, agent_id, model, memory_cursor, created_at, updated_at)
+            SELECT id, title, channel, external_id, agent_id, model, memory_cursor, created_at, updated_at
+            FROM conversations
+        """)
+
+        # Drop old table and rename new one
+        c.execute("DROP TABLE conversations")
+        c.execute("ALTER TABLE conversations_new RENAME TO conversations")
+
+        # Recreate index
+        c.execute("CREATE INDEX IF NOT EXISTS conversations_channel ON conversations(channel, external_id)")
+
+        # Seed sqlite_sequence so next insert uses max_id + 1
+        if max_id > 0:
+            c.execute("DELETE FROM sqlite_sequence WHERE name = 'conversations'")
+            c.execute("INSERT INTO sqlite_sequence (name, seq) VALUES ('conversations', ?)", (max_id,))
+
+        # Foreign keys will be re-enabled by the caller's PRAGMA foreign_keys=ON in conn()
+    finally:
+        c.execute("PRAGMA foreign_keys=ON")
+
+
+OFFICIAL_HOSTS = ("api.openai.com", "api.anthropic.com", "openrouter.ai", "generativelanguage.googleapis.com", "opencode.ai")
 
 
 @contextmanager
