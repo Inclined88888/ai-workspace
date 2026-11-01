@@ -90,7 +90,7 @@ describe('lock-screen approval actions', () => {
   it('maps actions to decisions and ignores junk', () => {
     expect(decisionFor('approve', { kind: 'approval', approval_id: 7 })).toEqual({ kind: 'decide', id: 7, approve: true });
     expect(decisionFor('decline', { kind: 'approval', id: 7 })).toEqual({ kind: 'decide', id: 7, approve: false });
-    expect(decisionFor('approve', { kind: 'run', id: 7 })).toBeNull();
+    expect(decisionFor('approve', { kind: 'run', id: 7 })).toEqual({ kind: 'open', path: '/run/7' });
     expect(decisionFor('approve', { kind: 'approval', id: 'x' })).toBeNull();
     expect(decisionFor('com.apple.UNNotificationDefaultActionIdentifier', { kind: 'approval', id: 3 })).toEqual({ kind: 'open', path: '/approvals' });
   });

@@ -57,6 +57,7 @@ export default function TabsLayout() {
     <Tabs tabBar={(p) => <Bar {...p} />} screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: colors.paper }, animation: 'fade' }}>
       <Tabs.Screen name="index" options={{ title: 'Today' }} />
       <Tabs.Screen name="chats" options={{ title: 'Chats' }} />
+      <Tabs.Screen name="companion" options={{ title: 'Companion' }} />
       <Tabs.Screen name="approvals" options={{ title: 'Approvals' }} />
       <Tabs.Screen name="runs" options={{ title: 'Runs' }} />
       <Tabs.Screen name="settings" options={{ title: 'Settings' }} />
