@@ -4,6 +4,20 @@ Every user-visible change that needs action, or changes data on upgrade, gets an
 migration steps, rollback steps. Workbench has no release numbers yet (BACKLOG). Entries are identified by schema
 version and the merge commit on `main`.
 
+## 2026-11-01 · Goal mode: durable objectives with round allowance and verified completion · branch feat/rea-goal
+
+- **Goal mode** attaches a durable objective to a conversation. When a turn ends without the goal met, the assistant
+  automatically continues with a new turn, up to a user-settable round allowance (default 5, hard ceiling 50).
+- Stops when: the model calls `complete_goal` (verified via receipts so "done" must be backed by confirmed effects);
+  allowance exhausted; user cancels; a held approval is pending (never continues past a held action); repeated
+  failure/no progress.
+- Persists in DB; resume after restart only if `resume_on_restart=true` was set.
+- API (`/api/goals`): create/get/list/cancel/pause/resume/update with auth dependencies.
+- Progress events integrate with `assistant.py` (turn loop, `hold_reason`), `automations.py`, `jobs.py`, `cli_agents.py`.
+- Tests with fake LLM fixtures: continues until met; stops at allowance; stops on pending approval; unverified "done"
+  doesn't end it; cancel; persistence across reload.
+- Migration: none (new `goals` table created on startup). Rollback: run previous image; table is ignored.
+
 ## 2026-10-30 · Sunshine theme and Claude plan via Claude Code · branch feat/sunshine-claude
 
 - **Sunshine theme (new default)**: bright, warm and airy: near-white warm background, soft cards, a clean sans

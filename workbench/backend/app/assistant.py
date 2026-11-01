@@ -246,6 +246,20 @@ def _team(ctx: Ctx) -> list[dict]:
     return team_for(ctx.agent)
 
 
+def _complete_goal(summary: str, ctx: Ctx | None = None) -> dict:
+    from . import goals
+
+    if not ctx:
+        return {"error": "Goal completion requires a conversation context"}
+    goal = goals.get_by_conversation(ctx.conversation_id)
+    if not goal:
+        return {"error": "No active goal for this conversation"}
+    if goal["phase"] != "active":
+        return {"error": f"Goal is {goal['phase']}, cannot complete"}
+    goals.complete(goal["id"])
+    return {"completed": True, "summary": summary}
+
+
 def _search_ready() -> bool:
     """Offer web_search only when a search provider is set up; small local models otherwise call it and stall."""
     from .search import provider
@@ -407,6 +421,10 @@ TOOLS: list[Tool] = [
          lambda agent_name, title, description="", ctx=None: _delegate(agent_name, title, description, ctx),
          ("agent_name", "title"), when=lambda ctx: ctx.agent is not None, effect="external"),
     Tool("list_team", "List the people who report to you.", {}, lambda ctx=None: _team(ctx), when=lambda ctx: ctx.agent is not None),
+    # Goals
+    Tool("complete_goal", "Mark the current conversation goal as complete. Only call this when the objective is fully achieved.",
+         {"summary": S("brief summary of what was accomplished")},
+         lambda summary, ctx=None: _complete_goal(summary, ctx), ("summary",), effect="persistent"),
 ]
 from . import work_tools  # noqa: E402 - files, analysis and work sites
 
@@ -471,8 +489,14 @@ def _hold_message(t: Tool, aid: int, ctx: Ctx, reason: str = HOLD_REASON) -> str
 
 def available_tools(ctx: Ctx) -> list[Tool]:
     from .teammates import hooks as tm_hooks  # feat/grok-style: a teammate's tool groups; nothing outbound in group chats
+    from . import goals
 
-    return tm_hooks.filter_tools(ctx, [t for t in TOOLS if t.when(ctx)])
+    tools = [t for t in TOOLS if t.when(ctx)]
+    # Only show complete_goal when there's an active goal for this conversation
+    has_active_goal = goals.get_by_conversation(ctx.conversation_id) is not None
+    if not has_active_goal:
+        tools = [t for t in tools if t.name != "complete_goal"]
+    return tm_hooks.filter_tools(ctx, tools)
 
 
 _ENVIRONMENT = re.compile(r"not set up|not enabled|no mail account|not configured|unreachable", re.I)
@@ -549,7 +573,7 @@ async def run_tool(name: str, raw_args: str, ctx: Ctx, approved: bool = False) -
         return done(False, f"Error: bad arguments ({e})", "bad_args")
     except Exception as e:  # noqa: BLE001 - report tool failures to the model instead of crashing the turn
         return done(False, f"Error: {str(e)[:300] or e.__class__.__name__}", "tool_error")
-    verified, evidence = receipts.verify(name, args, result)
+    verified, evidence = receipts.verify(name, args, result, conversation_id=ctx.conversation_id)
     if verified is False:  # the tool returned, but what it was asked to do is not there
         return done(False, f"Error: the change could not be confirmed: {evidence}", "check_failed", False, evidence)
     res = done(True, out, "verified" if verified else "ok", verified, evidence, receipts.ref_of(name, result),
@@ -810,6 +834,15 @@ async def _run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> Async
     from .knowledge import live as knowledge_live  # feat/memory-core: index the chat, file it under its project
 
     knowledge_live.after_turn(ctx.conversation_id)  # feat/memory-core
+
+    # Goal continuation: if there's an active goal and it wasn't completed, continue
+    from . import goals
+
+    should_continue, next_prompt = await goals.maybe_continue_goal(ctx, final, ctx.receipts)
+    if should_continue and next_prompt:
+        # Run another turn automatically for the goal
+        async for e in run_turn(ctx, next_prompt, model):
+            yield e
 
 
 async def decide(action_id: int, approve: bool, channel: str = "web") -> dict:

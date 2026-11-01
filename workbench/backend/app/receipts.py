@@ -122,19 +122,37 @@ def _browse(args: dict, r: Any) -> Check:
     return None, "the browser agent's own report; not independently checked"
 
 
+def _complete_goal(args: dict, r: Any, conversation_id: int | None = None) -> Check:
+    from . import db, goals
+
+    if not conversation_id:
+        return False, "no conversation_id provided"
+    # Check the goal directly by conversation_id, including complete phase
+    goal_row = db.one("SELECT * FROM goals WHERE conversation_id = ?", conversation_id)
+    if not goal_row:
+        return False, "no goal found for this conversation"
+    if goal_row["phase"] != "complete":
+        return False, f"goal is {goal_row['phase']}, not complete"
+    return True, f"goal {goal_row['id']} completed: {args.get('summary', '')}"
+
+
 VERIFIERS: dict[str, Callable[[dict, Any], Check]] = {
     "create_task": _task, "update_task": _task_update, "create_note": _note, "append_to_note": _append,
     "draft_message": _outbox_draft,
     "create_event": _event, "save_email_draft": _draft, "remember": _memory, "forget": _forget, "save_skill": _skill,
     "schedule_task": _schedule, "delegate_task": _delegated, "read_page": _page, "browse_web": _browse,
+    "complete_goal": _complete_goal,
 }
 
 
-def verify(name: str, args: dict, result: Any) -> Check:
+def verify(name: str, args: dict, result: Any, conversation_id: int | None = None) -> Check:
     fn = VERIFIERS.get(name)
     if not fn:
         return None, ""
     try:
+        # Pass conversation_id to verifiers that need it
+        if name == "complete_goal":
+            return fn(args, result, conversation_id)
         return fn(args, result)
     except Exception as e:  # noqa: BLE001 - a broken check is a failed check, never a pass
         return False, f"the check itself failed: {e}"
