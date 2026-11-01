@@ -599,7 +599,10 @@ def test_other_provider_autodetect(client, env, monkeypatch):
     yahoo = det("x@yahoo.com.au")
     assert yahoo["imap_host"] == "imap.mail.yahoo.com" and yahoo["smtp_port"] == 465 and "app password" in " ".join(yahoo["steps"]).lower()
     assert det("me@fastmail.com")["caldav_url"].startswith("https://caldav.fastmail.com")
-    assert det("me@gmail.com") == {"kind": "one_click", "provider": "google", "domain": "gmail.com"}
+    gmail = det("me@gmail.com")
+    assert {k: gmail[k] for k in ("kind", "provider", "domain")} == {"kind": "one_click", "provider": "google", "domain": "gmail.com"}
+    assert gmail["fallback"]["imap_host"] == "imap.gmail.com" and gmail["fallback"]["app_password"]
+    assert "fallback" not in det("me@hotmail.com")  # Outlook.com refuses app passwords for IMAP
     assert det("me@hotmail.com")["provider"] == "microsoft"
     assert det("nope")["kind"] == "invalid"
     assert det("me@unknown.test")["kind"] == "guess" and det("me@unknown.test")["imap_host"] == "imap.unknown.test"
@@ -607,10 +610,26 @@ def test_other_provider_autodetect(client, env, monkeypatch):
     monkeypatch.setenv("MAIL_AUTODETECT_ONLINE", "1")
     monkeypatch.setenv("ISPDB_URL", f"{env}/ispdb")
     monkeypatch.setenv("DOH_URL", f"{env}/doh")
-    assert det("ceo@acme.test") == {"kind": "one_click", "provider": "google", "domain": "acme.test", "workspace": True}
+    ws = det("ceo@acme.test")
+    assert ws["kind"] == "one_click" and ws["provider"] == "google" and ws["workspace"] and ws["fallback"]["username"] == "ceo@acme.test"
     assert det("it@contoso.test")["provider"] == "microsoft"
     isp = det("me@smallisp.test")
     assert isp["imap_host"] == "mail.smallisp.test" and isp["smtp_security"] == "starttls" and isp["source"] == "ispdb"
+
+
+def test_gmail_without_one_click_gets_app_password_not_a_loop(client, monkeypatch):
+    """No Google client in this build: a Gmail address must lead to a form that works, not back to Connect Google."""
+    for k in ("GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("MAIL_AUTODETECT_ONLINE", "0")
+    d = client.get("/api/mail/autodetect", params={"email": "azad@gmail.com"}).json()
+    assert d["kind"] == "known" and d["one_click_unavailable"] == "google"
+    assert (d["imap_host"], d["imap_port"], d["smtp_host"], d["smtp_port"], d["smtp_security"]) == (
+        "imap.gmail.com", 993, "smtp.gmail.com", 465, "ssl")
+    assert d["app_password"] and d["app_password_url"] == "https://myaccount.google.com/apppasswords"
+    assert d["username"] == "azad@gmail.com" and "caldav_url" not in d  # Google CalDAV is OAuth-only
+    # Microsoft has no app-password route for Outlook.com, so it still points at one-click (explained there)
+    assert client.get("/api/mail/autodetect", params={"email": "me@outlook.com"}).json()["kind"] == "one_click"
 
 
 def test_icloud_retries_with_the_short_username(client, monkeypatch):
@@ -645,3 +664,14 @@ def test_existing_databases_gain_the_new_columns(tmp_path):
     db.ensure_columns(c)  # idempotent
     assert {r[1] for r in c.execute("PRAGMA table_info(mail_accounts)")} >= {"kind", "linked_account_id"}
     assert "linked_account_id" in {r[1] for r in c.execute("PRAGMA table_info(calendars)")}
+
+
+def test_imap_login_errors_say_what_to_do():
+    import imaplib
+    from app.mail import _explain_login
+    g = _explain_login({"imap_host": "imap.gmail.com", "imap_port": 993}, imaplib.IMAP4.error(b"[AUTHENTICATIONFAILED] Invalid credentials (Failure)"))
+    assert g.startswith("Gmail refused that password") and "myaccount.google.com/apppasswords" in g and "b'" not in g
+    o = _explain_login({"imap_host": "outlook.office365.com", "imap_port": 993}, imaplib.IMAP4.error("LOGIN failed."))
+    assert "Connect Microsoft" in o
+    n = _explain_login({"imap_host": "imap.nowhere.test", "imap_port": 993}, OSError("nodename nor servname provided"))
+    assert n.startswith("Couldn't reach imap.nowhere.test:993")

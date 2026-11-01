@@ -77,6 +77,45 @@ ONE_CLICK = {
     "microsoft": ("outlook.com", "hotmail.com", "live.com", "msn.com", "outlook.com.au", "hotmail.co.uk", "live.com.au", "passport.com"),
 }
 
+# What a one-click address falls back to when this install has no OAuth client for it. Gmail and Google Workspace still
+# accept IMAP/SMTP with an app password. Google CalDAV is OAuth-only, so the calendar comes in through the private iCal
+# address (read-only). Microsoft turned off app passwords for Outlook.com IMAP, so it has no fallback: it needs OAuth.
+FALLBACK = {
+    "google": {
+        "key": "gmail", "label": "Gmail (app password)", "imap_host": "imap.gmail.com", "imap_port": 993,
+        "smtp_host": "smtp.gmail.com", "smtp_port": 465, "smtp_security": "ssl", "app_password": True,
+        "app_password_url": "https://myaccount.google.com/apppasswords",
+        "steps": ["Turn on 2-Step Verification for your Google Account if it isn't on (myaccount.google.com/security).",
+                  "Open myaccount.google.com/apppasswords, type the name Rooks and click Create.",
+                  "Copy the 16-letter password (spaces don't matter) and paste it here. Your normal Google password won't work.",
+                  "Calendar: in Google Calendar open Settings > your calendar > Integrate calendar, copy the Secret address "
+                  "in iCal format and add it on the Calendar page (read-only)."],
+        "username_hint": "Your full Gmail or Google Workspace address.",
+    },
+}
+
+
+def _one_click_ready(provider: str) -> bool:
+    try:
+        from . import connect
+        return bool(connect.providers_info()[provider]["configured"])
+    except Exception:  # noqa: BLE001 - detection must never fail because settings can't be read
+        return False
+
+
+def _one_click(provider: str, domain: str, email: str, workspace: bool = False) -> dict:
+    """One click when this install can do it; otherwise the app-password route instead of a dead end."""
+    fb = FALLBACK.get(provider)
+    fallback = {"kind": "known", "domain": domain, "username": email, **fb, "source": "built-in"} if fb else None
+    if fallback and not _one_click_ready(provider):
+        return {**fallback, "one_click_unavailable": provider, "workspace": workspace}
+    out: dict = {"kind": "one_click", "provider": provider, "domain": domain}
+    if workspace:
+        out["workspace"] = True
+    if fallback:
+        out["fallback"] = fallback
+    return out
+
 
 def _online() -> bool:
     return os.getenv("MAIL_AUTODETECT_ONLINE", "1").strip() not in ("0", "false", "no")
@@ -126,7 +165,7 @@ def detect(email: str) -> dict:
     domain = email.split("@", 1)[1].lower()
     for provider, domains in ONE_CLICK.items():
         if domain in domains:
-            return {"kind": "one_click", "provider": provider, "domain": domain}
+            return _one_click(provider, domain, email)
     for key, k in KNOWN.items():
         if domain in k["domains"]:
             return {"kind": "known", "key": key, "domain": domain, "username": email,
@@ -134,9 +173,9 @@ def detect(email: str) -> dict:
     if _online():
         mx = _mx(domain)
         if any("google.com" in m or "googlemail.com" in m for m in mx):
-            return {"kind": "one_click", "provider": "google", "domain": domain, "workspace": True}
+            return _one_click("google", domain, email, workspace=True)
         if any("protection.outlook.com" in m for m in mx):
-            return {"kind": "one_click", "provider": "microsoft", "domain": domain, "workspace": True}
+            return _one_click("microsoft", domain, email, workspace=True)
         found = _ispdb(domain)
         if found:
             return {"kind": "known", "domain": domain, "username": email, "app_password": False,

@@ -14,6 +14,7 @@ type Detected = {
   kind: "one_click" | "known" | "guess" | "invalid"; provider?: Provider; workspace?: boolean; label?: string; message?: string;
   imap_host?: string; imap_port?: number; smtp_host?: string; smtp_port?: number; smtp_security?: "ssl" | "starttls";
   caldav_url?: string; app_password?: boolean; app_password_url?: string; steps?: string[]; username_hint?: string; source?: string;
+  fallback?: Detected; one_click_unavailable?: Provider;
 };
 
 const NAMES: Record<Provider, string> = { google: "Google", microsoft: "Microsoft" };
@@ -252,11 +253,13 @@ function OtherProvider({ onSuggest, onAdded }: { onSuggest: (p: Provider, email:
             <ProviderLogo provider={det.provider!} />
             <div className="grow">{det.workspace ? `${email.split("@")[1]} uses ${det.provider === "google" ? "Google Workspace" : "Microsoft 365"}.` : `That's a ${NAMES[det.provider!]} address.`} One click is easier, with no app password.</div>
             <button type="button" className="btn sm primary" onClick={() => onSuggest(det.provider!, email.trim())}>Connect {NAMES[det.provider!]}</button>
+            {det.fallback && <button type="button" className="btn sm ghost" onClick={() => setDet(det.fallback!)}>Use an app password instead</button>}
           </div>
         </div>
       )}
       {det && det.kind !== "one_click" && det.kind !== "invalid" && (
         <>
+          {det.one_click_unavailable && <div className="small muted">One-click {NAMES[det.one_click_unavailable]} isn't set up in this build, so connect with an app password instead. It takes about a minute.</div>}
           <div className="small"><strong>{det.label}</strong>{det.source === "guess" ? " · best guess" : det.source === "ispdb" ? " · settings found automatically" : ""}</div>
           {det.steps && (
             <div className="small">

@@ -6,6 +6,7 @@ instead, which speaks the Gmail API and Microsoft Graph and returns the same sha
 
 import email
 import imaplib
+import re
 import smtplib
 import ssl
 from email.header import decode_header, make_header
@@ -36,7 +37,36 @@ def _imap(acct: dict) -> imaplib.IMAP4_SSL:
             m.login(acct["username"], decrypt(acct["password_enc"]))
         return m
     except (imaplib.IMAP4.error, OSError) as e:
-        raise HTTPException(502, f"IMAP connection failed: {e}") from e
+        raise HTTPException(502, _explain_login(acct, e)) from e
+
+
+_APP_PASSWORD_PAGES = {
+    "gmail.com": ("Gmail", "myaccount.google.com/apppasswords (needs 2-Step Verification)"),
+    "mail.me.com": ("iCloud", "account.apple.com > Sign-In and Security > App-Specific Passwords"),
+    "yahoo.com": ("Yahoo", "login.yahoo.com/account/security > Generate app password"),
+    "aol.com": ("AOL", "login.aol.com/account/security"),
+    "fastmail.com": ("Fastmail", "Settings > Privacy & Security > App passwords"),
+    "zoho.com": ("Zoho", "Zoho Accounts > Security > App passwords"),
+    "office365.com": ("Outlook", "nowhere: Microsoft turned off app passwords for Outlook IMAP, so use Connect Microsoft"),
+    "outlook.com": ("Outlook", "nowhere: Microsoft turned off app passwords for Outlook IMAP, so use Connect Microsoft"),
+}
+
+
+def _explain_login(acct: dict, e: Exception) -> str:
+    """Turn raw IMAP errors into what the person should do next."""
+    raw = e.args[0] if e.args else e
+    text = raw.decode(errors="replace") if isinstance(raw, bytes) else str(raw)
+    host = (acct.get("imap_host") or "").lower()
+    who = next((v for k, v in _APP_PASSWORD_PAGES.items() if host.endswith(k)), None)
+    if isinstance(e, imaplib.IMAP4.error) and re.search(r"AUTHENTICATIONFAILED|invalid credentials|authentication failed|"
+                                                         r"application-specific|LOGIN failed|BasicAuthBlocked", text, re.I):
+        if who:
+            return (f"{who[0]} refused that password. It needs an app password, not your normal one. Make one at {who[1]}, "
+                    f"then paste the 16-character code. (Server said: {text.strip()[:160]})")
+        return f"The mail server refused that username or password. Check both, or use an app password. (Server said: {text.strip()[:160]})"
+    if isinstance(e, OSError):
+        return f"Couldn't reach {host}:{acct.get('imap_port')}. Check the IMAP server name and port, and your connection. ({e})"
+    return f"IMAP connection failed: {text.strip()[:300]}"
 
 
 def _body_text(msg: email.message.Message) -> str:
