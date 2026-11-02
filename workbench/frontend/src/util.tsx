@@ -155,6 +155,23 @@ export function ModelSelect({
   );
 }
 
+/** How hard a plan's model thinks (Claude, ChatGPT and Copilot plans). The same four levels as the rooks terminal's
+ *  /effort, remembered on this device. Shown only when the chosen model is a plan. */
+export const EFFORT_LEVELS: [string, string][] = [["", "Thinking: auto"], ["low", "Thinking: low (quick)"], ["medium", "Thinking: medium"], ["high", "Thinking: high (hard problems)"]];
+
+export function useEffort(): [string, (v: string) => void] {
+  const [effort, setEffort] = useState(() => localStorage.getItem("aiw.effort") || "");
+  return [effort, (v: string) => { localStorage.setItem("aiw.effort", v); setEffort(v); }];
+}
+
+export function EffortSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <select className="input effort-select" value={value} onChange={(e) => onChange(e.target.value)} aria-label="How hard the plan's model thinks" title="How hard the plan's model thinks">
+      {EFFORT_LEVELS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+    </select>
+  );
+}
+
 // Measured on this workspace (receipts.py): share of tool calls that worked and passed their check
 export function reliabilityLabel(m: Model): string {
   const r = m.reliability;

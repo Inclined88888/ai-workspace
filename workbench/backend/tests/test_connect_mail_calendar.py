@@ -632,6 +632,7 @@ def test_gmail_without_one_click_gets_app_password_not_a_loop(client, monkeypatc
     # offer the calendar link that does work, instead of a Connect Microsoft button that can't succeed
     for k in ("MICROSOFT_OAUTH_CLIENT_ID",):
         monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("MAC_ACCOUNTS", "0")  # not the desktop app on a Mac (test_mac_mail covers that route)
     ms = client.get("/api/mail/autodetect", params={"email": "me@outlook.com"}).json()
     assert ms["kind"] == "unavailable" and ms["provider"] == "microsoft"
     assert "app passwords" in ms["message"] and any("Publish a calendar" in s for s in ms["steps"])

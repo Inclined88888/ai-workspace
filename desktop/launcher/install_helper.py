@@ -239,6 +239,8 @@ def write_shortcut(launcher: Path, app: Path, py: Path) -> str:
                 f"<key>CFBundleName</key><string>{NAME}</string><key>CFBundleExecutable</key><string>ai-workspace</string>"
                 "<key>CFBundleIdentifier</key><string>com.inclined88888.aiworkspace.launcher</string>"
                 "<key>CFBundlePackageType</key><string>APPL</string>"
+                "<key>NSAppleEventsUsageDescription</key><string>AI Workspace reads and drafts email through Apple Mail for "
+                "accounts you signed in to on this Mac. It never sends without your yes.</string>"
                 "<key>CFBundleIconFile</key><string>icon.icns</string></dict></plist>\n")
             res = bundle / "Contents" / "Resources"
             res.mkdir(parents=True, exist_ok=True)

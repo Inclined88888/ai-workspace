@@ -147,6 +147,14 @@ def save_draft(data: DraftIn) -> dict:
         acct["id"] if acct else None, data.to, data.subject, data.body, data.in_reply_to, now, now,
     )
     where = "Mail > Drafts"
+    if acct and acct.get("kind") == "mac":
+        from . import mac_mail
+
+        try:
+            mac_mail.create_draft(acct, data.to, data.subject, data.body, data.in_reply_to)
+            where += " and in Apple Mail Drafts"
+        except HTTPException:
+            pass
     if acct and acct.get("kind") in ("google", "microsoft"):
         # Also put it in Gmail / Outlook Drafts so it can be finished anywhere. A failure here never loses the local draft.
         from . import cloud_mail

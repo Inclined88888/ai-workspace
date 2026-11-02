@@ -1,4 +1,4 @@
-import { AlertTriangle, CalendarDays, Check, ChevronRight, ExternalLink, KeyRound, Loader2, Mail, RefreshCw, ShieldCheck, X } from "lucide-react";
+import { AlertTriangle, CalendarDays, Check, ChevronRight, ExternalLink, KeyRound, Laptop, Loader2, Mail, RefreshCw, ShieldCheck, X } from "lucide-react";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
@@ -15,8 +15,9 @@ type Detected = {
   imap_host?: string; imap_port?: number; smtp_host?: string; smtp_port?: number; smtp_security?: "ssl" | "starttls";
   caldav_url?: string; app_password?: boolean; app_password_url?: string; steps?: string[]; username_hint?: string; source?: string;
   calendar_help?: string[]; key?: string;
-  fallback?: Detected; one_click_unavailable?: Provider;
+  fallback?: Detected; one_click_unavailable?: Provider; mac?: boolean;
 };
+type MacAccount = { name: string; emails: string[]; enabled: boolean; type: string; connected: boolean };
 
 const NAMES: Record<Provider, string> = { google: "Google", microsoft: "Microsoft" };
 const WHAT: Record<Provider, string> = { google: "Gmail and Google Calendar", microsoft: "Outlook, Hotmail, Microsoft 365 mail and calendar" };
@@ -62,7 +63,7 @@ export default function ConnectMailCalendar({ compact = false, onlyWhenEmpty = f
       api<MailAccount[]>("/mail/accounts").catch(() => []),
       api<Cal[]>("/calendars").catch(() => []),
     ]);
-    setProviders(p); setLinked(l); setImap(m.filter((a) => !a.kind || a.kind === "imap")); setCals(c.filter((x) => x.kind === "caldav" || x.kind === "ics"));
+    setProviders(p); setLinked(l); setImap(m.filter((a) => !a.kind || a.kind === "imap" || a.kind === "mac")); setCals(c.filter((x) => x.kind === "caldav" || x.kind === "ics"));
     setLoaded(true);
   };
   useEffect(() => { load(); return () => window.clearInterval(timer.current); }, []);
@@ -136,7 +137,7 @@ export default function ConnectMailCalendar({ compact = false, onlyWhenEmpty = f
           ))}
           {imap.map((a) => (
             <span key={`m${a.id}`} className="account-chip" title={a.imap_host}>
-              <Mail size={13} /><span className="truncate">{a.email}</span><span className="what">Mail · IMAP</span>
+              {a.kind === "mac" ? <Laptop size={13} /> : <Mail size={13} />}<span className="truncate">{a.email}</span><span className="what">{a.kind === "mac" ? "Mail · this Mac" : "Mail · IMAP"}</span>
               <button className="btn ghost sm icon" title="Disconnect" aria-label={`Disconnect ${a.email}`} onClick={() => removeImap(a)}><X size={12} /></button>
             </span>
           ))}
@@ -198,6 +199,59 @@ export default function ConnectMailCalendar({ compact = false, onlyWhenEmpty = f
           <OwnRegistration providers={providers} onSaved={load} />
         </>
       )}
+      {toast.node}
+    </div>
+  );
+}
+
+/** Mail through the account signed in on this Mac (Internet Accounts). The Mac signs in with the provider's normal page,
+ *  so this works for Outlook (no app passwords) and any provider, with no password typed into AI Workspace. */
+function MacMail({ email, onAdded }: { email: string; onAdded: () => void }) {
+  const [accounts, setAccounts] = useState<MacAccount[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const toast = useToast();
+  const check = async () => {
+    setError("");
+    const r = await api<{ available: boolean; accounts: MacAccount[]; error?: string }>("/mail/mac").catch((e) => ({ available: true, accounts: [], error: (e as Error).message }));
+    setAccounts(r.accounts);
+    if (r.error) setError(r.error);
+  };
+  useEffect(() => { check(); }, []);
+  const lower = email.toLowerCase();
+  const match = accounts?.find((a) => a.emails.some((e) => e.toLowerCase() === lower));
+  const connect = async () => {
+    if (!match) return;
+    setBusy(true); setError("");
+    try { await api("/mail/mac", { body: { name: match.name, email } }); toast.ok(`${email} is connected`); onAdded(); }
+    catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+  };
+  return (
+    <div className="col" style={{ gap: 12 }}>
+      {match && match.enabled ? (
+        <div className="row wrap">
+          <Laptop size={15} /><span className="grow small"><strong>{email}</strong> is already signed in on this Mac.</span>
+          <button type="button" className="btn primary sm" disabled={busy} onClick={connect}>{busy ? <Loader2 size={14} className="spin" /> : "Connect"}</button>
+        </div>
+      ) : (
+        <>
+          <div className="row" style={{ alignItems: "flex-start", gap: 12 }}>
+            <span className="step-num">1</span>
+            <div className="col grow" style={{ gap: 6 }}>
+              <button type="button" className="btn primary" style={{ alignSelf: "flex-start" }} onClick={() => api("/mail/mac/settings", { method: "POST" }).catch(toast.err)}>Open Internet Accounts</button>
+              <div className="small muted">{match ? <>Open <strong>{match.name}</strong> and turn on <strong>Mail</strong>.</> : <>Click <strong>Add Account</strong>, pick <strong>Microsoft Exchange</strong> (Outlook), and sign in as usual. Keep <strong>Mail</strong> switched on.</>}</div>
+            </div>
+          </div>
+          <div className="row" style={{ alignItems: "flex-start", gap: 12 }}>
+            <span className="step-num">2</span>
+            <div className="col grow" style={{ gap: 6 }}>
+              <button type="button" className="btn" style={{ alignSelf: "flex-start" }} onClick={check}><RefreshCw size={13} /> Done, check again</button>
+              <div className="small muted">macOS may ask once to let AI Workspace use Mail. Click OK.</div>
+            </div>
+          </div>
+        </>
+      )}
+      {error && <div className="alert err small">{error}</div>}
       {toast.node}
     </div>
   );
@@ -278,12 +332,22 @@ function OtherProvider({ onSuggest, onAdded, plain = false }: { onSuggest: (p: P
           </div>
         </div>
       )}
+      {det?.kind === "invalid" && email.includes("@") && <div className="alert err small">{det.message}</div>}
       {det?.kind === "unavailable" && (
-        <div className="alert col" style={{ gap: 8 }}>
+        <div className="alert col" style={{ gap: 10 }}>
           <div className="row"><ProviderLogo provider={det.provider!} /><strong className="grow">{det.label}</strong></div>
           <div className="small">{det.message}</div>
-          {det.steps && <ol className="connect-steps small">{det.steps.map((x) => <li key={x}>{x}</li>)}</ol>}
-          <div><Link className="btn sm" to="/calendar">Open Calendar</Link></div>
+          {det.mac
+            ? <MacMail email={email.trim()} onAdded={() => { setDet(null); setEmail(""); onAdded(); }} />
+            : det.steps && <ol className="connect-steps small">{det.steps.map((x) => <li key={x}>{x}</li>)}</ol>}
+          {det.mac && det.steps && (
+            <details className="connect-more">
+              <summary><ChevronRight size={12} /> Only want your Outlook calendar?</summary>
+              <ol className="connect-steps small">{det.steps.map((x) => <li key={x}>{x}</li>)}</ol>
+              <Link className="btn sm" to="/calendar">Open Calendar</Link>
+            </details>
+          )}
+          {!det.mac && <div><Link className="btn sm" to="/calendar">Open Calendar</Link></div>}
         </div>
       )}
       {connected && (

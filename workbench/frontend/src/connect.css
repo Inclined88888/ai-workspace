@@ -20,3 +20,5 @@
 /* Two-step app password setup */
 .step-num { flex: none; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center;
   font-size: 13px; font-weight: 600; background: var(--ink-btn); color: var(--on-ink); margin-top: 4px; }
+/* Provider logos are icons wherever they appear (a bare svg would fill its container) */
+svg.logo { width: 18px; height: 18px; flex: none; }

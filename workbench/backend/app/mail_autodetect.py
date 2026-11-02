@@ -111,6 +111,12 @@ UNAVAILABLE = {
 }
 
 
+MAC_ROUTE = {
+    "microsoft": ("Your Mac can sign in to Outlook for you, with Microsoft's normal sign-in page. AI Workspace then reads "
+                  "and drafts through Apple Mail and never sees your password. It takes about a minute."),
+}
+
+
 def _one_click_ready(provider: str) -> bool:
     try:
         from . import connect
@@ -126,7 +132,12 @@ def _one_click(provider: str, domain: str, email: str, workspace: bool = False) 
     if fallback and not _one_click_ready(provider):
         return {**fallback, "one_click_unavailable": provider, "workspace": workspace}
     if not fallback and not _one_click_ready(provider):
-        return {"kind": "unavailable", "provider": provider, "domain": domain, "workspace": workspace, **UNAVAILABLE[provider]}
+        from . import mac_mail
+
+        out = {"kind": "unavailable", "provider": provider, "domain": domain, "workspace": workspace, **UNAVAILABLE[provider]}
+        if mac_mail.available():  # the Mac signs in with Microsoft's normal page; AI Workspace reads through Apple Mail
+            out |= {"mac": True, "message": MAC_ROUTE[provider]}
+        return out
     out: dict = {"kind": "one_click", "provider": provider, "domain": domain}
     if workspace:
         out["workspace"] = True
@@ -175,11 +186,24 @@ def _mx(domain: str) -> list[str]:
         return []
 
 
+def _typo(email: str) -> str:
+    """A plain-words note when an address can't be right (a comma, two dots in a row, a dot at either end)."""
+    local, _, domain = email.partition("@")
+    bad = sorted({c for c in local + domain if c in ',;:()[]<>\\"' or c.isspace()})
+    if bad:
+        return f"That address has {'a ' + repr(bad[0]) if len(bad) == 1 else 'characters'} in it that email addresses can't have. Check for a typo."
+    if ".." in email or local.startswith(".") or local.endswith(".") or domain.startswith(".") or domain.startswith("-"):
+        return "That address has a dot in the wrong place (two in a row, or next to the @). Check for a typo."
+    return ""
+
+
 def detect(email: str) -> dict:
     """What to show for an address: one-click provider, known settings with app-password steps, or best guesses."""
     email = email.strip()
     if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
         return {"kind": "invalid", "message": "Enter a full email address."}
+    if typo := _typo(email):
+        return {"kind": "invalid", "message": typo}
     domain = email.split("@", 1)[1].lower()
     for provider, domains in ONE_CLICK.items():
         if domain in domains:

@@ -487,7 +487,9 @@ def models(fresh: bool = False, all: bool = False):  # noqa: A002 - the query pa
     stats = reliability()
     every = llm.list_models(fresh)
     shown = every if all else [m for m in every if m.get("chat", True) or m["ref"] == default]
-    return {"models": [m | {"reliability": stats.get(m["ref"])} for m in shown], "default": default, "hidden": len(every) - len(shown)}
+    plans = {c["id"] for c in db.all("SELECT id FROM connections WHERE base_url LIKE 'cli://%'")}  # take a thinking level
+    return {"models": [m | {"reliability": stats.get(m["ref"]), "effort": m.get("provider_id") in plans} for m in shown],
+            "default": default, "hidden": len(every) - len(shown)}
 
 
 @api.get("/ollama/status")
@@ -650,7 +652,7 @@ def calendars():
 
 class CalendarIn(BaseModel):
     name: str = Field(..., min_length=1, max_length=80)
-    kind: Literal["ics", "caldav", "local", "google", "microsoft"]  # google/microsoft only come from Connect, edits only
+    kind: Literal["ics", "caldav", "local", "google", "microsoft", "mac"]  # google/microsoft/mac come from Connect, edits only
     url: str = Field("", max_length=1000)
     username: str = Field("", max_length=200)
     password: str | None = Field(None, max_length=500)
@@ -660,7 +662,7 @@ class CalendarIn(BaseModel):
 
 @api.post("/calendars")
 async def add_calendar(data: CalendarIn):
-    if data.kind in ("google", "microsoft"):
+    if data.kind in ("google", "microsoft", "mac"):
         raise HTTPException(400, "Use Connect Google or Connect Microsoft in Settings to add that calendar")
     if data.kind != "local" and not data.url.startswith(("http://", "https://", "webcal://")):
         raise HTTPException(400, "Calendar URL must start with https://, http:// or webcal://")
@@ -740,6 +742,59 @@ def _account(aid: int) -> dict:
 @api.get("/mail/accounts")
 def mail_accounts():
     return [{k: v for k, v in a.items() if k != "password_enc"} for a in db.all("SELECT * FROM mail_accounts ORDER BY id")]
+
+
+class MacMailIn(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)   # the account's name in Apple Mail
+    email: str = Field(..., min_length=3, max_length=320)
+
+
+@api.get("/mail/mac")
+async def mac_mail_accounts():
+    """Mail accounts signed in on this Mac (Internet Accounts), for "Use the sign-in on this Mac"."""
+    from . import mac_mail
+
+    if not mac_mail.available():
+        return {"available": False, "accounts": []}
+    try:
+        found = await asyncio.to_thread(mac_mail.accounts)
+    except HTTPException as e:
+        return {"available": True, "accounts": [], "error": e.detail}
+    have = {(a["username"], a["email"].lower()) for a in db.all("SELECT username, email FROM mail_accounts WHERE kind = 'mac'")}
+    return {"available": True, "accounts": [a | {"connected": any((a["name"], e.lower()) in have for e in a["emails"])} for a in found]}
+
+
+@api.post("/mail/mac")
+async def mac_mail_connect(data: MacMailIn):
+    from . import mac_mail
+
+    found = next((a for a in await asyncio.to_thread(mac_mail.accounts) if a["name"] == data.name), None)
+    if not found or data.email.lower() not in {e.lower() for e in found["emails"]}:
+        raise HTTPException(404, f"{data.email} isn't signed in on this Mac. Add it in System Settings > Internet Accounts.")
+    if not found["enabled"]:
+        raise HTTPException(400, f"Mail is switched off for {data.email} on this Mac. In System Settings > Internet Accounts, "
+                                 "open the account and turn on Mail, then try again.")
+    await asyncio.to_thread(mac_mail.list_messages, {"username": data.name}, "INBOX", 1)  # proves access (macOS asks once)
+    row = db.one("SELECT id FROM mail_accounts WHERE kind = 'mac' AND lower(email) = lower(?)", data.email)
+    if row:
+        return {"id": row["id"]}
+    aid = db.run("INSERT INTO mail_accounts(name, email, imap_host, imap_port, smtp_host, smtp_port, smtp_security, username, "
+                 "password_enc, kind) VALUES (?, ?, 'apple-mail', 0, 'apple-mail', 0, 'ssl', ?, '', 'mac')",
+                 data.email.split("@")[0], data.email, data.name)
+    return {"id": aid}
+
+
+@api.post("/mail/mac/settings")
+def mac_mail_settings():
+    """Open System Settings > Internet Accounts, where the user signs in with the provider's normal page."""
+    import subprocess
+
+    from . import mac_mail
+
+    if not mac_mail.available():
+        raise HTTPException(400, "Only on a Mac")
+    subprocess.Popen(["open", "x-apple.systempreferences:com.apple.Internet-Accounts-Settings.extension"])
+    return {"ok": True}
 
 
 @api.get("/mail/autodetect")

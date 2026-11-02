@@ -103,6 +103,10 @@ def _cloud(acct: dict):
         from . import cloud_mail
 
         return cloud_mail
+    if acct.get("kind") == "mac":  # the account signed in on this Mac, through Apple Mail
+        from . import mac_mail
+
+        return mac_mail
     return None
 
 

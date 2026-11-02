@@ -7,5 +7,7 @@
   <string>AI Workspace listens when you use voice mode or record a meeting. Nothing is recorded unless you start it.</string>
   <key>NSSpeechRecognitionUsageDescription</key>
   <string>AI Workspace can use your Mac's own dictation to turn what you say into text.</string>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>AI Workspace reads and drafts email through Apple Mail for accounts you signed in to on this Mac. It never sends without your yes.</string>
 </dict>
 </plist>

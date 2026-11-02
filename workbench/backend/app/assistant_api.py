@@ -38,6 +38,7 @@ class ChatIn(BaseModel):
     conversation_id: int | None = None
     model: str | None = None
     channel: str = Field("web", pattern="^(web|cli|mobile)$")
+    effort: str = Field("", pattern="^(|low|medium|high)$")  # how hard a plan's model thinks; "" = the plan's default
 
 
 IDEMPOTENCY_KEY = re.compile(r"^[A-Za-z0-9._:-]{8,200}$")
@@ -66,6 +67,9 @@ def chat(data: ChatIn, idempotency_key: str | None = Header(None)):
         db.run("UPDATE conversations SET model = ? WHERE id = ?", data.model, cid)
 
     async def events():
+        from .adapters import EFFORT
+
+        EFFORT.set(data.effort)  # this turn only: the stream runs in its own task
         yield {"type": "start", "conversation_id": cid}
         ctx = assistant.Ctx(channel=data.channel, conversation_id=cid, request_key=key)
         async for e in assistant.run_turn(ctx, data.message, data.model):

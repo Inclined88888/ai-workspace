@@ -3,7 +3,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, stream } from "../api";
 import { Tracer } from "../Tracer";
-import { Empty, Markdown, ModelSelect, relTime, RouterInfo, RouterVia, SkeletonList, useModels, useToast } from "../util";
+import { EffortSelect, Empty, Markdown, ModelSelect, relTime, RouterInfo, RouterVia, SkeletonList, useEffort, useModels, useToast } from "../util";
 import { Thinking, useExit } from "../motion";
 import { LiveMarkdown } from "../v02/LiveBlocks"; // feat/v02-automations: live docs, sheets and charts in replies
 import { DictateButton } from "../voice/DictateButton"; // feat/v02-anywhere-voice (drawn as the motion voice orb)
@@ -38,6 +38,8 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   const [busySince, setBusySince] = useState(0);
   const exit = useExit<number>(200);
   const { models } = useModels();
+  const [effort, setEffort] = useEffort();
+  const isPlan = !!models.find((m) => m.ref === model)?.effort;
   const endRef = useRef<HTMLDivElement>(null);
   const toast = useToast();
   const cid = id ? Number(id) : null;
@@ -82,7 +84,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
     setMessages((m) => [...m, { id: Date.now(), role: "user", content: msg, tool_calls: [], name: "" }]);
     let newId = cid;
     let via: RouterInfo | undefined;
-    await stream("/assistant/chat", { message: msg, conversation_id: cid, model: model || null }, (ev) => {
+    await stream("/assistant/chat", { message: msg, conversation_id: cid, model: model || null, effort: isPlan ? effort : "" }, (ev) => {
       const t = ev.type as string | undefined;
       if (t === "start") newId = Number(ev.conversation_id);
       if (t === "router") via = ev as unknown as RouterInfo;
@@ -226,6 +228,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} />
             <div className="composer-bar">
               <ModelSelect value={model} onChange={setModel} models={models} />
+              {isPlan && <EffortSelect value={effort} onChange={setEffort} />}
               <div className="spacer" />
               <span className="composer-hint">Shift + Enter for a new line</span>
               {/* feat/v02-anywhere-voice + motion: one mic. Local/cloud speech-to-text with browser fallback, drawn as the voice orb */}
