@@ -193,5 +193,6 @@ def test_api(kn, client):
     assert client.get(f"/api/knowledge/entities/{e['id']}").json()["name"] == "Priya Shah"
     ex = client.get("/api/knowledge/export").json()
     assert ex["format"] == "ai-workspace-knowledge" and ex["memories"]
-    assert client.get("/api/knowledge/status").json()["integrity"]["ok"]
+    integ = client.get("/api/knowledge/status").json()["integrity"]
+    assert integ["ok"], integ
     assert client.delete(f"/api/knowledge/memories/{mid}").json() == {"forgotten": mid}

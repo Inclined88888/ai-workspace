@@ -199,12 +199,19 @@ CREATE TABLE IF NOT EXISTS messages (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS messages_conv ON messages(conversation_id, id);
-CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(content, content='messages', content_rowid='id', tokenize='porter unicode61');
+-- Chat search. Its own copy of the text (not content='messages'): only user and assistant messages are indexed, and an
+-- external-content index over a subset always fails PRAGMA integrity_check. Kept in step on insert, edit and delete
+-- (a streamed answer is written once, then updated with the final text). Rebuilt for older databases by migrate_v4.
+CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(content, tokenize='porter unicode61');
 CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages WHEN new.role IN ('user', 'assistant') BEGIN
   INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content);
 END;
-CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages WHEN old.role IN ('user', 'assistant') BEGIN
-  INSERT INTO messages_fts(messages_fts, rowid, content) VALUES ('delete', old.id, old.content);
+CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
+  DELETE FROM messages_fts WHERE rowid = old.id;
+END;
+CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE OF content, role ON messages BEGIN
+  DELETE FROM messages_fts WHERE rowid = old.id;
+  INSERT INTO messages_fts(rowid, content) SELECT new.id, new.content WHERE new.role IN ('user', 'assistant');
 END;
 
 CREATE TABLE IF NOT EXISTS memories (
@@ -406,7 +413,7 @@ def conn() -> sqlite3.Connection:
     return c
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 LEGACY_LEDGERS = ("usage", "tool_runs", "turn_checks", "pending_actions")
 LEGACY_TABLES = (*LEGACY_LEDGERS, "providers")
 
@@ -432,6 +439,7 @@ def migrate(c: sqlite3.Connection, path) -> None:
         (1, lambda: migrate_v1(c, [t for t in legacy if t in LEGACY_LEDGERS])),
         (2, lambda: migrate_v2(c, "providers" in legacy)),
         (3, lambda: migrate_v3(c)),
+        (4, lambda: migrate_v4(c)),
     ]
     # Foreign keys off for the whole upgrade. SQLite ignores this pragma inside a transaction, so it has to be set
     # here, before BEGIN: with keys on, a table rebuild's DROP TABLE is an implicit DELETE that cascades (migrate_v3
@@ -547,6 +555,29 @@ def migrate_v2(c: sqlite3.Connection, has_providers: bool) -> None:
                   "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                   (p["id"], p["name"], auth, proto, p["base_url"], p["api_key_enc"], residency, p["models"], p["enabled"], p["created_at"]))
     c.execute("DROP TABLE providers")
+
+
+MESSAGES_FTS = (
+    "CREATE VIRTUAL TABLE messages_fts USING fts5(content, tokenize='porter unicode61')",
+    "CREATE TRIGGER messages_ai AFTER INSERT ON messages WHEN new.role IN ('user', 'assistant') BEGIN "
+    "INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content); END",
+    "CREATE TRIGGER messages_ad AFTER DELETE ON messages BEGIN DELETE FROM messages_fts WHERE rowid = old.id; END",
+    "CREATE TRIGGER messages_au AFTER UPDATE OF content, role ON messages BEGIN "
+    "DELETE FROM messages_fts WHERE rowid = old.id; "
+    "INSERT INTO messages_fts(rowid, content) SELECT new.id, new.content WHERE new.role IN ('user', 'assistant'); END",
+)
+
+
+def migrate_v4(c: sqlite3.Connection) -> None:
+    """Rebuild chat search. The old index borrowed its text from messages and had no update trigger, so a streamed
+    answer's final text was never searchable, deleting that message later corrupted the index, and PRAGMA
+    integrity_check always failed once tool messages existed. Same rows and ranking; messages itself is unchanged."""
+    for t in ("messages_ai", "messages_ad", "messages_au"):
+        c.execute(f"DROP TRIGGER IF EXISTS {t}")
+    c.execute("DROP TABLE IF EXISTS messages_fts")
+    for stmt in MESSAGES_FTS:  # one by one: executescript would COMMIT the upgrade's open transaction
+        c.execute(stmt)
+    c.execute("INSERT INTO messages_fts(rowid, content) SELECT id, content FROM messages WHERE role IN ('user', 'assistant')")
 
 
 def migrate_v3(c: sqlite3.Connection) -> None:
