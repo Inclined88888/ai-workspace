@@ -225,12 +225,40 @@ def list_models_for(cid: int, fresh: bool = False) -> list[dict]:
     if cached and not fresh and cached[0] > time.time() - 120:
         return cached[1]
     a = Adapter(conn)
-    out = [{"ref": f"{cid}/{n}", "model": n, "provider": conn["name"], "provider_id": cid, "free": a.is_free(n)}
-           for n in a.list_models()]
+    out = [{"ref": f"{cid}/{n}", "model": n, "provider": conn["name"], "provider_id": cid, "free": a.is_free(n),
+            "label": _label(n), **_pickable(conn["base_url"], n)} for n in a.list_models()]
+    _keep_newest(out)
     _model_cache[cid] = (time.time(), out)
     if a.list_error:  # shown on Models instead of a silent "no models"
         db.run("UPDATE connections SET last_error = ? WHERE id = ?", a.list_error, cid)
     return out
+
+
+PICK_PER_PROVIDER = 12  # pickers show the newest chat models per provider; Models > Show all lists everything
+
+
+def _label(model: str) -> str:
+    """A short name for pickers: no organisation prefix, no models/ or :latest."""
+    return model.removeprefix("models/").rsplit("/", 1)[-1].removesuffix(":latest")
+
+
+def _pickable(base_url: str, model: str) -> dict:
+    """Whether a model belongs in a chat picker. Providers the catalog covers list images, speech, embeddings, guards
+    and retired models too (NVIDIA alone lists 100+); only catalog chat models with tool use stay. Servers the catalog
+    doesn't cover (Ollama, your own server, plan CLIs) keep everything."""
+    from . import catalog
+
+    if not catalog.provider_for(base_url):
+        return {"chat": True, "released": ""}
+    m = catalog.lookup(base_url, model)
+    ok = bool(m and m.get("tools") and (m.get("ctx") or 0) >= 16_000)
+    return {"chat": ok, "released": (m or {}).get("released", "")}
+
+
+def _keep_newest(models: list[dict]) -> None:
+    chat = sorted((m for m in models if m["chat"]), key=lambda m: m["released"] or "", reverse=True)
+    for m in chat[PICK_PER_PROVIDER:]:
+        m["chat"] = False
 
 
 def prefetch_models(cids: list[int]) -> None:
@@ -398,6 +426,21 @@ def parse_json(text: str):
             except ValueError:
                 continue
     return None
+
+
+def plan_connection(preset: str, create: bool) -> dict | None:
+    """The connection for a signed-in plan CLI (claude-plan, codex-plan): found by its preset, created and switched on
+    when asked. One per plan; signing in again reuses it."""
+    p = PRESETS[preset]
+    row = db.one("SELECT * FROM connections WHERE auth_kind = ? AND base_url = ?", p["auth_kind"], p["base_url"])
+    if not create:
+        return row
+    cid = row["id"] if row else db.run(
+        "INSERT INTO connections(name, auth_kind, protocol, base_url, secret_enc, residency, created_at) VALUES (?, ?, ?, ?, '', 'cloud', ?)",
+        p["name"], p["auth_kind"], p["protocol"], p["base_url"], db.now())
+    db.run("UPDATE connections SET enabled = 1, state = 'connected', last_error = '' WHERE id = ?", cid)
+    _model_cache.pop(cid, None)
+    return db.one("SELECT * FROM connections WHERE id = ?", cid)
 
 
 def managed_connection(name: str, base_url: str, secret: str, enabled: bool, models: str = "") -> int | None:

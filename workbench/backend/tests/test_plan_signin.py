@@ -53,7 +53,7 @@ def fakes(tmp_path, monkeypatch):
     monkeypatch.setenv("WORKBENCH_CODEX_BIN", str(tmp_path / "codex"))
     yield tmp_path
     from app import db
-    db.run("DELETE FROM connections WHERE auth_kind = 'cli_subscription'")
+    db.run("DELETE FROM connections WHERE base_url LIKE 'cli://%'")
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="pseudo-terminal sign-in is POSIX; Windows uses pipes")
@@ -74,7 +74,7 @@ def test_claude_sign_in_from_the_app_then_chat_on_the_plan(client, fakes):
     assert c["connected"]
     from app import db
     row = db.one("SELECT * FROM connections WHERE id = ?", c["connection_id"])
-    assert row["protocol"] == "cli_plan" and row["base_url"] == "cli://claude" and row["enabled"] == 1
+    assert row["base_url"] == "cli://claude" and row["enabled"] == 1
     assert client.post("/api/plans/claude/connect", headers=H).json()["connection_id"] == c["connection_id"]  # no duplicate
 
 

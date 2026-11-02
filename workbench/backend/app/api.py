@@ -465,7 +465,7 @@ SUBSCRIPTIONS = [
 
 
 @api.get("/models")
-def models(fresh: bool = False):
+def models(fresh: bool = False, all: bool = False):  # noqa: A002 - the query parameter's name
     try:
         default = llm.default_model_ref()
     except HTTPException:
@@ -473,7 +473,9 @@ def models(fresh: bool = False):
     from .receipts import reliability
 
     stats = reliability()
-    return {"models": [m | {"reliability": stats.get(m["ref"])} for m in llm.list_models(fresh)], "default": default}
+    every = llm.list_models(fresh)
+    shown = every if all else [m for m in every if m.get("chat", True) or m["ref"] == default]
+    return {"models": [m | {"reliability": stats.get(m["ref"])} for m in shown], "default": default, "hidden": len(every) - len(shown)}
 
 
 @api.get("/ollama/status")

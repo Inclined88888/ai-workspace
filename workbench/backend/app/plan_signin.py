@@ -24,7 +24,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from . import cli_agents, db, llm
+from . import cli_agents, llm
 from .security import require_user
 
 router = APIRouter(prefix="/api/plans", dependencies=[Depends(require_user)])
@@ -75,7 +75,7 @@ def signed_in(agent: str) -> tuple[bool, str]:
 
 
 def _connection(agent: str) -> dict | None:
-    return db.one("SELECT * FROM connections WHERE auth_kind = 'cli_subscription' AND base_url = ?", f"cli://{agent}")
+    return llm.plan_connection(PRESET[agent], create=False)
 
 
 def state() -> dict:
@@ -216,13 +216,7 @@ def connect(agent: str) -> dict:
     ok, _ = signed_in(agent)
     if not ok:
         raise HTTPException(400, "Not signed in yet")
-    p = llm.PRESETS[PRESET[agent]]
-    row = _connection(agent)
-    cid = row["id"] if row else db.run(
-        "INSERT INTO connections(name, auth_kind, protocol, base_url, secret_enc, residency, created_at) VALUES (?, ?, ?, ?, '', 'cloud', ?)",
-        p["name"], p["auth_kind"], p["protocol"], p["base_url"], db.now())
-    db.run("UPDATE connections SET enabled = 1, state = 'connected', last_error = '' WHERE id = ?", cid)
-    llm._model_cache.pop(cid, None)
+    cid = llm.plan_connection(PRESET[agent], create=True)["id"]
     return {**state()[agent], "connection_id": cid}
 
 
