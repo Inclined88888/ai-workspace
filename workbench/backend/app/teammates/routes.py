@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import BackgroundTasks, APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 
@@ -482,8 +482,8 @@ def whatsapp_verify(request: Request):
 
 
 @public.post("/hooks/whatsapp", include_in_schema=False)
-async def whatsapp_webhook(request: Request):
-    return await more_channels.whatsapp_webhook(request)
+async def whatsapp_webhook(request: Request, background: BackgroundTasks):
+    return await more_channels.whatsapp_webhook(request, background)
 
 
 # Phone link -------------------------------------------------------------------------------------------------------

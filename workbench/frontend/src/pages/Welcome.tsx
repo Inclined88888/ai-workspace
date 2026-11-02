@@ -1,8 +1,7 @@
 import { ArrowLeft, ArrowRight, Check, ClipboardPaste, Cloud, Cpu, Download, ExternalLink, KeyRound, Loader2, ListChecks, ShieldCheck, Sparkles, UserRound } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { api, stream } from "../api";
-import { AgentSetup, type CliAgent } from "./Code";
+import PlanCard from "./PlanCard";
 import { ThemeGrid, TypeChoices } from "../ThemePicker";
 import { Tracer } from "../Tracer";
 import { saveAppearanceRemote } from "../themeSync";
@@ -170,37 +169,6 @@ function FreeStep({ info, onBack, onDone }: { info: Record<string, KeyInfo>; onB
   );
 }
 
-/** Claude plans work through Anthropic's own Claude Code app: we detect it, never sign in for it, and hand it coding jobs. */
-function ClaudeCodeCard({ sub, onDone }: { sub: Sub; onDone: () => void }) {
-  const navigate = useNavigate();
-  const [agent, setAgent] = useState<CliAgent | null>(null);
-  const [checking, setChecking] = useState(false);
-  const check = (fresh: boolean) => {
-    setChecking(true);
-    api<{ agents: CliAgent[] }>(`/cli-agents${fresh ? "?fresh=true" : ""}`)
-      .then((r) => setAgent(r.agents.find((a) => a.id === "claude") ?? null)).catch(() => setAgent(null)).finally(() => setChecking(false));
-  };
-  useEffect(() => check(false), []);
-  const go = async () => {
-    await api("/desktop/welcome-done", { method: "POST" });
-    onDone();
-    navigate("/code");
-  };
-  return (
-    <div className="sub-card on">
-      <strong className="sub-name">Use your Claude plan through Claude Code</strong>
-      <p className="small muted">For Claude {sub.plans}. {sub.detail} <a href={sub.source} target="_blank" rel="noreferrer">Anthropic's terms</a></p>
-      {agent ? <AgentSetup agent={agent} onRecheck={() => check(true)} checking={checking} /> : <Loader2 size={14} className="spin" />}
-      {agent?.ready && (
-        <div className="row">
-          <span className="small muted grow">Coding jobs run on your plan. Chat still uses a model you connect.</span>
-          <button className="btn primary" onClick={go}>Open the coding agent <ArrowRight size={16} /></button>
-        </div>
-      )}
-    </div>
-  );
-}
-
 function SubscriptionStep({ onBack, onDone, onKey }: { onBack: () => void; onDone: () => void; onKey: (preset: string) => void }) {
   const [subs, setSubs] = useState<Sub[] | null>(null);
   const [state, setState] = useState<{ state: string; url: string } | null>(null);
@@ -250,7 +218,8 @@ function SubscriptionStep({ onBack, onDone, onKey }: { onBack: () => void; onDon
       {error && <div className="alert err">{error}</div>}
       {status?.status === "failed" && <div className="alert err">{status.error}</div>}
       {subs === null && <Loader2 size={16} className="spin" />}
-      {claude && <ClaudeCodeCard sub={claude} onDone={onDone} />}
+      {claude && <PlanCard agent="claude" title="Claude" onConnected={async () => { await finishCloud(); onDone(); }}
+        blurb={`For Claude ${claude.plans}. Uses Claude Code, Anthropic's own app: we set it up and open Anthropic's sign-in. Answers count against your plan.`} />}
       {chatgpt && (
         <div className="sub-card on">
           <div className="row">
@@ -281,6 +250,10 @@ function SubscriptionStep({ onBack, onDone, onKey }: { onBack: () => void; onDon
           ) : (
             <div className="row"><button className="btn primary" onClick={start}><UserRound size={15} /> Sign in with ChatGPT</button></div>
           )}
+          <details className="small"><summary>Didn't work? Use ChatGPT through Codex instead</summary>
+            <PlanCard agent="codex" title="ChatGPT through Codex" onConnected={async () => { await finishCloud(); onDone(); }}
+              blurb="OpenAI's own Codex app, signed in with your ChatGPT plan. A bit slower than the direct sign-in above." />
+          </details>
         </div>
       )}
       {!!subs?.some((s) => !s.available) && (

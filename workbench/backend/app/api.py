@@ -65,6 +65,7 @@ def status(request: Request):
         "local_models_enabled": bool(config.OLLAMA_URL),
         "desktop": config.DESKTOP,
         "welcome_done": db.get_setting("desktop_welcome_done") == "1",
+        "welcome_pending": db.get_setting("desktop_welcome_done") == "0",
     }
 
 
@@ -83,6 +84,8 @@ def setup(data: SetupIn, request: Request, response: Response):
     if SETUP_CODE and not secrets.compare_digest(data.setup_code.strip(), SETUP_CODE):
         raise HTTPException(403, "Setup code is wrong. It is printed by setup.sh and stored as SETUP_CODE in .env")
     db.set_setting("password_hash", hash_password(data.password))
+    if db.get_setting("desktop_welcome_done") != "1":
+        db.set_setting("desktop_welcome_done", "0")  # a brand new workspace: everyone gets the first-run welcome
     if data.workspace_name.strip():
         db.set_setting("workspace_name", data.workspace_name.strip())
     db.set_setting("setup_complete", "1")
@@ -447,8 +450,8 @@ SUBSCRIPTIONS = [
                "plan's limits, shared with your other apps.",
      "source": "https://developers.openai.com/siwc/token-sharing-open-source"},
     {"id": "claude", "name": "Claude", "plans": "Pro, Max, Team, Enterprise", "available": True, "via": "claude_code",
-     "detail": "Through Claude Code, Anthropic's own app. Install it and sign in with your plan there; this app hands coding "
-               "jobs to it and shows the work. Your sign-in never passes through this app.",
+     "detail": "Through Claude Code, Anthropic's own app: one click sets it up and opens Anthropic's sign-in. Chat and coding "
+               "then run on your plan. Your password never passes through this app.",
      "source": "https://code.claude.com/docs/en/legal-and-compliance"},
     {"id": "grok", "name": "Grok", "plans": "SuperGrok", "available": False,
      "detail": "Not available yet. xAI only offers SuperGrok sign-in to partner apps so far, with no public sign-up for "

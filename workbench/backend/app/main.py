@@ -16,7 +16,7 @@ from . import egress  # noqa: E402
 
 egress.install()  # before anything connects: every outbound request is in the audit log (R8, item 75)
 
-from . import actions, api, appearance, assistant_api, bridge, browser_proxy, cli_agents_api, company, config, connect, db, desk_proxy, health, llm, mobile, scheduler, sites, skills_hub, telegram, work_api  # noqa: E402
+from . import actions, api, appearance, assistant_api, bridge, browser_proxy, cli_agents_api, company, plan_signin, config, connect, db, desk_proxy, health, llm, mobile, scheduler, sites, skills_hub, telegram, work_api  # noqa: E402
 from . import compression  # AIW-Phase1: rolling compression of long chats
 from . import finetune, media  # noqa: E402 - phase 4
 from . import catalog  # noqa: E402 - model facts from models.dev
@@ -139,6 +139,7 @@ app.include_router(desk_proxy.router)
 app.include_router(work_api.router)  # Files (any file, analysis, sandboxed Python) and Sites (any website the user works in)
 app.include_router(skills_hub.router)  # Skills from GitHub behind the security gate
 app.include_router(cli_agents_api.router)  # hand jobs to the user's own Claude Code / Codex CLI
+app.include_router(plan_signin.router)  # install and sign in to Claude Code / Codex from the app
 app.include_router(adapt_routes.router)  # /api/learn: What I know about you, Show me how, suggestions
 adapt_hooks.register_tools()
 app.include_router(v02_api.router)  # feat/v02-automations: automations, jobs board, live documents

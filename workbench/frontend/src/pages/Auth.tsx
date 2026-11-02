@@ -165,7 +165,7 @@ export default function Auth({ status, onDone }: { status: Status; onDone: () =>
     setError("");
     try {
       await api("/setup", { body: { password: form.password, setup_code: form.setup_code, workspace_name: form.workspace_name } });
-      setStep(1);
+      onDone();  // straight to the first-run welcome: look, then how to think (plans, free keys, keys, local)
     } catch (err) {
       setError((err as Error).message);
     } finally {

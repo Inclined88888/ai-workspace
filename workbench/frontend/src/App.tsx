@@ -79,6 +79,7 @@ export type Status = {
   /** Running inside the native desktop app (desktop/), which signs the window in itself. */
   desktop?: boolean;
   welcome_done?: boolean;
+  welcome_pending?: boolean;
   needs_models?: boolean;
 };
 
@@ -241,7 +242,7 @@ export default function App() {
     return <Auth status={status} onDone={refresh} />;
   }
   if (location.pathname === "/ask-bar") return <AskBar />; // feat/v02-anywhere-voice: the floating window, no sidebar
-  if ((status.desktop || status.needs_models) && !status.welcome_done) {
+  if (status.welcome_pending || ((status.desktop || status.needs_models) && !status.welcome_done)) {
     return <Welcome onDone={() => { refresh(); navigate("/assistant", { replace: true }); }} />;
   }
 

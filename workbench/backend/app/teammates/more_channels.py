@@ -28,7 +28,7 @@ import uuid
 from urllib.parse import quote
 
 import httpx
-from fastapi import HTTPException, Request, Response
+from fastapi import BackgroundTasks, HTTPException, Request, Response
 
 from .. import db
 from ..redact import redact
@@ -400,7 +400,7 @@ async def handle_whatsapp(payload: dict) -> list[str]:
     return replies
 
 
-async def whatsapp_webhook(request: Request) -> dict:
+async def whatsapp_webhook(request: Request, background: BackgroundTasks) -> dict:
     """Meta's POST: refused unless signed with your app secret; answered after the 200 so Meta doesn't retry."""
     if not whatsapp_configured():
         raise HTTPException(404, "WhatsApp is not set up")
@@ -418,7 +418,7 @@ async def whatsapp_webhook(request: Request) -> dict:
         except Exception as e:  # noqa: BLE001
             _state["whatsapp"]["error"] = redact(str(e))[:300]
             log.warning("whatsapp message failed: %s", e)
-    asyncio.create_task(run())
+    background.add_task(run)  # after the 200, and awaited to the end (a bare create_task can be dropped)
     return {"ok": True}
 
 

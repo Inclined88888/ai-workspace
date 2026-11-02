@@ -77,3 +77,6 @@
   .route-actions { grid-column: 2; }
 }
 .models-page { width: 100%; box-sizing: border-box; }
+
+.device-code { font-size: 26px; letter-spacing: 0.12em; font-weight: 600; padding: 10px 16px; border: 1px solid var(--rule); border-radius: 10px; align-self: flex-start; user-select: all; }
+.plan-steps { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 2px; }
