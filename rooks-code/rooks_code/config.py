@@ -181,7 +181,7 @@ class Settings:
     key_optional: bool = False
     max_usd: float | None = 1.0          # hard cap per session; None = no dollar cap
     max_tokens: int | None = 200_000     # hard cap per session (input + output)
-    max_steps: int = 40                  # model calls per prompt before stopping
+    max_steps: int = 200                 # model calls per prompt before stopping (a long task needs many)
     command_timeout: int = 120
     trusted_folders: list[str] = field(default_factory=list)
     auto_approve: bool = False
@@ -318,8 +318,14 @@ def resolve(flags: dict, root: Path, file: dict | None = None) -> Settings:
     for key in ("max_usd", "max_tokens", "max_steps"):
         if flags.get(key) is not None:
             setattr(s, key, flags[key] if flags[key] != 0 else None)
+    if s.provider == "workbench":
+        # Through the app the spend is a plan's or the app's (it routes, limits and logs it): no per-session caps that
+        # stop a long task halfway, unless the user set one.
+        for key in ("max_usd", "max_tokens"):
+            if key not in cfg and flags.get(key) is None:
+                setattr(s, key, None)
     if s.max_steps is None:
-        s.max_steps = 40
+        s.max_steps = 200
     if flags.get("yes"):
         s.auto_approve = True
     if flags.get("dry_run"):

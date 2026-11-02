@@ -155,14 +155,11 @@ class Web:
     def search(self, query: str, count: int = 6) -> str:
         try:
             d = self._app("/search?" + urllib.parse.urlencode({"q": query, "count": count}))
-        except urllib.error.HTTPError as e:
-            try:
-                return "Error: " + json.loads(e.read() or b"{}").get("detail", str(e))
-            except ValueError:
-                return f"Error: {e}"
-        except (OSError, ValueError) as e:
-            return f"Error: the app's search did not answer ({e})"
-        if d is None:
+        except urllib.error.HTTPError:
+            d = None  # the app's search is switched off or failing: fall back below
+        except (OSError, ValueError):
+            d = None
+        if d is None:  # no app, or its search is not set up: straight to the web
             d = {"results": self._duck(query, count)}
         rows = d.get("results") or []
         if not rows:
@@ -171,8 +168,33 @@ class Web:
                            for i, r in enumerate(rows[:count], 1))
 
     @staticmethod
-    def _duck(query: str, count: int) -> list[dict]:
-        """Without the app: DuckDuckGo's plain HTML page (it may refuse automated searches; the error says so)."""
+    def _brave(query: str, count: int) -> list[dict]:
+        """Brave Search's public results page, read like a browser would (fallback; its layout can change)."""
+        page, _ = _get("https://search.brave.com/search?" + urllib.parse.urlencode({"q": query}),
+                       {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) "
+                                      "Chrome/126 Safari/537.36", "Accept-Language": "en"})
+        strip = lambda s: html.unescape(re.sub(r"<[^>]+>", "", s or "")).strip()  # noqa: E731
+        out = []
+        for block in page.split('data-type="web"')[1:]:
+            block = block[:8000]
+            href = re.search(r'<a href="(https?://[^"]+)"', block)
+            title = re.search(r'class="title[^"]*"[^>]*>(.*?)</div>', block, re.S)
+            desc = re.search(r'class="(?:snippet-description|content|generic-snippet)[^"]*"[^>]*>(.*?)</div>', block, re.S)
+            if href and title:
+                out.append({"title": strip(title.group(1)), "url": href.group(1), "snippet": strip(desc.group(1) if desc else "")[:300]})
+            if len(out) >= count:
+                break
+        return out
+
+    @classmethod
+    def _duck(cls, query: str, count: int) -> list[dict]:
+        try:
+            found = cls._brave(query, count)
+        except (OSError, urllib.error.URLError):
+            found = []
+        if found:
+            return found
+        """Without the app's search: Brave's results page, then DuckDuckGo's plain HTML page (either may refuse)."""
         try:
             page, _ = _get("https://html.duckduckgo.com/html/?" + urllib.parse.urlencode({"q": query}))
         except (OSError, urllib.error.URLError) as e:
@@ -187,7 +209,7 @@ class Web:
             if len(out) >= count:
                 break
         if not out:
-            raise ToolError("the search engine refused or returned nothing; open the AI Workspace app to search through it")
+            raise ToolError("web search is not set up: add the free search key in the AI Workspace app (Settings > Web search). web_fetch still reads any page you have a link for")
         return out
 
     def fetch(self, url: str) -> str:

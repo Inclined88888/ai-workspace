@@ -143,8 +143,9 @@ class UI:
             cap.append(f"{s.max_tokens:,} tokens")
         if s.max_usd:
             cap.append(f"${s.max_usd:.2f}")
-        self.p(self.c("2", f"  [{s.provider}/{s.model} · {totals['tokens_in'] + totals['tokens_out']:,} tokens · {cost}"
-                           f"{' · cap ' + ' / '.join(cap) if cap else ''}{' · /undo available' if undo else ''}]"))
+        cost = "" if totals["cost_unknown"] or s.provider == "workbench" else f" · {cost}"
+        self.p(self.c("2", f"  {short_model(s)} · {totals['tokens_in'] + totals['tokens_out']:,} tokens{cost}"
+                           f"{' · cap ' + ' / '.join(cap) if cap else ''}{' · /undo available' if undo else ''}"))
 
 
 def parser() -> argparse.ArgumentParser:
@@ -158,7 +159,7 @@ def parser() -> argparse.ArgumentParser:
     ap.add_argument("-n", "--dry-run", action="store_true", help="show edits and commands, apply nothing")
     ap.add_argument("--max-usd", type=float, help="hard cost cap for this session in USD (0 = none)")
     ap.add_argument("--max-tokens", type=int, help="hard token cap for this session (0 = none)")
-    ap.add_argument("--max-steps", type=int, help="model calls per prompt before stopping (default 40)")
+    ap.add_argument("--max-steps", type=int, help="model calls per prompt before stopping (default 200)")
     ap.add_argument("--no-mcp", action="store_true", help="do not start MCP servers")
     ap.add_argument("-c", "--continue", dest="cont", action="store_true", help="continue the last session in this folder")
     ap.add_argument("--resume", metavar="ID", help="continue an earlier session (ids: rooks receipts list)")
