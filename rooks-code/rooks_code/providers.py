@@ -81,7 +81,40 @@ def _objects(payload: str) -> list[str]:
     return out or [payload]
 
 
+# Claude models (notably through the Claude Code plan) sometimes answer in Anthropic's own XML tool format instead of the
+# <tool_call> JSON they were asked for: <invoke name="tool"><parameter name="p">value</parameter></invoke>, optionally
+# inside <function_calls>. Parameter values are JSON when they parse (arrays, numbers), else text.
+_INVOKE_RE = re.compile(r"<(?:antml:)?invoke\s+name=\"([^\"]+)\"\s*>(.*?)</(?:antml:)?invoke>", re.S)
+_PARAM_RE = re.compile(r"<(?:antml:)?parameter\s+name=\"([^\"]+)\"\s*>(.*?)</(?:antml:)?parameter>", re.S)
+_WRAP_RE = re.compile(r"</?(?:antml:)?function_calls>")
+
+
+def _xml_calls(content: str, tool_names: set[str]) -> tuple[list[tuple[str, dict]], str]:
+    found, rest, seen = [], content, set()
+    for m in _INVOKE_RE.finditer(content):
+        name = m.group(1)
+        rest = rest.replace(m.group(0), "")
+        if name not in tool_names:
+            continue
+        args = {}
+        for p in _PARAM_RE.finditer(m.group(2)):
+            raw = p.group(2).strip()
+            try:
+                args[p.group(1)] = json.loads(raw)
+            except ValueError:
+                args[p.group(1)] = raw
+        key = (name, json.dumps(args, sort_keys=True))
+        if key not in seen:  # the same call repeated in one reply runs once
+            seen.add(key)
+            found.append((name, args))
+    return found, _WRAP_RE.sub("", rest).strip()
+
+
 def parse_text_tool_calls(content: str, tool_names: set[str]) -> tuple[list[ToolCall], str]:
+    if "invoke" in content:
+        xml, left = _xml_calls(content, tool_names)
+        if xml:
+            return [ToolCall(f"text_{i}", n, a, from_text=True) for i, (n, a) in enumerate(xml)], left
     candidates = [(m.group(0), m.group(1)) for m in _TOOL_TAG_RE.finditer(content)]
     if not candidates:
         candidates = [(m.group(0), m.group(1)) for m in _FENCE_ANY_RE.finditer(content)]

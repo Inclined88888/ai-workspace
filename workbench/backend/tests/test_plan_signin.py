@@ -1,5 +1,6 @@
 """Plan sign-in from the app (plan_signin.py) against fake claude and codex programs that act like the real sign-ins."""
 
+import json
 import os
 import stat
 import sys
@@ -246,3 +247,13 @@ def test_chat_takes_a_thinking_level_for_plans_and_the_picker_knows_which_models
         assert all(not m["effort"] for r, m in rows.items() if not r.startswith(f"{cid}/"))
     finally:
         db.run("DELETE FROM connections WHERE id = ?", cid)
+
+
+def test_a_plan_answering_in_claudes_own_tool_format_still_calls_the_tools():
+    from app.adapters import parse_text_tool_calls
+
+    calls, rest = parse_text_tool_calls('<invoke name="web_search">\n<parameter name="query">weather sydney</parameter>\n</invoke>',
+                                        {"web_search"})
+    assert calls[0]["function"]["name"] == "web_search" and json.loads(calls[0]["function"]["arguments"]) == {"query": "weather sydney"}
+    assert rest == ""
+    assert parse_text_tool_calls('<invoke name="delete_everything"><parameter name="x">1</parameter></invoke>', {"web_search"})[0] == []

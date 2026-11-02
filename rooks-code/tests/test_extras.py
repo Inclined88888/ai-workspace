@@ -123,3 +123,16 @@ def test_sub_agent_reads_only_and_returns_its_summary(tmp_path):
     task_result = [m for m in model.calls[-1]["messages"] if m["role"] == "tool"][-1]["content"]
     assert "a.py line 1" in task_result
     assert len([p for p in (tmp_path / ".rooks" / "runs").glob("*.messages.json")]) == 1  # the sub-agent saved no session
+
+
+def test_claude_native_xml_tool_calls_are_understood():
+    from rooks_code.providers import parse_text_tool_calls
+
+    text = ('Starting.\n<function_calls>\n<invoke name="todo">\n<parameter name="items">[{"text": "a", "status": "doing"}]</parameter>\n'
+            '</invoke>\n<invoke name="read_file">\n<parameter name="path">rooks_code/tui.py</parameter>\n<parameter name="limit">40</parameter>\n'
+            '</invoke>\n<invoke name="todo">\n<parameter name="items">[{"text": "a", "status": "doing"}]</parameter>\n</invoke>\n'
+            '<invoke name="rm_rf"><parameter name="x">/</parameter></invoke>\n</function_calls>')
+    calls, rest = parse_text_tool_calls(text, {"todo", "read_file"})
+    assert [(c.name, c.arguments) for c in calls] == [("todo", {"items": [{"text": "a", "status": "doing"}]}),
+                                                      ("read_file", {"path": "rooks_code/tui.py", "limit": 40})]
+    assert rest == "Starting."
