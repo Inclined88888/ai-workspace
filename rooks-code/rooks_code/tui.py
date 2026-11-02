@@ -53,7 +53,7 @@ COMMANDS: dict[str, str] = {
     "/provider": "switch the AI service: /provider NAME",
     "/login": "connect an AI service (paste a key, or use your AI Workspace app)",
     "/memory": "what Rooks remembers about you (shared with the AI Workspace app)",
-    "/skills": "procedures Rooks learned from your past tasks",
+    "/skills": "procedures Rooks learned; /skills add GITHUB-LINK checks a new one",
     "/undo": "put back the files changed by the last request",
     "/sessions": "earlier conversations in this folder",
     "/resume": "continue an earlier conversation: /resume ID",
@@ -413,6 +413,9 @@ def run(agent, ui: RichUI) -> int:
         line = line.strip()
         if not line:
             continue
+        if not line.startswith("/") and ("/" + line.lower() in COMMANDS or line.lower() in ("exit", "quit", "bye")):
+            # "model" or "exit" typed without the slash: do what was meant, not send it to the model as a request
+            line = "/exit" if line.lower() in ("exit", "quit", "bye") else "/" + line.lower()
         if line.startswith("/"):
             cmd, _, rest = line.partition(" ")
             cmd = ALIASES.get(cmd.lower(), cmd.lower())
@@ -422,6 +425,33 @@ def run(agent, ui: RichUI) -> int:
             command(agent, ui, cmd, rest.strip())
             continue
         agent.run(line)
+
+
+def add_skill(agent, ui, url: str) -> None:
+    """/skills add LINK: the app checks it (scans and a sandboxed trial); the user approves it on the Skills page."""
+    learning = getattr(agent, "learning", None)
+    if not url:
+        ui.p("  /skills add https://github.com/OWNER/REPO (or a link to a skill folder in it)")
+        return
+    if not learning or not learning.app:
+        ui.error("Skills from GitHub are checked and installed through the AI Workspace app. Open the app, then try again.")
+        return
+    ui.p(ui.c("dim", "  Checking it for safety (pinned version, code scan, prompt-injection scan, sandboxed trial)…"))
+    r = learning.check_skill(url)
+    for st in r.get("stages") or []:
+        mark = {"done": "ok", "warn": "warn", "failed": "error", "blocked": "error"}.get(st["status"], "dim")
+        ui.p("  " + ui.c(mark, f"{st['stage']}: {st['detail']}"))
+    if r.get("choices"):
+        ui.p("  That repository has several skills. Run /skills add with one of these links:")
+        for c in r["choices"][:20]:
+            ui.p(f"    {c['name']}  {c['url']}")
+        return
+    if not r.get("ok"):
+        ui.error(f"Not added: {r.get('error') or 'the check did not finish'}")
+        return
+    sk = r.get("skill") or {}
+    ui.p(ui.c("ok", f"  {sk.get('name', 'The skill')} passed the checks and is waiting for your OK."))
+    ui.p(f"  Approve it on the Skills page: {learning.app_page('/skills')}")
 
 
 def command(agent, ui: RichUI, cmd: str, rest: str) -> None:
@@ -452,6 +482,8 @@ def command(agent, ui: RichUI, cmd: str, rest: str) -> None:
         if facts:
             ui.p(ui.c("dim", "  Shared with the AI Workspace app (About you page)." if learning.app else
                       f"  Kept in {learning_path()}. Connect the app to share it with chat."))
+    elif cmd == "/skills" and rest.split(" ", 1)[0].lower() in ("add", "install"):
+        add_skill(agent, ui, rest.split(" ", 1)[1].strip() if " " in rest else "")
     elif cmd == "/skills":
         learning = getattr(agent, "learning", None)
         found = learning.skill_list() if learning else []

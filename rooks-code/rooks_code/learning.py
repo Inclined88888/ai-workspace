@@ -156,6 +156,26 @@ class Learning:
             self.context("")
         return self.skills
 
+    def check_skill(self, url: str) -> dict:
+        """Hand a GitHub skill to the app's security check; the user installs it on the app's Skills page."""
+        if not self.app:
+            return {"ok": False, "error": "Skills from GitHub are checked and installed through the AI Workspace app; it isn't connected."}
+        data = json.dumps({"url": url}).encode()
+        headers = {"Content-Type": "application/json", **(getattr(self.s, "headers", None) or {})}
+        if self.s.api_key:
+            headers["Authorization"] = f"Bearer {self.s.api_key}"
+        req = urllib.request.Request(self._url("/skills/check"), data=data, method="POST", headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=300) as r:  # noqa: S310 - the app's own local address
+                return json.loads(r.read() or b"{}")
+        except urllib.error.HTTPError as e:
+            return {"ok": False, "error": f"the app answered {e.code}"}
+        except (OSError, ValueError, urllib.error.URLError) as e:
+            return {"ok": False, "error": str(e)}
+
+    def app_page(self, path: str) -> str:
+        return self.s.base_url.rstrip("/").removesuffix("/v1") + path
+
     def load_skill(self, name: str) -> str:
         if not self.app:
             return "Error: saved skills come from the AI Workspace app; it is not connected."

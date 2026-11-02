@@ -1,6 +1,7 @@
 """The rooks terminal learns with the app: one memory and one set of skills for chat, terminal, browser and computer.
 
 /v1/rooks/context    what the app knows that fits this request (facts about the user) and the saved skills index
+/v1/rooks/skills/check  check a GitHub skill for the Skills page (installing stays in the app)
 /v1/rooks/memory     the facts the app keeps (the terminal's /memory)
 /v1/rooks/skills/N   one skill's steps (counts as a use, like load_skill in chat)
 /v1/rooks/remember   save a fact the user stated in the terminal (same store as chat's remember tool)
@@ -53,6 +54,33 @@ def skill(name: str):
         raise HTTPException(404, f"No skill named {name}")
     db.run("UPDATE skills SET uses = uses + 1 WHERE id = ?", s["id"])
     return {"name": s["name"], "description": s["description"], "steps": s["steps"]}
+
+
+class CheckIn(BaseModel):
+    url: str = Field(..., min_length=3, max_length=500)
+
+
+@router.post("/skills/check")
+async def check_skill(data: CheckIn):
+    """/skills add in the terminal: the app's GitHub skill check (pinned commit, code and prompt-injection scans,
+    sandboxed trial). Installing stays a decision the user makes on the app's Skills page, never from here."""
+    from . import skills_hub
+
+    stages, last = [], {}
+    try:
+        async for ev in skills_hub.pipeline(data.url):
+            last = ev
+            if ev.get("stage") and ev.get("status") in ("done", "failed", "blocked", "warn", "choose"):
+                stages.append({"stage": ev["stage"], "status": ev["status"], "detail": ev.get("detail", "")})
+    except HTTPException as e:
+        return {"ok": False, "error": e.detail, "stages": stages}
+    out = {"ok": bool(last.get("done")), "stages": stages}
+    if last.get("choices"):
+        out["choices"] = [{"name": c["name"], "url": c["url"]} for c in last["choices"]]
+    if isinstance(last.get("skill"), dict):
+        s = last["skill"]
+        out["skill"] = {k: s.get(k) for k in ("id", "name", "description", "status", "risk", "risk_level")}
+    return out
 
 
 class RememberIn(BaseModel):

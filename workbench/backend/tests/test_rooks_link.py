@@ -72,3 +72,19 @@ def test_a_terminal_request_lands_in_chat_history_and_is_learned_from(client, au
     assert cid in listed  # visible in the app's chat history
     assert (cid, 3, "rooks-code") in seen and (cid, 0, "rooks-code") in seen  # web-reading turn: facts only, no skill
     db.run("DELETE FROM conversations WHERE id = ?", cid)
+
+
+def test_skills_add_from_the_terminal_runs_the_apps_check_and_never_installs(client, auth, monkeypatch):
+    from app import skills_hub
+
+    async def fake(url, update_of=None):
+        yield {"stage": "fetch", "status": "running", "detail": "Finding"}
+        yield {"stage": "fetch", "status": "done", "detail": "Pinned to commit abc"}
+        yield {"stage": "static", "status": "warn", "detail": "1 note"}
+        yield {"done": True, "skill": {"id": 4, "name": "caveman", "description": "terse", "status": "reviewed", "risk": 12,
+                                       "risk_level": "low", "secret": "x"}}
+
+    monkeypatch.setattr(skills_hub, "pipeline", fake)
+    r = client.post("/v1/rooks/skills/check", headers=auth, json={"url": "https://github.com/x/caveman"}).json()
+    assert r["ok"] and r["skill"]["status"] == "reviewed" and "secret" not in r["skill"]
+    assert [s["status"] for s in r["stages"]] == ["done", "warn"]

@@ -231,3 +231,19 @@ def test_memory_and_skills_commands_show_what_was_learned(app, tmp_path, monkeyp
     local.learning = Learning(local.s)
     tui.command(local, ui, "/skills", "")
     assert "isn't connected" in ui.out[-1]
+
+
+def test_skills_add_hands_off_to_the_app_and_plain_words_run_commands(app, tmp_path, monkeypatch):
+    from rooks_code import tui
+
+    url, _ = app
+    agent, ui = FakeAgent(_app_settings(url, tmp_path)), UI()
+    agent.learning = Learning(agent.s)
+    monkeypatch.setattr(Learning, "check_skill", lambda self, u: {"ok": True, "stages": [{"stage": "fetch", "status": "done", "detail": "Pinned"}],
+                                                                  "skill": {"name": "caveman"}})
+    tui.command(agent, ui, "/skills", "add https://github.com/x/caveman")
+    assert any("caveman passed the checks" in x for x in ui.out) and ui.out[-1].endswith(url + "/skills")
+    local = FakeAgent(config.Settings(root=tmp_path, provider="openai", kind="openai", base_url="http://127.0.0.1:9/v1", model="m"))
+    local.learning = Learning(local.s)
+    tui.command(local, ui, "/skills", "add https://github.com/x/caveman")
+    assert ui.out[-1].startswith("ERROR Skills from GitHub")
