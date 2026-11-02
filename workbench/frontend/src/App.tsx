@@ -87,36 +87,36 @@ type NavItem = { to: string; label: string; icon: typeof Home; addon?: "browser"
 type NavGroup = { section?: string; collapsible?: boolean; items: NavItem[] };
 
 /**
- * Navigation, one job per place: what you open daily is always visible (about 15 entries); everything else folds into
+ * Navigation, one job per place: what you open daily is always visible (12 entries at most); everything else folds into
  * More, Settings and Advanced, and Search ({MOD_KEY} K) finds any page. Every page keeps its route.
  */
 const NAV: NavGroup[] = [
   { items: [
     { to: "/", label: "Home", icon: Home },
     { to: "/assistant", label: "Chat", icon: MessageSquare },
-    { to: "/projects", label: "Projects", icon: FolderKanban },
   ] },
   { section: "Today", items: [
     { to: "/mail", label: "Mail", icon: Mail },
     { to: "/calendar", label: "Calendar", icon: CalendarDays },
     { to: "/tasks", label: "Tasks", icon: CheckSquare },
-    { to: "/meetings", label: "Meetings", icon: Video },
   ] },
-  { section: "Library", items: [
+  { section: "Your stuff", items: [
     { to: "/notes", label: "Notes", icon: NotebookPen },
     { to: "/files", label: "Files", icon: FolderOpen },
-    { to: "/pages", label: "Pages", icon: FileTextIcon },
-    { to: "/documents", label: "Documents", icon: FileText },
-  ] },
-  { section: "Agents", items: [
-    { to: "/jobs", label: "Jobs", icon: Layers },
-    { to: "/automations", label: "Automations", icon: CalendarClock },
     { to: "/research", label: "Research", icon: Search },
-    { to: "/code", label: "Coding", icon: Code2 },
+  ] },
+  { section: "Do it for me", items: [
     { to: "/browser", label: "Browser", icon: Globe, addon: "browser" },
     { to: "/computer", label: "Computer", icon: Monitor, addon: "desk" },
+    { to: "/automations", label: "Automations", icon: CalendarClock },
+    { to: "/code", label: "Coding", icon: Code2 },
   ] },
   { section: "More", collapsible: true, items: [
+    { to: "/projects", label: "Projects", icon: FolderKanban },
+    { to: "/meetings", label: "Meetings", icon: Video },
+    { to: "/documents", label: "Documents", icon: FileText },
+    { to: "/pages", label: "Pages", icon: FileTextIcon },
+    { to: "/jobs", label: "Jobs", icon: Layers },
     { to: "/teammates", label: "Teammates", icon: Users },
     { to: "/channels", label: "Channels", icon: MessageCircleIcon },
     { to: "/talk", label: "Talk", icon: AudioLines },
@@ -128,7 +128,7 @@ const NAV: NavGroup[] = [
     { to: "/teach", label: "Show me how", icon: GraduationCap },
   ] },
   { section: "Settings", collapsible: true, items: [
-    { to: "/models", label: "Models", icon: Gauge },
+    { to: "/models", label: "AI models", icon: Gauge },
     { to: "/settings", label: "Settings", icon: SettingsIcon },
     { to: "/about-you", label: "About you", icon: UserRound },
     { to: "/voice", label: "Ask anywhere & voice", icon: Mic },

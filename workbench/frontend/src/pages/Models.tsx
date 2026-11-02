@@ -1,8 +1,8 @@
-import { ArrowDown, ArrowUp, Cloud, Cpu, KeyRound, Loader2, Plus, RotateCcw, Sparkles } from "lucide-react";
+import { ArrowDown, ArrowUp, Cloud, Cpu, KeyRound, Loader2, RotateCcw, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 import { api } from "../api";
 import { quotaText, resetTime, RouterQuota, useToast } from "../util";
+import { Providers } from "./Settings";
 
 /** The smart router, laid out: who answers first, which model each provider uses for quick and for hard jobs,
  * and how much free quota is left. */
@@ -64,16 +64,17 @@ export default function Models() {
   return (
     <div className="page models-page" style={{ maxWidth: 980 }}>
       <div className="page-head col" style={{ alignItems: "flex-start", gap: 6 }}>
-        <div className="kicker">The smart router</div>
-        <h1>Models</h1>
-        <p className="lede">Quick jobs go to a fast model, real work to a strong one. When a provider says “slow down” or its free day runs out, the next one picks up.</p>
+        <h1>AI models</h1>
+        <p className="lede">Connect the AI you want to use. With more than one, quick jobs go to a fast model, real work to a strong one, and when one runs out for the day the next picks up.</p>
       </div>
+      <Providers onChange={load} />
       {def && !def.startsWith("auto") && (
         <div className="alert row">Chats use a fixed model right now. <div className="spacer" /><button className="btn sm primary" onClick={useAuto}>Use the smart router</button></div>
       )}
       {!s && <Loader2 className="spin" size={18} />}
-      {s && (
+      {s && routed.length > 0 && (
         <>
+          <h2 style={{ marginTop: 28 }}>Which model does what</h2>
           <div className="tier-strip">
             <div><span className="kicker">Quick jobs</span><strong>{s.tiers.fast ?? "Nothing connected"}</strong><span className="muted small">summaries, titles, memory</span></div>
             <div><span className="kicker">Real work</span><strong>{s.tiers.strong ?? "Nothing connected"}</strong><span className="muted small">chat with tools, research, browser, Rooks Code</span></div>
@@ -119,15 +120,13 @@ export default function Models() {
               </li>
             ))}
           </ol>
-          {routed.length === 0 && <div className="muted">Nothing connected yet.</div>}
           <div className="row wrap" style={{ gap: 14 }}>
-            <Link className="btn" to="/settings"><Plus size={14} /> Add a provider</Link>
             {s.providers.some((p) => p.local) && (
               <label className="switch-label small"><input type="checkbox" checked={s.settings.local_fallback} onChange={(e) => save({ local_fallback: e.target.checked })} />
                 Fall back to local Ollama when every cloud provider is out</label>
             )}
           </div>
-          <p className="faint small">Rooks Code and Rooks Browser use the same router: <span className="mono">-P workbench -m auto</span>.</p>
+          <p className="faint small">The order is who answers first. The terminal (rooks) and the Browser agent use these same models.</p>
         </>
       )}
     </div>

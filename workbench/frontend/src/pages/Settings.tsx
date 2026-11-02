@@ -71,7 +71,7 @@ const KIND_LABEL: Record<string, string> = {
 const kindLabel = (p: { auth_kind: string; protocol: string }) =>
   KIND_LABEL[p.auth_kind] ?? CONNECTION_TYPES[`${p.auth_kind}/${p.protocol}`] ?? p.auth_kind;
 const EMPTY_FORM = { name: "", type: "openai_compatible/chat_completions", base_url: "", api_key: "", models: "" };
-function Providers() {
+export function Providers({ onChange }: { onChange?: () => void } = {}) {
   const [list, setList] = useState<Provider[] | null>(null);
   const [presets, setPresets] = useState<Presets>({});
   const [info, setInfo] = useState<Record<string, KeyInfo>>({});
@@ -79,7 +79,7 @@ function Providers() {
   const [note, setNote] = useState("");
   const toast = useToast();
   const load = () => api<{ providers: Provider[]; presets: Presets; key_info?: Record<string, KeyInfo> }>("/providers")
-    .then((r) => { setList(r.providers); setPresets(r.presets); setInfo(r.key_info ?? {}); }).catch(toast.err);
+    .then((r) => { setList(r.providers); setPresets(r.presets); setInfo(r.key_info ?? {}); onChange?.(); }).catch(toast.err);
   useEffect(() => { load(); }, []);
 
   const add = async (e: FormEvent) => {
@@ -111,7 +111,7 @@ function Providers() {
 
   return (
     <div className="card col gap-lg" id="models">
-      <div className="row"><KeyRound size={16} /><h2>AI models</h2></div>
+      <div className="row"><KeyRound size={16} /><h2>Connect</h2></div>
       <div className="muted small">Connect at least one. With more than one, the app picks a fitting model for each job and moves to the next when one hits its limit.</div>
       {list === null ? <Loader2 size={16} className="spin" /> : list.length > 0 ? (
         <div className="card flush">
@@ -196,10 +196,11 @@ function LocalModels() {
   };
   return (
     <div className="card col gap-lg">
-      <div className="row"><Cpu size={16} /><h2>Local models</h2><div className="spacer" />{status && (status.online ? <span className="badge ok">Ollama online</span> : <span className="badge danger">Ollama offline</span>)}<button className="btn ghost sm icon" onClick={load}><RefreshCw size={13} /></button></div>
+      <div className="row"><Cpu size={16} /><h2>AI on this computer (offline)</h2><div className="spacer" />{status && (status.online ? <span className="badge ok">Ollama is running</span> : <span className="badge">Ollama not running</span>)}<button className="btn ghost sm icon" title="Check again" onClick={load}><RefreshCw size={13} /></button></div>
+      <div className="muted small">Runs a model on your own computer: private and free, but slower and less capable than the cloud. It needs the free Ollama app{status && !status.online ? <>: <a href="https://ollama.com/download" target="_blank" rel="noreferrer">download Ollama</a>, open it, then press the refresh button.</> : "."}</div>
       <div className="row wrap">{status?.models.map((m) => <span key={m} className="badge mono">{m}</span>)}{status?.models.length === 0 && <span className="muted small">No models downloaded yet.</span>}</div>
       <form className="row" onSubmit={start}>
-        <input className="input grow mono" value={name} onChange={(e) => setName(e.target.value)} placeholder="Model from ollama.com/library, e.g. qwen3:8b, gemma3:12b, llama3.2:3b" />
+        <input className="input grow mono" value={name} onChange={(e) => setName(e.target.value)} placeholder="Model name, e.g. qwen3:8b (good start), gemma3:12b, llama3.2:3b" />
         <button className="btn" disabled={!name.trim() || !!pull}>{pull ? <Loader2 size={15} className="spin" /> : <Download size={15} />} Download</button>
       </form>
       {pull && <div className="col"><div className="progress"><div style={{ width: `${pull.pct}%` }} /></div><div className="muted small">{pull.model}: {pull.status} {pull.pct ? `${pull.pct}%` : ""}</div></div>}
@@ -225,7 +226,7 @@ function Usage() {
   return (
     <div className="card col gap-lg">
       <div className="row"><h2 className="grow">Usage this month</h2><span className="badge">${(u.month_cents / 100).toFixed(2)} · {u.month_tokens.toLocaleString()} tokens</span></div>
-      <div className="muted small">Every model call is counted (chat, Terminal, Telegram, schedules, agents, learning). OpenRouter reports real cost. For other providers enter prices per million tokens from your provider's pricing page, or cost shows as $0.</div>
+      <div className="muted small">Everything the AI did this month, by model. Free tiers and plans cost nothing extra here. A paid key shows $0 until you set its price (from the provider's pricing page).</div>
       <div className="card flush">
         {u.by_model.length === 0 && <div className="list-item muted">No usage yet.</div>}
         {u.by_model.map((m) => (
@@ -278,12 +279,15 @@ export default function Settings({ onChanged }: { onChanged: () => void }) {
         <div className="card col gap-lg">
           <h2>General</h2>
           <label className="field">Workspace name<input className="input" value={s.workspace_name} onChange={(e) => setS({ ...s, workspace_name: e.target.value })} /></label>
-          <label className="field">Default model <span className="hint">Used for research, writing assist, task breakdown and mail drafts unless you pick another.</span>
+          <label className="field">Default model <span className="hint">Auto picks a fitting model for each job. Pick one to always use it instead.</span>
             <div className="row"><div className="grow"><ModelSelect value={s.default_model} onChange={(v) => setS({ ...s, default_model: v })} models={models} /></div><button className="btn icon" onClick={() => reload(true)} title="Refresh model list"><RefreshCw size={14} /></button></div>
           </label>
           <div><button className="btn primary" onClick={save}>Save</button></div>
         </div>
-        <Providers />
+        <div className="card col" id="models">
+          <div className="row"><KeyRound size={16} /><h2 className="grow">AI models</h2><Link className="btn primary" to="/models">Open AI models</Link></div>
+          <div className="muted small">Sign in with ChatGPT or Claude, paste a key, and choose which model does what. It all lives on the AI models page.</div>
+        </div>
         <div className="card col" id="search">
           <div className="row"><Search size={16} /><h2>Web search</h2></div>
           <div className="muted small">Lets Research and Chat look things up on the web.</div>
@@ -299,17 +303,22 @@ export default function Settings({ onChanged }: { onChanged: () => void }) {
         </div>
         <PhoneCard />
         <Usage />
-        <LocalModels />
-        <div className="card col">
-          <h2>Calendars</h2>
-          <div className="muted small">Google and Microsoft calendars come with the account above. Add ICS subscriptions or other CalDAV calendars from the Calendar page.</div>
-          <div><Link className="btn" to="/calendar">Open calendar</Link></div>
-        </div>
-        <div className="card col">
-          <div className="row"><Plug size={16} /><h2>Chat integration</h2></div>
-          <div className="muted small">Chat (Open WebUI) is preconfigured with a Workbench tool server at <span className="mono">{s.tools_url}</span>, so agents can search notes, manage tasks and events, search mail and save drafts. Agents can never send mail. Enable it per chat from the tools button in the message box, or for a model in Admin → Models.</div>
-          <div><a className="btn" href={s.chat_url} target="_blank" rel="noreferrer">Open chat</a></div>
-        </div>
+        <details className="card col settings-more">
+          <summary><strong>More settings</strong> <span className="muted small">offline AI on this computer, other calendars{s.chat_url ? ", Open WebUI" : ""}</span></summary>
+          <div className="col gap-lg" style={{ marginTop: 16 }}>
+            <LocalModels />
+            <div className="card col">
+              <h2>Other calendars</h2>
+              <div className="muted small">Google and Microsoft calendars come with your mail account. To add another calendar (iCloud, a school or team calendar link), use the Calendar page.</div>
+              <div><Link className="btn" to="/calendar">Open calendar</Link></div>
+            </div>
+            {s.chat_url && <div className="card col">
+              <div className="row"><Plug size={16} /><h2>Open WebUI</h2></div>
+              <div className="muted small">The optional Open WebUI chat can use your notes, tasks, calendar and mail drafts (it can never send mail). Turn it on per chat with the tools button in its message box. Tool server: <span className="mono">{s.tools_url}</span></div>
+              <div><a className="btn" href={s.chat_url} target="_blank" rel="noreferrer">Open WebUI</a></div>
+            </div>}
+          </div>
+        </details>
         {!desktop?.desktop && <form className="card col" onSubmit={changePw}>
           <div className="row"><Shield size={16} /><h2>Password</h2></div>
           <div className="row wrap">
