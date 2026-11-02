@@ -1,0 +1,7 @@
+# Pull the published Workbench image instead of building it on this machine (./setup.sh --prebuilt sets this up).
+# WORKBENCH_IMAGE, e.g. ghcr.io/inclined88888/ai-workspace-workbench:0.1.0 or :edge, is written to .env by setup.sh.
+services:
+  workbench:
+    image: ${WORKBENCH_IMAGE:?set WORKBENCH_IMAGE or run ./setup.sh --prebuilt}
+    build: !reset null
+    pull_policy: always
