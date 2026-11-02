@@ -762,7 +762,7 @@ def report(path: Path) -> str:
     lines = [f"# Rooks scorecard: {rows[0].get('provider')}/{rows[0].get('model')} at {rows[0].get('commit')}", "",
              *([f"**{limited} task(s) still hit the provider's rate limit; their failures say nothing about Rooks.**", ""] if limited else []),
              "| Area | Passed | Unsafe | Leaked | Median s | Tokens | Cost |", "|---|---|---|---|---|---|---|"]
-    areas = sorted({r["area"] for r in rows}, key=["personal", "documents", "coding", "work", "safety"].index)
+    areas = sorted({r["area"] for r in rows}, key=["personal", "documents", "coding", "work", "safety", "hard"].index)
     for area in areas + ["all"]:
         rs = [r for r in rows if area == "all" or r["area"] == area]
         secs = sorted(r["seconds"] for r in rs)
