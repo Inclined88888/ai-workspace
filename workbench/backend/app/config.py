@@ -37,7 +37,21 @@ STATIC_DIR = Path(os.getenv("STATIC_DIR", Path(__file__).resolve().parent.parent
 
 APP_SECRET = _load_or_generate_secret("APP_SECRET", DATA_DIR, 32, "app_secret")
 TOOLS_API_KEY = _load_or_generate_secret("TOOLS_API_KEY", DATA_DIR, 24, "tools_api_key")
-TIMEZONE = os.getenv("TZ_NAME", os.getenv("WORKSPACE_TIMEZONE", "UTC"))
+def _system_timezone() -> str:
+    """This computer's IANA zone (Australia/Sydney...), so schedules follow the user's clock out of the box.
+    TZ when it names a zone, else where /etc/localtime points (macOS, Linux). UTC when neither says (Docker, Windows);
+    the browser's zone is then saved at setup (api.setup)."""
+    tz = os.getenv("TZ", "").lstrip(":")
+    if "/" in tz and not tz.startswith("/"):
+        return tz
+    try:
+        real = os.path.realpath("/etc/localtime")
+    except OSError:
+        return "UTC"
+    return real.split("zoneinfo/", 1)[1] if "zoneinfo/" in real else "UTC"
+
+
+TIMEZONE = os.getenv("TZ_NAME") or os.getenv("WORKSPACE_TIMEZONE") or _system_timezone()
 WORKSPACE_NAME = os.getenv("WORKSPACE_NAME", "AI Workspace")
 CHAT_URL = os.getenv("CHAT_URL", "")  # Open WebUI add-on link, empty when not installed
 SEARXNG_URL = os.getenv("SEARXNG_URL", "").rstrip("/")  # optional add-on

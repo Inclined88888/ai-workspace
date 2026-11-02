@@ -164,7 +164,7 @@ export default function Auth({ status, onDone }: { status: Status; onDone: () =>
     setBusy(true);
     setError("");
     try {
-      await api("/setup", { body: { password: form.password, setup_code: form.setup_code, workspace_name: form.workspace_name } });
+      await api("/setup", { body: { password: form.password, setup_code: form.setup_code, workspace_name: form.workspace_name, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "" } });
       onDone();  // straight to the first-run welcome: look, then how to think (plans, free keys, keys, local)
     } catch (err) {
       setError((err as Error).message);

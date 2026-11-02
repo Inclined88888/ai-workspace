@@ -73,6 +73,7 @@ class SetupIn(BaseModel):
     password: str = Field(..., min_length=10, max_length=200)
     setup_code: str = ""
     workspace_name: str = Field("", max_length=80)
+    timezone: str = Field("", max_length=64)  # the browser's zone, used when the server can't tell (Docker: UTC)
 
 
 
@@ -88,6 +89,13 @@ def setup(data: SetupIn, request: Request, response: Response):
         db.set_setting("desktop_welcome_done", "0")  # a brand new workspace: everyone gets the first-run welcome
     if data.workspace_name.strip():
         db.set_setting("workspace_name", data.workspace_name.strip())
+    if data.timezone and config.TIMEZONE == "UTC" and not db.get_setting("timezone", ""):
+        try:
+            from zoneinfo import ZoneInfo
+            ZoneInfo(data.timezone)
+            db.set_setting("timezone", data.timezone)
+        except Exception:  # noqa: BLE001 - a zone this server doesn't know: keep the default
+            pass
     db.set_setting("setup_complete", "1")
     services.local_calendar_id()
     _login(response)
