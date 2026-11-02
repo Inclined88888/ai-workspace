@@ -28,6 +28,7 @@ try:
     from prompt_toolkit.key_binding import KeyBindings
     from prompt_toolkit.styles import Style
     from rich.console import Console
+    from rich.live import Live
     from rich.markdown import Markdown
     from rich.padding import Padding
     from rich.panel import Panel
@@ -106,9 +107,24 @@ class RichUI(UI):
         self.console.print()
         self.console.print(Padding(Markdown(text, code_theme=self.code_theme()), (0, 0, 0, 2)))
 
+    def can_stream(self) -> bool:
+        return bool(self.color)
+
+    def stream(self, delta: str) -> None:
+        """Live, formatted answer: the Markdown is re-rendered as text arrives (like the app's chat)."""
+        if getattr(self, "_live", None) is None:
+            self._buf = ""
+            self.console.print()
+            self._live = Live(console=self.console, refresh_per_second=12, vertical_overflow="visible", transient=False)
+            self._live.start()
+        self._buf += delta
+        self._live.update(Padding(Markdown(self._buf, code_theme=self.code_theme()), (0, 0, 0, 2)))
+
     def stream_end(self) -> None:
-        self.out.write("\n")
-        self.out.flush()
+        live = getattr(self, "_live", None)
+        if live is not None:
+            live.stop()
+            self._live = None
 
     def thinking(self, on: bool) -> None:
         if not self.color:
@@ -407,7 +423,7 @@ def relogin(agent, ui: RichUI) -> None:
 
 def run(agent, ui: RichUI) -> int:
     """The session loop. Returns the exit code."""
-    agent.s.stream = False  # answers are shown formatted once complete; the Working line shows progress meanwhile
+    # answers stream in as they are written, formatted as they grow (RichUI.stream)
     banner(agent, ui)
     keys = KeyBindings()
 
