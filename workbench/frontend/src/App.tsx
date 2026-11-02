@@ -53,8 +53,9 @@ import Meetings from "./pages/Meetings";
 import Talk from "./pages/Talk";
 import VoiceSettings from "./pages/VoiceSettings";
 import { FolderKanban, History as HistoryIcon } from "lucide-react"; // feat/v02-core
-import { Brain as BrainIcon, LineChart as LineChartIcon } from "lucide-react"; // phase 3/4: Insights, Fine-tune
+import { LineChart as LineChartIcon } from "lucide-react"; // phase 3: Insights
 import { FileText as FileTextIcon, Lock as LockIcon, MessageCircle as MessageCircleIcon } from "lucide-react"; // feat/grok-style
+import { FlaskConical, Mic, UserRound, Video } from "lucide-react"; // one icon per meaning in the nav
 import Projects from "./pages/Projects"; // feat/v02-core
 import HistoryPage from "./pages/History"; // feat/v02-core
 import Packs from "./pages/Packs"; // feat/v02-packs
@@ -85,62 +86,66 @@ type NavItem = { to: string; label: string; icon: typeof Home; addon?: "browser"
 type NavGroup = { section?: string; collapsible?: boolean; items: NavItem[] };
 
 /**
- * integration/v0.2 navigation, grouped so a non-technical person sees a short list:
- * the four places you live in, your day, your work, the helpers that act for you, then More and Advanced folded away.
+ * Navigation, one job per place: what you open daily is always visible (about 15 entries); everything else folds into
+ * More, Settings and Advanced, and Search ({MOD_KEY} K) finds any page. Every page keeps its route.
  */
 const NAV: NavGroup[] = [
   { items: [
     { to: "/", label: "Home", icon: Home },
     { to: "/assistant", label: "Chat", icon: MessageSquare },
-    { to: "/projects", label: "Projects", icon: FolderKanban }, // feat/v02-core
-    { to: "/jobs", label: "Jobs", icon: Layers }, // feat/v02-automations
+    { to: "/projects", label: "Projects", icon: FolderKanban },
   ] },
-  { section: "Your day", items: [
+  { section: "Today", items: [
     { to: "/mail", label: "Mail", icon: Mail },
     { to: "/calendar", label: "Calendar", icon: CalendarDays },
     { to: "/tasks", label: "Tasks", icon: CheckSquare },
+    { to: "/meetings", label: "Meetings", icon: Video },
+  ] },
+  { section: "Library", items: [
     { to: "/notes", label: "Notes", icon: NotebookPen },
-  ] },
-  { section: "Your work", items: [
     { to: "/files", label: "Files", icon: FolderOpen },
-    { to: "/sites", label: "Sites", icon: Globe2 },
-    { to: "/automations", label: "Automations", icon: CalendarClock },
-    { to: "/teammates", label: "Teammates", icon: Users }, // feat/grok-style
-    { to: "/pages", label: "Pages", icon: FileTextIcon }, // feat/grok-style
-    { to: "/vault", label: "Vault", icon: LockIcon }, // feat/grok-style
-    { to: "/channels", label: "Channels", icon: MessageCircleIcon }, // feat/grok-style
-    { to: "/teach", label: "Show me how", icon: GraduationCap },
-    { to: "/packs", label: "Packs", icon: Package }, // feat/v02-packs
-    { to: "/meetings", label: "Meetings", icon: Users }, // feat/v02-anywhere-voice
+    { to: "/pages", label: "Pages", icon: FileTextIcon },
+    { to: "/documents", label: "Documents", icon: FileText },
   ] },
-  { section: "Helpers", items: [
-    { to: "/talk", label: "Talk", icon: AudioLines }, // feat/v02-anywhere-voice
+  { section: "Agents", items: [
+    { to: "/jobs", label: "Jobs", icon: Layers },
+    { to: "/automations", label: "Automations", icon: CalendarClock },
     { to: "/research", label: "Research", icon: Search },
     { to: "/code", label: "Coding", icon: Code2 },
     { to: "/browser", label: "Browser", icon: Globe, addon: "browser" },
     { to: "/computer", label: "Computer", icon: Monitor, addon: "desk" },
   ] },
   { section: "More", collapsible: true, items: [
+    { to: "/teammates", label: "Teammates", icon: Users },
+    { to: "/channels", label: "Channels", icon: MessageCircleIcon },
+    { to: "/talk", label: "Talk", icon: AudioLines },
+    { to: "/knowledge", label: "Memory", icon: Brain },
+    { to: "/vault", label: "Vault", icon: LockIcon },
+    { to: "/sites", label: "Sites", icon: Globe2 },
     { to: "/skills", label: "Skills", icon: Puzzle },
-    { to: "/history", label: "History", icon: HistoryIcon }, // feat/v02-core: everything done, with undo
-    { to: "/about-you", label: "About you", icon: Brain },
-    { to: "/knowledge", label: "Memory", icon: Brain }, // feat/memory-core: people, project knowledge, what I know
-    { to: "/plan", label: "Your plan", icon: Sparkles },
-    { to: "/settings", label: "Settings", icon: SettingsIcon },
-    { to: "/appearance", label: "Appearance", icon: PaletteIcon },
+    { to: "/packs", label: "Packs", icon: Package },
+    { to: "/teach", label: "Show me how", icon: GraduationCap },
+  ] },
+  { section: "Settings", collapsible: true, items: [
     { to: "/models", label: "Models", icon: Gauge },
-    { to: "/voice", label: "Ask anywhere & voice", icon: AudioLines }, // feat/v02-anywhere-voice
+    { to: "/settings", label: "Settings", icon: SettingsIcon },
+    { to: "/about-you", label: "About you", icon: UserRound },
+    { to: "/voice", label: "Ask anywhere & voice", icon: Mic },
+    { to: "/appearance", label: "Appearance", icon: PaletteIcon },
+    { to: "/plan", label: "Your plan", icon: Sparkles },
   ] },
   { section: "Advanced", collapsible: true, items: [
-    { to: "/documents", label: "Documents", icon: FileText },
-    { to: "/company", label: "Company", icon: Building2 },
-    { to: "/compare", label: "Compare models", icon: Columns3 },
+    { to: "/history", label: "History", icon: HistoryIcon },
     { to: "/runs", label: "Run log", icon: ListTree },
     { to: "/insights", label: "Insights", icon: LineChartIcon },
-    { to: "/fine-tune", label: "Fine-tune", icon: BrainIcon },
+    { to: "/compare", label: "Compare models", icon: Columns3 },
+    { to: "/fine-tune", label: "Fine-tune", icon: FlaskConical },
+    { to: "/company", label: "Company", icon: Building2 },
     { to: "/status", label: "System status", icon: Activity },
   ] },
 ];
+
+const foldKey = (section: string) => `wb-nav-${section.toLowerCase()}`; // wb-nav-more and wb-nav-advanced as before
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 export const MOD_KEY = isMac ? "⌘" : "Ctrl";
@@ -180,7 +185,8 @@ export default function App() {
       .then((s) => {
         setStatus(s);
         setError("");
-        document.title = `${s.workspace_name} · Workbench`;
+        // the product name on the sign-in screen and the desktop app, after the workspace's own name when it has one
+        document.title = s.workspace_name && s.workspace_name !== "AI Workspace" ? `${s.workspace_name} · AI Workspace` : "AI Workspace";
       })
       .catch((e) => setError(e.message));
   }, []);
@@ -206,9 +212,9 @@ export default function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-  // Folded groups (More, Advanced): remembered per group, and always open while you're on one of their pages
-  const [folds, setFolds] = useState<Record<string, boolean>>(() => ({
-    More: localStorage.getItem("wb-nav-more") === "1", Advanced: localStorage.getItem("wb-nav-advanced") === "1" }));
+  // Folded groups (More, Settings, Advanced): remembered per group, and always open while you're on one of their pages
+  const [folds, setFolds] = useState<Record<string, boolean>>(() => Object.fromEntries(
+    NAV.filter((g) => g.collapsible && g.section).map((g) => [g.section as string, localStorage.getItem(foldKey(g.section as string)) === "1"])));
   const nav = useMemo(
     () => NAV.map((g) => ({ ...g, items: g.items.filter((i) => !i.addon || (i.addon === "browser" && status?.browser_enabled) || (i.addon === "desk" && status?.desk_enabled)) })),
     [status?.browser_enabled, status?.desk_enabled],
@@ -220,7 +226,7 @@ export default function App() {
   const inGroup = (g: NavGroup) => g.items.some((i) => location.pathname === i.to || location.pathname.startsWith(i.to + "/"));
   const toggleFold = (name: string) => setFolds((f) => {
     const open = !f[name];
-    localStorage.setItem(name === "More" ? "wb-nav-more" : "wb-nav-advanced", open ? "1" : "0");
+    localStorage.setItem(foldKey(name), open ? "1" : "0");
     return { ...f, [name]: open };
   });
   // Route transition key: top-level section only, so switching conversations or notes doesn't remount the page
