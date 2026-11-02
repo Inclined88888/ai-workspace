@@ -243,6 +243,8 @@ PICK_PER_PROVIDER = 12  # pickers show the newest chat models per provider; Mode
 
 def _label(model: str) -> str:
     """A short name for pickers: no organisation prefix, no models/ or :latest."""
+    if model == "default":
+        return "Plan's default"  # a plan CLI's own choice (Claude Code, Codex, Copilot)
     return model.removeprefix("models/").rsplit("/", 1)[-1].removesuffix(":latest")
 
 

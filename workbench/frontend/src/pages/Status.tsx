@@ -11,7 +11,7 @@ type Egress = { hours: number; local_only: boolean; external_requests: number; h
 
 const TONE = { ok: "ok", degraded: "warn", down: "danger", off: "" } as const;
 const LABEL = { ok: "Working", degraded: "Degraded", down: "Down", off: "Not set up" } as const;
-const GROUPS: [string, string][] = [["core", "Workbench"], ["model connection", "Model connections"], ["add-on", "Add-ons"], ["integration", "Integrations"]];
+const GROUPS: [string, string][] = [["core", "The app"], ["model connection", "Model connections"], ["add-on", "Add-ons"], ["integration", "Integrations"]];
 
 export default function Status() {
   const [report, setReport] = useState<Report | null>(null);

@@ -116,7 +116,7 @@ def _conversation(data: TurnIn) -> int:
     if row:
         db.run("UPDATE conversations SET updated_at = ? WHERE id = ?", db.now(), row["id"])
         return row["id"]
-    title = "Terminal: " + " ".join(data.prompt.split())[:60]
+    title = " ".join(data.prompt.split())[:60]  # the chat list labels it "Terminal"
     return db.run("INSERT INTO conversations(title, channel, external_id, model, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
                   title, CHANNEL, data.session, data.model if data.model not in ("", "default") else "", db.now(), db.now())
 

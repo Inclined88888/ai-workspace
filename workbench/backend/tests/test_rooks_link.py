@@ -65,7 +65,7 @@ def test_a_terminal_request_lands_in_chat_history_and_is_learned_from(client, au
     cid = first["conversation_id"]
     assert second["conversation_id"] == cid  # one terminal session is one conversation
     conv = db.one("SELECT * FROM conversations WHERE id = ?", cid)
-    assert conv["channel"] == "cli" and conv["title"] == "Terminal: add up the totals in bank.csv"
+    assert conv["channel"] == "cli" and conv["title"] == "add up the totals in bank.csv"
     rows = db.all("SELECT role, name FROM messages WHERE conversation_id = ? ORDER BY id", cid)
     assert [r["role"] for r in rows][:2] == ["user", "assistant"] and rows[2]["name"] == "read_file"
     listed = [c["id"] for c in client.get("/api/conversations", headers={"X-Workbench": "1"}).json()]
