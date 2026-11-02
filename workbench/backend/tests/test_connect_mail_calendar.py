@@ -677,8 +677,18 @@ def test_imap_login_errors_say_what_to_do():
     import imaplib
     from app.mail import _explain_login
     g = _explain_login({"imap_host": "imap.gmail.com", "imap_port": 993}, imaplib.IMAP4.error(b"[AUTHENTICATIONFAILED] Invalid credentials (Failure)"))
-    assert g.startswith("Gmail refused that password") and "myaccount.google.com/apppasswords" in g and "b'" not in g
+    assert g.startswith("Gmail didn't accept that password") and "myaccount.google.com/apppasswords" in g and "b'" not in g and "Server said" not in g
     o = _explain_login({"imap_host": "outlook.office365.com", "imap_port": 993}, imaplib.IMAP4.error("LOGIN failed."))
     assert "Connect Microsoft" in o
     n = _explain_login({"imap_host": "imap.nowhere.test", "imap_port": 993}, OSError("nodename nor servname provided"))
     assert n.startswith("Couldn't reach imap.nowhere.test:993")
+
+
+def test_gmail_app_password_steps_are_short_and_the_calendar_comes_after(monkeypatch):
+    from app import mail_autodetect
+
+    monkeypatch.setattr(mail_autodetect, "_one_click_ready", lambda p: False)
+    d = mail_autodetect._one_click("google", "gmail.com", "a@gmail.com")
+    assert d["app_password_url"] == "https://myaccount.google.com/apppasswords" and len(d["steps"]) <= 3
+    assert not any("Calendar" in s for s in d["steps"])  # connecting mail is one thing; the calendar is offered after
+    assert any("iCal" in s for s in d["calendar_help"])

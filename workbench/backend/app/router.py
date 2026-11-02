@@ -549,6 +549,17 @@ async def stream(ref: str, messages: list[dict], trace: dict | None = None) -> A
     yield {"error": err.detail, "router": {"fallbacks": tried}}
 
 
+# Models a provider lists that can't hold a conversation (embeddings, rerankers, safety filters, speech, image and
+# vision-only models, reward models): kept out of the Models page pickers. Same list as rooks /model.
+NON_CHAT = re.compile(r"embed|rerank|guard|safety|topic-control|jailbreak|deplot|kosmos|\btts\b|whisper|\basr\b|parakeet|"
+                      r"canary|\bclip\b|nvclip|retriev|\bbge\b|\bocr\b|paddle|flux|stable-diffusion|sdxl|dall-e|gpt-image|"
+                      r"imagen|reward|moderation|fuyu|neva|\bvila\b|riva|transcri|audio|realtime|davinci|babbage", re.I)
+
+
+def chat_models(models: list[str]) -> list[str]:
+    return [m for m in models if not NON_CHAT.search(m)] or models
+
+
 def status() -> dict:
     """Everything the Models page shows: the routing order, the model each tier would use, quota and cool-downs."""
     from . import llm
@@ -565,7 +576,7 @@ def status() -> dict:
         prof = profile(c)
         rows.append({"id": c["id"], "name": c["name"], "label": prof.get("label", c["name"]), "auth_kind": c["auth_kind"],
                      "free": bool(prof.get("free")), "in_router": c["id"] in routable, "disabled": c["id"] in {int(x) for x in s["disabled"]},
-                     "fast": choose_model(c, models, "fast"), "strong": choose_model(c, models, "strong"), "models": models[:200],
+                     "fast": choose_model(c, models, "fast"), "strong": choose_model(c, models, "strong"), "models": chat_models(models)[:200],
                      "quota": quota(c), "state": c["state"], "local": c["auth_kind"] == "local_ollama"})
     return {"providers": rows, "settings": s, "tiers": {"fast": candidates("fast")[0][0]["name"] if candidates("fast") else None,
                                                          "strong": candidates("strong")[0][0]["name"] if candidates("strong") else None}}

@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Cloud, Cpu, KeyRound, Loader2, RotateCcw, Sparkles } from "lucide-react";
+import { ArrowDown, ArrowUp, Cloud, Cpu, KeyRound, Loader2, RotateCcw, Sparkles, ChevronRight } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { quotaText, resetTime, RouterQuota, useToast } from "../util";
@@ -79,6 +79,9 @@ export default function Models() {
             <div><span className="kicker">Quick jobs</span><strong>{s.tiers.fast ?? "Nothing connected"}</strong><span className="muted small">summaries, titles, memory</span></div>
             <div><span className="kicker">Real work</span><strong>{s.tiers.strong ?? "Nothing connected"}</strong><span className="muted small">chat with tools, research, browser, Rooks Code</span></div>
           </div>
+          <p className="muted small">Auto handles this for you. Open the list below only if you want to change the order or pin a model.</p>
+          <details className="settings-more">
+          <summary><ChevronRight size={13} /> Change which model answers ({routed.length} connected)</summary>
           <ol className="route-list">
             {routed.map((r, i) => (
               <li key={r.id} className={`route-item ${r.disabled ? "off" : ""} ${r.quota.cooling_until ? "cooling" : ""}`}>
@@ -127,6 +130,7 @@ export default function Models() {
             )}
           </div>
           <p className="faint small">The order is who answers first. The terminal (rooks) and the Browser agent use these same models.</p>
+          </details>
         </>
       )}
     </div>

@@ -573,3 +573,12 @@ def test_plan_cli_urls_only_for_plan_connections(client):
     assert bad.status_code == 400
     bad = client.post("/api/providers", json={"name": "x", "auth_kind": "cli_subscription", "protocol": "cli_plan", "base_url": "https://x.example"})
     assert bad.status_code == 400
+
+
+def test_model_pickers_leave_out_models_that_cannot_chat():
+    from app.router import chat_models
+
+    got = chat_models(["meta/llama-4", "meta/llama-guard-4-12b", "nvidia/nv-embedqa-mistral-7b-v2", "whisper-1",
+                       "meta/llama-3.2-90b-vision-instruct", "gpt-5.1"])
+    assert got == ["meta/llama-4", "meta/llama-3.2-90b-vision-instruct", "gpt-5.1"]
+    assert chat_models(["text-embedding-3-small"]) == ["text-embedding-3-small"]  # never an empty picker

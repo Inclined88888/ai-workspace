@@ -61,8 +61,8 @@ def _explain_login(acct: dict, e: Exception) -> str:
     if isinstance(e, imaplib.IMAP4.error) and re.search(r"AUTHENTICATIONFAILED|invalid credentials|authentication failed|"
                                                          r"application-specific|LOGIN failed|BasicAuthBlocked", text, re.I):
         if who:
-            return (f"{who[0]} refused that password. It needs an app password, not your normal one. Make one at {who[1]}, "
-                    f"then paste the 16-character code. (Server said: {text.strip()[:160]})")
+            return (f"{who[0]} didn't accept that password. It needs an app password, not your normal one: make one at "
+                    f"{who[1]} and paste it here.")
         return f"The mail server refused that username or password. Check both, or use an app password. (Server said: {text.strip()[:160]})"
     if isinstance(e, OSError):
         return f"Couldn't reach {host}:{acct.get('imap_port')}. Check the IMAP server name and port, and your connection. ({e})"

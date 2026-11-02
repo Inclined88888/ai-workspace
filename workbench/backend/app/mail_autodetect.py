@@ -85,11 +85,14 @@ FALLBACK = {
         "key": "gmail", "label": "Gmail (app password)", "imap_host": "imap.gmail.com", "imap_port": 993,
         "smtp_host": "smtp.gmail.com", "smtp_port": 465, "smtp_security": "ssl", "app_password": True,
         "app_password_url": "https://myaccount.google.com/apppasswords",
-        "steps": ["Turn on 2-Step Verification for your Google Account if it isn't on (myaccount.google.com/security).",
-                  "Open myaccount.google.com/apppasswords, type the name AI Workspace and click Create.",
-                  "Copy the 16-letter password (spaces don't matter) and paste it here. Your normal Google password won't work.",
-                  "Calendar: in Google Calendar open Settings > your calendar > Integrate calendar, copy the Secret address "
-                  "in iCal format and add it on the Calendar page (read-only)."],
+        "steps": ["Type the name AI Workspace and click Create.",
+                  "Copy the 16-letter password Google shows (spaces don't matter). Your normal Google password won't work.",
+                  "Google says this setting isn't available? Turn on 2-Step Verification first (myaccount.google.com/security), "
+                  "then open the page again."],
+        # Google's calendar has no app-password route: offered once mail is connected, not as part of connecting
+        "calendar_help": ["In Google Calendar open Settings, click your calendar on the left, then Integrate calendar.",
+                          "Copy the Secret address in iCal format.",
+                          "Add it on the Calendar page. Your assistant can then read your events."],
         "username_hint": "Your full Gmail or Google Workspace address.",
     },
 }

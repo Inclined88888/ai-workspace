@@ -14,6 +14,7 @@ type Detected = {
   kind: "one_click" | "known" | "guess" | "invalid" | "unavailable"; provider?: Provider; workspace?: boolean; label?: string; message?: string;
   imap_host?: string; imap_port?: number; smtp_host?: string; smtp_port?: number; smtp_security?: "ssl" | "starttls";
   caldav_url?: string; app_password?: boolean; app_password_url?: string; steps?: string[]; username_hint?: string; source?: string;
+  calendar_help?: string[]; key?: string;
   fallback?: Detected; one_click_unavailable?: Provider;
 };
 
@@ -202,6 +203,15 @@ export default function ConnectMailCalendar({ compact = false, onlyWhenEmpty = f
   );
 }
 
+/** "Gmail", "iCloud", "Yahoo" from labels like "Gmail (app password)" or "iCloud Mail". */
+function brand(d: Detected): string {
+  return (d.label || "Your provider").replace(/\s*\(.*\)$/, "").replace(/ Mail$/, "");
+}
+/** Whose account page the app password is made on: Google for Gmail, Apple for iCloud. */
+function owner(d: Detected): string {
+  return ({ gmail: "Google", icloud: "Apple" } as Record<string, string>)[d.key ?? ""] ?? brand(d);
+}
+
 function OtherProvider({ onSuggest, onAdded, plain = false }: { onSuggest: (p: Provider, email: string) => void; onAdded: () => void; plain?: boolean }) {
   const [email, setEmail] = useState("");
   const [det, setDet] = useState<Detected | null>(null);
@@ -211,6 +221,8 @@ function OtherProvider({ onSuggest, onAdded, plain = false }: { onSuggest: (p: P
   const [showServers, setShowServers] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [connected, setConnected] = useState<{ email: string; calendar: string[] | null } | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
   const toast = useToast();
 
   const detect = async (value = email) => {
@@ -241,12 +253,14 @@ function OtherProvider({ onSuggest, onAdded, plain = false }: { onSuggest: (p: P
       }
       toast.ok(`Mail connected${calNote}`);
       setForm({ ...form, password: "" });
+      setConnected({ email: email.trim(), calendar: det?.calendar_help ?? null });
+      setDet(null); setEmail("");
       onAdded();
     } catch (err) { setError((err as Error).message); } finally { setBusy(false); }
   };
 
   return (
-    <form className="card col" onSubmit={submit} style={{ background: "var(--panel-2)" }}>
+    <form ref={formRef} className="card col" onSubmit={submit} style={{ background: "var(--panel-2)" }}>
       {plain
         ? <div className="row"><Mail size={15} /><h3 className="grow">Type your email address</h3><span className="muted small">Gmail, iCloud, Yahoo, Fastmail, AOL, Zoho, your own domain…</span></div>
         : <div className="row"><KeyRound size={15} /><h3 className="grow">Other provider</h3><span className="muted small">iCloud, Yahoo, Fastmail, AOL, Zoho, your own domain…</span></div>}
@@ -272,7 +286,60 @@ function OtherProvider({ onSuggest, onAdded, plain = false }: { onSuggest: (p: P
           <div><Link className="btn sm" to="/calendar">Open Calendar</Link></div>
         </div>
       )}
-      {det && det.kind !== "one_click" && det.kind !== "invalid" && det.kind !== "unavailable" && (
+      {connected && (
+        <div className="alert ok col" style={{ gap: 8 }}>
+          <div className="row"><Check size={15} /><strong className="grow">{connected.email} is connected.</strong>
+            <button type="button" className="btn ghost sm icon" aria-label="Close" onClick={() => setConnected(null)}><X size={12} /></button></div>
+          {connected.calendar && (
+            <>
+              <div className="small">Want your calendar too? It takes three steps:</div>
+              <ol className="connect-steps small">{connected.calendar.map((x) => <li key={x}>{x}</li>)}</ol>
+              <div className="row wrap"><a className="btn sm" href="https://calendar.google.com/calendar/r/settings" target="_blank" rel="noreferrer">Open Google Calendar settings <ExternalLink size={11} /></a>
+                <Link className="btn sm ghost" to="/calendar">Go to the Calendar page</Link></div>
+            </>
+          )}
+        </div>
+      )}
+      {det && det.app_password && det.app_password_url && det.kind !== "one_click" && det.kind !== "unavailable" && (
+        <div className="col" style={{ gap: 14 }}>
+          <div className="small muted">{brand(det)} needs an <strong>app password</strong>: a separate password just for this app. About a minute.</div>
+          <div className="row" style={{ alignItems: "flex-start", gap: 12 }}>
+            <span className="step-num">1</span>
+            <div className="col grow" style={{ gap: 6 }}>
+              <a className="btn primary" style={{ alignSelf: "flex-start" }} href={det.app_password_url} target="_blank" rel="noreferrer">Open {owner(det)}'s app password page <ExternalLink size={13} /></a>
+              {det.steps && <ul className="small muted" style={{ margin: 0, paddingLeft: 18 }}>{det.steps.map((x) => <li key={x}>{x.replace(/,? and paste it here\.?$/i, ".")}</li>)}</ul>}
+            </div>
+          </div>
+          <div className="row" style={{ alignItems: "flex-start", gap: 12 }}>
+            <span className="step-num">2</span>
+            <div className="col grow" style={{ gap: 6 }}>
+              <strong className="small">Paste the app password here</strong>
+              <div className="row">
+                <input className="input grow mono" required type="password" autoComplete="off" placeholder="Paste it here" value={form.password}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setForm({ ...form, password: v });
+                    // a full app password (16 letters, any spaces or dashes) connects straight away
+                    if (v.replace(/[\s-]/g, "").length === 16 && !busy) window.setTimeout(() => formRef.current?.requestSubmit(), 50);
+                  }} />
+                <button className="btn primary" disabled={busy || !form.password}>{busy ? <Loader2 size={15} className="spin" /> : "Connect"}</button>
+              </div>
+              {busy && <div className="small muted">Checking it with {brand(det)}…</div>}
+            </div>
+          </div>
+          {error && <div className="alert err">{error}</div>}
+          <details className="connect-more" open={showServers} onToggle={(e) => setShowServers((e.target as HTMLDetailsElement).open)}>
+            <summary><ChevronRight size={12} /> More options</summary>
+            <div className="col">
+              <input className="input" placeholder="Your name on sent mail (optional)" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+              {det.caldav_url && <label className="check small"><input type="checkbox" checked={addCal} onChange={(e) => setAddCal(e.target.checked)} /> Also add my calendars</label>}
+              {det.username_hint && <div className="muted small">{det.username_hint}</div>}
+              <input className="input" placeholder="Username (defaults to your email)" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} />
+            </div>
+          </details>
+        </div>
+      )}
+      {det && !(det.app_password && det.app_password_url) && det.kind !== "one_click" && det.kind !== "invalid" && det.kind !== "unavailable" && (
         <>
           {det.one_click_unavailable && <div className="small muted">{det.one_click_unavailable === "google" ? "Gmail" : NAMES[det.one_click_unavailable]} connects with an app password: a special password just for this app. It takes about a minute.</div>}
           <div className="small"><strong>{det.label}</strong>{det.source === "guess" ? " · best guess" : det.source === "ispdb" ? " · settings found automatically" : ""}</div>
