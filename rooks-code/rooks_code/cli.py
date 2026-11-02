@@ -224,6 +224,7 @@ HELP = """/undo        put back the files changed by the last prompt
 /cost        tokens and cost so far
 /dry-run     toggle dry run          /yes   toggle auto-approve
 /model       list the provider's models; /model N or /model NAME switches
+/effort      how hard a plan's model thinks: /effort low, medium, high or auto
 /provider P  switch provider (openai, anthropic, nvidia, workbench, ...), keeping the conversation
 /compact     summarise the conversation so far to free the context window
 /receipt     path of this session's receipt
@@ -260,8 +261,53 @@ NON_CHAT = re.compile(r"embed|rerank|guard|safety|content-safety|topic-control|j
                       r"\bsearch-preview\b|davinci|babbage", re.I)
 
 
+def short_model(s) -> str:
+    """What the status bar and banner call the current model: 'Auto', 'opus', 'nemotron-3-ultra' (no 3/ or org/)."""
+    m = s.model or ""
+    if s.provider == "workbench" and m in ("", "default", "auto"):
+        name = "Auto"
+    elif m.startswith("auto:"):
+        name = "Auto · " + m.split(":", 1)[1]
+    else:
+        name = m.split("/", 1)[1] if m[:1].isdigit() and "/" in m else m
+        name = name.rsplit("/", 1)[-1]
+    return name + (f" · {s.effort}" if getattr(s, "effort", "") else "")
+
+
+def set_model(agent, model: str, effort: str | None = None) -> None:
+    """Switch the model (and thinking level) for the rest of the session, keep the conversation, and remember it."""
+    s = agent.s
+    s.model = model
+    if effort is not None:
+        s.effort = effort if effort in config.EFFORTS else ""
+    agent.switch(s)  # a fresh client carries the thinking level
+    config.save_choice(s.provider, s.model, getattr(s, "effort", ""))
+
+
+def app_models(agent) -> list[dict]:
+    """The app's models with its picker hints, or [] when the provider isn't the app."""
+    if agent.s.provider != "workbench" or not hasattr(agent.model, "list_models_detailed"):
+        return []
+    return agent.model.list_models_detailed()
+
+
+def effort_command(agent, ui: UI, rest: str) -> None:
+    """/effort low|medium|high|auto: how hard a plan's model (Claude, ChatGPT, Copilot) thinks."""
+    want = rest.strip().lower()
+    if not want:
+        ui.p(f"thinking level is {getattr(agent.s, 'effort', '') or 'auto'}; /effort low, medium, high or auto")
+        return
+    if want not in (*config.EFFORTS, "auto", "default"):
+        ui.error("use /effort low, medium, high or auto")
+        return
+    set_model(agent, agent.s.model, "" if want in ("auto", "default") else want)
+    ui.p(f"thinking level is now {agent.s.effort or 'auto'}" + ("" if agent.s.provider == "workbench" else
+         " (it applies to subscription plans through the AI Workspace app)"))
+
+
 def model_command(agent, ui: UI, rest: str) -> None:
-    """/model: list the provider's chat models, numbered; /model N or /model NAME switches; /model all lists everything."""
+    """/model: the chat models you can use, numbered (through the app: grouped by AI, newest few each);
+    /model N or /model NAME switches; /model all lists everything."""
     s = agent.s
     choice = rest.strip()
     show_all = choice.lower() == "all"
@@ -271,9 +317,28 @@ def model_command(agent, ui: UI, rest: str) -> None:
     if choice.isdigit() and listed and 1 <= int(choice) <= len(listed):
         choice = listed[int(choice) - 1]
     if choice:
-        s.model = agent.model.model = agent.log.model = choice
-        agent.switch(s, agent.model)
-        ui.p(f"model is now {s.model}")
+        set_model(agent, choice)
+        ui.p(f"model is now {short_model(s)}")
+        return
+    try:
+        rich = app_models(agent)
+    except Exception:  # noqa: BLE001 - fall back to the plain list
+        rich = []
+    if rich:
+        listed, groups = [], {}
+        for m in rich:
+            if show_all or m.get("pick", True):
+                groups.setdefault(m.get("owned_by") or "", []).append(m)
+        for owner, items in groups.items():
+            ui.p(ui.c("bold", owner or "Other"))
+            for m in items:
+                listed.append(m["id"])
+                ui.p(("→ " if m["id"] == s.model else "  ") + f"{len(listed):>3}  {m.get('label') or m['id']}")
+        agent._listed_models = listed
+        more = len(rich) - len(listed)
+        if more > 0:
+            ui.p(ui.c("2", f"  ({more} older or specialist models hidden; /model all shows them)"))
+        ui.p(ui.c("2", "/model N to switch · /effort low|medium|high for how hard a plan thinks"))
         return
     try:
         listed = agent.model.list_models() if hasattr(agent.model, "list_models") else []
@@ -390,6 +455,9 @@ def repl(agent, ui: UI) -> int:
                 ui.p(f"auto-approve {'on' if s.auto_approve else 'off'}")
             elif cmd == "/model":
                 model_command(agent, ui, rest)
+                s = agent.s
+            elif cmd == "/effort":
+                effort_command(agent, ui, rest)
                 s = agent.s
             elif cmd == "/provider":
                 provider_command(agent, ui, rest)

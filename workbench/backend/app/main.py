@@ -169,6 +169,9 @@ app.include_router(team_routes.router)  # feat/team-lead: /api/team (staff, task
 app.include_router(team_routes.phone)
 team_tools.register_tools()  # feat/team-lead
 app.include_router(bridge.router)  # /v1: OpenAI-shaped access to every connection, for the browser agent (item 103)
+from . import rooks_link  # noqa: E402
+
+app.include_router(rooks_link.router)  # /v1/rooks: the terminal shares the app's memory and skills, and teaches them
 from . import account  # noqa: E402
 account.install(app)  # Your plan: account sign-in, signed entitlements and the Pro feature gate
 from .teammates import routes as tm_routes  # noqa: E402 - feat/grok-style: teammates, groups, vault, outbox, pages, channels, phone link

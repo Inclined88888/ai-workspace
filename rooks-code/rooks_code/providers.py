@@ -233,6 +233,7 @@ class OpenAIChat:
     def __init__(self, base_url: str, api_key: str, model: str, on_egress: Egress | None = None, headers: dict | None = None):
         self.base_url, self.api_key, self.model, self.on_egress = base_url, api_key, model, on_egress
         self.headers = headers or {}
+        self.extra: dict = {}  # extra request fields, e.g. the app's reasoning_effort for a plan
         self.timeout = 600  # seconds for one answer; doctor and login use a short one
 
     def _headers(self) -> dict:
@@ -242,8 +243,12 @@ class OpenAIChat:
         data = _get(self.base_url + "/models", self._headers())
         return sorted(str(m.get("id", "")).removeprefix("models/") for m in data.get("data") or [] if m.get("id"))
 
+    def list_models_detailed(self) -> list[dict]:
+        """The raw list, in the server's order. The AI Workspace app adds owned_by, label, pick and effort per model."""
+        return [m for m in _get(self.base_url + "/models", self._headers()).get("data") or [] if m.get("id")]
+
     def complete(self, system: str, messages: list[dict], tools: list[dict], on_text: OnText | None = None) -> Reply:
-        body: dict = {"model": self.model, "messages": [{"role": "system", "content": system}, *messages]}
+        body: dict = {"model": self.model, "messages": [{"role": "system", "content": system}, *messages], **self.extra}
         if tools:
             body["tools"] = [{"type": "function", "function": t} for t in tools]
         if on_text:
@@ -390,5 +395,8 @@ def make(settings, on_egress: Egress | None = None):
     if settings.kind == "anthropic":
         return Anthropic(settings.base_url, settings.api_key, settings.model, on_egress)
     if settings.kind == "openai":
-        return OpenAIChat(settings.base_url, settings.api_key, settings.model, on_egress, getattr(settings, "headers", None))
+        m = OpenAIChat(settings.base_url, settings.api_key, settings.model, on_egress, getattr(settings, "headers", None))
+        if settings.provider == "workbench" and getattr(settings, "effort", ""):
+            m.extra = {"reasoning_effort": settings.effort}  # only the app reads it (for plans); other servers may reject it
+        return m
     raise SystemExit(f"rooks: provider kind {settings.kind!r} is not supported (use openai or anthropic)")

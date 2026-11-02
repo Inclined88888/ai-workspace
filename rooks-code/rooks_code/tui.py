@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 
 from . import __version__, config
-from .cli import UI, HELP, load_session, model_command, provider_command, undo_text
+from .cli import UI, HELP, app_models, effort_command, load_session, model_command, provider_command, set_model, short_model, undo_text
 
 try:
     from prompt_toolkit import PromptSession
@@ -47,7 +47,8 @@ LOGO = """\
 COMMANDS: dict[str, str] = {
     "/help": "what you can do here",
     "/new": "start a fresh conversation",
-    "/model": "see the models you can use, or switch: /model NAME",
+    "/model": "pick the AI, the model and how hard it thinks (arrow keys)",
+    "/effort": "how hard a plan's model thinks: /effort low, medium, high or auto",
     "/provider": "switch the AI service: /provider NAME",
     "/login": "connect an AI service (paste a key, or use your AI Workspace app)",
     "/undo": "put back the files changed by the last request",
@@ -220,9 +221,69 @@ def sessions(root) -> list[tuple[str, str]]:
 def model_label(s, dim: str) -> str:
     """'Auto, through your AI Workspace app' rather than 'default (workbench)'."""
     if s.provider == "workbench":
-        name = "Auto" if s.model in ("", "default", "auto") else s.model
-        return f"{name}  [{dim}](through your AI Workspace app: same models, keys and plans)[/]"
-    return f"{s.model}  [{dim}]({s.provider})[/]"
+        return f"{short_model(s)}  [{dim}](through your AI Workspace app: same models, keys and plans · /model to change)[/]"
+    return f"{short_model(s)}  [{dim}]({s.provider})[/]"
+
+
+def _choose(message: str, options: list[tuple[str, str]], default: str | None = None) -> str | None:
+    """An arrow-key menu (Enter picks, Esc or Ctrl+C cancels). None when cancelled or not available."""
+    try:
+        from prompt_toolkit.shortcuts import choice
+    except ImportError:
+        return None
+    try:
+        return choice(message=message, options=options, default=default if default in {v for v, _ in options} else None)
+    except (KeyboardInterrupt, EOFError):
+        return None
+
+
+EFFORT_OPTIONS = [("", "Auto (the plan decides)"), ("low", "Low: quick answers"), ("medium", "Medium"),
+                  ("high", "High: thinks longest, best for hard problems")]
+
+
+def pick_model(agent, ui) -> bool:
+    """/model with no name: pick the AI, then its model, then (for a plan) how hard it thinks. Short lists only.
+    False when there is nothing to pick from here (another provider), so the plain list is shown instead."""
+    try:
+        rows = app_models(agent)
+    except Exception:  # noqa: BLE001 - the plain list explains the error
+        return False
+    if not rows:
+        return False
+    groups: dict[str, list[dict]] = {}
+    for m in rows:
+        groups.setdefault(m.get("owned_by") or "Other", []).append(m)
+    auto = groups.pop("Smart router", [])
+    s = agent.s
+    current_owner = next((m.get("owned_by") for m in rows if m["id"] == s.model), "")
+    ais = ([("__auto__", "Auto: picks the right model for each job (recommended)")] if auto else []) + [
+        (o, f"{o}  ({sum(1 for m in ms if m.get('pick', True))} models)") for o, ms in groups.items()]
+    owner = _choose("Which AI?", ais, current_owner or "__auto__")
+    if owner is None:
+        ui.p(ui.c("dim", "  No change."))
+        return True
+    if owner == "__auto__":
+        set_model(agent, "auto", "")
+        ui.p(ui.c("ok", "  Now on Auto: each job goes to a fitting model."))
+        return True
+    items = groups[owner]
+    picks = [m for m in items if m.get("pick", True)] or items
+    options = [(m["id"], m.get("label") or m["id"]) for m in picks]
+    if len(picks) < len(items):
+        options.append(("__more__", f"More models ({len(items) - len(picks)} older or specialist)"))
+    model = _choose(f"Which {owner} model?", options, s.model)
+    if model == "__more__":
+        model = _choose(f"All {owner} models", [(m["id"], m.get("label") or m["id"]) for m in items], s.model)
+    if model is None:
+        ui.p(ui.c("dim", "  No change."))
+        return True
+    effort = ""
+    if any(m["id"] == model and m.get("effort") for m in items):
+        picked = _choose("How hard should it think?", EFFORT_OPTIONS, getattr(s, "effort", ""))
+        effort = picked or ""
+    set_model(agent, model, effort)
+    ui.p(ui.c("ok", f"  Now using {owner}: {short_model(agent.s)}"))
+    return True
 
 
 def banner(agent, ui: RichUI) -> None:
@@ -311,7 +372,7 @@ def run(agent, ui: RichUI) -> int:
         s = agent.s
         t = agent.log.totals()
         mode = "DRY RUN" if s.dry_run else ("auto" if (s.auto_approve or s.trusted()) else "asks first")
-        shown = "Auto (app)" if s.provider == "workbench" and s.model in ("", "default", "auto") else s.model
+        shown = short_model(s)
         return FormattedText([("class:bar", f" {shown} "), ("class:barsep", "│"),
                               ("class:bar", f" {Path(agent.root).name or agent.root} "), ("class:barsep", "│"),
                               ("class:bar", f" {t['tokens_in'] + t['tokens_out']:,} tokens "), ("class:barsep", "│"),
@@ -368,9 +429,10 @@ def command(agent, ui: RichUI, cmd: str, rest: str) -> None:
         agent.messages.clear()
         ui.p(ui.c("ok", "  Fresh start: the conversation is cleared (files are not touched)."))
     elif cmd == "/model":
-        model_command(agent, ui, rest)
-        if not rest:
-            ui.p(ui.c("dim", "  Type /model and start typing a name to pick from the list."))
+        if rest or not pick_model(agent, ui):
+            model_command(agent, ui, rest)
+    elif cmd == "/effort":
+        effort_command(agent, ui, rest)
     elif cmd == "/provider":
         provider_command(agent, ui, rest)
     elif cmd == "/login":

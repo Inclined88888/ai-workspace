@@ -615,6 +615,12 @@ class AnthropicMessages(Protocol):
         yield {"done": True, "usage": usage}
 
 
+# How hard a plan's model thinks for this request: "", low, medium or high. Set by the /v1 bridge from the request's
+# reasoning_effort (the rooks terminal's /effort); empty means the plan's own default.
+EFFORT: "contextvars.ContextVar[str]" = contextvars.ContextVar("effort", default="")
+EFFORTS = ("low", "medium", "high")
+
+
 class CliPlan(Protocol):
     """A chat turn answered by the user's own signed-in `claude` or `codex` CLI, so their Claude or ChatGPT plan pays.
 
@@ -662,8 +668,11 @@ class CliPlan(Protocol):
         return system, prompt
 
     def argv(self, conn: dict, path: str, model: str, system: str) -> list[str]:
+        effort = EFFORT.get() if EFFORT.get() in EFFORTS else ""
         if self.agent(conn) == "claude":
             argv = [path, "-p", "--output-format", "json", "--tools", "", "--no-session-persistence"]
+            if effort:
+                argv += ["--effort", effort]
             if system:
                 argv += ["--system-prompt", system]
             # a chat backend, not a coding session: none of the user's hooks, plugins, skills, MCP servers or CLAUDE.md
@@ -673,8 +682,11 @@ class CliPlan(Protocol):
         if self.agent(conn) == "copilot":
             # one prompt, answer only, no tools and no built-in GitHub MCP server: a chat backend, not an agent
             return [path, "-s", "--no-ask-user", "--no-color", "--stream", "off", "--available-tools=",
-                    "--disable-builtin-mcps", "--no-custom-instructions", "--model", model if model and model != "default" else "auto"]
+                    "--disable-builtin-mcps", "--no-custom-instructions", "--model", model if model and model != "default" else "auto",
+                    *(["--reasoning-effort", effort] if effort else [])]
         argv = [path, "exec", "--json", "--skip-git-repo-check", "--sandbox", "read-only", "--color", "never"]
+        if effort:
+            argv += ["-c", f'model_reasoning_effort="{effort}"']
         return argv + (["-m", model] if model and model != "default" else []) + ["-"]
 
     async def chat(self, conn, secret, model, messages, tools, schema=None):

@@ -197,3 +197,38 @@ def test_copilot_is_a_chat_model_not_a_coding_agent(client):
     assert "copilot" not in ids
     subs = {s["id"]: s for s in client.get("/api/auth/subscriptions", headers=H).json()["options"]}
     assert subs["copilot"]["available"]
+
+
+def test_thinking_level_reaches_each_plan_cli_and_only_known_levels_pass(client):
+    from app.adapters import EFFORT, CliPlan
+
+    p = CliPlan()
+    tok = EFFORT.set("high")
+    try:
+        claude = p.argv({"base_url": "cli://claude"}, "claude", "opus", "")
+        codex = p.argv({"base_url": "cli://codex"}, "codex", "default", "")
+        copilot = p.argv({"base_url": "cli://copilot"}, "copilot", "default", "")
+    finally:
+        EFFORT.reset(tok)
+    assert claude[claude.index("--effort") + 1] == "high" and claude[-2:] == ["--model", "opus"]
+    assert 'model_reasoning_effort="high"' in codex and codex[-1] == "-"
+    assert copilot[copilot.index("--reasoning-effort") + 1] == "high"
+    tok = EFFORT.set("rm -rf /")
+    try:
+        assert "--effort" not in p.argv({"base_url": "cli://claude"}, "claude", "", "")
+    finally:
+        EFFORT.reset(tok)
+    assert "--effort" not in p.argv({"base_url": "cli://claude"}, "claude", "", "")  # default: the plan's own
+
+
+def test_v1_models_tells_a_picker_what_to_show(client):
+    from app import bridge, db
+
+    cid = db.run("INSERT INTO connections(name, auth_kind, protocol, base_url, secret_enc, residency, created_at) "
+                 "VALUES ('Claude plan (Claude Code)', 'cli_subscription', 'cli_plan', 'cli://claude', '', 'cloud', 't')")
+    try:
+        rows = {r["id"]: r for r in bridge.models()["data"]}
+        sonnet = rows[f"{cid}/sonnet"]
+        assert sonnet["owned_by"] == "Claude plan (Claude Code)" and sonnet["effort"] and sonnet["pick"] and sonnet["label"] == "sonnet"
+    finally:
+        db.run("DELETE FROM connections WHERE id = ?", cid)

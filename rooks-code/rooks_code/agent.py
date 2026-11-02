@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 
 from . import providers
+from .learning import Learning
 from .mcp import MCPError, MCPManager
 from .receipts import RunLog
 from .tools import SPECS, Plan, Toolbox, ToolError
@@ -26,6 +27,8 @@ How to work:
 - Use run_command to run tests, builds and other CLIs, and to check your work. Commands run in the project root.
 - The user approves edits and commands; if one is denied, do not retry it, ask or take another approach.
 - When you decide to do something, call the tool in that same reply; do not just describe it.
+- When the user states a lasting fact or preference (their name, tools they use, how they like things done), save it
+  with remember. If a saved skill fits the task, load_skill it first and follow it.
 - When the task is done, stop calling tools and reply with a short summary of what changed and how you checked it.
   Only claim what the tool results show."""
 
@@ -91,6 +94,8 @@ class Agent:
         self.budget = Budget(settings.max_tokens, settings.max_usd, settings.model, settings.prices, settings.local)
         self.system = SYSTEM.format(root=self.root, os=f"{platform.system()} {platform.release()}", listing=_listing(self.root))
         self._turn: int | None = None
+        self.learning = Learning(settings, session_id=self.log.session) if getattr(settings, "learn", True) else None
+        self._extra = ""  # this request's memory and skills context (learning.py)
         # Through the app (provider workbench) the model is picked per task and the app keeps the spend, so a
         # per-model price is neither known nor needed here: only warn when the user picked a model directly.
         if settings.max_usd and self.budget.price is None and settings.provider != "workbench":
@@ -107,7 +112,7 @@ class Agent:
                      failure_reason=error)
 
     def tool_specs(self) -> list[dict]:
-        return SPECS + (self.mcp.tool_specs() if self.mcp else [])
+        return SPECS + (self.learning.specs() if self.learning else []) + (self.mcp.tool_specs() if self.mcp else [])
 
     def trusted_effect(self, effect: str, mcp_server: str | None = None) -> str:
         """Why this action needs no prompt, or '' when the user must approve it."""
@@ -145,6 +150,8 @@ class Agent:
         self.model = model or providers.make(settings, on_egress=self._egress)
         self.log.provider, self.log.model = settings.provider, settings.model
         self.budget = Budget(settings.max_tokens, settings.max_usd, settings.model, settings.prices, settings.local)
+        if self.learning:
+            self.learning.s = settings
 
     # compaction --------------------------------------------------------------------------------------------------
     def _estimate(self) -> int:
@@ -200,6 +207,8 @@ class Agent:
 
     # one prompt --------------------------------------------------------------------------------------------------
     def run(self, prompt: str) -> str:
+        first = len(self.messages)
+        self._extra = self.learning.context(prompt) if self.learning else ""
         self.messages.append({"role": "user", "content": prompt})
         self._turn = turn = self.log.add("turn", "running", args=prompt)
         self.changes.begin(prompt)
@@ -289,6 +298,8 @@ class Agent:
                                                          f"nudged {nudges}x to call the tool it announced" if nudges else "") if x))
             self.ui.footer(t, self.s, saved is not None)
             self.save()
+            if self.learning and outcome not in ("interrupted", "model_error"):
+                self.learning.after(prompt, answer, self.messages[first:])
         return answer
 
     def _complete(self, streamed: list[str]):
@@ -303,9 +314,10 @@ class Agent:
                 self.ui.stream(delta)
         for attempt in range(RETRIES + 1):
             try:
+                system = self.system + (f"\n\n{self._extra}" if self._extra else "")
                 if on_text:
-                    return self.model.complete(self.system, self.messages, self.tool_specs(), on_text=on_text)
-                return self.model.complete(self.system, self.messages, self.tool_specs())
+                    return self.model.complete(system, self.messages, self.tool_specs(), on_text=on_text)
+                return self.model.complete(system, self.messages, self.tool_specs())
             except providers.ProviderError as e:
                 if attempt == RETRIES or streamed or not getattr(e, "transient", False):
                     raise
@@ -336,7 +348,10 @@ class Agent:
         else:
             mcp_server = None
             try:
-                plan = self.tools.prepare(call.name, call.arguments)
+                if self.learning and call.name in self.learning.names():
+                    plan = self.learning.prepare(call.name, call.arguments)
+                else:
+                    plan = self.tools.prepare(call.name, call.arguments)
             except ToolError as e:
                 kind = "unknown_tool" if str(e).startswith("unknown tool") else "bad_args"
                 self.log.add("tool_call", kind, parent=turn, tool=call.name, args=args_text, failure_reason=str(e))

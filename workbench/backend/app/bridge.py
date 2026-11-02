@@ -71,6 +71,9 @@ def _schema(response_format: dict | None) -> dict | None:
 
 @router.post("/chat/completions")
 async def chat_completions(data: CompletionIn, request: Request):
+    from .adapters import EFFORT
+
+    EFFORT.set(str((data.model_extra or {}).get("reasoning_effort") or ""))  # this request's task only
     ref = None if data.model in ("default", "") else data.model
     # Rooks Code sends X-Workbench-Channel: rooks-code; the router picks a strong model for both clients either way
     channel = request.headers.get("x-workbench-channel", "browser")
@@ -102,6 +105,9 @@ def _chunk(cid: str, model: str, delta: dict | None = None, finish: str | None =
 
 
 async def _sse(ref: str | None, data: CompletionIn, channel: str):
+    from .adapters import EFFORT
+
+    EFFORT.set(str((data.model_extra or {}).get("reasoning_effort") or ""))  # the stream runs in its own task
     cid = f"chatcmpl-{uuid.uuid4().hex[:24]}"
     model = ref or "default"
     try:
@@ -134,7 +140,16 @@ async def _sse(ref: str | None, data: CompletionIn, channel: str):
 
 @router.get("/models")
 def models():
-    return {"object": "list", "data": [{"id": m["ref"], "object": "model", "owned_by": m["provider"]} for m in llm.list_models()]}
+    """OpenAI's list shape, plus what a picker needs (the rooks terminal's /model menu): a short label, whether the model
+    belongs in a short list (the newest chat models of each AI), and whether it is a plan that takes a thinking level."""
+    kinds = {c["id"]: c["base_url"] for c in db.all("SELECT id, base_url FROM connections")}
+    out = []
+    for m in llm.list_models():
+        base = kinds.get(m.get("provider_id") or 0, "")
+        out.append({"id": m["ref"], "object": "model", "owned_by": m["provider"], "label": m.get("label") or m["model"],
+                    "pick": bool(m.get("virtual") or m.get("chat", True)),
+                    "effort": base.startswith("cli://")})
+    return {"object": "list", "data": out}
 
 
 class AttachmentIn(BaseModel):

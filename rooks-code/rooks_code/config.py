@@ -194,6 +194,8 @@ class Settings:
     context_tokens: int = 128_000        # the model's window; older turns are summarised at 70% of it
     headers: dict[str, str] = field(default_factory=dict)  # extra HTTP headers for the provider
     key: str = ""                        # a key handed over by the running app (never written anywhere by Rooks)
+    effort: str = ""                     # how hard a plan's model thinks (low, medium, high); "" = the plan's default
+    learn: bool = True                   # remember facts and learn skills (through the app: shared with chat)
     root: Path = field(default_factory=Path.cwd)
 
     @property
@@ -220,12 +222,37 @@ def load_file(path: Path | None = None) -> dict:
         raise SystemExit(f"rooks: cannot read {p}: {e}")
 
 
+EFFORTS = ("low", "medium", "high")
+
+
+def choice_path() -> Path:
+    return config_path().parent / "rooks-choice.json"
+
+
+def load_choice() -> dict:
+    """The model and thinking level last picked with /model or /effort, so the next start keeps them."""
+    try:
+        d = json.loads(choice_path().read_text())
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_choice(provider: str, model: str, effort: str) -> None:
+    try:
+        p = choice_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps({"provider": provider, "model": model, "effort": effort if effort in EFFORTS else ""}))
+    except OSError:
+        pass  # remembering is a convenience; the choice still applies to this session
+
+
 def resolve(flags: dict, root: Path, file: dict | None = None) -> Settings:
     """Build settings from the file, ROOKS_* environment variables and flags (flags win). Unknown providers are errors."""
     cfg = load_file() if file is None else file
     s = Settings(root=root)
     for key in ("max_usd", "max_tokens", "max_steps", "command_timeout", "trusted_folders", "auto_approve", "workbench_url", "nudge",
-                "stream", "context_tokens"):
+                "stream", "context_tokens", "learn"):
         if key in cfg:
             setattr(s, key, cfg[key])
     s.prices = dict(cfg.get("prices", {}))
@@ -280,6 +307,10 @@ def resolve(flags: dict, root: Path, file: dict | None = None) -> Settings:
         s.base_url = wb.rstrip("/") + "/v1"
     cfg_model = cfg.get("model", "") if name == cfg.get("provider") else ""  # a model named for another provider never leaks
     s.model = flags.get("model") or env["model"] or cfg_model or p.get("model", "")
+    picked = load_choice() if not (flags.get("model") or env["model"] or cfg_model) else {}
+    if picked.get("provider") == name and picked.get("model"):
+        s.model = picked["model"]
+        s.effort = picked.get("effort", "") if picked.get("effort") in EFFORTS else ""
     if s.provider == "openai-compatible" and not s.base_url:
         raise SystemExit("rooks: provider openai-compatible needs --base-url (or base_url in the config)")
     if not s.model:
