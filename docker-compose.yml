@@ -107,11 +107,17 @@ services:
       OLLAMA_URL: ${OLLAMA_URL:-}
       # Set to true when Workbench is served over HTTPS (reverse proxy)
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
-      # Seed external providers on first start (also editable in Settings)
+      # Provider keys: applied on start and whenever changed here (a key changed in Settings is kept until then)
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      XAI_API_KEY: ${XAI_API_KEY:-}
+      NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
+      CEREBRAS_API_KEY: ${CEREBRAS_API_KEY:-}
+      TOGETHER_API_KEY: ${TOGETHER_API_KEY:-}
+      FIREWORKS_API_KEY: ${FIREWORKS_API_KEY:-}
       CODEX_URL: ${CODEX_URL:-}
       CODEX_API_KEY: ${CODEX_API_KEY:-}
       CLAUDE_CODE_URL: ${CLAUDE_CODE_URL:-}

@@ -91,18 +91,36 @@ def detect_key(key: str) -> str | None:
 
 
 def seed_connections() -> None:
-    """First start only: connections for a host Ollama and for provider keys given in .env."""
-    if db.one("SELECT id FROM connections LIMIT 1"):
-        return
+    """Connections for a host Ollama (first start only) and for provider keys given in .env, on every start.
+
+    A key in .env that is new, or that changed since the last start, is applied: a new connection, or the new key on
+    the existing one. A key the user changed in the app is left alone while .env still holds the value seeded before
+    (a fingerprint of each seeded value is kept, never the value itself), so the app and .env never fight.
+    """
+    import hashlib
+
+    first = not db.one("SELECT id FROM connections LIMIT 1")
     # The desktop app always knows where a native Ollama would be; its welcome flow adds it only when the user picks it.
-    seeds = [("ollama", "")] if config.OLLAMA_URL and not config.DESKTOP else []
+    seeds = [("ollama", "")] if first and config.OLLAMA_URL and not config.DESKTOP else []
     seeds += [(SEED[k], key) for k, key in config.SEED_KEYS.items() if key]
     for preset, key in seeds:
         p = PRESETS[preset]
-        cid = db.run("INSERT INTO connections(name, auth_kind, protocol, base_url, secret_enc, residency, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                     p["name"], p["auth_kind"], p["protocol"], p["base_url"], "", "local" if p["auth_kind"] == "local_ollama" else "cloud",
-                     db.now())
-        store_connection_secret(cid, key)
+        mark = f"seeded_env:{preset}"
+        fingerprint = hashlib.sha256(f"{config.APP_SECRET}:{key}".encode()).hexdigest() if key else ""
+        if key and db.get_setting(mark) == fingerprint:
+            continue  # unchanged in .env since it was applied
+        existing = db.one("SELECT id FROM connections WHERE base_url = ? AND auth_kind = ? ORDER BY id LIMIT 1",
+                          p["base_url"], p["auth_kind"])
+        if existing and not key:
+            continue
+        cid = existing["id"] if existing else db.run(
+            "INSERT INTO connections(name, auth_kind, protocol, base_url, secret_enc, residency, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            p["name"], p["auth_kind"], p["protocol"], p["base_url"], "", "local" if p["auth_kind"] == "local_ollama" else "cloud", db.now())
+        if key:
+            store_connection_secret(cid, key)
+            db.run("UPDATE connections SET state = 'connected', last_error = '' WHERE id = ?", cid)
+            db.set_setting(mark, fingerprint)
+            _model_cache.pop(cid, None)
 
 
 def _connection(cid: int) -> dict:

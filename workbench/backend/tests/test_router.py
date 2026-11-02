@@ -452,3 +452,22 @@ def test_cached_tokens_are_priced_at_the_cache_rate(client):
         assert full == p_in and abs(cached - read_p) < 1e-9 and cached < full
     finally:
         client.delete(f"/api/providers/{cid}")
+
+
+def test_a_key_changed_in_env_is_applied_on_the_next_start_but_never_over_an_app_edit(client, monkeypatch):
+    from app import config, db, llm
+    from app.security import decrypt, store_connection_secret
+
+    url = llm.PRESETS["nvidia"]["base_url"]
+    monkeypatch.setitem(config.SEED_KEYS, "nvidia", "nvapi-first-1234")
+    llm.seed_connections()
+    row = db.one("SELECT * FROM connections WHERE base_url = ?", url)
+    assert decrypt(row["secret_enc"]) == "nvapi-first-1234"
+    monkeypatch.setitem(config.SEED_KEYS, "nvidia", "nvapi-second-5678")  # edited in .env, then restarted
+    llm.seed_connections()
+    assert decrypt(db.one("SELECT secret_enc FROM connections WHERE id = ?", row["id"])["secret_enc"]) == "nvapi-second-5678"
+    assert len(db.all("SELECT id FROM connections WHERE base_url = ?", url)) == 1
+    store_connection_secret(row["id"], "nvapi-typed-in-app")  # the user changes it in the app; .env unchanged
+    llm.seed_connections()
+    assert decrypt(db.one("SELECT secret_enc FROM connections WHERE id = ?", row["id"])["secret_enc"]) == "nvapi-typed-in-app"
+    db.run("DELETE FROM connections WHERE id = ?", row["id"])
