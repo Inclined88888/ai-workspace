@@ -113,8 +113,8 @@ def test_undo_restores_edits_and_removes_new_files(project, fake):
 
 
 def test_token_hard_cap_stops_before_the_next_call(project, fake):
-    m = fake([openai_reply("", [("list_files", {})], tokens=(900, 50)), openai_reply("never sent")])
-    r = run(project, m, "--max-tokens", "1000")
+    m = fake([openai_reply("", [("list_files", {})], tokens=(2900, 50)), openai_reply("never sent")])
+    r = run(project, m, "--max-tokens", "3000")
     assert r.returncode == 1 and "token cap reached" in r.stderr
     assert len(m.requests) == 1
     assert next(x for x in receipt(project) if x["kind"] == "turn")["outcome"] == "budget_paused"

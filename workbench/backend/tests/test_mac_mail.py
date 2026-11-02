@@ -43,6 +43,9 @@ def test_outlook_offers_the_mac_sign_in_instead_of_a_dead_end(client, mac, monke
 
     monkeypatch.setenv("MAIL_AUTODETECT_ONLINE", "0")
     monkeypatch.setattr(mail_autodetect, "_one_click_ready", lambda p: False)
+    from app import mac_mail
+
+    monkeypatch.setattr(mac_mail, "available", lambda: True)
     d = mail_autodetect.detect("azad.singh@outlook.com.au")
     assert d["kind"] == "unavailable" and d["mac"] is True and "normal sign-in page" in d["message"]
     assert d["steps"]  # the calendar-only route is still offered
@@ -94,6 +97,13 @@ def test_drafts_from_chat_also_land_in_apple_mail(client, mac):
     r = save_draft(DraftIn(account_id=aid, to="ann@x.com", subject="Hi", body="Draft body"))
     assert "Apple Mail Drafts" in r["status"]
     assert mac[-1][0] == mac_mail.COMPOSE_JS and mac[-1][1][5] == "draft"
+
+
+def test_off_unless_opted_in(monkeypatch):
+    from app import mac_mail
+
+    monkeypatch.delenv("MAC_ACCOUNTS", raising=False)
+    assert not mac_mail.available()
 
 
 def test_not_on_a_mac_means_not_offered(client, monkeypatch):

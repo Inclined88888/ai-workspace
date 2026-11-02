@@ -1,0 +1,125 @@
+"""Project instructions, checklist, web, background jobs and sub-agents (extras.py), driven through the real agent loop."""
+
+import json
+import sys
+import time
+
+import pytest
+
+from rooks_code import config, extras
+from rooks_code.agent import Agent
+from rooks_code.providers import Reply, ToolCall
+
+
+def assistant(text, calls=()):
+    return Reply(text, list(calls), 10, 5)
+
+
+def call(name, args):
+    call.n = getattr(call, "n", 0) + 1
+    return ToolCall(f"c{call.n}", name, args)
+
+
+class FakeModel:
+    """In-process model: replies in order and records what it was sent."""
+
+    model = "m"
+
+    def __init__(self, script):
+        self.script, self.calls = list(script), []
+
+    def complete(self, system, messages, tools, on_text=None):
+        self.calls.append({"system": system, "messages": json.loads(json.dumps(messages)), "tools": tools})
+        return self.script.pop(0)
+
+
+class UI:
+    color = False
+
+    def __init__(self):
+        self.out, self.lists = [], []
+
+    def __getattr__(self, name):
+        return lambda *a, **k: self.out.append((name, a))
+
+    def todos(self, items):
+        self.lists.append(items)
+
+    def ask(self, plan):
+        return "y"
+
+
+def settings(root, **kw):
+    s = config.Settings(root=root, provider="openai", kind="openai", base_url="http://127.0.0.1:9/v1", model="m", learn=False)
+    for k, v in kw.items():
+        setattr(s, k, v)
+    return s
+
+
+def test_project_instructions_reach_the_model(tmp_path):
+    (tmp_path / ".git").mkdir()
+    (tmp_path / "AGENTS.md").write_text("Run tests with make test. Never edit generated/.")
+    model = FakeModel([assistant("ok")])
+    a = Agent(settings(tmp_path), UI(), model=model)
+    assert a.instruction_files == [str(tmp_path / "AGENTS.md")]
+    a.run("hi")
+    assert "Never edit generated/." in model.calls[0]["system"]
+
+
+def test_instructions_from_a_parent_folder_up_to_the_repo_root(tmp_path):
+    (tmp_path / ".git").mkdir()
+    (tmp_path / "CLAUDE.md").write_text("root rule")
+    sub = tmp_path / "pkg"
+    sub.mkdir()
+    (sub / "AGENTS.md").write_text("package rule")
+    text, files = extras.project_instructions(sub)
+    assert text.index("package rule") < text.index("root rule") and len(files) == 2
+
+
+def test_checklist_is_shown_and_kept(tmp_path):
+    ui = UI()
+    model = FakeModel([assistant("", [call("todo", {"items": [{"text": "read", "status": "done"}, {"text": "fix", "status": "doing"}]})]),
+                       assistant("done")])
+    a = Agent(settings(tmp_path), ui, model=model)
+    a.run("do it")
+    assert ui.lists[-1][1] == {"text": "fix", "status": "doing"} and a.extras.todos == ui.lists[-1]
+
+
+def test_background_job_runs_and_stops(tmp_path):
+    a = Agent(settings(tmp_path, auto_approve=True), UI(), model=FakeModel([]))
+    py = sys.executable
+    out = a.extras.jobs.start(f'{py} -c "import time; print(\'listening on 5173\', flush=True); time.sleep(60)"')
+    assert "job1" in out and "listening on 5173" in out and "running" in out
+    assert "listening" in a.extras.jobs.check("job1")
+    assert a.extras.jobs.stop("job1") == "stopped job1"
+    time.sleep(0.3)
+    assert "finished" in a.extras.jobs.check()
+    with pytest.raises(Exception):
+        a.extras.jobs.check("job9")
+
+
+def test_web_fetch_turns_a_page_into_text():
+    title, text = extras.html_to_text("<html><head><title>Docs</title><script>x=1</script></head><body><nav>menu</nav>"
+                                      "<h1>Install</h1><p>Run <code>pip install x</code>.</p></body></html>")
+    assert title == "Docs" and "Install" in text and "pip install x" in text and "x=1" not in text and "menu" not in text
+
+
+def test_sub_agent_reads_only_and_returns_its_summary(tmp_path):
+    (tmp_path / "a.py").write_text("SECRET_FLAG = 1\n")
+    ui = UI()
+    model = FakeModel([
+        assistant("", [call("task", {"goal": "find where SECRET_FLAG is defined"})]),
+        # the sub-agent's turn: tries to write (refused), reads, answers
+        assistant("", [call("write_file", {"path": "x.py", "content": "boom"})]),
+        assistant("", [call("search", {"pattern": "SECRET_FLAG"})]),
+        assistant("a.py line 1 defines SECRET_FLAG"),
+        assistant("It is in a.py."),
+    ])
+    a = Agent(settings(tmp_path, auto_approve=True), ui, model=model)
+    assert a.run("where is SECRET_FLAG?") == "It is in a.py."
+    assert not (tmp_path / "x.py").exists()
+    sub_tools = {t["name"] for t in model.calls[1]["tools"]}
+    assert sub_tools == {"read_file", "list_files", "search", "web_search", "web_fetch"}
+    task_result = [m for m in model.calls[-1]["messages"] if m["role"] == "tool"][-1]["content"]
+    assert "a.py line 1" in task_result
+    assert len([p for p in (tmp_path / ".rooks" / "runs").glob("*.messages.json")]) == 1  # the sub-agent saved no session

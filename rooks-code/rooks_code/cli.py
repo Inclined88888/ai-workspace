@@ -61,6 +61,14 @@ class UI:
     def can_stream(self) -> bool:
         return self.out.isatty() if hasattr(self.out, "isatty") else False
 
+    def todos(self, items: list[dict]) -> None:
+        """The agent's checklist, shown whenever it changes."""
+        marks = {"done": self.c("ok", "✓"), "doing": self.c("accent", "▸"), "pending": self.c("dim", "○")}
+        self.p("")
+        for i in items:
+            text = i["text"] if i["status"] != "done" else self.c("dim", i["text"])
+            self.p(f"  {marks[i['status']]} {text}")
+
     def stream(self, delta: str) -> None:
         self.out.write(delta)
         self.out.flush()

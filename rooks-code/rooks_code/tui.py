@@ -55,6 +55,10 @@ COMMANDS: dict[str, str] = {
     "/memory": "what Rooks remembers about you (shared with the AI Workspace app)",
     "/skills": "procedures Rooks learned; /skills add GITHUB-LINK checks a new one",
     "/undo": "put back the files changed by the last request",
+    "/diff": "what changed in this folder (git), as a diff",
+    "/jobs": "background jobs (servers, watchers): /jobs, /jobs stop ID",
+    "/init": "write AGENTS.md: the project's rules and commands, so every session starts informed",
+    "/context": "how full the conversation is, and which project instruction files are followed",
     "/sessions": "earlier conversations in this folder",
     "/resume": "continue an earlier conversation: /resume ID",
     "/copy": "copy the last answer to the clipboard",
@@ -84,6 +88,7 @@ class RichUI(UI):
         super().__init__(*a, **kw)
         self.console = Console(highlight=False, soft_wrap=False, no_color=not self.color)
         self._started = 0.0
+        self.activity = "Thinking"  # what the agent is doing now, shown on the Working line
 
     def code_theme(self) -> str:
         return "ansi_light" if self.theme.background == "light" else "ansi_dark"
@@ -117,12 +122,38 @@ class RichUI(UI):
                 frames, i = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏", 0
                 while not stop.wait(0.1):
                     secs = int(time.monotonic() - started)
-                    line = f"\r{self.c('accent', frames[i % 10])} Working {secs}s {self.c('dim', '· Ctrl+C to stop')}"
+                    what = self.activity[:70]
+                    line = f"\r\033[2K{self.c('accent', frames[i % 10])} {what} {self.c('dim', f'· {secs}s · Ctrl+C to stop')}"
                     self.out.write(line); self.out.flush(); i += 1
                 self.out.write("\r\033[2K"); self.out.flush()
             threading.Thread(target=spin, daemon=True).start()
         elif self._spin:
             self._spin.set(); time.sleep(0.12); self._spin = None
+
+    def tool_note(self, text: str, read: bool = False) -> None:
+        if read and text:
+            self.activity = text[:1].upper() + text[1:]
+        super().tool_note(text, read)
+
+    def show_plan(self, plan) -> None:
+        self.activity = plan.summary[:1].upper() + plan.summary[1:]
+        super().show_plan(plan)
+
+    def tool_result(self, plan, result: str, outcome: str) -> None:
+        self.activity = "Thinking"
+        super().tool_result(plan, result, outcome)
+
+    def todos(self, items: list[dict]) -> None:
+        t = Table.grid(padding=(0, 1))
+        t.add_column(no_wrap=True)
+        t.add_column()
+        marks = {"done": ("✓", "ok"), "doing": ("▸", "accent"), "pending": ("○", "dim")}
+        for i in items:
+            mark, role = marks[i["status"]]
+            t.add_row(Text(mark, style=self.hexcolour(role)), Text(i["text"], style=self.hexcolour("dim") if i["status"] == "done" else ""))
+        done = sum(i["status"] == "done" for i in items)
+        self.console.print(Padding(Panel(t, title=f"Plan · {done}/{len(items)}", title_align="left", border_style=self.hexcolour("dim"),
+                                         expand=False, padding=(0, 1)), (0, 0, 0, 2)))
 
     def ask(self, plan) -> str:
         label = {"write": "Make this change", "command": "Run this command", "external": "Use this tool"}[plan.effect]
@@ -312,7 +343,12 @@ def banner(agent, ui: RichUI) -> None:
     if s.dry_run:
         mode = "dry run: shows changes, makes none"
     info.add_row("Safety", mode)
-    info.add_row("Tools", f"{len(agent.tool_specs())} (files, terminal, web{', your computer' if any('desk' in n for n in (s.mcp_servers or {})) else ''})")
+    info.add_row("Tools", f"{len(agent.tool_specs())} (files, terminal, web, background jobs, sub-agents{', your computer' if any('desk' in n for n in (s.mcp_servers or {})) else ''})")
+    files = getattr(agent, "instruction_files", [])
+    info.add_row("Project", ", ".join(Path(f).name for f in files) + " (followed)" if files else "no AGENTS.md yet (/init writes one)")
+    branch = git_branch(agent.root)
+    if branch:
+        info.add_row("Git", branch)
     tips = Text.from_markup(
         f"Just type what you want, in plain words. For example: [italic]make a budget table from bank.csv[/]\n"
         f"[{accent}]/[/] shows every command   [{accent}]@[/] picks a file   "
@@ -384,8 +420,11 @@ def run(agent, ui: RichUI) -> int:
         t = agent.log.totals()
         mode = "DRY RUN" if s.dry_run else ("auto" if (s.auto_approve or s.trusted()) else "asks first")
         shown = short_model(s)
+        branch = git_branch(agent.root)
+        todos = getattr(getattr(agent, "extras", None), "todos", [])
+        plan = [("class:barsep", "│"), ("class:bar", f" plan {sum(i['status'] == 'done' for i in todos)}/{len(todos)} ")] if todos else []
         return FormattedText([("class:bar", f" {shown} "), ("class:barsep", "│"),
-                              ("class:bar", f" {Path(agent.root).name or agent.root} "), ("class:barsep", "│"),
+                              ("class:bar", f" {Path(agent.root).name or agent.root}{f' ⎇ {branch}' if branch else ''} "), *plan, ("class:barsep", "│"),
                               ("class:bar", f" {t['tokens_in'] + t['tokens_out']:,} tokens "), ("class:barsep", "│"),
                               ("class:bar", f" {mode} "), ("class:barsep", "│"),
                               ("class:bardim", " / commands  @ files  Ctrl+D quit ")])
@@ -433,6 +472,51 @@ def run(agent, ui: RichUI) -> int:
             command(agent, ui, cmd, rest.strip())
             continue
         agent.run(line)
+
+
+INIT_PROMPT = ("Write AGENTS.md at the project root for coding agents working here: what the project is (2-3 lines), how "
+               "it is laid out (main folders and what lives where), the exact commands to install, run, test, lint and "
+               "build (check each one exists: read package.json, pyproject.toml, Makefile, scripts and CI files), code "
+               "style rules you can see in the code, and pitfalls. Under 120 lines, facts only. If AGENTS.md exists, "
+               "improve it instead of replacing what is right.")
+
+
+def git_branch(root) -> str:
+    head = Path(root)
+    for _ in range(12):
+        f = head / ".git" / "HEAD"
+        if f.is_file():
+            try:
+                ref = f.read_text().strip()
+            except OSError:
+                return ""
+            return ref.split("refs/heads/", 1)[-1] if ref.startswith("ref:") else ref[:8]
+        if head.parent == head:
+            return ""
+        head = head.parent
+    return ""
+
+
+def show_diff(agent, ui, rest: str) -> None:
+    try:
+        stat = subprocess.run(["git", "diff", "--stat", "HEAD", *rest.split()], cwd=agent.root, capture_output=True, text=True, timeout=20)
+        diff = subprocess.run(["git", "diff", "HEAD", *rest.split()], cwd=agent.root, capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.SubprocessError) as e:
+        ui.error(f"git is not available here ({e})")
+        return
+    if stat.returncode != 0:
+        ui.error((stat.stderr or "not a git repository").strip())
+        return
+    if not diff.stdout.strip():
+        ui.p("  No changes since the last commit.")
+        return
+    from rich.syntax import Syntax
+
+    ui.console.print(Padding(Text(stat.stdout.rstrip(), style=ui.hexcolour("dim")), (0, 0, 0, 2)))
+    lines = diff.stdout.splitlines()
+    ui.console.print(Syntax("\n".join(lines[:600]), "diff", theme=ui.code_theme(), background_color="default"))
+    if len(lines) > 600:
+        ui.p(ui.c("dim", f"  … {len(lines) - 600} more lines (git diff to see all)"))
 
 
 def add_skill(agent, ui, url: str) -> None:
@@ -502,6 +586,24 @@ def command(agent, ui: RichUI, cmd: str, rest: str) -> None:
             ui.p(f"  {ui.c('accent', sk['name'])}  {sk.get('description', '')}")
     elif cmd == "/undo":
         ui.p(undo_text(agent.changes))
+    elif cmd == "/diff":
+        show_diff(agent, ui, rest)
+    elif cmd == "/jobs":
+        ex = agent.extras
+        try:
+            parts = rest.split()
+            out = ex.jobs.stop(parts[1]) if parts[:1] == ["stop"] and len(parts) > 1 else ex.jobs.check(rest.strip(), 30)
+            ui.p("  " + out.replace("\n", "\n  "))
+        except Exception as e:  # noqa: BLE001 - ToolError: say it
+            ui.error(str(e))
+    elif cmd == "/init":
+        agent.run(INIT_PROMPT)
+    elif cmd == "/context":
+        used = agent._estimate()
+        window = agent.s.context_tokens or 0
+        ui.p(f"  About {used:,} tokens in use" + (f" of {window:,} ({used * 100 // window}%); older turns are summarised at 70%." if window else "."))
+        files = getattr(agent, "instruction_files", [])
+        ui.p("  Project instructions: " + (", ".join(files) if files else "none yet (/init writes AGENTS.md)"))
     elif cmd == "/sessions":
         found = sessions(agent.root)
         if not found:

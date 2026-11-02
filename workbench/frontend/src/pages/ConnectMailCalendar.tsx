@@ -114,13 +114,14 @@ export default function ConnectMailCalendar({ compact = false, onlyWhenEmpty = f
   const anything = linked.length + imap.length + cals.length > 0;
   // Only offer one-click buttons this install can actually do; otherwise lead with "type your email address"
   const oneClick = (["google", "microsoft"] as Provider[]).filter((p) => providers?.[p]?.configured);
-  const showOther = other || (!!providers && !oneClick.length);
+  const signIn: Provider[] = ["google", "microsoft"];  // always offered: the provider's own sign-in page
+  const showOther = other;
 
   return (
     <div className="card col gap-lg" id="mail" style={compact ? { marginBottom: 16 } : undefined}>
       <div className="row"><Mail size={16} /><CalendarDays size={16} /><h2 className="grow">Connect your mail &amp; calendar</h2>
         {anything && <button className="btn ghost sm icon" title="Refresh" onClick={load}><RefreshCw size={13} /></button>}</div>
-      <div className="muted small">One sign-in sets up both your inbox and your calendar. Your assistant can read, summarise and draft; it never sends an email or an invitation until you say yes.</div>
+      <div className="muted small">Sign in on Google's or Microsoft's own page; personal and work accounts both work. One sign-in sets up both your inbox and your calendar. Your assistant can read, summarise and draft; it never sends an email or an invitation until you say yes.</div>
 
       {anything && (
         <div className="account-chips">
@@ -150,14 +151,13 @@ export default function ConnectMailCalendar({ compact = false, onlyWhenEmpty = f
       )}
 
       <div className="connect-buttons">
-        {compact && !!providers && !oneClick.length && <Link className="btn primary connect-btn" to="/mail">Connect your email <ChevronRight size={14} /></Link>}
-        {oneClick.map((p) => (
+        {signIn.map((p) => (
           <button key={p} className="btn connect-btn" disabled={!!pending} onClick={() => connect(p)} title={WHAT[p]}>
-            {pending?.provider === p ? <Loader2 size={16} className="spin" /> : <ProviderLogo provider={p} />} Connect {NAMES[p]}
+            {pending?.provider === p ? <Loader2 size={16} className="spin" /> : <ProviderLogo provider={p} />} Sign in with {NAMES[p]}
           </button>
         ))}
-        {!compact && oneClick.length > 0 && <button className="btn ghost connect-btn" style={{ border: "1px solid transparent" }} onClick={() => setOther(!other)}>Other provider <ChevronRight size={14} /></button>}
-        {compact && oneClick.length > 0 && <Link className="btn ghost connect-btn" style={{ border: "1px solid transparent" }} to="/mail">iCloud, Yahoo, Fastmail… <ChevronRight size={14} /></Link>}
+        {!compact && <button className="btn ghost connect-btn" style={{ border: "1px solid transparent" }} onClick={() => setOther(!other)}>iCloud, Yahoo, other <ChevronRight size={14} /></button>}
+        {compact && <Link className="btn ghost connect-btn" style={{ border: "1px solid transparent" }} to="/mail">iCloud, Yahoo, other <ChevronRight size={14} /></Link>}
       </div>
 
       {pending && (
@@ -183,8 +183,8 @@ export default function ConnectMailCalendar({ compact = false, onlyWhenEmpty = f
           <div className="col" style={{ gap: 6 }}>
             <div>{notice.text}</div>
             <div className="row wrap small">
-              {notice.provider === "google" && !compact && <button className="btn sm" onClick={() => { setNotice(null); setOther(true); }}>Use a Gmail app password</button>}
-              {compact ? <Link className="btn sm" to="/settings#mail">Open settings</Link> : <a className="btn sm ghost" href="#own-registration" onClick={() => (document.getElementById("own-registration") as HTMLDetailsElement | null)?.setAttribute("open", "")}>Use your own app registration</a>}
+              {compact ? <Link className="btn sm" to="/mail">Set it up</Link> : <a className="btn sm primary" href="#own-registration" onClick={() => (document.getElementById("own-registration") as HTMLDetailsElement | null)?.setAttribute("open", "")}>Set up {NAMES[notice.provider]} sign-in (one time)</a>}
+              {notice.provider === "google" && !compact && <button className="btn sm ghost" onClick={() => { setNotice(null); setOther(true); }}>Use a Gmail app password instead</button>}
             </div>
           </div>
         </div>
@@ -194,8 +194,7 @@ export default function ConnectMailCalendar({ compact = false, onlyWhenEmpty = f
 
       {!compact && (
         <>
-          {oneClick.length > 0 && <div className="connect-note row"><ShieldCheck size={13} /> Sign-in happens on {providers ? "Google's or Microsoft's own page" : "the provider's page"} in your browser; AI Workspace never sees your password. Tokens stay on this computer{" "}(in the system keychain when available).</div>}
-          {!oneClick.length && <div className="connect-note row"><ShieldCheck size={13} /> An app password only opens your mail, never your account settings, and you can cancel it any time on your provider's page. It stays on this computer.</div>}
+          <div className="connect-note row"><ShieldCheck size={13} /> Sign-in happens on Google's or Microsoft's own page in your browser; AI Workspace never sees your password and you can remove its access there any time. Tokens stay on this computer{oneClick.length < 2 ? "" : " (in the system keychain when available)"}.</div>
           <OwnRegistration providers={providers} onSaved={load} />
         </>
       )}
@@ -458,7 +457,7 @@ function OwnRegistration({ providers, onSaved }: { providers: Record<Provider, P
   const info = providers?.[p];
   return (
     <details className="connect-more" id="own-registration">
-      <summary><ChevronRight size={12} /> Use your own app registration (advanced)</summary>
+      <summary><ChevronRight size={12} /> Set up Google and Microsoft sign-in (one time, for whoever runs this app)</summary>
       <form className="col" onSubmit={save}>
         <div className="tabs">{(["google", "microsoft"] as Provider[]).map((k) => <button type="button" key={k} className={`tab ${p === k ? "active" : ""}`} onClick={() => setP(k)}>{NAMES[k]}</button>)}</div>
         <div className="muted small">

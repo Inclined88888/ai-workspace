@@ -29,7 +29,8 @@ TIMEOUT = 90  # Mail and Calendar can be slow to answer the first time (launchin
 
 
 def available() -> bool:
-    return sys.platform == "darwin" and os.getenv("MAC_ACCOUNTS", "1") not in ("0", "false", "no")
+    # Off by default: people expect the provider's own sign-in page, not an app scripting Apple Mail. MAC_ACCOUNTS=1 opts in.
+    return sys.platform == "darwin" and os.getenv("MAC_ACCOUNTS", "0") in ("1", "true", "yes")
 
 
 def _osa(script: str, args: list[str], timeout: int = TIMEOUT, lang: str = "JavaScript") -> str:

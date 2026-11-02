@@ -56,6 +56,36 @@ def skill(name: str):
     return {"name": s["name"], "description": s["description"], "steps": s["steps"]}
 
 
+@router.get("/search")
+async def search(q: str, count: int = 6):
+    """The app's web search (the same service chat uses) for the terminal's web_search tool."""
+    from . import search as web
+
+    if not q.strip():
+        raise HTTPException(400, "q is required")
+    try:
+        return {"results": await web.web_search(q[:400], max(1, min(count, 10)))}
+    except Exception as e:  # noqa: BLE001 - say why in plain words
+        raise HTTPException(502, f"Web search isn't working: {e}. Set it up in the app under Settings > Web search.") from e
+
+
+@router.get("/read")
+async def read(url: str):
+    """A web page as readable text, for the terminal's web_fetch tool."""
+    import httpx
+
+    from .research import fetch_text
+
+    if not url.startswith(("http://", "https://")):
+        raise HTTPException(400, "url must start with http:// or https://")
+    async with httpx.AsyncClient(timeout=25, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0 AI-Workspace"}) as c:
+        try:
+            text = await fetch_text(c, url)
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(502, f"Could not read {url}: {e}") from e
+    return {"url": url, "text": (text or "")[:60000]}
+
+
 class CheckIn(BaseModel):
     url: str = Field(..., min_length=3, max_length=500)
 

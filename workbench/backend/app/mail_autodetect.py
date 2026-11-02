@@ -134,10 +134,11 @@ def _one_click(provider: str, domain: str, email: str, workspace: bool = False) 
     if not fallback and not _one_click_ready(provider):
         from . import mac_mail
 
-        out = {"kind": "unavailable", "provider": provider, "domain": domain, "workspace": workspace, **UNAVAILABLE[provider]}
-        if mac_mail.available():  # the Mac signs in with Microsoft's normal page; AI Workspace reads through Apple Mail
-            out |= {"mac": True, "message": MAC_ROUTE[provider]}
-        return out
+        if mac_mail.available():  # opted in (MAC_ACCOUNTS=1): through the account signed in on this Mac
+            return {"kind": "unavailable", "provider": provider, "domain": domain, "workspace": workspace,
+                    **UNAVAILABLE[provider], "mac": True, "message": MAC_ROUTE[provider]}
+        # Microsoft's own sign-in is the only way in; the button explains the one-time setup when it isn't done yet
+        return {"kind": "one_click", "provider": provider, "domain": domain, "workspace": workspace, "needs_setup": True}
     out: dict = {"kind": "one_click", "provider": provider, "domain": domain}
     if workspace:
         out["workspace"] = True

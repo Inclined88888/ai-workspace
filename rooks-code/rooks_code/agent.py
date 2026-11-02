@@ -10,6 +10,9 @@ import time
 from pathlib import Path
 
 from . import providers
+from .extras import READ_ONLY, Extras, project_instructions
+from .extras import NAMES as EXTRA_NAMES
+from .extras import SPECS as EXTRA_SPECS
 from .learning import Learning
 from .mcp import MCPError, MCPManager
 from .receipts import RunLog
@@ -27,6 +30,9 @@ How to work:
 - Use run_command to run tests, builds and other CLIs, and to check your work. Commands run in the project root.
 - The user approves edits and commands; if one is denied, do not retry it, ask or take another approach.
 - When you decide to do something, call the tool in that same reply; do not just describe it.
+- For work of 3+ steps keep a todo checklist and update it as you go. Look things up with web_search / web_fetch
+  instead of guessing APIs. Start servers and watchers with start_background, not run_command. Hand broad research
+  to a task sub-agent so your own context stays small.
 - When the user states a lasting fact or preference (their name, tools they use, how they like things done), save it
   with remember. If a saved skill fits the task, load_skill it first and follow it.
 - When the task is done, stop calling tools and reply with a short summary of what changed and how you checked it.
@@ -81,20 +87,26 @@ class Budget:
 
 
 class Agent:
-    def __init__(self, settings, ui, model=None, log: RunLog | None = None, messages: list[dict] | None = None):
+    def __init__(self, settings, ui, model=None, log: RunLog | None = None, messages: list[dict] | None = None,
+                 sub: bool = False):
         self.s, self.ui = settings, ui
         self.root: Path = settings.root.resolve()
         self.log = log or RunLog(self.root, provider=settings.provider, model=settings.model)
         self.model = model or providers.make(settings, on_egress=self._egress)
         self.tools = Toolbox(self.root, settings.command_timeout)
         self.changes = ChangeSets(self.root)
-        self.mcp = MCPManager(settings.mcp_servers, str(self.root), warn=ui.warn) if settings.mcp_servers else None
+        self.sub = sub  # a sub-agent (the task tool): read-only tools, no MCP servers, no learning
+        self.mcp = MCPManager(settings.mcp_servers, str(self.root), warn=ui.warn) if settings.mcp_servers and not sub else None
         self.messages: list[dict] = list(messages or [])
         self.always: set[str] = set()  # effects approved for the rest of the session ("a" at the prompt)
         self.budget = Budget(settings.max_tokens, settings.max_usd, settings.model, settings.prices, settings.local)
         self.system = SYSTEM.format(root=self.root, os=f"{platform.system()} {platform.release()}", listing=_listing(self.root))
         self._turn: int | None = None
-        self.learning = Learning(settings, session_id=self.log.session) if getattr(settings, "learn", True) else None
+        self.learning = Learning(settings, session_id=self.log.session) if getattr(settings, "learn", True) and not sub else None
+        self.extras = Extras(self)
+        self.instructions, self.instruction_files = project_instructions(self.root)
+        if self.instructions:
+            self.system += "\n\n" + self.instructions
         self._extra = ""  # this request's memory and skills context (learning.py)
         # Through the app (provider workbench) the model is picked per task and the app keeps the spend, so a
         # per-model price is neither known nor needed here: only warn when the user picked a model directly.
@@ -112,7 +124,9 @@ class Agent:
                      failure_reason=error)
 
     def tool_specs(self) -> list[dict]:
-        return SPECS + (self.learning.specs() if self.learning else []) + (self.mcp.tool_specs() if self.mcp else [])
+        if self.sub:
+            return [t for t in SPECS + EXTRA_SPECS if t["name"] in READ_ONLY]
+        return SPECS + EXTRA_SPECS + (self.learning.specs() if self.learning else []) + (self.mcp.tool_specs() if self.mcp else [])
 
     def trusted_effect(self, effect: str, mcp_server: str | None = None) -> str:
         """Why this action needs no prompt, or '' when the user must approve it."""
@@ -135,6 +149,8 @@ class Agent:
 
     def save(self) -> None:
         """The conversation next to its receipt, so `rooks -c` (or --resume ID) can pick it up later."""
+        if self.sub:
+            return  # a sub-agent shares the parent's receipt; its scratch conversation is not a session
         try:
             self.transcript_path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.transcript_path.with_suffix(".tmp")
@@ -348,7 +364,11 @@ class Agent:
         else:
             mcp_server = None
             try:
-                if self.learning and call.name in self.learning.names():
+                if self.sub and call.name not in READ_ONLY:
+                    raise ToolError(f"{call.name} is not available to a sub-agent (read-only)")
+                if call.name in EXTRA_NAMES:
+                    plan = self.extras.prepare(call.name, call.arguments)
+                elif self.learning and call.name in self.learning.names():
                     plan = self.learning.prepare(call.name, call.arguments)
                 else:
                     plan = self.tools.prepare(call.name, call.arguments)
@@ -415,6 +435,7 @@ class Agent:
         return (text or "(no content)") if ok else f"Error from {server.name}: {text}", None, "" if ok else "mcp error"
 
     def close(self) -> None:
+        self.extras.close()
         if self.mcp:
             self.mcp.close()
 

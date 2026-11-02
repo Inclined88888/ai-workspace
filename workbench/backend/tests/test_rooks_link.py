@@ -88,3 +88,19 @@ def test_skills_add_from_the_terminal_runs_the_apps_check_and_never_installs(cli
     r = client.post("/v1/rooks/skills/check", headers=auth, json={"url": "https://github.com/x/caveman"}).json()
     assert r["ok"] and r["skill"]["status"] == "reviewed" and "secret" not in r["skill"]
     assert [s["status"] for s in r["stages"]] == ["done", "warn"]
+
+
+def test_terminal_web_search_and_read_go_through_the_app(client, auth, monkeypatch):
+    from app import research, search
+
+    async def fake_search(q, count=6, use=None):
+        return [{"title": "Docs", "url": "https://x.dev", "snippet": q}]
+
+    async def fake_fetch(c, url):
+        return "page text"
+
+    monkeypatch.setattr(search, "web_search", fake_search)
+    monkeypatch.setattr(research, "fetch_text", fake_fetch)
+    assert client.get("/v1/rooks/search", params={"q": "fastapi"}, headers=auth).json()["results"][0]["snippet"] == "fastapi"
+    assert client.get("/v1/rooks/read", params={"url": "https://x.dev"}, headers=auth).json()["text"] == "page text"
+    assert client.get("/v1/rooks/read", params={"url": "file:///etc/passwd"}, headers=auth).status_code == 400

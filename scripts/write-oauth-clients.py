@@ -12,7 +12,7 @@ import re
 import sys
 from pathlib import Path
 
-PATH = Path(__file__).resolve().parent.parent / "workbench" / "backend" / "app" / "oauth_clients.py"
+PATH = Path(os.getenv("OAUTH_CLIENTS_FILE") or Path(__file__).resolve().parent.parent / "workbench" / "backend" / "app" / "oauth_clients.py")
 FIELDS = {
     "GOOGLE_CLIENT_ID": "GOOGLE_OAUTH_CLIENT_ID",
     "GOOGLE_CLIENT_SECRET": "GOOGLE_OAUTH_CLIENT_SECRET",
