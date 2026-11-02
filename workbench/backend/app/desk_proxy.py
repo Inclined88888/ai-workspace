@@ -44,6 +44,18 @@ async def status():
     return (await call("GET", "/api/status")).json()
 
 
+@router.post("/permissions/request")
+async def request_permissions():
+    """Ask macOS for Screen Recording and Accessibility (its own prompts); returns the fresh status."""
+    return (await call("POST", "/api/permissions/request", json={})).json()
+
+
+@router.post("/permissions/open")
+async def open_permission(request: Request):
+    which = "screen" if (await request.json()).get("which") == "screen" else "input"
+    return (await call("POST", "/api/permissions/open", json={"which": which})).json()
+
+
 @router.post("/stop")
 async def stop():
     """Stop every running and queued task now (same as the kill-switch hotkey)."""

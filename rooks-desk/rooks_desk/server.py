@@ -2,6 +2,8 @@
 
   GET  /healthz                         liveness
   GET  /api/status                      backend, permissions, kill-switch hotkey, running job, policy
+  POST /api/permissions/request         show macOS's own Screen Recording and Accessibility prompts
+  POST /api/permissions/open            open System Settings at {"which": "screen" | "input"}
   GET  /api/settings  PUT /api/settings allowed folders, app allow/deny lists, trusted MCP servers
   GET  /api/providers                   models it can use
   POST /api/jobs {"goal", "approve": [...], "dry_run", "max_steps", "folders", "provider", "model"}
@@ -303,6 +305,17 @@ def make_handler(jobs: Jobs, token: str):
                     return self._send(200, status(jobs))
                 if parts == ["api", "stop"] and method == "POST":
                     return self._send(200, jobs.stop_all())
+                if parts == ["api", "permissions", "request"] and method == "POST":
+                    # macOS's own prompts (they also add the app to the Screen Recording and Accessibility lists)
+                    b = jobs.backend()
+                    b.request_permissions()
+                    return self._send(200, status(jobs))
+                if parts == ["api", "permissions", "open"] and method == "POST":
+                    which = "screen" if self._body().get("which") == "screen" else "input"
+                    b = jobs.backend()
+                    if hasattr(b, "open_settings"):
+                        b.open_settings(which)
+                    return self._send(200, {"ok": True})
                 if parts == ["api", "settings"]:
                     if method == "GET":
                         return self._send(200, runner.load_policy().to_dict())

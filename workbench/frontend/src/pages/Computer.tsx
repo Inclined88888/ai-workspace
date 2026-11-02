@@ -145,7 +145,7 @@ export default function Computer() {
       <div className="page-head">
         <div>
           <h1>Computer</h1>
-          <p className="muted">Describe a task. Rooks Desk uses your own apps, terminal and files to do it, and asks you first before anything that matters.</p>
+          <p className="muted">Describe a task and watch it use your apps, files and terminal to do it. It asks you first before anything that matters, and Stop everything halts it at once.</p>
         </div>
         <button className="btn danger" onClick={stopAll} title={`Or press ${desk?.hotkey || "Ctrl+Alt+Esc"} anywhere`} disabled={!anyRunning}>
           <OctagonX size={16} /> Stop everything
@@ -153,13 +153,8 @@ export default function Computer() {
       </div>
 
       {desk && !desk.ok && <div className="alert err" style={{ marginBottom: 16 }}>Rooks Desk cannot see this screen: {desk.error}</div>}
-      {missing.length > 0 && (
-        <div className="alert col" style={{ marginBottom: 16, gap: 4 }}>
-          <strong className="row"><ShieldAlert size={15} /> Rooks Desk needs permission</strong>
-          {missing.map(([k, p]) => <div key={k} className="small">{k}: {p.how}</div>)}
-          <div className="small muted">Then run <span className="mono">rooks-desk setup</span> once, or restart the app.</div>
-        </div>
-      )}
+      {missing.length > 0 && <PermissionSteps missing={missing.map(([k]) => k)} platform={desk?.platform}
+        onRecheck={loadDesk} />}
 
       <form className="card col" onSubmit={start} style={{ marginBottom: 16 }}>
         <textarea className="input" rows={3} value={form.goal} onChange={(e) => setForm({ ...form, goal: e.target.value })}
@@ -296,6 +291,47 @@ export default function Computer() {
         </div>
       </div>
       {toast.node}
+    </div>
+  );
+}
+
+
+/** macOS asks once for two switches. Each button shows macOS's own prompt or opens the right System Settings page. */
+function PermissionSteps({ missing, platform, onRecheck }: { missing: string[]; platform?: string; onRecheck: () => void }) {
+  const [asked, setAsked] = useState(false);
+  const screen = missing.includes("screen");
+  const control = missing.includes("input") || missing.includes("accessibility");
+  const ask = async () => { await api("/desk/permissions/request", { method: "POST" }).catch(() => undefined); setAsked(true); onRecheck(); };
+  const open = (which: "screen" | "input") => api("/desk/permissions/open", { body: { which } }).catch(() => undefined);
+  if (platform && platform !== "darwin") {
+    return <div className="alert" style={{ marginBottom: 16 }}>This computer has not allowed screen control yet. {missing.join(", ")}</div>;
+  }
+  return (
+    <div className="card col" style={{ marginBottom: 16, gap: 10 }}>
+      <strong className="row"><ShieldAlert size={15} /> One-time setup: let it see and use your screen</strong>
+      <div className="small muted">macOS asks you to allow this once. Nothing happens on your screen until you start a task.</div>
+      <ol className="free-steps">
+        <li className={asked ? "done" : ""}>
+          <span className="free-n">1</span>
+          <span className="grow">Ask macOS for permission. Click Allow (or Open System Settings) in the boxes that pop up.</span>
+          <button className="btn sm primary" onClick={ask}>Ask macOS</button>
+        </li>
+        {screen && <li>
+          <span className="free-n">2</span>
+          <span className="grow">In <strong>Screen &amp; System Audio Recording</strong>, switch on <strong>AI Workspace</strong> (or python, if that's what's listed).</span>
+          <button className="btn sm" onClick={() => open("screen")}>Open it</button>
+        </li>}
+        {control && <li>
+          <span className="free-n">{screen ? 3 : 2}</span>
+          <span className="grow">In <strong>Accessibility</strong>, switch on the same app.</span>
+          <button className="btn sm" onClick={() => open("input")}>Open it</button>
+        </li>}
+        <li>
+          <span className="free-n">{1 + (screen ? 1 : 0) + (control ? 1 : 0) + 1}</span>
+          <span className="grow">macOS applies it after a restart: quit AI Workspace and open it again, then check.</span>
+          <button className="btn sm ghost" onClick={onRecheck}>Check again</button>
+        </li>
+      </ol>
     </div>
   );
 }
