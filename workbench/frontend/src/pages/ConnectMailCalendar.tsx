@@ -11,7 +11,7 @@ type Linked = { id: number; provider: Provider; email: string; name: string; sta
 type MailAccount = { id: number; name: string; email: string; kind?: string; imap_host: string };
 type Cal = { id: number; name: string; kind: string; color: string };
 type Detected = {
-  kind: "one_click" | "known" | "guess" | "invalid"; provider?: Provider; workspace?: boolean; label?: string; message?: string;
+  kind: "one_click" | "known" | "guess" | "invalid" | "unavailable"; provider?: Provider; workspace?: boolean; label?: string; message?: string;
   imap_host?: string; imap_port?: number; smtp_host?: string; smtp_port?: number; smtp_security?: "ssl" | "starttls";
   caldav_url?: string; app_password?: boolean; app_password_url?: string; steps?: string[]; username_hint?: string; source?: string;
   fallback?: Detected; one_click_unavailable?: Provider;
@@ -264,7 +264,15 @@ function OtherProvider({ onSuggest, onAdded, plain = false }: { onSuggest: (p: P
           </div>
         </div>
       )}
-      {det && det.kind !== "one_click" && det.kind !== "invalid" && (
+      {det?.kind === "unavailable" && (
+        <div className="alert col" style={{ gap: 8 }}>
+          <div className="row"><ProviderLogo provider={det.provider!} /><strong className="grow">{det.label}</strong></div>
+          <div className="small">{det.message}</div>
+          {det.steps && <ol className="connect-steps small">{det.steps.map((x) => <li key={x}>{x}</li>)}</ol>}
+          <div><Link className="btn sm" to="/calendar">Open Calendar</Link></div>
+        </div>
+      )}
+      {det && det.kind !== "one_click" && det.kind !== "invalid" && det.kind !== "unavailable" && (
         <>
           {det.one_click_unavailable && <div className="small muted">{det.one_click_unavailable === "google" ? "Gmail" : NAMES[det.one_click_unavailable]} connects with an app password: a special password just for this app. It takes about a minute.</div>}
           <div className="small"><strong>{det.label}</strong>{det.source === "guess" ? " · best guess" : det.source === "ispdb" ? " · settings found automatically" : ""}</div>

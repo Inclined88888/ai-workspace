@@ -628,7 +628,14 @@ def test_gmail_without_one_click_gets_app_password_not_a_loop(client, monkeypatc
         "imap.gmail.com", 993, "smtp.gmail.com", 465, "ssl")
     assert d["app_password"] and d["app_password_url"] == "https://myaccount.google.com/apppasswords"
     assert d["username"] == "azad@gmail.com" and "caldav_url" not in d  # Google CalDAV is OAuth-only
-    # Microsoft has no app-password route for Outlook.com, so it still points at one-click (explained there)
+    # Microsoft has no app-password route for Outlook.com: without a Microsoft client in this build, say so plainly and
+    # offer the calendar link that does work, instead of a Connect Microsoft button that can't succeed
+    for k in ("MICROSOFT_OAUTH_CLIENT_ID",):
+        monkeypatch.delenv(k, raising=False)
+    ms = client.get("/api/mail/autodetect", params={"email": "me@outlook.com"}).json()
+    assert ms["kind"] == "unavailable" and ms["provider"] == "microsoft"
+    assert "app passwords" in ms["message"] and any("Publish a calendar" in s for s in ms["steps"])
+    monkeypatch.setenv("MICROSOFT_OAUTH_CLIENT_ID", "00000000-0000-0000-0000-000000000000")
     assert client.get("/api/mail/autodetect", params={"email": "me@outlook.com"}).json()["kind"] == "one_click"
 
 

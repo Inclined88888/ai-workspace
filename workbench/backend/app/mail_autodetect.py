@@ -94,6 +94,19 @@ FALLBACK = {
     },
 }
 
+# One-click sign-in missing from this build and no password route exists (Microsoft switched off app passwords for
+# Outlook IMAP): say so plainly, and offer what does work today instead of a dead button.
+UNAVAILABLE = {
+    "microsoft": {
+        "label": "Outlook, Hotmail and Live mail",
+        "message": ("Microsoft only lets apps into Outlook mail through its own sign-in, and that isn't switched on in "
+                    "this copy of AI Workspace yet. Microsoft turned off app passwords, so there is no other way in."),
+        "steps": ["Your Outlook calendar works today: in Outlook on the web open Settings > Calendar > Shared calendars.",
+                  "Under Publish a calendar pick your calendar and Can view all details, then Publish.",
+                  "Copy the ICS link and add it on the Calendar page (read-only)."],
+    },
+}
+
 
 def _one_click_ready(provider: str) -> bool:
     try:
@@ -109,6 +122,8 @@ def _one_click(provider: str, domain: str, email: str, workspace: bool = False) 
     fallback = {"kind": "known", "domain": domain, "username": email, **fb, "source": "built-in"} if fb else None
     if fallback and not _one_click_ready(provider):
         return {**fallback, "one_click_unavailable": provider, "workspace": workspace}
+    if not fallback and not _one_click_ready(provider):
+        return {"kind": "unavailable", "provider": provider, "domain": domain, "workspace": workspace, **UNAVAILABLE[provider]}
     out: dict = {"kind": "one_click", "provider": provider, "domain": domain}
     if workspace:
         out["workspace"] = True
