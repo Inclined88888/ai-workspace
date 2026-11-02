@@ -1,96 +1,39 @@
-"""Tests for APP_SECRET and TOOLS_API_KEY generation and persistence."""
+"""APP_SECRET and TOOLS_API_KEY: generated once into the data folder when not given, reused after, env always wins.
+
+The helper is called directly; reloading app.config would point the whole test session at another database.
+"""
 import os
-import tempfile
-from pathlib import Path
+import stat
+
+import pytest
 
 
-def test_generate_once_then_reuse_app_secret(monkeypatch):
-    with tempfile.TemporaryDirectory() as tmp:
-        data_dir = Path(tmp)
-        monkeypatch.setenv("DATA_DIR", str(data_dir))
-        monkeypatch.delenv("APP_SECRET", raising=False)
+def test_generated_once_then_reused(client, tmp_path, monkeypatch):  # client: the session env (DATA_DIR, secrets) before app.config loads
+    from app.config import _load_or_generate_secret
 
-        from app import config
-        import importlib
-        importlib.reload(config)
-
-        secret1 = config.APP_SECRET
-        assert len(secret1) >= 32
-        assert (data_dir / "app_secret").exists()
-        assert (data_dir / "app_secret").stat().st_mode & 0o777 == 0o600
-
-        importlib.reload(config)
-        secret2 = config.APP_SECRET
-        assert secret2 == secret1
+    monkeypatch.delenv("X_SECRET", raising=False)
+    first = _load_or_generate_secret("X_SECRET", tmp_path, 32, "x_secret")
+    assert len(first) >= 32
+    path = tmp_path / "x_secret"
+    if os.name != "nt":
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert _load_or_generate_secret("X_SECRET", tmp_path, 32, "x_secret") == first
 
 
-def test_generate_once_then_reuse_tools_api_key(monkeypatch):
-    with tempfile.TemporaryDirectory() as tmp:
-        data_dir = Path(tmp)
-        monkeypatch.setenv("DATA_DIR", str(data_dir))
-        monkeypatch.delenv("TOOLS_API_KEY", raising=False)
+def test_explicit_env_wins_and_a_weak_one_is_refused(client, tmp_path, monkeypatch):  # client: the session env (DATA_DIR, secrets) before app.config loads
+    from app.config import _load_or_generate_secret
 
-        from app import config
-        import importlib
-        importlib.reload(config)
-
-        key1 = config.TOOLS_API_KEY
-        assert len(key1) >= 24
-        assert (data_dir / "tools_api_key").exists()
-        assert (data_dir / "tools_api_key").stat().st_mode & 0o777 == 0o600
-
-        importlib.reload(config)
-        key2 = config.TOOLS_API_KEY
-        assert key2 == key1
+    monkeypatch.setenv("X_SECRET", "s" * 40)
+    assert _load_or_generate_secret("X_SECRET", tmp_path, 32, "x_secret") == "s" * 40
+    assert not (tmp_path / "x_secret").exists()
+    monkeypatch.setenv("X_SECRET", "short")
+    with pytest.raises(RuntimeError):
+        _load_or_generate_secret("X_SECRET", tmp_path, 32, "x_secret")
 
 
-def test_explicit_env_wins_app_secret(monkeypatch):
-    with tempfile.TemporaryDirectory() as tmp:
-        data_dir = Path(tmp)
-        monkeypatch.setenv("DATA_DIR", str(data_dir))
-        explicit_secret = "e" * 40
-        monkeypatch.setenv("APP_SECRET", explicit_secret)
+def test_a_truncated_secret_file_is_replaced(client, tmp_path, monkeypatch):  # client: the session env (DATA_DIR, secrets) before app.config loads
+    from app.config import _load_or_generate_secret
 
-        from app import config
-        import importlib
-        importlib.reload(config)
-
-        assert config.APP_SECRET == explicit_secret
-        assert not (data_dir / "app_secret").exists()
-
-
-def test_explicit_env_wins_tools_api_key(monkeypatch):
-    with tempfile.TemporaryDirectory() as tmp:
-        data_dir = Path(tmp)
-        monkeypatch.setenv("DATA_DIR", str(data_dir))
-        explicit_key = "k" * 30
-        monkeypatch.setenv("TOOLS_API_KEY", explicit_key)
-
-        from app import config
-        import importlib
-        importlib.reload(config)
-
-        assert config.TOOLS_API_KEY == explicit_key
-        assert not (data_dir / "tools_api_key").exists()
-
-
-def test_persisted_secret_used_when_no_env(monkeypatch):
-    with tempfile.TemporaryDirectory() as tmp:
-        data_dir = Path(tmp)
-        monkeypatch.setenv("DATA_DIR", str(data_dir))
-        monkeypatch.delenv("APP_SECRET", raising=False)
-        monkeypatch.delenv("TOOLS_API_KEY", raising=False)
-
-        persisted_secret = "p" * 40
-        persisted_key = "t" * 30
-        (data_dir / "app_secret").write_text(persisted_secret)
-        (data_dir / "app_secret").chmod(0o600)
-        (data_dir / "tools_api_key").write_text(persisted_key)
-        (data_dir / "tools_api_key").chmod(0o600)
-
-        from app import config
-        import importlib
-        importlib.reload(config)
-
-        assert config.APP_SECRET == persisted_secret
-        assert config.TOOLS_API_KEY == persisted_key
+    monkeypatch.delenv("X_SECRET", raising=False)
+    (tmp_path / "x_secret").write_text("abc")
+    assert len(_load_or_generate_secret("X_SECRET", tmp_path, 32, "x_secret")) >= 32

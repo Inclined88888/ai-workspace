@@ -13,15 +13,21 @@ def _load_or_generate_secret(env_name: str, data_dir: Path, min_len: int, filena
     """
     env_val = os.getenv(env_name, "")
     if env_val:
+        if len(env_val) < min_len:  # a weak secret given on purpose is refused, never silently replaced
+            raise RuntimeError(f"{env_name} must be at least {min_len} characters. Run ./setup.sh to generate one.")
         return env_val
     secret_path = data_dir / filename
-    if secret_path.exists():
-        return secret_path.read_text().strip()
-    # Generate a new secret
-    secret = secrets.token_urlsafe(min_len)[:min_len]
+    try:
+        stored = secret_path.read_text().strip()
+    except OSError:
+        stored = ""
+    if len(stored) >= min_len:
+        return stored
+    secret = secrets.token_urlsafe(min_len * 2)[: min_len * 2]
     data_dir.mkdir(parents=True, exist_ok=True)
-    secret_path.write_text(secret)
-    secret_path.chmod(0o600)
+    fd = os.open(secret_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)  # never readable by others, not even briefly
+    with os.fdopen(fd, "w") as f:
+        f.write(secret)
     return secret
 
 

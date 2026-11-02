@@ -74,14 +74,12 @@ services:
       ENABLE_MEMORIES: "true"
       ENABLE_NOTES: "true"
       # Workbench tools (notes, tasks, calendar, mail drafts) callable from chat
+      # The browser tool server is listed only when the browser add-on is on: setup.sh writes WEBUI_BROWSER_TOOL (a
+      # leading comma and the JSON entry) when it is, and leaves it empty otherwise.
       TOOL_SERVER_CONNECTIONS: >-
         [{"type":"openapi","url":"http://workbench:8000/tools","spec_type":"url","spec":"","path":"openapi.json",
         "auth_type":"bearer","key":"${TOOLS_API_KEY}","config":{"enable":true},
-        "info":{"id":"workbench","name":"Workbench","description":"Notes, documents, tasks, calendar and email drafts"}}
-        ${WEBUI_BROWSER_TOOL_ENABLED:+- ,{"type":"openapi","url":"http://browser:8100/tools","spec_type":"url","spec":"","path":"openapi.json",
-        "auth_type":"bearer","key":"${BROWSER_API_KEY}","config":{"enable":true},
-        "info":{"id":"browser","name":"Browser","description":"A browser agent that can navigate websites to reach a goal"}}}
-        ]
+        "info":{"id":"workbench","name":"Workbench","description":"Notes, documents, tasks, calendar and email drafts"}}${WEBUI_BROWSER_TOOL:-}]
 
   workbench:
     build: ./workbench
@@ -220,7 +218,7 @@ services:
   # Upstream image, unmodified: upgrade with `docker compose pull paperclip && docker compose up -d paperclip`.
   paperclip:
     profiles: ["paperclip"]
-    image: ghcr.io/paperclipai/paperclip:${PAPERCLIP_TAG:-latest}
+    image: ghcr.io/paperclipai/paperclip:${PAPERCLIP_TAG:-2026.1023.0}
     restart: unless-stopped
     pids_limit: 2048
     stop_grace_period: 90s
@@ -257,7 +255,7 @@ services:
   # messaging (Telegram, Discord, Slack, ...). Upstream image, unmodified. All state lives in the volume.
   hermes:
     profiles: ["hermes"]
-    image: nousresearch/hermes-agent:${HERMES_TAG:-rc.1-v0.22.1}
+    image: nousresearch/hermes-agent:${HERMES_TAG:-v0.22.5}
     restart: unless-stopped
     command: ["gateway", "run"]
     shm_size: 1gb

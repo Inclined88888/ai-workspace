@@ -135,7 +135,13 @@ fi
 if has search; then set_env SEARXNG_URL "http://searxng:8080"; set_env WEBUI_ENABLE_WEB_SEARCH true; else set_env SEARXNG_URL ""; set_env WEBUI_ENABLE_WEB_SEARCH false; fi
 if has codex; then set_env CODEX_URL "http://codex:8110"; else set_env CODEX_URL ""; fi
 if has claude-code; then set_env CLAUDE_CODE_URL "http://claude-code:8110"; else set_env CLAUDE_CODE_URL ""; fi
-if has browser; then set_env BROWSER_URL "http://browser:8100"; set_env WEBUI_BROWSER_TOOL_ENABLED true; else set_env BROWSER_URL ""; set_env WEBUI_BROWSER_TOOL_ENABLED false; fi
+if has browser; then
+  set_env BROWSER_URL "http://browser:8100"
+  # Open WebUI's entry for the browser tool server, appended to TOOL_SERVER_CONNECTIONS in docker-compose.yml
+  set_env WEBUI_BROWSER_TOOL ',{"type":"openapi","url":"http://browser:8100/tools","spec_type":"url","spec":"","path":"openapi.json","auth_type":"bearer","key":"'"$(get_env BROWSER_API_KEY)"'","config":{"enable":true},"info":{"id":"browser","name":"Browser","description":"A browser agent that can navigate websites to reach a goal"}}'
+else
+  set_env BROWSER_URL ""; set_env WEBUI_BROWSER_TOOL ""
+fi
 if has openwebui; then set_env CHAT_URL "http://${HOST}:$(get_env WEBUI_PORT)"; set_env WEBUI_PUBLIC_URL "$(get_env CHAT_URL)"; else set_env CHAT_URL ""; fi
 if has paperclip; then
   set_env PAPERCLIP_URL "http://${HOST}:$(get_env PAPERCLIP_PORT)"; set_env PAPERCLIP_PUBLIC_URL "$(get_env PAPERCLIP_URL)"
