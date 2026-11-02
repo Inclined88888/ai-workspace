@@ -254,7 +254,7 @@ def _handle_claude(hook_event: str, data: dict, url: str, token: str) -> dict | 
     if hook_event in ("SessionStart", "UserPromptSubmit"):
         prompt = data.get("prompt", "") if hook_event == "UserPromptSubmit" else ""
         _post_event(url, token, "claude-code", session, "start",
-                    name="Claude Code", folder=cwd, text=prompt[:200], kind="think")
+                    name="Claude Code", folder=cwd, text=prompt[:200] or "Session started", kind="think")
         return None
 
     # PreToolUse: post the step, then ask the companion for a permission decision.
@@ -315,6 +315,20 @@ def _handle_claude(hook_event: str, data: dict, url: str, token: str) -> dict | 
 # Codex CLI Hook Handling
 # ──────────────────────────────────────────────────────────────────────────────
 
+def _codex_target(tool_input: Any) -> str:
+    """What an "Always" rule matches: the command line or the path, not the JSON around it. Codex sends a command as
+    a string or as an argv list (["bash", "-lc", "pytest tests/"]), where the script is the last item."""
+    if not isinstance(tool_input, dict):
+        return str(tool_input or "")
+    cmd = tool_input.get("command") or tool_input.get("cmd")
+    if isinstance(cmd, list):
+        cmd = cmd[-1] if len(cmd) >= 3 and cmd[-2] in ("-c", "-lc") else " ".join(str(c) for c in cmd)
+    if cmd:
+        return str(cmd)
+    path = tool_input.get("file_path") or tool_input.get("path")
+    return str(path) if path else (json.dumps(tool_input) if tool_input else "")
+
+
 def _handle_codex(hook_event: str, data: dict, url: str, token: str) -> dict | None:
     """
     Handle Codex hook events. Returns permission decision dict for stdout
@@ -340,7 +354,7 @@ def _handle_codex(hook_event: str, data: dict, url: str, token: str) -> dict | N
         title = data.get("title", f"Codex wants to run {tool_name}")
         detail = data.get("detail", "")
         action = tool_name
-        target = json.dumps(tool_input) if tool_input else ""
+        target = _codex_target(tool_input)
         options = data.get("options", ["Allow", "Deny"])
 
         req = _create_request(url, token, "codex", session, "permission",

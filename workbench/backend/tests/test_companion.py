@@ -30,7 +30,12 @@ def test_requires_auth(client):
             client.cookies.set(k, v)
 
 
-def test_steps_and_mood(client):
+def test_steps_and_mood(client, monkeypatch):
+    from app import companion
+
+    # held Rooks tool calls and coding jobs left by earlier test files would make the mood "waiting"
+    monkeypatch.setattr(companion, "_rooks_items", lambda: ([], []))
+    monkeypatch.setattr(companion, "_requests", {})  # and permission requests left pending by the hook tests
     auth = _token(client)
     ev = {"tool": "claude-code", "session": "s1", "folder": "/tmp/proj", "event": "step", "kind": "read", "text": "Read app.py"}
     assert client.post("/api/companion/events", json=ev, headers=auth).status_code == 200

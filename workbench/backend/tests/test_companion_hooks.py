@@ -28,58 +28,23 @@ def _port() -> int:
 
 
 @pytest.fixture(scope="session")
-def companion_url(tmp_path_factory):
-    """Start a real uvicorn server for the companion API."""
-    data_dir = tmp_path_factory.mktemp("data")
-    companion_file = tmp_path_factory.mktemp("companion") / "companion.json"
+def companion_url(client):
+    """The session's app (conftest's client fixture: its data dir, database and sign-in) served over real HTTP, so the
+    hook scripts can reach it as a separate process would. lifespan="off": the app already started once, and starting
+    it again would re-run startup (the MCP session manager allows one run) and must not swap the database."""
+    from app import main
 
-    # Env vars must be set BEFORE importing app.config (it resolves DATA_DIR at import time).
-    os.environ.update(
-        APP_SECRET="a" * 40,
-        TOOLS_API_KEY="k" * 30,
-        DATA_DIR=str(data_dir),
-        ROOKS_COMPANION_FILE=str(companion_file),
-    )
-    from app import main, db, config
-    config.DATA_DIR = data_dir
-    config.DB_PATH = data_dir / "workbench.db"
-    
     port = _port()
-    server = uvicorn.Server(uvicorn.Config(main.app, host="127.0.0.1", port=port, log_level="error"))
+    server = uvicorn.Server(uvicorn.Config(main.app, host="127.0.0.1", port=port, log_level="error", lifespan="off"))
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
-    
-    # Wait for server to start
     for _ in range(50):
         try:
             socket.create_connection(("127.0.0.1", port), timeout=0.2).close()
             break
         except OSError:
             time.sleep(0.1)
-    
-    # Initialize the app (setup, providers, etc.)
-    import requests
-    base_url = f"http://127.0.0.1:{port}"
-    headers = {"X-Workbench": "1"}
-    # The desktop-token path signs us in without a password round-trip: the companion
-    # is a local, same-machine API, so a same-machine test can log in like the desktop app.
-    import app.config as _cfg
-    _cfg.DESKTOP = True
-    _cfg.DESKTOP_TOKEN = "test-desktop-token"
-    s = requests.Session()
-    s.headers.update(headers)
-    r = s.get(f"{base_url}/api/desktop/session?token=test-desktop-token", allow_redirects=False)
-    assert r.status_code in (302, 303, 307), f"desktop session failed: {r.status_code} {r.text}"
-    requests.post(f"{base_url}/api/setup", json={"password": "testpassword1"}, headers=headers, cookies=s.cookies)
-    r = s.post(f"{base_url}/api/providers", json={"name": "Fake", "kind": "openai", "base_url": "http://fake", "api_key": "x"})
-    assert "id" in r.json(), f"provider create failed: {r.status_code} {r.text}"
-    pid = r.json()["id"]
-    s.put(f"{base_url}/api/settings", json={"default_model": f"{pid}/fake-model"})
-    # Set companion settings
-    s.post(f"{base_url}/api/settings", json={"learning_enabled": "1", "compress_history": "0"})
-    
-    yield base_url
-    
+    yield f"http://127.0.0.1:{port}"
     server.should_exit = True
     thread.join(timeout=5)
 
@@ -235,7 +200,8 @@ class TestHookBridge:
             for _ in range(40):
                 time.sleep(0.25)
                 st = requests.get(f"{companion_url}/api/companion/state", headers=auth).json()
-                pend = [r for r in st["requests"] if r["status"] == "pending"]
+                # this hook's own request: other test files can leave unrelated requests pending
+                pend = [r for r in st["requests"] if r["status"] == "pending" and r.get("session") == "test-session-3"]
                 if pend:
                     requests.post(f"{companion_url}/api/companion/requests/{pend[0]['id']}/decide",
                                   json={"decision": "allow"}, headers=auth)
