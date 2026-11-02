@@ -38,6 +38,17 @@ _ANNOUNCES = re.compile(r"\b(I'll|I will|I am going to|I'm going to|Let's|Let me
 NUDGE = ("You described a next step but did not call a tool. Call the tool now. If the task is already finished, reply "
          "with your final summary instead.")
 NUDGES = 2
+RETRIES = 3          # transient provider errors (429, 5xx) per model call
+RETRY_BASE_S = 2.0   # 2, 6, 18 seconds unless the provider says how long
+RETRY_MAX_S = 30.0
+
+# Long sessions: when the conversation would fill COMPACT_AT of the model's window, everything before the last few turns
+# is replaced by a summary the model writes, so a session can run for hours without the provider rejecting it.
+COMPACT_AT = 0.7
+KEEP_TURNS = 2  # the newest user prompts (with their tool calls and results) always stay word for word
+SUMMARY_SYSTEM = ("You compress a coding session so it can continue. Write a dense summary of the conversation below for "
+                  "the agent that continues it: the user's goals and preferences, files read or changed (exact paths), "
+                  "commands run and their results, decisions made, and what is still open. Facts only, no advice.")
 
 
 def announces_step(text: str) -> bool:
@@ -67,7 +78,7 @@ class Budget:
 
 
 class Agent:
-    def __init__(self, settings, ui, model=None, log: RunLog | None = None):
+    def __init__(self, settings, ui, model=None, log: RunLog | None = None, messages: list[dict] | None = None):
         self.s, self.ui = settings, ui
         self.root: Path = settings.root.resolve()
         self.log = log or RunLog(self.root, provider=settings.provider, model=settings.model)
@@ -75,7 +86,7 @@ class Agent:
         self.tools = Toolbox(self.root, settings.command_timeout)
         self.changes = ChangeSets(self.root)
         self.mcp = MCPManager(settings.mcp_servers, str(self.root), warn=ui.warn) if settings.mcp_servers else None
-        self.messages: list[dict] = []
+        self.messages: list[dict] = list(messages or [])
         self.always: set[str] = set()  # effects approved for the rest of the session ("a" at the prompt)
         self.budget = Budget(settings.max_tokens, settings.max_usd, settings.model, settings.prices, settings.local)
         self.system = SYSTEM.format(root=self.root, os=f"{platform.system()} {platform.release()}", listing=_listing(self.root))
@@ -110,6 +121,81 @@ class Agent:
             return "approved for this session"
         return ""
 
+    # sessions ----------------------------------------------------------------------------------------------------
+    @property
+    def transcript_path(self) -> Path:
+        return self.log.path.with_suffix(".messages.json")
+
+    def save(self) -> None:
+        """The conversation next to its receipt, so `rooks -c` (or --resume ID) can pick it up later."""
+        try:
+            self.transcript_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.transcript_path.with_suffix(".tmp")
+            tmp.write_text(json.dumps({"provider": self.s.provider, "model": self.s.model, "messages": self.messages},
+                                      ensure_ascii=False), encoding="utf-8")
+            tmp.replace(self.transcript_path)
+        except OSError as e:
+            self.ui.warn(f"could not save the session for later: {e}")
+
+    def switch(self, settings, model=None) -> None:
+        """Another model or provider for the rest of the session; the conversation carries over."""
+        self.s = settings
+        self.model = model or providers.make(settings, on_egress=self._egress)
+        self.log.provider, self.log.model = settings.provider, settings.model
+        self.budget = Budget(settings.max_tokens, settings.max_usd, settings.model, settings.prices, settings.local)
+
+    # compaction --------------------------------------------------------------------------------------------------
+    def _estimate(self) -> int:
+        return len(self.system + json.dumps(self.messages) + json.dumps(self.tool_specs())) // 4
+
+    def _split(self) -> int:
+        """Index where the kept tail starts: at a real user prompt, so no tool result loses its call."""
+        prompts = [i for i, m in enumerate(self.messages) if m["role"] == "user" and m.get("content") != NUDGE]
+        return prompts[-KEEP_TURNS] if len(prompts) >= KEEP_TURNS else 0
+
+    def compact(self, reason: str = "") -> bool:
+        """Summarise everything before the last KEEP_TURNS prompts. Returns whether anything was compacted."""
+        cut = self._split()
+        if cut <= 0:  # one long prompt: nothing whole to summarise, so shorten its older tool outputs instead
+            return self._shrink_tool_results()
+        old, before = self.messages[:cut], self._estimate()
+        lines = []
+        for m in old:
+            body = m.get("content") or ""
+            if m.get("tool_calls"):
+                body += " " + " ".join(f"[calls {c['function']['name']} {c['function']['arguments'][:300]}]" for c in m["tool_calls"])
+            lines.append(f"{m['role'].upper()}: {body[:4000]}")
+        t0 = time.monotonic()
+        try:
+            reply = self.model.complete(SUMMARY_SYSTEM, [{"role": "user", "content": "\n\n".join(lines)[-200_000:]}], [])
+            summary = providers.THINK_RE.sub("", reply.text or "").strip()
+            usd = providers.cost(self.s.model, reply.tokens_in, reply.tokens_out, self.s.prices, self.s.local)
+            self.log.add("model_call", "ok", parent=self._turn, latency_ms=int((time.monotonic() - t0) * 1000),
+                         tokens_in=reply.tokens_in, tokens_out=reply.tokens_out, usd_cost=usd, detail="compaction summary")
+        except providers.ProviderError as e:
+            summary = ""
+            self.log.add("model_call", "error", parent=self._turn, failure_reason=str(e), detail="compaction summary")
+        if not summary:  # no summary: the oldest turns are dropped rather than the whole session failing
+            summary = f"(The first {len(old)} messages were dropped to fit the model's window; no summary was available.)"
+        self.messages = [{"role": "user", "content": f"[Summary of the earlier part of this session]\n{summary}"},
+                         {"role": "assistant", "content": "Understood. Continuing from that summary."}, *self.messages[cut:]]
+        after = self._estimate()
+        self.log.add("compaction", "ok", parent=self._turn, detail=f"{len(old)} messages summarised, ~{before:,} to ~{after:,} tokens"
+                     + (f" ({reason})" if reason else ""))
+        self.ui.tool_note(f"compacted the conversation: ~{before:,} to ~{after:,} tokens")
+        return True
+
+    def _shrink_tool_results(self, keep_last: int = 6, limit: int = 2000) -> bool:
+        changed = 0
+        for m in self.messages[:-keep_last]:
+            if m["role"] == "tool" and len(m.get("content") or "") > limit:
+                m["content"] = m["content"][:limit - 500] + "\n[... output shortened to fit the model's context window ...]"
+                changed += 1
+        if changed:
+            self.log.add("compaction", "ok", parent=self._turn, detail=f"shortened {changed} old tool output(s)")
+            self.ui.tool_note(f"shortened {changed} old tool output(s) to fit the context window")
+        return bool(changed)
+
     # one prompt --------------------------------------------------------------------------------------------------
     def run(self, prompt: str) -> str:
         self.messages.append({"role": "user", "content": prompt})
@@ -118,7 +204,9 @@ class Agent:
         started, outcome, answer, writes, failed_checks, nudges = time.monotonic(), "no_claim", "", 0, 0, 0
         try:
             for step in range(self.s.max_steps):
-                estimate = len(self.system + json.dumps(self.messages) + json.dumps(self.tool_specs())) // 4
+                estimate = self._estimate()
+                if self.s.context_tokens and estimate > self.s.context_tokens * COMPACT_AT and self.compact("context window"):
+                    estimate = self._estimate()
                 reason = self.budget.check(self.log.totals(), estimate)
                 if reason:
                     outcome, answer = "budget_paused", f"Stopped: {reason}. Raise the cap with --max-tokens/--max-usd."
@@ -126,8 +214,9 @@ class Agent:
                     break
                 self.ui.thinking(True)
                 t0 = time.monotonic()
+                streamed: list[str] = []
                 try:
-                    reply = self.model.complete(self.system, self.messages, self.tool_specs())
+                    reply = self._complete(streamed)
                 except providers.ProviderError as e:
                     self.log.add("model_call", "error", parent=turn, latency_ms=int((time.monotonic() - t0) * 1000),
                                  failure_reason=str(e))
@@ -136,6 +225,8 @@ class Agent:
                     break
                 finally:
                     self.ui.thinking(False)
+                    if streamed:
+                        self.ui.stream_end()
                 reply.text = providers.THINK_RE.sub("", reply.text or "").strip()
                 if reply.text:
                     # Small local models may print some calls as text and return others as real calls in the same
@@ -158,7 +249,7 @@ class Agent:
                         "name": c.name, "arguments": json.dumps(c.arguments)}} for c in reply.tool_calls]
                 self.messages.append(msg)
                 nudge = (not reply.tool_calls and self.s.nudge and nudges < NUDGES and announces_step(reply.text))
-                if reply.text:
+                if reply.text and not streamed:
                     self.ui.assistant(reply.text, final=not reply.tool_calls and not nudge)
                 if nudge:
                     nudges += 1
@@ -195,7 +286,37 @@ class Agent:
                             detail="; ".join(x for x in (f"undo: {saved.name}" if saved else "",
                                                          f"nudged {nudges}x to call the tool it announced" if nudges else "") if x))
             self.ui.footer(t, self.s, saved is not None)
+            self.save()
         return answer
+
+    def _complete(self, streamed: list[str]):
+        """One model call. A rate limit or an overloaded provider is tried again after a pause (its Retry-After when
+        it sends one), up to RETRIES times, but never once text has been shown: a half answer is not restarted."""
+        on_text = None
+        if self._streaming():
+            def on_text(delta: str) -> None:
+                if not streamed:
+                    self.ui.thinking(False)
+                streamed.append(delta)
+                self.ui.stream(delta)
+        for attempt in range(RETRIES + 1):
+            try:
+                if on_text:
+                    return self.model.complete(self.system, self.messages, self.tool_specs(), on_text=on_text)
+                return self.model.complete(self.system, self.messages, self.tool_specs())
+            except providers.ProviderError as e:
+                if attempt == RETRIES or streamed or not getattr(e, "transient", False):
+                    raise
+                wait = min(e.retry_after if e.retry_after is not None else RETRY_BASE_S * 3 ** attempt, RETRY_MAX_S)
+                self.ui.thinking(False)
+                self.ui.warn(f"{self.s.provider} is busy (HTTP {e.status}); trying again in {wait:.0f} s")
+                self.log.add("model_call", "retry", parent=self._turn, failure_reason=str(e)[:500])
+                time.sleep(wait)
+                self.ui.thinking(True)
+        raise AssertionError("unreachable")
+
+    def _streaming(self) -> bool:
+        return bool(getattr(self.s, "stream", False)) and getattr(self.ui, "can_stream", lambda: False)()
 
     def _call(self, call: providers.ToolCall, turn: int) -> tuple[str, str]:
         """Run one tool call through prepare -> approve -> apply -> verify. Returns (result for the model, outcome)."""

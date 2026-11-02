@@ -1,11 +1,13 @@
 """Settings: built-in defaults < config file < environment < command-line flags.
 
 Config file (TOML): $ROOKS_CONFIG, else ~/.config/ai-workspace/rooks.toml (Windows: %APPDATA%\\ai-workspace\\rooks.toml).
-API keys are never stored by Rooks: each provider names the environment variable that holds its key.
+Keys: each provider names the environment variable that holds its key, and that always wins. `rooks login` can also
+keep a key in rooks-keys.json next to the config file, readable only by you (mode 600); never in rooks.toml.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import sys
@@ -37,6 +39,13 @@ PROVIDERS: dict[str, dict] = {
     "xai": {"kind": "openai", "base_url": "https://api.x.ai/v1", "key_env": "XAI_API_KEY", "model": "grok-4-fast"},
     "deepseek": {"kind": "openai", "base_url": "https://api.deepseek.com/v1", "key_env": "DEEPSEEK_API_KEY", "model": "deepseek-chat"},
     "mistral": {"kind": "openai", "base_url": "https://api.mistral.ai/v1", "key_env": "MISTRAL_API_KEY", "model": "mistral-large-latest"},
+    "nvidia": {"kind": "openai", "base_url": "https://integrate.api.nvidia.com/v1", "key_env": "NVIDIA_API_KEY",
+               "model": "nvidia/nemotron-3-ultra-550b-a55b"},
+    "cerebras": {"kind": "openai", "base_url": "https://api.cerebras.ai/v1", "key_env": "CEREBRAS_API_KEY", "model": "gpt-oss-120b"},
+    "together": {"kind": "openai", "base_url": "https://api.together.xyz/v1", "key_env": "TOGETHER_API_KEY",
+                 "model": "moonshotai/Kimi-K3"},
+    "fireworks": {"kind": "openai", "base_url": "https://api.fireworks.ai/inference/v1", "key_env": "FIREWORKS_API_KEY",
+                  "model": "accounts/fireworks/models/glm-5p3"},
     # Delegates: hand the job to the user's own signed-in Claude Code or Codex CLI (their Claude or ChatGPT plan).
     # Rooks never sees a key or token for these; see rooks_code/delegate.py.
     "claude-code": {"kind": "delegate", "base_url": "", "key_env": "", "model": "default", "key_optional": True},
@@ -77,12 +86,53 @@ def app_link() -> dict:
         return {}
 
 
-NO_MODEL_HELP = ("No AI model is set up yet. Either open the app (run `ai-workspace`) and choose \"Free cloud\" "
-                 "(a free Gemini or Groq key: two minutes, no card), or set a key in this terminal and run again:\n"
+NO_MODEL_HELP = ("No AI model is set up yet. Run `rooks login` to connect one, or open the app (run `ai-workspace`) and "
+                 "choose \"Free cloud\" (a free Gemini or Groq key: two minutes, no card), or set a key in this terminal:\n"
                  "    export GROQ_API_KEY=...     (free at https://console.groq.com/keys)\n"
                  "    export GEMINI_API_KEY=...   (free at https://aistudio.google.com/apikey)\n"
                  "On Windows PowerShell: $env:GROQ_API_KEY=\"...\"")
-KEY_ORDER = ("anthropic", "openai", "openrouter", "gemini", "groq", "xai", "deepseek", "mistral")  # when no app is open
+KEY_ORDER = ("anthropic", "openai", "openrouter", "gemini", "groq", "nvidia", "xai", "deepseek", "mistral", "cerebras",
+             "together", "fireworks")  # when no app is open
+DOCKER_URL = "http://localhost:3100"  # where setup.sh publishes Workbench (WORKBENCH_PORT)
+
+
+def keys_path() -> Path:
+    return config_path().parent / "rooks-keys.json"
+
+
+def stored_keys() -> dict[str, str]:
+    try:
+        d = json.loads(keys_path().read_text(encoding="utf-8"))
+        return {str(k): str(v) for k, v in d.items()} if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def store_key(provider: str, key: str) -> Path:
+    """Keep a key for a provider, readable by the owner only. Written to a temp file first so a crash leaves no half file."""
+    p = keys_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    keys = {**stored_keys(), provider: key}
+    tmp = p.with_suffix(".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(keys, f, indent=1)
+    os.chmod(tmp, 0o600)
+    tmp.replace(p)
+    return p
+
+
+def docker_workbench() -> str:
+    """The URL of a Workbench answering on this machine (the Docker install), or ''."""
+    import urllib.request
+
+    port = os.environ.get("WORKBENCH_PORT", "")
+    url = f"http://localhost:{port}" if port.isdigit() else DOCKER_URL
+    try:
+        urllib.request.urlopen(f"{url}/healthz", timeout=1.0).close()
+        return url
+    except (OSError, ValueError):
+        return ""
 
 
 def app_has_models(link: dict) -> bool:
@@ -140,13 +190,15 @@ class Settings:
     mcp_servers: dict[str, dict] = field(default_factory=dict)
     prices: dict[str, list[float]] = field(default_factory=dict)  # model -> [usd per 1M in, usd per 1M out]
     workbench_url: str = ""
+    stream: bool = True                  # show answers as they are written (interactive terminals only)
+    context_tokens: int = 128_000        # the model's window; older turns are summarised at 70% of it
     headers: dict[str, str] = field(default_factory=dict)  # extra HTTP headers for the provider
     key: str = ""                        # a key handed over by the running app (never written anywhere by Rooks)
     root: Path = field(default_factory=Path.cwd)
 
     @property
     def api_key(self) -> str:
-        return (os.environ.get(self.key_env, "") if self.key_env else "") or self.key
+        return (os.environ.get(self.key_env, "") if self.key_env else "") or self.key or stored_keys().get(self.provider, "")
 
     def trusted(self) -> bool:
         root = self.root.resolve()
@@ -172,7 +224,8 @@ def resolve(flags: dict, root: Path, file: dict | None = None) -> Settings:
     """Build settings from the file, ROOKS_* environment variables and flags (flags win). Unknown providers are errors."""
     cfg = load_file() if file is None else file
     s = Settings(root=root)
-    for key in ("max_usd", "max_tokens", "max_steps", "command_timeout", "trusted_folders", "auto_approve", "workbench_url", "nudge"):
+    for key in ("max_usd", "max_tokens", "max_steps", "command_timeout", "trusted_folders", "auto_approve", "workbench_url", "nudge",
+                "stream", "context_tokens"):
         if key in cfg:
             setattr(s, key, cfg[key])
     s.prices = dict(cfg.get("prices", {}))
@@ -194,9 +247,16 @@ def resolve(flags: dict, root: Path, file: dict | None = None) -> Settings:
                 name = "workbench"
             else:
                 link = {}
-                name = next((n for n in KEY_ORDER if os.environ.get(PROVIDERS[n]["key_env"])), "")
-                if not name:
+                stored = stored_keys()
+                name = next((n for n in KEY_ORDER if os.environ.get(PROVIDERS[n]["key_env"]) or stored.get(n)), "")
+                docker = "" if name else docker_workbench()
+                if docker and (os.environ.get("WORKBENCH_API_KEY") or stored.get("workbench")):
+                    name, s.workbench_url = "workbench", docker
+                elif not name:
                     if not _ollama_up():
+                        if docker:
+                            raise SystemExit(f"rooks: found AI Workspace at {docker}, but no key for it. Run `rooks login` "
+                                             "and paste the token from Settings > Terminal access.")
                         raise SystemExit(f"rooks: {NO_MODEL_HELP}")
                     name = "ollama"
     custom = cfg.get("providers", {}).get(name, {})
@@ -213,6 +273,8 @@ def resolve(flags: dict, root: Path, file: dict | None = None) -> Settings:
         if not wb:
             link = link or app_link()
             wb, s.key = link.get("url", ""), link.get("key", "")
+        if not wb:
+            wb = docker_workbench()
         if not wb:
             raise SystemExit("rooks: the workbench provider needs the AI Workspace app open (or WORKBENCH_URL / workbench_url)")
         s.base_url = wb.rstrip("/") + "/v1"
@@ -260,6 +322,7 @@ def _project_mcp(root: Path) -> dict:
 EXAMPLE = '''# Rooks Code settings. API keys are read from the environment variables named here; never put a key in this file.
 # provider = "workbench"            # default: the open AI Workspace app, else ollama
 #                                   # workbench | openai | anthropic | openrouter | groq | gemini | xai | deepseek | mistral
+#                                   # | nvidia | cerebras | together | fireworks
 #                                   # | ollama | lmstudio | openai-compatible | your own
 #                                   # | claude-code | codex  (delegate to your own signed-in CLI and its plan)
 # model = "qwen2.5:7b"
@@ -267,6 +330,8 @@ max_usd = 1.0                       # hard cap per session, in US dollars (0 = n
 max_tokens = 200000                 # hard cap per session (0 = no cap)
 trusted_folders = []                # edits and commands inside these folders run without asking
 # workbench_url = "http://localhost:3100"
+# stream = true                     # show answers as they are written
+# context_tokens = 128000           # the model's context window; older turns are summarised at 70% of it
 
 # [providers.groq]                  # any OpenAI-compatible endpoint
 # kind = "openai"

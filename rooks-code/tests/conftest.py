@@ -10,6 +10,13 @@ sys.path.insert(0, str(PKG))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 
+@pytest.fixture(autouse=True)
+def no_local_servers(monkeypatch, tmp_path):
+    """A Workbench on this machine (Docker on :3100) or keys saved by a real `rooks login` must not leak into tests."""
+    monkeypatch.setenv("WORKBENCH_PORT", "9")
+    monkeypatch.setenv("ROOKS_CONFIG", str(tmp_path / "isolated-rooks.toml"))
+
+
 @pytest.fixture
 def project(tmp_path, monkeypatch):
     p = tmp_path / "proj"
@@ -29,5 +36,5 @@ def project(tmp_path, monkeypatch):
 def rooks(project, *args, stdin="", env=None):
     e = {**os.environ, "PYTHONPATH": str(PKG), "NO_COLOR": "1", "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1", **(env or {})}
     return subprocess.run([sys.executable, "-m", "rooks_code", "-C", str(project), *args] if args and args[0] not in (
-        "undo", "receipts", "doctor", "init", "mcp", "version") else [sys.executable, "-m", "rooks_code", *args],
+        "undo", "receipts", "doctor", "init", "mcp", "version", "login") else [sys.executable, "-m", "rooks_code", *args],
         input=stdin, capture_output=True, text=True, encoding="utf-8", env=e, timeout=60)

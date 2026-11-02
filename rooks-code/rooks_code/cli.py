@@ -3,10 +3,12 @@ or local Ollama / LM Studio (works fully offline).
 
   rooks                         interactive session in the current folder
   rooks "fix the failing test"  one prompt, then exit (prints the final answer; exit 1 if it did not finish)
+  rooks -c                      continue the last session in this folder (--resume ID for an older one)
+  rooks login                   connect a model: paste a key, or point at your AI Workspace server
   rooks undo                    put back the files changed by the last prompt
   rooks receipts [list|show|import --db PATH]
   rooks -P claude-code "task"   hand the job to your own signed-in Claude Code (your Claude plan); also -P codex
-  rooks doctor                  check the provider, key and MCP servers
+  rooks doctor                  check the provider, key and MCP servers, and say what to fix
   rooks init                    write an example config file
   rooks mcp                     list MCP servers and their tools
 
@@ -27,7 +29,7 @@ from . import __version__, config, receipts
 from . import theme as term_theme
 from .undo import ChangeSets
 
-SUBCOMMANDS = ("undo", "receipts", "doctor", "init", "mcp", "version")
+SUBCOMMANDS = ("undo", "receipts", "doctor", "init", "mcp", "version", "login")
 
 
 class UI:
@@ -54,6 +56,17 @@ class UI:
 
     def error(self, text: str) -> None:
         self.p(self.c("31", f"✗ {text}"), err=True)
+
+    def can_stream(self) -> bool:
+        return self.out.isatty() if hasattr(self.out, "isatty") else False
+
+    def stream(self, delta: str) -> None:
+        self.out.write(delta)
+        self.out.flush()
+
+    def stream_end(self) -> None:
+        self.out.write("\n")
+        self.out.flush()
 
     def assistant(self, text: str, final: bool) -> None:
         self.p(("" if final else self.c("2", "· ")) + text.strip())
@@ -138,6 +151,9 @@ def parser() -> argparse.ArgumentParser:
     ap.add_argument("--max-tokens", type=int, help="hard token cap for this session (0 = none)")
     ap.add_argument("--max-steps", type=int, help="model calls per prompt before stopping (default 40)")
     ap.add_argument("--no-mcp", action="store_true", help="do not start MCP servers")
+    ap.add_argument("-c", "--continue", dest="cont", action="store_true", help="continue the last session in this folder")
+    ap.add_argument("--resume", metavar="ID", help="continue an earlier session (ids: rooks receipts list)")
+    ap.add_argument("--no-stream", action="store_true", help="print each answer when it is complete")
     ap.add_argument("--no-color", action="store_true")
     ap.add_argument("--theme", choices=term_theme.THEMES, help="terminal colours (default: the theme chosen in AI Workspace, or $ROOKS_THEME)")
     ap.add_argument("--version", action="version", version=f"rooks {__version__}")
@@ -162,6 +178,8 @@ def main(argv: list[str] | None = None) -> int:
                         "max_steps": args.max_steps}, root)
     if args.no_mcp:
         s.mcp_servers = {}
+    if args.no_stream:
+        s.stream = False
     ui = UI(color=False if args.no_color else None, theme=getattr(args, "theme", None))
     if s.kind == "delegate":
         from . import delegate
@@ -170,7 +188,14 @@ def main(argv: list[str] | None = None) -> int:
         ui.error(f"{s.provider} needs an API key in the {s.key_env} environment variable (or use --provider ollama)")
         return 2
     from .agent import Agent
-    agent = Agent(s, ui)
+    history: list[dict] = []
+    if args.cont or args.resume:
+        history, note = load_session(root, args.resume)
+        if note:
+            ui.error(note) if not history else ui.p(ui.c("2", note))
+            if not history:
+                return 1
+    agent = Agent(s, ui, messages=history)
     try:
         if args.prompt:
             answer = agent.run(" ".join(args.prompt))
@@ -181,12 +206,87 @@ def main(argv: list[str] | None = None) -> int:
         agent.close()
 
 
-HELP = """/undo     put back the files changed by the last prompt
-/cost     tokens and cost so far
-/dry-run  toggle dry run          /yes   toggle auto-approve
-/model X  switch model (same provider)
-/receipt  path of this session's receipt
-/clear    forget the conversation /exit  quit (or Ctrl-D)"""
+HELP = """/undo        put back the files changed by the last prompt
+/cost        tokens and cost so far
+/dry-run     toggle dry run          /yes   toggle auto-approve
+/model       list the provider's models; /model N or /model NAME switches
+/provider P  switch provider (openai, anthropic, nvidia, workbench, ...), keeping the conversation
+/compact     summarise the conversation so far to free the context window
+/receipt     path of this session's receipt
+/clear       forget the conversation /exit  quit (or Ctrl-D)"""
+
+
+def load_session(root: Path, session: str | None) -> tuple[list[dict], str]:
+    """(messages, note) of a saved session in this folder: the newest, or the one named."""
+    import json
+
+    runs = root / ".rooks" / "runs"
+    files = sorted(runs.glob("*.messages.json")) if runs.is_dir() else []
+    if session:
+        files = [f for f in files if f.name == f"{session}.messages.json"]
+    if not files:
+        return [], (f"no saved session {session!r} in this folder" if session else "no earlier session in this folder to continue")
+    try:
+        data = json.loads(files[-1].read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        return [], f"cannot read {files[-1]}: {e}"
+    msgs = data.get("messages") or []
+    last = msgs[-1] if msgs else {}
+    if last.get("role") == "assistant" and last.get("tool_calls"):  # saved mid tool call: close it so the model accepts it
+        msgs += [{"role": "tool", "tool_call_id": c["id"], "content": "interrupted"} for c in last["tool_calls"]]
+    prompts = sum(m["role"] == "user" for m in msgs)
+    return msgs, f"continuing session {files[-1].name.removesuffix('.messages.json')} ({prompts} earlier prompt(s), last on {data.get('provider')}/{data.get('model')})"
+
+
+def model_command(agent, ui: UI, rest: str) -> None:
+    """/model: list what the provider offers, numbered; /model N or /model NAME switches."""
+    s = agent.s
+    choice = rest.strip()
+    listed: list[str] = getattr(agent, "_listed_models", [])
+    if choice.isdigit() and listed and 1 <= int(choice) <= len(listed):
+        choice = listed[int(choice) - 1]
+    if choice:
+        s.model = agent.model.model = agent.log.model = choice
+        agent.switch(s, agent.model)
+        ui.p(f"model is now {s.model}")
+        return
+    try:
+        listed = agent.model.list_models() if hasattr(agent.model, "list_models") else []
+    except Exception as e:  # noqa: BLE001 - shown, never fatal
+        ui.warn(f"could not list models: {e}")
+        return
+    if not listed:
+        ui.p(f"{s.provider} lists no models; type /model NAME")
+        return
+    agent._listed_models = listed
+    for i, m in enumerate(listed[:200], 1):
+        ui.p(("→ " if m == s.model else "  ") + f"{i:>3}  {m}")
+    if len(listed) > 200:
+        ui.p(f"  ... {len(listed) - 200} more; type /model NAME")
+    ui.p(ui.c("2", "/model N or /model NAME to switch"))
+
+
+def provider_command(agent, ui: UI, rest: str) -> None:
+    name = rest.strip()
+    if not name:
+        ui.p(f"provider is {agent.s.provider}; built in: {', '.join(config.PROVIDERS)}")
+        return
+    try:
+        s = config.resolve({"provider": name}, agent.root)
+    except SystemExit as e:
+        ui.error(str(e).removeprefix("rooks: "))
+        return
+    if s.kind == "delegate":
+        ui.error(f"{name} hands whole jobs to another CLI; start it with rooks -P {name} instead")
+        return
+    if s.key_env and not s.api_key and not s.key_optional:
+        ui.error(f"{name} needs a key: set {s.key_env} or run rooks login")
+        return
+    for k in ("max_usd", "max_tokens", "max_steps", "auto_approve", "dry_run", "stream"):
+        setattr(s, k, getattr(agent.s, k))
+    s.mcp_servers = agent.s.mcp_servers
+    agent.switch(s)
+    ui.p(f"now on {s.provider}/{s.model}")
 
 
 def repl(agent, ui: UI) -> int:
@@ -235,9 +335,14 @@ def repl(agent, ui: UI) -> int:
             elif cmd == "/yes":
                 s.auto_approve = not s.auto_approve
                 ui.p(f"auto-approve {'on' if s.auto_approve else 'off'}")
-            elif cmd == "/model" and rest.strip():
-                s.model = agent.model.model = agent.log.model = rest.strip()
-                ui.p(f"model is now {s.model}")
+            elif cmd == "/model":
+                model_command(agent, ui, rest)
+                s = agent.s
+            elif cmd == "/provider":
+                provider_command(agent, ui, rest)
+                s = agent.s
+            elif cmd == "/compact":
+                ui.p("" if agent.compact("asked with /compact") else "nothing to compact yet")
             elif cmd == "/receipt":
                 ui.p(str(agent.log.path))
             elif cmd == "/clear":
@@ -267,6 +372,11 @@ def subcommand(name: str, rest: list[str]) -> int:
         ap.add_argument("--all", action="store_true", help="import every session")
     if name == "init":
         ap.add_argument("--force", action="store_true")
+    if name == "login":
+        ap.add_argument("-P", "--provider", help="skip the menu: the provider to connect")
+        ap.add_argument("--url", help="AI Workspace server URL (provider workbench)")
+        ap.add_argument("-m", "--model")
+        ap.add_argument("--key-stdin", action="store_true", help="read the key from standard input (scripts)")
     if name == "doctor":
         ap.add_argument("-P", "--provider")
         ap.add_argument("-m", "--model")
@@ -319,6 +429,9 @@ def subcommand(name: str, rest: list[str]) -> int:
                 print(f"imported {n} row(s) into {a.db} (channel {receipts.CHANNEL})")
     elif name == "doctor":
         return doctor(root, a)
+    elif name == "login":
+        from . import login
+        return login.main(a, root)
     elif name == "mcp":
         s = config.resolve({"provider": "ollama", "model": "x"}, root)
         if not s.mcp_servers:
@@ -336,12 +449,35 @@ def subcommand(name: str, rest: list[str]) -> int:
     return 0
 
 
+def diagnose(problem: str) -> int:
+    """No usable model: list what was looked for and found, then the one thing to do."""
+    print(f"problem: {problem.removeprefix('rooks: ').splitlines()[0]}")
+    print("looked for:")
+    link = config.app_link()
+    print(f"  AI Workspace desktop app: {'open at ' + link['url'] if link else 'not open'}")
+    docker = config.docker_workbench()
+    has_wb_key = bool(os.environ.get("WORKBENCH_API_KEY") or config.stored_keys().get("workbench"))
+    print(f"  AI Workspace server (Docker): {('running at ' + docker) if docker else 'not answering on ' + config.DOCKER_URL}"
+          + (f", key {'set' if has_wb_key else 'NOT set'}" if docker else ""))
+    found = [n for n in config.KEY_ORDER if os.environ.get(config.PROVIDERS[n]["key_env"])]
+    stored = sorted(config.stored_keys())
+    print(f"  API keys in the environment: {', '.join(config.PROVIDERS[n]['key_env'] for n in found) or 'none'}")
+    print(f"  keys saved by rooks login: {', '.join(stored) or 'none'} ({config.keys_path()})")
+    print(f"  Ollama: {'running' if config._ollama_up() else 'not running'}")
+    print("fix: " + ("run `rooks login`, choose the AI Workspace server and paste the token from Settings > Terminal access"
+                     if docker and not has_wb_key else "run `rooks login` and paste a key (free: NVIDIA, Groq, Gemini)"))
+    return 1
+
+
 def doctor(root: Path, a) -> int:
     from . import providers
     ok = True
     print(f"rooks {__version__}, Python {sys.version.split()[0]}, {sys.platform}")
     print(f"config: {config.config_path()} ({'found' if config.config_path().exists() else 'not found, using defaults'})")
-    s = config.resolve({"provider": a.provider, "model": a.model, "base_url": a.base_url}, root)
+    try:
+        s = config.resolve({"provider": a.provider, "model": a.model, "base_url": a.base_url}, root)
+    except SystemExit as e:
+        return diagnose(str(e))
     if s.kind == "delegate":
         from . import delegate
         return delegate.doctor(s.provider)
@@ -350,7 +486,9 @@ def doctor(root: Path, a) -> int:
         print(f"api key: {s.key_env} is {'set' if s.api_key else 'NOT set'}")
         ok &= bool(s.api_key) or s.key_optional
     try:
-        r = providers.make(s).complete("Reply with the single word: ready", [{"role": "user", "content": "ping"}], [])
+        model = providers.make(s)
+        model.timeout = 60  # a check, not a task: a provider that hangs is reported instead of waited on
+        r = model.complete("Reply with the single word: ready", [{"role": "user", "content": "ping"}], [])
         print(f"model call: ok ({r.text.strip()[:40]!r}, {r.tokens_in}+{r.tokens_out} tokens)")
     except providers.ProviderError as e:
         ok = False
