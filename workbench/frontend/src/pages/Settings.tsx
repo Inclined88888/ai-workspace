@@ -62,6 +62,7 @@ const CONNECTION_TYPES: Record<string, string> = {
   "api_key/anthropic_messages": "API key · Anthropic Messages",
   "openai_compatible/chat_completions": "OpenAI compatible server (key optional)",
   "local_ollama/ollama_native": "Ollama (local)",
+  "cli_subscription/cli_plan": "Your plan, through its CLI (cli://claude or cli://codex, no key)",
 };
 const typeLabel = (p: { auth_kind: string; protocol: string }) =>
   CONNECTION_TYPES[`${p.auth_kind}/${p.protocol}`] ?? `${p.auth_kind} · ${p.protocol}`;

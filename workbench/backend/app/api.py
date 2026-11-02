@@ -251,7 +251,7 @@ class ProviderIn(BaseModel):
     auth_kind: str | None = Field(None, max_length=40)
     protocol: str | None = Field(None, max_length=40)
     kind: Literal["openai", "anthropic", "ollama"] | None = None
-    base_url: str = Field(..., pattern=r"^https?://", max_length=300)
+    base_url: str = Field(..., pattern=r"^(https?://|cli://(claude|codex)/?$)", max_length=300)
     api_key: str | None = Field(None, max_length=500)
     models: str = Field("", max_length=2000)
     enabled: bool = True
@@ -265,6 +265,8 @@ class ProviderIn(BaseModel):
         validate(auth or "", proto or "")
         if auth == "oauth_subscription":
             raise HTTPException(400, "Subscription connections are created by signing in with the provider (item 101), not by pasting a token.")
+        if (auth == "cli_subscription") != self.base_url.startswith("cli://"):
+            raise HTTPException(400, "A plan CLI connection uses cli://claude or cli://codex, and only it can")
         return auth, proto
 
 

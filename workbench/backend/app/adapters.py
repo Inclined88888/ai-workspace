@@ -25,14 +25,16 @@ from fastapi import HTTPException
 from . import db
 from .security import decrypt
 
-AUTH_KINDS = ("api_key", "oauth_subscription", "session_scraping_forbidden", "local_ollama", "openai_compatible")
-PROTOCOLS = ("responses", "chat_completions", "anthropic_messages", "ollama_native")
+AUTH_KINDS = ("api_key", "oauth_subscription", "session_scraping_forbidden", "local_ollama", "openai_compatible", "cli_subscription")
+PROTOCOLS = ("responses", "chat_completions", "anthropic_messages", "ollama_native", "cli_plan")
 ALLOWED = {
     "api_key": ("chat_completions", "responses", "anthropic_messages"),
     "oauth_subscription": ("responses",),  # Sign in with ChatGPT: plan usage covers Responses API requests only
     "session_scraping_forbidden": (),
     "local_ollama": ("ollama_native",),
     "openai_compatible": ("chat_completions",),
+    # The user's own signed-in Claude Code or Codex CLI, run on their computer (cli_agents.py explains why this shape)
+    "cli_subscription": ("cli_plan",),
 }
 # D7: shown to the user wherever such a connection would be created or used
 R5_REFUSAL = ("This connection type is refused under rule R5 (legitimate only): reusing a consumer web session or its "
@@ -111,8 +113,8 @@ def credential(conn: dict) -> str:
     kind = conn["auth_kind"]
     if kind == "session_scraping_forbidden":
         raise HTTPException(403, R5_REFUSAL)
-    if kind == "local_ollama":
-        return ""
+    if kind in ("local_ollama", "cli_subscription"):
+        return ""  # a local server, or a CLI that holds its own sign-in: nothing for the app to send
     if kind == "oauth_subscription":
         return _oauth_access_token(conn)
     return decrypt(conn["secret_enc"])  # api_key, openai_compatible (key optional)
@@ -613,7 +615,145 @@ class AnthropicMessages(Protocol):
         yield {"done": True, "usage": usage}
 
 
-_PROTOCOLS: dict[str, Protocol] = {p.name: p for p in (ChatCompletions(), OllamaNative(), Responses(), AnthropicMessages())}
+class CliPlan(Protocol):
+    """A chat turn answered by the user's own signed-in `claude` or `codex` CLI, so their Claude or ChatGPT plan pays.
+
+    The app never sees a token: it runs the unmodified binary in print mode with no tools of its own (Claude Code:
+    --tools ""; Codex: read-only sandbox) in an empty folder, sends the conversation on stdin and reads the answer.
+    The app's own tools are described in the prompt and a call comes back as <tool_call>{...}</tool_call> text, which
+    Adapter.chat already turns into a structured call. base_url is cli://claude or cli://codex.
+    """
+    name = "cli_plan"
+    timeout_s = 600
+
+    @staticmethod
+    def agent(conn: dict) -> str:
+        return "codex" if conn["base_url"].rstrip("/").endswith("codex") else "claude"
+
+    def models(self, conn: dict) -> list[str]:
+        # Claude Code takes these aliases for the newest model of each family (claude --help, --model)
+        return ["default", "sonnet", "opus", "haiku"] if self.agent(conn) == "claude" else ["default"]
+
+    def context_chars(self, conn, model=""):
+        return 400_000  # both CLIs manage their own window; this only bounds what the app sends in one turn
+
+    @staticmethod
+    def transcript(messages: list[dict], tools: list[dict] | None) -> tuple[str, str]:
+        system, rest = _system_and_rest(messages)
+        if tools:
+            specs = "\n".join(json.dumps({"name": t["function"]["name"], "description": t["function"].get("description", ""),
+                                           "parameters": t["function"].get("parameters") or {}}) for t in tools)
+            system += ("\n\nYou can call these tools. To call one, reply with only <tool_call>{\"name\": ..., \"arguments\": "
+                       "{...}}</tool_call> (one per call) and nothing else; the result comes back in the next message.\n" + specs)
+        lines = []
+        for m in rest:
+            if m["role"] == "tool":
+                lines.append(f"TOOL RESULT ({m.get('tool_call_id', '')}):\n{_text(m.get('content'))}")
+            elif m["role"] == "assistant":
+                calls = "".join(f"<tool_call>{json.dumps({'name': c['function']['name'], 'arguments': _json_args(c['function'].get('arguments'))})}</tool_call>"
+                                for c in m.get("tool_calls") or [])
+                lines.append(f"ASSISTANT:\n{_text(m.get('content'))}{calls}")
+            else:
+                lines.append(f"USER:\n{_text(m.get('content'))}")
+        prompt = "\n\n".join(lines) if len(rest) > 1 else _text(rest[-1].get("content")) if rest else ""
+        if len(rest) > 1:
+            prompt = "The conversation so far. Reply as the assistant to the last message.\n\n" + prompt
+        return system, prompt
+
+    def argv(self, conn: dict, path: str, model: str, system: str) -> list[str]:
+        if self.agent(conn) == "claude":
+            argv = [path, "-p", "--output-format", "json", "--tools", "", "--no-session-persistence"]
+            if system:
+                argv += ["--system-prompt", system]
+            # a chat backend, not a coding session: none of the user's hooks, plugins, skills, MCP servers or CLAUDE.md
+            # (a hook could otherwise run commands on every chat message), and only the tokens of this conversation
+            argv += ["--safe-mode", "--strict-mcp-config"]
+            return argv + (["--model", model] if model and model != "default" else [])
+        argv = [path, "exec", "--json", "--skip-git-repo-check", "--sandbox", "read-only", "--color", "never"]
+        return argv + (["-m", model] if model and model != "default" else []) + ["-"]
+
+    async def chat(self, conn, secret, model, messages, tools, schema=None):
+        import asyncio
+        import tempfile
+
+        from . import cli_agents
+
+        agent = self.agent(conn)
+        path = cli_agents.find_binary(agent)
+        if not path:
+            raise ProviderError(502, f"{cli_agents.AGENTS[agent]['name']} isn't installed on this computer "
+                                     f"({cli_agents.AGENTS[agent]['install']})", kind="unreachable")
+        system, prompt = self.transcript(messages, tools)
+        if schema:
+            system += f"\n\nAnswer with only JSON matching this schema, no other text:\n{json.dumps(schema['schema'])}"
+        if agent == "codex" and system:  # codex exec has no system prompt flag: it leads the prompt
+            prompt = f"{system}\n\n{prompt}"
+        with tempfile.TemporaryDirectory(prefix="aiw-cli-") as empty:  # no project files, no CLAUDE.md, nothing to touch
+            try:
+                proc = await asyncio.create_subprocess_exec(*self.argv(conn, path, model, system if agent == "claude" else ""),
+                                                            cwd=empty, env=cli_agents.child_env(agent),
+                                                            stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+                                                            stderr=asyncio.subprocess.PIPE)
+                out, err = await asyncio.wait_for(proc.communicate(prompt.encode()), self.timeout_s)
+            except asyncio.TimeoutError as e:
+                proc.kill()
+                raise ProviderError(504, f"{conn['name']} did not answer within {self.timeout_s} s", kind="timeout") from e
+            except OSError as e:
+                raise ProviderError(502, f"{conn['name']} could not start: {e}", kind="unreachable") from e
+        text, usage, error = self.parse(agent, out.decode(errors="replace"))
+        if proc.returncode != 0 or error:
+            detail = (error or err.decode(errors="replace") or f"exit code {proc.returncode}")[:400]
+            limited = any(w in detail.lower() for w in ("usage limit", "rate limit", "limit reached", "quota"))
+            signed_out = any(w in detail.lower() for w in ("not logged in", "login", "sign in", "authenticate"))
+            raise ProviderError(502, f"{conn['name']}: {detail}", upstream=429 if limited else (401 if signed_out else None),
+                                kind="quota" if limited else "http", body=detail)
+        return {"message": {"role": "assistant", "content": text, "tool_calls": []}, "usage": usage}
+
+    @staticmethod
+    def parse(agent: str, out: str) -> tuple[str, dict, str]:
+        """(answer, usage, error) from the CLI's JSON output."""
+        if agent == "claude":
+            try:
+                d = json.loads(out.strip().splitlines()[-1]) if out.strip() else {}
+            except ValueError:
+                return "", {}, f"unreadable output: {out[:200]}"
+            u = d.get("usage") or {}
+            usage = {"prompt_tokens": (u.get("input_tokens") or 0) + (u.get("cache_creation_input_tokens") or 0)
+                     + (u.get("cache_read_input_tokens") or 0), "completion_tokens": u.get("output_tokens") or 0}
+            err = str(d.get("result") or d.get("subtype") or "error") if d.get("is_error") else ""
+            return str(d.get("result") or ""), usage, err
+        text, usage, err = "", {"prompt_tokens": 0, "completion_tokens": 0}, ""
+        for line in out.splitlines():  # codex exec --json: one event per line (same events cli_agents.parse_codex reads)
+            try:
+                ev = json.loads(line)
+            except ValueError:
+                continue
+            t = ev.get("type", "")
+            it = ev.get("item") or {}
+            if t == "item.completed" and it.get("type") == "agent_message":
+                text = it.get("text", "")
+            elif t == "turn.completed":
+                u = ev.get("usage") or {}
+                usage = {"prompt_tokens": int(u.get("input_tokens") or 0), "completion_tokens": int(u.get("output_tokens") or 0)}
+                err = ""
+            elif t in ("turn.failed", "error"):
+                e = ev.get("error")
+                err = (e.get("message") if isinstance(e, dict) else None) or ev.get("message") or "Codex reported an error"
+        return text, usage, err
+
+    def stream(self, conn, secret, model, messages):
+        async def gen():
+            try:
+                res = await self.chat(conn, secret, model, messages, None)
+            except ProviderError as e:
+                yield {"error": str(e.detail), "status": e.upstream, "body": e.body}
+                return
+            yield {"delta": res["message"]["content"]}
+            yield {"done": True, "usage": res["usage"]}
+        return gen()
+
+
+_PROTOCOLS: dict[str, Protocol] = {p.name: p for p in (ChatCompletions(), OllamaNative(), Responses(), AnthropicMessages(), CliPlan())}
 
 
 class Adapter:
@@ -650,6 +790,8 @@ class Adapter:
                 raise
             secret = ""  # signed out: typed-in models remain listed, a call then asks to sign in again
         manual = [m.strip() for m in (self.conn.get("models") or "").split(",") if m.strip()]
+        if isinstance(self.protocol, CliPlan):
+            return sorted(set(self.protocol.models(self.conn)) | set(manual))
         names: list[str] = []
         if secret or self.auth_kind != "oauth_subscription":  # plan tokens list the account's own catalogue
             try:
@@ -676,6 +818,15 @@ class Adapter:
         """
         secret = credential(self.conn)  # raises for a refused kind (R5) or an expired sign-in
         manual = [m.strip() for m in (self.conn.get("models") or "").split(",") if m.strip()]
+        if isinstance(self.protocol, CliPlan):
+            from . import cli_agents
+
+            info = cli_agents.detect(self.protocol.agent(self.conn))
+            if not info["installed"] or not info["signed_in"]:
+                return "down", info["detail"]
+            if not deep:
+                return ("ok" if info["auth"] == "subscription" else "degraded"), info["detail"]
+            return self._answer_check(self.protocol.models(self.conn), info["detail"])
         try:
             r = httpx.get(self.protocol.models_url(self.conn), headers=self.protocol.headers(self.conn, secret), timeout=8)
         except httpx.HTTPError as e:

@@ -471,3 +471,105 @@ def test_a_key_changed_in_env_is_applied_on_the_next_start_but_never_over_an_app
     llm.seed_connections()
     assert decrypt(db.one("SELECT secret_enc FROM connections WHERE id = ?", row["id"])["secret_enc"]) == "nvapi-typed-in-app"
     db.run("DELETE FROM connections WHERE id = ?", row["id"])
+
+
+# Plans through the user's own CLI: a fake `claude` and `codex` stand in for the real binaries.
+FAKE_CLAUDE = r'''#!/usr/bin/env python3
+import json, os, sys
+prompt = sys.stdin.read()
+open(os.environ["FAKE_CLI_LOG"], "a").write(json.dumps({"argv": sys.argv[1:], "cwd": os.getcwd(), "prompt": prompt,
+    "has_key": "ANTHROPIC_API_KEY" in os.environ}) + "\n")
+if "LIMIT" in prompt:
+    print(json.dumps({"type": "result", "is_error": True, "result": "Claude usage limit reached. Resets at 5pm"})); sys.exit(1)
+if "read_file" in " ".join(sys.argv) and "TOOL RESULT" not in prompt:
+    print(json.dumps({"type": "result", "is_error": False, "result": '<tool_call>{"name": "read_file", "arguments": {"path": "a.py"}}</tool_call>',
+                      "usage": {"input_tokens": 7, "output_tokens": 3}})); sys.exit(0)
+print(json.dumps({"type": "result", "is_error": False, "result": "plan answer", "usage": {"input_tokens": 12, "cache_read_input_tokens": 5, "output_tokens": 2}}))
+'''
+FAKE_CODEX = r'''#!/usr/bin/env python3
+import json, sys
+sys.stdin.read()
+for ev in ({"type": "thread.started", "thread_id": "t1"}, {"type": "item.completed", "item": {"type": "agent_message", "text": "codex answer"}},
+           {"type": "turn.completed", "usage": {"input_tokens": 9, "output_tokens": 4}}):
+    print(json.dumps(ev))
+'''
+
+
+@pytest.fixture
+def fake_clis(tmp_path, monkeypatch):
+    from app import cli_agents
+
+    paths = {}
+    for name, body in (("claude", FAKE_CLAUDE), ("codex", FAKE_CODEX)):
+        p = tmp_path / name
+        p.write_text(body)
+        p.chmod(0o755)
+        paths[name] = p
+    monkeypatch.setenv("WORKBENCH_CLAUDE_BIN", str(paths["claude"]))
+    monkeypatch.setenv("WORKBENCH_CODEX_BIN", str(paths["codex"]))
+    monkeypatch.setenv("FAKE_CLI_LOG", str(tmp_path / "calls.jsonl"))
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-must-not-reach-the-cli")
+    cli_agents._DETECT_CACHE.clear()
+    yield tmp_path / "calls.jsonl"
+    cli_agents._DETECT_CACHE.clear()
+
+
+def _plan_conn(client, which):
+    r = client.post("/api/providers", json={"name": f"{which} plan", "auth_kind": "cli_subscription", "protocol": "cli_plan",
+                                            "base_url": f"cli://{which}"})
+    assert r.status_code == 200, r.text
+    return r.json()["id"]
+
+
+@pytest.mark.anyio
+async def test_claude_plan_answers_through_the_users_own_cli(client, fake_clis):
+    from app import llm
+
+    cid = _plan_conn(client, "claude")
+    try:
+        assert [m["model"] for m in llm.list_models_for(cid, fresh=True)] == ["default", "haiku", "opus", "sonnet"]
+        res = await llm.chat(f"{cid}/sonnet", [{"role": "system", "content": "Be brief."}, {"role": "user", "content": "hi"}])
+        assert res["message"]["content"] == "plan answer" and res["usage"]["prompt_tokens"] == 17
+        call = json.loads(fake_clis.read_text().splitlines()[-1])
+        assert call["argv"][:6] == ["-p", "--output-format", "json", "--tools", "", "--no-session-persistence"]
+        assert ["--system-prompt", "Be brief."] == call["argv"][6:8] and call["argv"][-2:] == ["--model", "sonnet"]
+        assert not call["has_key"] and "aiw-cli-" in call["cwd"]  # the user's sign-in, never the app's key; an empty folder
+        tools = [{"type": "function", "function": {"name": "read_file", "description": "read", "parameters": {"type": "object"}}}]
+        res = await llm.chat(f"{cid}/default", [{"role": "user", "content": "read a.py"}], tools)
+        assert res["message"]["tool_calls"][0]["function"]["name"] == "read_file"  # text tool call recovered
+    finally:
+        client.delete(f"/api/providers/{cid}")
+
+
+@pytest.mark.anyio
+async def test_a_plan_limit_is_a_quota_the_router_falls_back_from(client, fake_clis):
+    from fastapi import HTTPException
+
+    from app import llm, router
+
+    cid = _plan_conn(client, "claude")
+    try:
+        with pytest.raises(HTTPException) as e:
+            await llm.chat(f"{cid}/default", [{"role": "user", "content": "LIMIT please"}])
+        assert router.classify(e.value)[0] in ("daily limit reached", "busy (rate limited)")
+    finally:
+        client.delete(f"/api/providers/{cid}")
+
+
+@pytest.mark.anyio
+async def test_codex_plan_answers_through_codex_exec(client, fake_clis):
+    from app import llm
+
+    cid = _plan_conn(client, "codex")
+    try:
+        res = await llm.chat(f"{cid}/default", [{"role": "user", "content": "hi"}])
+        assert res["message"]["content"] == "codex answer" and res["usage"] == {"prompt_tokens": 9, "completion_tokens": 4}
+    finally:
+        client.delete(f"/api/providers/{cid}")
+
+
+def test_plan_cli_urls_only_for_plan_connections(client):
+    bad = client.post("/api/providers", json={"name": "x", "auth_kind": "api_key", "protocol": "chat_completions", "base_url": "cli://claude"})
+    assert bad.status_code == 400
+    bad = client.post("/api/providers", json={"name": "x", "auth_kind": "cli_subscription", "protocol": "cli_plan", "base_url": "https://x.example"})
+    assert bad.status_code == 400

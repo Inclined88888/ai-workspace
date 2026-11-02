@@ -115,6 +115,8 @@ def save_settings(new: dict) -> dict:
 def _rank(conn: dict) -> int:
     if conn["auth_kind"] == "oauth_subscription":
         return 0  # already paid for by the user's plan
+    if conn["auth_kind"] == "cli_subscription":
+        return 1  # paid by the plan too, but each answer starts a CLI: after Sign in with ChatGPT, beside free tiers
     if conn["auth_kind"] == "local_ollama":
         return 9
     if profile(conn).get("free"):

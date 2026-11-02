@@ -49,6 +49,14 @@ PRESETS = {
                  "note": "Key from api.together.ai. Pay as you go open models."},
     "fireworks": {"name": "Fireworks AI", "auth_kind": "api_key", "protocol": "chat_completions", "base_url": "https://api.fireworks.ai/inference/v1",
                   "note": "Key from fireworks.ai (starts fw_). Pay as you go open models."},
+    # Your own signed-in CLI and its plan (no key: sign in with `claude` or `codex login` in a terminal first)
+    "claude-plan": {"name": "Claude plan (Claude Code)", "auth_kind": "cli_subscription", "protocol": "cli_plan", "base_url": "cli://claude",
+                    "note": "Uses the Claude Code CLI you installed and signed in to yourself, on this computer. Answers count "
+                            "against your Claude plan's limits. Each answer starts the CLI, so it is slower than an API key. "
+                            "Check Anthropic's terms for your plan: https://code.claude.com/docs/en/legal-and-compliance"},
+    "codex-plan": {"name": "ChatGPT plan (Codex)", "auth_kind": "cli_subscription", "protocol": "cli_plan", "base_url": "cli://codex",
+                   "note": "Uses the Codex CLI you installed and signed in to with ChatGPT, on this computer, in its read-only "
+                           "sandbox. Answers count against your ChatGPT plan's Codex limits."},
     "opencode-go": {"name": "OpenCode Go", "auth_kind": "api_key", "protocol": "chat_completions",
                     "base_url": "https://opencode.ai/inference/go/openai/v1", "note": "OpenCode Go subscription ($10/month flat). Key from opencode.ai/console."},
     "opencode-zen": {"name": "OpenCode Zen", "auth_kind": "api_key", "protocol": "chat_completions",

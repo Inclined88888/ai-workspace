@@ -16,6 +16,7 @@ type Status = { providers: Row[]; settings: { order: number[]; disabled: number[
 
 function kindLabel(r: Row) {
   if (r.auth_kind === "oauth_subscription") return "Your plan";
+  if (r.auth_kind === "cli_subscription") return "Your plan (CLI)";
   if (r.local) return "On this computer";
   if (r.free) return "Free tier";
   return r.auth_kind === "openai_compatible" ? "Server" : "API key";
@@ -83,7 +84,7 @@ export default function Models() {
                 <div className="route-n">{String(i + 1).padStart(2, "0")}</div>
                 <div className="route-main">
                   <div className="row" style={{ gap: 10 }}>
-                    {r.auth_kind === "oauth_subscription" ? <Sparkles size={15} /> : r.local ? <Cpu size={15} /> : r.free ? <Cloud size={15} /> : <KeyRound size={15} />}
+                    {r.auth_kind === "oauth_subscription" || r.auth_kind === "cli_subscription" ? <Sparkles size={15} /> : r.local ? <Cpu size={15} /> : r.free ? <Cloud size={15} /> : <KeyRound size={15} />}
                     <strong className="route-name">{r.name}</strong>
                     <span className={`tag-kind ${r.free ? "free" : ""}`}>{kindLabel(r)}</span>
                     {r.quota.cooling_until && <span className="badge warn">Resting until {resetTime(r.quota.cooling_until)} · {r.quota.cooling_reason}</span>}
