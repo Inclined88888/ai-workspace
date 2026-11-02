@@ -8,6 +8,20 @@ from . import analysis, compute, media, sites
 
 
 def build(Tool, S, I, B) -> list:  # noqa: N803 - the registry's own constructors
+    def files_for(code: str, given) -> list[int]:
+        """File ids for run_python: the ids or names given, plus every user file the code mentions by name. Models often
+        skip file_ids and then retype (part of) a table from read_file, which gives wrong totals on anything long."""
+        listing = analysis.listing(500)
+        by_name = {f["name"].lower(): f["id"] for f in listing}
+        wanted = ids(given)
+        for part in str(given or "").split(","):
+            name = part.strip().lower()
+            if name and not name.lstrip("#").isdigit() and name in by_name:
+                wanted.append(by_name[name])
+        low = code.lower()
+        wanted += [fid for name, fid in by_name.items() if name and name in low]
+        return list(dict.fromkeys(wanted))
+
     def ids(v) -> list[int]:
         if isinstance(v, list):
             return [int(x) for x in v]
@@ -39,9 +53,11 @@ def build(Tool, S, I, B) -> list:  # noqa: N803 - the registry's own constructor
              lambda prompt, size="square": media.generate(prompt, size if size in media.SIZES else "square"), ("prompt",),
              effect="external"),
         Tool("run_python", "Run Python in a local sandbox for real calculations: pandas, numpy, matplotlib, sympy (exact maths, "
-             "step checks). Files listed in file_ids are in ./inputs/<name>; save outputs to ./out/; open matplotlib figures are "
-             "saved as charts automatically. No network. Print results.",
-             {"code": S(), "file_ids": S("comma separated file ids")}, lambda code, file_ids="": compute.run(code, ids(file_ids)), ("code",),
+             "step checks). The user's files are in ./inputs/<name>: list them in file_ids (ids or names), and any file named in "
+             "the code is added too. Load the data from ./inputs, never retype rows from read_file. Save outputs to ./out/; open "
+             "matplotlib figures are saved as charts automatically. No network. Print results.",
+             {"code": S(), "file_ids": S("comma separated file ids or names")},
+             lambda code, file_ids="": compute.run(code, files_for(code, file_ids)), ("code",),
              effect="write"),
         Tool("make_document", "Create a new file for the user: format docx (Word report), pdf, or xlsx (rows as JSON list of objects). "
              "body is Markdown for docx/pdf.", {"title": S(), "format": S("docx, pdf or xlsx"), "body": S(), "rows": S("JSON array for xlsx")},

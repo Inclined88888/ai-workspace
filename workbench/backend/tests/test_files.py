@@ -113,3 +113,20 @@ def test_sandbox_blocks_network_and_private_files(client):
     assert r["status"] != "ok"
     r = compute.run("import subprocess\nsubprocess.run(['ls'])")
     assert r["status"] != "ok"
+
+
+def test_run_python_gets_the_file_even_when_the_model_names_it_instead_of_passing_its_id(client):
+    """Models often skip file_ids and retype part of a table; the file named in the code is now mounted anyway."""
+    import json
+
+    from app import analysis, assistant
+
+    rows = "".join(f"2026-10-{d:02d},Groceries,{d}.50,Visa\n" for d in range(1, 29))
+    f = analysis.add("ledger_test.csv", ("date,category,amount,card\n" + rows).encode())
+    run = assistant.TOOL_MAP["run_python"].fn
+    code = "import pandas as pd\nprint(round(pd.read_csv('inputs/ledger_test.csv').amount.sum(), 2))"
+    expected = str(round(sum(d + 0.5 for d in range(1, 29)), 2))
+    assert expected in json.dumps(run(code=code))                         # no file_ids at all
+    assert expected in json.dumps(run(code=code, file_ids="ledger_test.csv"))  # a name instead of an id
+    assert expected in json.dumps(run(code=code, file_ids=str(f["id"])))      # the id, as before
+    analysis.remove(f["id"])
