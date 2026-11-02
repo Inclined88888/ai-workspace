@@ -139,7 +139,7 @@ function ModelsStep({ onNext }: { onNext: () => void }) {
           <button className="btn" onClick={saveKeys} disabled={!Object.values(keys).some((k) => k.trim())}>Save keys</button>
           {saved && <span className="badge ok"><Check size={12} /> Saved</span>}
         </div>
-        <div className="muted small">Keys are encrypted at rest with your APP_SECRET. They apply to Workbench. For the Chat app, add them in its Admin Settings → Connections, or set them in .env before running setup.sh.</div>
+        <div className="muted small">Keys are stored encrypted on this computer and never shown again. You can change them any time in AI models.</div>
       </div>
       <button className="btn primary" onClick={onNext} disabled={!!pulling}>Continue <ArrowRight size={16} /></button>
     </div>
@@ -183,7 +183,7 @@ export default function Auth({ status, onDone }: { status: Status; onDone: () =>
               <div className="wordmark lg" aria-hidden="true">AI Workspace</div>
               <div>
                 <h1>Set up your workspace</h1>
-                <p className="muted">Create the password that protects Workbench. This is a single owner app.</p>
+                <p className="muted">Create the password that protects your workspace. Only you use it.</p>
               </div>
             </div>
             {error && <div className="alert err">{error}</div>}
@@ -206,9 +206,9 @@ export default function Auth({ status, onDone }: { status: Status; onDone: () =>
           <div className="col gap-lg">
             <h1>You're set</h1>
             <div className="col">
-              <div className="row"><Check size={16} className="prio-1" /> Workbench: notes, documents, tasks, calendar, mail, research and model compare.</div>
+              <div className="row"><Check size={16} className="prio-1" /> Your workspace: chat, mail, calendar, tasks, notes, files and research.</div>
               <div className="row"><Check size={16} className="prio-1" /> Chat at <a href={status.chat_url} target="_blank" rel="noreferrer">{status.chat_url}</a>. The first account you create there becomes its admin.</div>
-              <div className="row"><Check size={16} className="prio-1" /> In Chat, turn on the Workbench tools (the + menu in the message box) so agents can use your notes, tasks and calendar.</div>
+              <div className="row"><Check size={16} className="prio-1" /> In Chat, turn on the workspace tools (the + menu in the message box) so it can use your notes, tasks and calendar.</div>
             </div>
             <div className="muted small">Connect mail and calendars any time under Settings.</div>
             <button className="btn primary" onClick={onDone}>Open workspace <ArrowRight size={16} /></button>

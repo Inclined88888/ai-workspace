@@ -30,7 +30,7 @@ type DeskStatus = {
 const CATEGORY: Record<string, string> = {
   shell: "Run a command", danger: "A risky command", file_write: "Write a file outside your folders", file_read: "Read a file outside your folders",
   file_delete: "Delete a file", message: "Send a message or email", purchase: "Pay or place an order", login: "Sign in or enter a password",
-  app: "Use an app that is not on your list", mcp: "Use another tool (MCP)", system: "A system shortcut",
+  app: "Use an app that is not on your list", mcp: "Use a connected add-on tool", system: "A system shortcut",
 };
 const EXAMPLES = [
   "Open the text editor, write a short packing list for a weekend trip and save it as packing.txt in Documents.",

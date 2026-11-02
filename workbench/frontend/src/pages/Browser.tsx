@@ -122,13 +122,13 @@ export default function Browser() {
           <input className="input grow" style={{ minWidth: 200 }} value={form.domains} onChange={(e) => setForm({ ...form, domains: e.target.value })} placeholder="Only these sites (optional): *.pcpartpicker.com, …" />
           <button className="btn primary" disabled={form.goal.trim().length < 3}><Play size={15} /> Run</button>
         </div>
-        <div className="faint small" title="Runs on any model connected in Settings, through Workbench, so its spend shows in Usage. Vision models read screenshots; small local models are unreliable at browsing. Max steps caps the cost of a run.">
-          Uses a model from Settings; spend shows in Usage. Vision models work best.
-          {usage && <> {usage.used} of {usage.limit || "unlimited"} browser steps used this month.</>}
+        <div className="faint small" title="Max steps caps how long one run can go on. Small local models are unreliable at browsing.">
+          Uses the model you pick, or Auto. Models that can see pictures work best.
+          {usage && usage.limit ? <> {usage.used} of {usage.limit} browser steps used this month.</> : null}
         </div>
       </form>
 
-      {jobs.length === 0 && !job && <div className="card"><Empty icon={<Globe size={26} />} title="No runs yet" hint="Start one above. Agents in Chat and Paperclip can use this browser too." /></div>}
+      {jobs.length === 0 && !job && <div className="card"><Empty icon={<Globe size={26} />} title="No runs yet" hint="Start one above. Chat can use this browser too." /></div>}
       <div style={{ display: jobs.length === 0 && !job ? "none" : "grid", gridTemplateColumns: "300px minmax(0,1fr)", gap: 16 }} className="research-layout">
         <div className="card flush" style={{ alignSelf: "start" }}>
           {jobs.map((j) => (
@@ -136,14 +136,14 @@ export default function Browser() {
               <Tracer active={active(j.status)} />
               <div className="grow">
                 <div className="truncate">{j.goal}</div>
-                <div className="row small faint">{active(j.status) && <Loader2 size={11} className="spin" />}{j.status} · {j.source} · {ago(j.created_at)}</div>
+                <div className="row small faint">{active(j.status) && <Loader2 size={11} className="spin" />}{j.status}{j.source && j.source !== "api" ? ` · from ${j.source}` : ""} · {ago(j.created_at)}</div>
               </div>
               <button className="btn ghost sm icon" onClick={(e) => { e.stopPropagation(); remove(j.id); }}><Trash2 size={13} /></button>
             </div>
           ))}
         </div>
         <div>
-          {!job && <div className="card"><Empty icon={<Globe size={26} />} title="Pick a run or start one" hint="Agents in Chat and Paperclip can use this browser too." /></div>}
+          {!job && <div className="card"><Empty icon={<Globe size={26} />} title="Pick a run or start one" hint="Chat can use this browser too." /></div>}
           {job && (
             <div className="col gap-lg">
               <div className="card col has-tracer">
@@ -154,7 +154,7 @@ export default function Browser() {
                 </div>
                 <div className="row small muted wrap">
                   <span className={`badge ${job.status === "done" ? (job.result?.success ? "ok" : "warn") : job.status === "error" ? "danger" : "accent"}`}>{job.status}</span>
-                  <span className="mono">{job.provider}{job.result?.model ? `/${job.result.model}` : job.model ? `/${job.model}` : ""}</span>
+                  <span>{(() => { const m = job.result?.model || job.model || ""; return !m || m === "default" || m.startsWith("auto") ? "Auto" : m.split("/").pop(); })()}</span>
                   {job.result && <span>{job.result.steps} steps · {job.result.duration_s}s</span>}
                   {job.allowed_domains.length > 0 && <span>only {job.allowed_domains.join(", ")}</span>}
                 </div>
