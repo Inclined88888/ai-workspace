@@ -1,8 +1,8 @@
 import { ArrowLeft, Inbox, Loader2, Mail, PenSquare, RefreshCw, Reply, Search, PenLine, Send, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 import { api, stream } from "../api";
 import { Empty, ModelSelect, relTime, useModels, useToast } from "../util";
+import ConnectMailCalendar from "./ConnectMailCalendar";
 
 type Account = { id: number; name: string; email: string };
 type Summary = { uid: string; from: string; subject: string; date: string; unread: boolean };
@@ -113,8 +113,9 @@ export default function MailPage() {
   if (!account) {
     return (
       <div className="page">
-        <Empty icon={<Mail size={28} />} title="No mail account connected" hint="Connect Google or Microsoft with one sign-in, or add iCloud, Fastmail, Yahoo and others with an app password." />
-        <div className="row" style={{ justifyContent: "center" }}><Link className="btn primary" to="/settings#mail">Connect mail</Link></div>
+        <div style={{ maxWidth: 720, margin: "0 auto", width: "100%" }}>
+          <ConnectMailCalendar onChange={() => api<Account[]>("/mail/accounts").then((a) => { setAccounts(a); setAccount(a[0] ?? null); }).catch(() => undefined)} />
+        </div>
       </div>
     );
   }

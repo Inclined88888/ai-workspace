@@ -110,6 +110,9 @@ export default function ConnectMailCalendar({ compact = false, onlyWhenEmpty = f
 
   if (onlyWhenEmpty && (!loaded || linked.length || imap.length || cals.length)) return null;
   const anything = linked.length + imap.length + cals.length > 0;
+  // Only offer one-click buttons this install can actually do; otherwise lead with "type your email address"
+  const oneClick = (["google", "microsoft"] as Provider[]).filter((p) => providers?.[p]?.configured);
+  const showOther = other || (!!providers && !oneClick.length);
 
   return (
     <div className="card col gap-lg" id="mail" style={compact ? { marginBottom: 16 } : undefined}>
@@ -145,13 +148,14 @@ export default function ConnectMailCalendar({ compact = false, onlyWhenEmpty = f
       )}
 
       <div className="connect-buttons">
-        {(["google", "microsoft"] as Provider[]).map((p) => (
+        {compact && !!providers && !oneClick.length && <Link className="btn primary connect-btn" to="/mail">Connect your email <ChevronRight size={14} /></Link>}
+        {oneClick.map((p) => (
           <button key={p} className="btn connect-btn" disabled={!!pending} onClick={() => connect(p)} title={WHAT[p]}>
             {pending?.provider === p ? <Loader2 size={16} className="spin" /> : <ProviderLogo provider={p} />} Connect {NAMES[p]}
           </button>
         ))}
-        {!compact && <button className="btn ghost connect-btn" style={{ border: "1px solid transparent" }} onClick={() => setOther(!other)}>Other provider <ChevronRight size={14} /></button>}
-        {compact && <Link className="btn ghost connect-btn" style={{ border: "1px solid transparent" }} to="/settings#mail">iCloud, Yahoo, Fastmail… <ChevronRight size={14} /></Link>}
+        {!compact && oneClick.length > 0 && <button className="btn ghost connect-btn" style={{ border: "1px solid transparent" }} onClick={() => setOther(!other)}>Other provider <ChevronRight size={14} /></button>}
+        {compact && oneClick.length > 0 && <Link className="btn ghost connect-btn" style={{ border: "1px solid transparent" }} to="/mail">iCloud, Yahoo, Fastmail… <ChevronRight size={14} /></Link>}
       </div>
 
       {pending && (
@@ -184,11 +188,12 @@ export default function ConnectMailCalendar({ compact = false, onlyWhenEmpty = f
         </div>
       )}
 
-      {!compact && other && <OtherProvider onSuggest={(p, email) => { setOther(false); connect(p, email); }} onAdded={() => { load(); onChange?.(); }} />}
+      {!compact && showOther && <OtherProvider plain={!oneClick.length} onSuggest={(p, email) => { setOther(false); connect(p, email); }} onAdded={() => { load(); onChange?.(); }} />}
 
       {!compact && (
         <>
-          <div className="connect-note row"><ShieldCheck size={13} /> Sign-in happens on {providers ? "Google's or Microsoft's own page" : "the provider's page"} in your browser; AI Workspace never sees your password. Tokens stay on this computer{" "}(in the system keychain when available).</div>
+          {oneClick.length > 0 && <div className="connect-note row"><ShieldCheck size={13} /> Sign-in happens on {providers ? "Google's or Microsoft's own page" : "the provider's page"} in your browser; AI Workspace never sees your password. Tokens stay on this computer{" "}(in the system keychain when available).</div>}
+          {!oneClick.length && <div className="connect-note row"><ShieldCheck size={13} /> An app password only opens your mail, never your account settings, and you can cancel it any time on your provider's page. It stays on this computer.</div>}
           <OwnRegistration providers={providers} onSaved={load} />
         </>
       )}
@@ -197,7 +202,7 @@ export default function ConnectMailCalendar({ compact = false, onlyWhenEmpty = f
   );
 }
 
-function OtherProvider({ onSuggest, onAdded }: { onSuggest: (p: Provider, email: string) => void; onAdded: () => void }) {
+function OtherProvider({ onSuggest, onAdded, plain = false }: { onSuggest: (p: Provider, email: string) => void; onAdded: () => void; plain?: boolean }) {
   const [email, setEmail] = useState("");
   const [det, setDet] = useState<Detected | null>(null);
   const [checking, setChecking] = useState(false);
@@ -242,7 +247,9 @@ function OtherProvider({ onSuggest, onAdded }: { onSuggest: (p: Provider, email:
 
   return (
     <form className="card col" onSubmit={submit} style={{ background: "var(--panel-2)" }}>
-      <div className="row"><KeyRound size={15} /><h3 className="grow">Other provider</h3><span className="muted small">iCloud, Yahoo, Fastmail, AOL, Zoho, your own domain…</span></div>
+      {plain
+        ? <div className="row"><Mail size={15} /><h3 className="grow">Type your email address</h3><span className="muted small">Gmail, iCloud, Yahoo, Fastmail, AOL, Zoho, your own domain…</span></div>
+        : <div className="row"><KeyRound size={15} /><h3 className="grow">Other provider</h3><span className="muted small">iCloud, Yahoo, Fastmail, AOL, Zoho, your own domain…</span></div>}
       <div className="row">
         <input className="input grow" required type="email" autoFocus placeholder="Your email address" value={email} onChange={(e) => setEmail(e.target.value)} onBlur={() => detect()} />
         {checking && <Loader2 size={15} className="spin" />}
@@ -259,7 +266,7 @@ function OtherProvider({ onSuggest, onAdded }: { onSuggest: (p: Provider, email:
       )}
       {det && det.kind !== "one_click" && det.kind !== "invalid" && (
         <>
-          {det.one_click_unavailable && <div className="small muted">One-click {NAMES[det.one_click_unavailable]} isn't set up in this build, so connect with an app password instead. It takes about a minute.</div>}
+          {det.one_click_unavailable && <div className="small muted">{det.one_click_unavailable === "google" ? "Gmail" : NAMES[det.one_click_unavailable]} connects with an app password: a special password just for this app. It takes about a minute.</div>}
           <div className="small"><strong>{det.label}</strong>{det.source === "guess" ? " · best guess" : det.source === "ispdb" ? " · settings found automatically" : ""}</div>
           {det.steps && (
             <div className="small">

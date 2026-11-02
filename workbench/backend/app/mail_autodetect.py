@@ -86,7 +86,7 @@ FALLBACK = {
         "smtp_host": "smtp.gmail.com", "smtp_port": 465, "smtp_security": "ssl", "app_password": True,
         "app_password_url": "https://myaccount.google.com/apppasswords",
         "steps": ["Turn on 2-Step Verification for your Google Account if it isn't on (myaccount.google.com/security).",
-                  "Open myaccount.google.com/apppasswords, type the name Rooks and click Create.",
+                  "Open myaccount.google.com/apppasswords, type the name AI Workspace and click Create.",
                   "Copy the 16-letter password (spaces don't matter) and paste it here. Your normal Google password won't work.",
                   "Calendar: in Google Calendar open Settings > your calendar > Integrate calendar, copy the Secret address "
                   "in iCal format and add it on the Calendar page (read-only)."],
