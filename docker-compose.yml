@@ -94,8 +94,8 @@ services:
     volumes:
       - workbench:/data
     environment:
-      APP_SECRET: ${APP_SECRET:?run ./setup.sh or set APP_SECRET in .env}
-      TOOLS_API_KEY: ${TOOLS_API_KEY:?run ./setup.sh or set TOOLS_API_KEY in .env}
+      APP_SECRET: ${APP_SECRET:-}
+      TOOLS_API_KEY: ${TOOLS_API_KEY:-}
       WORKSPACE_NAME: ${WORKSPACE_NAME:-AI Workspace}
       WORKSPACE_TIMEZONE: ${WORKSPACE_TIMEZONE:-UTC}
       DEFAULT_MODEL: ${DEFAULT_MODEL:-qwen3:4b}

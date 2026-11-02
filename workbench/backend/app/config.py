@@ -1,4 +1,5 @@
 import os
+import secrets
 from pathlib import Path
 
 
@@ -6,12 +7,30 @@ def _bool(name: str, default: bool = False) -> bool:
     return os.getenv(name, str(default)).strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _load_or_generate_secret(env_name: str, data_dir: Path, min_len: int, filename: str) -> str:
+    """Load secret from env var, or from data dir, or generate a new one and persist it.
+    Explicit env var always wins. Generated secret is stored with mode 0o600.
+    """
+    env_val = os.getenv(env_name, "")
+    if env_val:
+        return env_val
+    secret_path = data_dir / filename
+    if secret_path.exists():
+        return secret_path.read_text().strip()
+    # Generate a new secret
+    secret = secrets.token_urlsafe(min_len)[:min_len]
+    data_dir.mkdir(parents=True, exist_ok=True)
+    secret_path.write_text(secret)
+    secret_path.chmod(0o600)
+    return secret
+
+
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DB_PATH = DATA_DIR / "workbench.db"
 STATIC_DIR = Path(os.getenv("STATIC_DIR", Path(__file__).resolve().parent.parent / "static"))
 
-APP_SECRET = os.getenv("APP_SECRET", "")
-TOOLS_API_KEY = os.getenv("TOOLS_API_KEY", "")
+APP_SECRET = _load_or_generate_secret("APP_SECRET", DATA_DIR, 32, "app_secret")
+TOOLS_API_KEY = _load_or_generate_secret("TOOLS_API_KEY", DATA_DIR, 24, "tools_api_key")
 TIMEZONE = os.getenv("TZ_NAME", os.getenv("WORKSPACE_TIMEZONE", "UTC"))
 WORKSPACE_NAME = os.getenv("WORKSPACE_NAME", "AI Workspace")
 CHAT_URL = os.getenv("CHAT_URL", "")  # Open WebUI add-on link, empty when not installed
@@ -46,11 +65,6 @@ SEED_KEYS = {
     "together": os.getenv("TOGETHER_API_KEY", ""),
     "fireworks": os.getenv("FIREWORKS_API_KEY", ""),
 }
-
-if len(APP_SECRET) < 32:
-    raise RuntimeError("APP_SECRET must be at least 32 characters. Run ./setup.sh to generate one.")
-if len(TOOLS_API_KEY) < 24:
-    raise RuntimeError("TOOLS_API_KEY must be at least 24 characters. Run ./setup.sh to generate one.")
 
 
 CODEX_URL = os.getenv("CODEX_URL", "").rstrip("/")
