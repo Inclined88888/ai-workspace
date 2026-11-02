@@ -377,7 +377,7 @@ Desktop app: Tauri v2 shell in `desktop/` that runs the backend as a frozen side
 ## Known limits
 
 - Single user Workbench (the `openwebui` add-on supports multiple users).
-- Telegram is the only built in messaging channel. Discord, Slack, WhatsApp and Signal need the `hermes` add-on.
+- Built in messaging channels (Channels page): Slack, Discord, Telegram, Matrix (unencrypted rooms and DMs), Signal (through a self-hosted signal-cli-rest-api linked to your account), WhatsApp (Business Cloud API; needs a public HTTPS webhook) and email (tagged mail from addresses you list). The `hermes` add-on adds more.
 - Memory extraction and skill saving cost one extra small model call after a conversation. Turn learning off if that matters.
 - Calendar: ICS feeds are read only; CalDAV supports reading and creating, not editing or deleting remote events.
 - Mail: plain text sending. Attachments only through Rooks Desk's send-email step. One-click Google needs a published OAuth client, and Google's restricted-scope verification before more than 100 people can use it (see [docs/connect-google-microsoft.md](docs/connect-google-microsoft.md)).

@@ -10,8 +10,7 @@ copy the bot token, invite it with the generated link. Only the Discord user IDs
 Safety: a message that arrives on a channel is a request from you, answered in that same chat. It can never make a
 teammate send anything to anyone else: outgoing messages are drafts (outbox) that you send from the app or phone, and
 email/invites still need your approval every time.
-WhatsApp: the WhatsApp Business Cloud API needs a verified Meta business, a public webhook and a paid number, so it is a
-documented follow-up (docs/channels.md), not a one-click setup.
+Matrix, Signal, WhatsApp and email live in more_channels.py.
 """
 
 from __future__ import annotations
@@ -112,9 +111,14 @@ def status() -> dict:
                     "teammate": teammate_for_channel("discord")["id"], "steps": DISCORD_STEPS, "invite_url": discord_invite_url()},
         "telegram": {"configured": tg.get("configured"), "running": tg.get("running"), "bot": tg.get("bot"), "error": tg.get("error"),
                      "allowed_users": tg.get("allowed_users"), "teammate": teammate_for_channel("telegram")["id"], "steps": TELEGRAM_STEPS},
-        "whatsapp": {"available": False, "why": "WhatsApp needs a verified Meta business account and a public webhook. "
-                     "See docs/channels.md for the steps; it isn't one-click yet."},
+        **_more_status(),
     }
+
+
+def _more_status() -> dict:
+    from . import more_channels
+
+    return more_channels.status()
 
 
 def configure_slack(bot_token: str | None, app_token: str | None, allowed_users: str | None, teammate_id: int | None) -> dict:

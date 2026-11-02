@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from .. import db
 from ..mobile import require_device
 from ..security import require_user
-from . import channels, computer, groups, outbox, pages, phonelink, store, vault
+from . import channels, computer, groups, more_channels, outbox, pages, phonelink, store, vault
 
 router = APIRouter(prefix="/api", dependencies=[Depends(require_user)])
 device = APIRouter(prefix="/api/mobile")
@@ -413,6 +413,79 @@ def channels_telegram(body: TelegramIn):
     return channels.configure_telegram(body.bot_token, body.allowed_users, body.teammate_id)
 
 
+class MatrixIn(BaseModel):
+    homeserver: str | None = Field(None, max_length=300)
+    access_token: str | None = Field(None, max_length=500)
+    allowed_users: str | None = Field(None, max_length=2000)
+    teammate_id: int | None = None
+
+
+class SignalIn(BaseModel):
+    api_url: str | None = Field(None, max_length=300)
+    number: str | None = Field(None, max_length=20)
+    allowed_users: str | None = Field(None, max_length=2000)
+    teammate_id: int | None = None
+
+
+class WhatsAppIn(BaseModel):
+    phone_number_id: str | None = Field(None, max_length=40)
+    access_token: str | None = Field(None, max_length=1000)
+    app_secret: str | None = Field(None, max_length=200)
+    verify_token: str | None = Field(None, max_length=200)
+    allowed_users: str | None = Field(None, max_length=2000)
+    teammate_id: int | None = None
+
+
+class EmailChannelIn(BaseModel):
+    account_id: int | None = None
+    allowed_users: str | None = Field(None, max_length=2000)
+    subject_tag: str | None = Field(None, max_length=40)
+    teammate_id: int | None = None
+
+
+@router.put("/channels/matrix")
+def channels_matrix(body: MatrixIn):
+    return more_channels.configure_matrix(body.homeserver, body.access_token, body.allowed_users, body.teammate_id)
+
+
+@router.post("/channels/matrix/test")
+async def channels_matrix_test():
+    return await more_channels.test_matrix()
+
+
+@router.put("/channels/signal")
+def channels_signal(body: SignalIn):
+    return more_channels.configure_signal(body.api_url, body.number, body.allowed_users, body.teammate_id)
+
+
+@router.post("/channels/signal/test")
+async def channels_signal_test():
+    return await more_channels.test_signal()
+
+
+@router.put("/channels/whatsapp")
+def channels_whatsapp(body: WhatsAppIn):
+    return more_channels.configure_whatsapp(body.phone_number_id, body.access_token, body.app_secret, body.verify_token,
+                                            body.allowed_users, body.teammate_id)
+
+
+@router.put("/channels/email")
+def channels_email(body: EmailChannelIn):
+    return more_channels.configure_email(body.account_id, body.allowed_users, body.subject_tag, body.teammate_id)
+
+
+# Meta calls these without a session: GET checks the verify token, POST is checked against the app secret's signature
+@public.get("/hooks/whatsapp", include_in_schema=False)
+def whatsapp_verify(request: Request):
+    q = request.query_params
+    return more_channels.whatsapp_verify(q.get("hub.mode", ""), q.get("hub.verify_token", ""), q.get("hub.challenge", ""))
+
+
+@public.post("/hooks/whatsapp", include_in_schema=False)
+async def whatsapp_webhook(request: Request):
+    return await more_channels.whatsapp_webhook(request)
+
+
 # Phone link -------------------------------------------------------------------------------------------------------
 class LinkSettingsIn(BaseModel):
     relay_url: str | None = Field(None, max_length=300)
@@ -521,4 +594,5 @@ def install(app) -> None:
 
 
 def background():
-    return [("Slack", channels.slack_loop), ("Discord", channels.discord_loop), ("Phone relay", phonelink.relay_loop)]
+    return [("Slack", channels.slack_loop), ("Discord", channels.discord_loop), ("Phone relay", phonelink.relay_loop),
+            ("Matrix", more_channels.matrix_loop), ("Signal", more_channels.signal_loop), ("Email channel", more_channels.email_loop)]
