@@ -129,6 +129,7 @@ function SubscriptionStep({ onBack, onDone, onKey }: { onBack: () => void; onDon
   }, []);
   const chatgpt = subs?.find((s) => s.id === "chatgpt");
   const claude = subs?.find((s) => s.id === "claude" && s.available && s.via === "claude_code");
+  const copilot = subs?.find((s) => s.id === "copilot" && s.available);
   const start = async () => { await finishCloud(); onDone(); };
 
   return (
@@ -142,6 +143,8 @@ function SubscriptionStep({ onBack, onDone, onKey }: { onBack: () => void; onDon
       {claude && <PlanCard agent="claude" title="Claude" onConnected={start}
         blurb={`For Claude ${claude.plans}. Uses Claude Code, Anthropic's own app: we set it up and open Anthropic's sign-in. Answers count against your plan.`} />}
       {chatgpt && <ChatGPTCard sub={chatgpt} onConnected={start} />}
+      {copilot && <PlanCard agent="copilot" title="GitHub Copilot" onConnected={start}
+        blurb={`For Copilot ${copilot.plans}. Uses GitHub's own Copilot CLI: we set it up and open GitHub's sign-in. Each answer uses your plan's premium requests.`} />}
       {!!subs?.some((s) => !s.available) && (
         <details className="other-plans">
           <summary>Other plans: not available yet</summary>

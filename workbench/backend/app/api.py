@@ -461,6 +461,10 @@ SUBSCRIPTIONS = [
      "detail": "Through Claude Code, Anthropic's own app: one click sets it up and opens Anthropic's sign-in. Chat and coding "
                "then run on your plan. Your password never passes through this app.",
      "source": "https://code.claude.com/docs/en/legal-and-compliance"},
+    {"id": "copilot", "name": "GitHub Copilot", "plans": "Pro, Pro+, Business, Enterprise", "available": True, "via": "copilot_cli",
+     "detail": "Through GitHub's own Copilot CLI: one click sets it up and opens GitHub's sign-in. Each answer uses your "
+               "plan's monthly premium requests.",
+     "source": "https://docs.github.com/en/copilot/how-tos/set-up/install-copilot-cli"},
     {"id": "grok", "name": "Grok", "plans": "SuperGrok", "available": False,
      "detail": "Not available yet. xAI only offers SuperGrok sign-in to partner apps so far, with no public sign-up for "
                "other apps. Use an xAI API key for now.",

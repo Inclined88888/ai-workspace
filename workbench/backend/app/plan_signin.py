@@ -1,10 +1,13 @@
-"""Install and sign in to Claude Code and Codex from the app, so a plan works without ever opening a terminal.
+"""Install and sign in to Claude Code, Codex and GitHub Copilot from the app, so a plan works without a terminal.
 
 Both sign-ins are the vendors' own flows, driven exactly as a person would in a terminal:
 - Claude: `claude auth login --claudeai` prints Anthropic's sign-in link; after signing in, Anthropic's page shows a code,
   which the user pastes back here and we type into the CLI. Status: `claude auth status --json` (loggedIn).
 - Codex: `codex login --device-auth` prints OpenAI's device link and a one-time code; the CLI finishes by itself once the
   user approves. Status: `codex login status` (exit 0 when signed in).
+- Copilot: `copilot login --device-code` prints GitHub's device link and code, finishing by itself the same way. The CLI
+  has no status command, so signed in means: a Copilot token in the environment, the GitHub CLI signed in (Copilot
+  accepts its sign-in), or a sign-in finished here. Premium requests left come from the GitHub CLI when present.
 The app never sees a password or a token: the CLI stores its own credentials where it always does.
 Once signed in, connect() adds the plan as a chat model (the cli_plan connection, adapters.CliPlan).
 """
@@ -28,8 +31,9 @@ from . import cli_agents, llm
 from .security import require_user
 
 router = APIRouter(prefix="/api/plans", dependencies=[Depends(require_user)])
-PACKAGES = {"claude": "@anthropic-ai/claude-code", "codex": "@openai/codex"}
-PRESET = {"claude": "claude-plan", "codex": "codex-plan"}
+PACKAGES = {"claude": "@anthropic-ai/claude-code", "codex": "@openai/codex", "copilot": "@github/copilot"}
+PRESET = {"claude": "claude-plan", "codex": "codex-plan", "copilot": "copilot-plan"}
+NAMES = {"claude": "Claude", "codex": "ChatGPT", "copilot": "GitHub Copilot"}
 ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07|\r")
 URL = re.compile(r"https://[^\s\"'<>]+")
 DEVICE_CODE = re.compile(r"\b([A-Z0-9]{4}-[A-Z0-9]{4,6})\b")
@@ -39,7 +43,7 @@ _install_lock = threading.Lock()
 
 def _agent(name: str) -> str:
     if name not in PACKAGES:
-        raise HTTPException(404, "Unknown plan: claude or codex")
+        raise HTTPException(404, "Unknown plan: claude, codex or copilot")
     return name
 
 
@@ -63,6 +67,8 @@ def signed_in(agent: str) -> tuple[bool, str]:
     if not exe:
         return False, ""
     try:
+        if agent == "copilot":
+            return _copilot_signed_in()
         if agent == "claude":
             r = _run([exe, "auth", "status", "--json"])
             data = json.loads(r.stdout or "{}")
@@ -72,6 +78,46 @@ def signed_in(agent: str) -> tuple[bool, str]:
         return r.returncode == 0 and "chatgpt" in text.lower(), ""
     except (OSError, subprocess.TimeoutExpired, ValueError):
         return False, ""
+
+
+def _copilot_signed_in() -> tuple[bool, str]:
+    from . import db
+
+    if any(os.environ.get(k) for k in ("COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN")):
+        return True, ""
+    gh = shutil.which("gh", path=_env()["PATH"])
+    if gh:
+        try:
+            r = _run([gh, "api", "user", "-q", ".login"], timeout=10)
+            if r.returncode == 0 and r.stdout.strip():
+                return True, r.stdout.strip()
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    return db.get_setting("copilot_signed_in", "") == "1", db.get_setting("copilot_account", "") or ""
+
+
+def copilot_quota() -> str:
+    """'812 of 1,500 premium requests left this month (resets 1 Dec)', from the GitHub CLI; '' when unknown.
+    copilot_internal/user is the endpoint GitHub's own editors read; it is undocumented, so any failure is silent."""
+    gh = shutil.which("gh", path=_env()["PATH"])
+    if not gh:
+        return ""
+    try:
+        r = _run([gh, "api", "copilot_internal/user"], timeout=10)
+        d = json.loads(r.stdout or "{}") if r.returncode == 0 else {}
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return ""
+    q = (d.get("quota_snapshots") or {}).get("premium_interactions") or {}
+    if not q or q.get("unlimited"):
+        return ""
+    left, total = max(0, int(q.get("remaining") or 0)), int(q.get("entitlement") or 0)
+    reset = d.get("quota_reset_date") or ""
+    try:
+        from datetime import date
+        reset = date.fromisoformat(reset).strftime("%-d %b")
+    except ValueError:
+        pass
+    return f"{left:,} of {total:,} premium requests left this month" + (f" (resets {reset})" if reset else "")
 
 
 def _connection(agent: str) -> dict | None:
@@ -85,8 +131,9 @@ def state() -> dict:
         ok, account = signed_in(agent) if exe else (False, "")
         conn = _connection(agent)
         out[agent] = {"installed": bool(exe), "signed_in": ok, "account": account, "can_install": bool(shutil.which("npm", path=_env()["PATH"])),
-                      "connected": bool(conn and conn["enabled"]), "name": "Claude" if agent == "claude" else "ChatGPT",
-                      "terms": cli_agents.AGENTS[agent]["terms"]}
+                      "connected": bool(conn and conn["enabled"]), "name": NAMES[agent],
+                      "terms": cli_agents.AGENTS[agent]["terms"],
+                      "quota": copilot_quota() if agent == "copilot" and ok else ""}
     return out
 
 
@@ -145,7 +192,7 @@ class SignIn:
                 pick = [u for u in urls if "authorize" in u or "device" in u] or urls
                 if pick:
                     self.url = pick[0]
-            if self.agent == "codex" and not self.code:
+            if self.agent in ("codex", "copilot") and not self.code:
                 m = DEVICE_CODE.search(self.text)
                 if m:
                     self.code = m.group(1)
@@ -155,6 +202,9 @@ class SignIn:
         self._finish()
 
     def _finish(self) -> None:
+        if self.agent == "copilot" and self.proc.returncode == 0:
+            from . import db
+            db.set_setting("copilot_signed_in", "1")  # the CLI has no status command; remember that it finished
         ok, _ = signed_in(self.agent)
         if ok:
             self.status = "done"
@@ -191,7 +241,8 @@ def start(agent: str) -> dict:
         if s.agent == agent:
             s.stop()
             SESSIONS.pop(s.id, None)
-    args = [exe, "auth", "login", "--claudeai"] if agent == "claude" else [exe, "login", "--device-auth"]
+    args = ([exe, "auth", "login", "--claudeai"] if agent == "claude" else [exe, "login", "--device-code"] if agent == "copilot"
+            else [exe, "login", "--device-auth"])
     s = SignIn(agent, args)
     SESSIONS[s.id] = s
     for _ in range(150):  # the link appears within a second or two

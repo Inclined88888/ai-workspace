@@ -51,7 +51,18 @@ AGENTS: dict[str, dict[str, Any]] = {
         "terms": "https://developers.openai.com/codex/noninteractive",
         "strip_env": ("OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL"),
     },
+    # A chat model only (plan_signin, adapters.CliPlan): not offered as a coding agent on the Coding page.
+    "copilot": {
+        "id": "copilot", "name": "GitHub Copilot CLI", "bin": "copilot", "env": "WORKBENCH_COPILOT_BIN",
+        "plan": "Copilot Pro, Pro+, Business or Enterprise",
+        "install": "npm install -g @github/copilot", "login": "copilot login",
+        "login_hint": "Run copilot login in a terminal; GitHub's sign-in opens in your browser.",
+        "docs": "https://docs.github.com/en/copilot/how-tos/set-up/install-copilot-cli",
+        "terms": "https://docs.github.com/en/site-policy/github-terms/github-terms-for-additional-products-and-features#github-copilot",
+        "strip_env": (),
+    },
 }
+CODING_AGENTS = ("claude", "codex")  # the Coding page runs these; Copilot is offered as a chat model only
 
 # What the user picks per job. Never a bypass mode.
 MODES = {
@@ -251,7 +262,7 @@ def load_saved() -> None:
             data = json.loads(f.read_text())
         except (OSError, ValueError):
             continue
-        if data.get("id") in RUNS or data.get("agent") not in AGENTS:
+        if data.get("id") in RUNS or data.get("agent") not in CODING_AGENTS:
             continue
         r = Run(data["agent"], data.get("task", ""), data.get("folder", ""), data.get("mode", "ask"), data.get("source", "app"))
         r.id = data["id"]
@@ -558,7 +569,7 @@ def _record(run: Run) -> None:
 
 
 def start(agent: str, task: str, folder: str, mode: str, source: str = "app") -> Run:
-    if agent not in AGENTS:
+    if agent not in CODING_AGENTS:
         raise ValueError("Unknown coding agent")
     if mode not in MODES:
         raise ValueError("Unknown mode")

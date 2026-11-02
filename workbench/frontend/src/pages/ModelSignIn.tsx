@@ -139,6 +139,7 @@ export function SignInWithPlan({ onChange }: { onChange: () => void }) {
   useEffect(() => { api<{ options: Sub[] }>("/auth/subscriptions").then((r) => setSubs(r.options)).catch(() => setSubs([])); }, []);
   const chatgpt = subs?.find((s) => s.id === "chatgpt");
   const claude = subs?.find((s) => s.id === "claude" && s.available && s.via === "claude_code");
+  const copilot = subs?.find((s) => s.id === "copilot" && s.available);
   const connected = (name: string) => async () => { setDone(name); onChange(); };
   if (subs === null) return <Loader2 size={16} className="spin" />;
   return (
@@ -147,7 +148,9 @@ export function SignInWithPlan({ onChange }: { onChange: () => void }) {
       {chatgpt && <ChatGPTCard sub={chatgpt} onConnected={connected("ChatGPT")} cta="Use it" />}
       {claude && <PlanCard agent="claude" title="Claude" onConnected={connected("Claude")} cta="Use it"
         blurb={`For Claude ${claude.plans}. Uses Claude Code, Anthropic's own app: we set it up and open Anthropic's sign-in. Answers count against your plan.`} />}
-      {!chatgpt && !claude && <div className="muted small">No plan sign-in is available in this build. Use a key below.</div>}
+      {copilot && <PlanCard agent="copilot" title="GitHub Copilot" onConnected={connected("GitHub Copilot")} cta="Use it"
+        blurb={`For Copilot ${copilot.plans}. Uses GitHub's own Copilot CLI: we set it up and open GitHub's sign-in. Each answer uses your plan's premium requests.`} />}
+      {!chatgpt && !claude && !copilot && <div className="muted small">No plan sign-in is available in this build. Use a key below.</div>}
     </div>
   );
 }

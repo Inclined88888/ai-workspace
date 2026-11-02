@@ -30,7 +30,7 @@ async def status(fresh: bool = False):
     """Which coding CLIs are installed and signed in on this computer. Never returns identity or tokens."""
     import asyncio
 
-    found = await asyncio.gather(*(asyncio.to_thread(cli_agents.detect, a, fresh) for a in cli_agents.AGENTS))
+    found = await asyncio.gather(*(asyncio.to_thread(cli_agents.detect, a, fresh) for a in cli_agents.CODING_AGENTS))
     return {"agents": found, "modes": {k: v["label"] for k, v in cli_agents.MODES.items()}}
 
 

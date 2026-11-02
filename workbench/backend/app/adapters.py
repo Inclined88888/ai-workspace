@@ -628,7 +628,8 @@ class CliPlan(Protocol):
 
     @staticmethod
     def agent(conn: dict) -> str:
-        return "codex" if conn["base_url"].rstrip("/").endswith("codex") else "claude"
+        base = conn["base_url"].rstrip("/")
+        return "codex" if base.endswith("codex") else "copilot" if base.endswith("copilot") else "claude"
 
     def models(self, conn: dict) -> list[str]:
         # Claude Code takes these aliases for the newest model of each family (claude --help, --model)
@@ -669,6 +670,10 @@ class CliPlan(Protocol):
             # (a hook could otherwise run commands on every chat message), and only the tokens of this conversation
             argv += ["--safe-mode", "--strict-mcp-config"]
             return argv + (["--model", model] if model and model != "default" else [])
+        if self.agent(conn) == "copilot":
+            # one prompt, answer only, no tools and no built-in GitHub MCP server: a chat backend, not an agent
+            return [path, "-s", "--no-ask-user", "--no-color", "--stream", "off", "--available-tools=",
+                    "--disable-builtin-mcps", "--no-custom-instructions", "--model", model if model and model != "default" else "auto"]
         argv = [path, "exec", "--json", "--skip-git-repo-check", "--sandbox", "read-only", "--color", "never"]
         return argv + (["-m", model] if model and model != "default" else []) + ["-"]
 
@@ -686,11 +691,15 @@ class CliPlan(Protocol):
         system, prompt = self.transcript(messages, tools)
         if schema:
             system += f"\n\nAnswer with only JSON matching this schema, no other text:\n{json.dumps(schema['schema'])}"
-        if agent == "codex" and system:  # codex exec has no system prompt flag: it leads the prompt
+        if agent in ("codex", "copilot") and system:  # no system prompt flag: it leads the prompt
             prompt = f"{system}\n\n{prompt}"
+        argv = self.argv(conn, path, model, system if agent == "claude" else "")
+        if agent == "copilot":  # takes the prompt as an argument, not on stdin
+            argv[1:1] = ["-p", prompt]
+            prompt = ""
         with tempfile.TemporaryDirectory(prefix="aiw-cli-") as empty:  # no project files, no CLAUDE.md, nothing to touch
             try:
-                proc = await asyncio.create_subprocess_exec(*self.argv(conn, path, model, system if agent == "claude" else ""),
+                proc = await asyncio.create_subprocess_exec(*argv,
                                                             cwd=empty, env=cli_agents.child_env(agent),
                                                             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
                                                             stderr=asyncio.subprocess.PIPE)
@@ -701,9 +710,14 @@ class CliPlan(Protocol):
             except OSError as e:
                 raise ProviderError(502, f"{conn['name']} could not start: {e}", kind="unreachable") from e
         text, usage, error = self.parse(agent, out.decode(errors="replace"))
+        if agent == "copilot" and proc.returncode != 0 and not error:
+            error = err.decode(errors="replace").strip() or out.decode(errors="replace").strip()
         if proc.returncode != 0 or error:
             detail = (error or err.decode(errors="replace") or f"exit code {proc.returncode}")[:400]
             limited = any(w in detail.lower() for w in ("usage limit", "rate limit", "limit reached", "quota"))
+            if agent == "copilot" and "monthly quota" in detail.lower():
+                detail = ("Your Copilot plan's premium requests for this month are used up. They reset on the 1st; "
+                          "until then the other connected models answer.")
             signed_out = any(w in detail.lower() for w in ("not logged in", "login", "sign in", "authenticate"))
             raise ProviderError(502, f"{conn['name']}: {detail}", upstream=429 if limited else (401 if signed_out else None),
                                 kind="quota" if limited else "http", body=detail)
@@ -711,7 +725,9 @@ class CliPlan(Protocol):
 
     @staticmethod
     def parse(agent: str, out: str) -> tuple[str, dict, str]:
-        """(answer, usage, error) from the CLI's JSON output."""
+        """(answer, usage, error) from the CLI's JSON output (Copilot: its plain answer with -s)."""
+        if agent == "copilot":
+            return out.strip(), {"prompt_tokens": 0, "completion_tokens": 0}, ""
         if agent == "claude":
             try:
                 d = json.loads(out.strip().splitlines()[-1]) if out.strip() else {}

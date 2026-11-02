@@ -2,12 +2,12 @@ import { ArrowRight, Check, Download, ExternalLink, Loader2, UserRound } from "l
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 
-type PlanState = { installed: boolean; signed_in: boolean; account: string; can_install: boolean; connected: boolean; name: string; terms: string };
+type PlanState = { installed: boolean; signed_in: boolean; account: string; can_install: boolean; connected: boolean; name: string; terms: string; quota?: string };
 type SignIn = { id: string; status: string; url: string; code: string; needs_code: boolean; error: string };
 
 /** A plan through the vendor's own app (Claude Code, Codex), all from here: install, sign in, start chatting. No terminal. */
 export default function PlanCard({ agent, title, blurb, onConnected, cta = "Start chatting" }: {
-  agent: "claude" | "codex"; title: string; blurb: string; onConnected: () => Promise<void> | void; cta?: string;
+  agent: "claude" | "codex" | "copilot"; title: string; blurb: string; onConnected: () => Promise<void> | void; cta?: string;
 }) {
   const [st, setSt] = useState<PlanState | null>(null);
   const [busy, setBusy] = useState("");
@@ -70,7 +70,7 @@ export default function PlanCard({ agent, title, blurb, onConnected, cta = "Star
         )
       ) : st.signed_in ? (
         <div className="row">
-          <span className="small grow">{st.account ? `Signed in as ${st.account}` : `Signed in with your ${st.name} plan`}</span>
+          <span className="small grow">{st.account ? `Signed in as ${st.account}` : `Signed in with your ${st.name} plan`}{st.quota ? <span className="muted"> · {st.quota}</span> : null}</span>
           <button className="btn primary" onClick={go}>{cta} <ArrowRight size={16} /></button>
         </div>
       ) : signin && signin.status === "waiting" ? (

@@ -57,6 +57,10 @@ PRESETS = {
     "codex-plan": {"name": "ChatGPT plan (Codex)", "auth_kind": "cli_subscription", "protocol": "cli_plan", "base_url": "cli://codex",
                    "note": "Uses the Codex CLI you installed and signed in to with ChatGPT, on this computer, in its read-only "
                            "sandbox. Answers count against your ChatGPT plan's Codex limits."},
+    "copilot-plan": {"name": "Copilot plan (GitHub Copilot)", "auth_kind": "cli_subscription", "protocol": "cli_plan",
+                     "base_url": "cli://copilot",
+                     "note": "Uses the GitHub Copilot CLI signed in to your GitHub account, with no tools. Each answer uses "
+                             "your plan's monthly premium requests."},
     "opencode-go": {"name": "OpenCode Go", "auth_kind": "api_key", "protocol": "chat_completions",
                     "base_url": "https://opencode.ai/inference/go/openai/v1", "note": "OpenCode Go subscription ($10/month flat). Key from opencode.ai/console."},
     "opencode-zen": {"name": "OpenCode Zen", "auth_kind": "api_key", "protocol": "chat_completions",
