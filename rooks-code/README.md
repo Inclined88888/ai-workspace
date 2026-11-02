@@ -10,7 +10,9 @@ receipt in Workbench's run-log format.
 
 ## Install
 
-Rooks is pure Python standard library (no dependencies), Python 3.11 or newer.
+Rooks needs Python 3.11 or newer. The interactive terminal (command menu, history, status bar, formatted answers)
+uses prompt_toolkit and rich; one-shot prompts, pipes and scripts use the plain line mode, which is standard library
+only (ROOKS_PLAIN=1 forces it).
 
 | | Recommended | Alternatives |
 |---|---|---|

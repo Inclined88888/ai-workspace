@@ -173,20 +173,33 @@ def main(argv: list[str] | None = None) -> int:
     root = Path(args.cwd or os.getcwd()).resolve()
     if not root.is_dir():
         sys.exit(f"rooks: {root} is not a folder")
-    s = config.resolve({"provider": args.provider, "model": args.model, "base_url": args.base_url, "yes": args.yes,
-                        "dry_run": args.dry_run, "max_usd": args.max_usd, "max_tokens": args.max_tokens,
-                        "max_steps": args.max_steps}, root)
+    overrides = {"provider": args.provider, "model": args.model, "base_url": args.base_url, "yes": args.yes,
+                 "dry_run": args.dry_run, "max_usd": args.max_usd, "max_tokens": args.max_tokens, "max_steps": args.max_steps}
+    interactive = not args.prompt and sys.stdin.isatty() and sys.stdout.isatty()
+    try:
+        s = config.resolve(overrides, root)
+    except SystemExit:
+        if not interactive or not first_run_setup(root):
+            raise
+        s = config.resolve(overrides, root)
     if args.no_mcp:
         s.mcp_servers = {}
     if args.no_stream:
         s.stream = False
-    ui = UI(color=False if args.no_color else None, theme=getattr(args, "theme", None))
+    ui_class = UI
+    if interactive and not os.environ.get("ROOKS_PLAIN"):
+        from . import tui
+        if tui.available():
+            ui_class = tui.RichUI
+    ui = ui_class(color=False if args.no_color else None, theme=getattr(args, "theme", None))
     if s.kind == "delegate":
         from . import delegate
         return delegate.main(s.provider, s, ui, " ".join(args.prompt) if args.prompt else None)
     if s.key_env and not s.api_key and not s.key_optional:
-        ui.error(f"{s.provider} needs an API key in the {s.key_env} environment variable (or use --provider ollama)")
-        return 2
+        if not (interactive and first_run_setup(root, f"{s.provider} needs a key, and none is saved yet.")):
+            ui.error(f"{s.provider} needs an API key in the {s.key_env} environment variable (or use --provider ollama)")
+            return 2
+        s = config.resolve(overrides, root)
     from .agent import Agent
     history: list[dict] = []
     if args.cont or args.resume:
@@ -289,7 +302,27 @@ def provider_command(agent, ui: UI, rest: str) -> None:
     ui.p(f"now on {s.provider}/{s.model}")
 
 
+def first_run_setup(root: Path, why: str = "No AI service is connected yet.") -> bool:
+    """At a terminal with nothing connected: walk through `rooks login` now instead of stopping with an error."""
+    import argparse
+
+    from . import login
+
+    print(f"\nWelcome to Rooks. {why} Let's connect one (about a minute).\n")
+    try:
+        ok = login.main(argparse.Namespace(provider=None, url=None, model=None, key_stdin=False), root) == 0
+    except (KeyboardInterrupt, EOFError):
+        print()
+        return False
+    if ok:
+        print()
+    return ok
+
+
 def repl(agent, ui: UI) -> int:
+    if type(ui).__name__ == "RichUI":
+        from . import tui
+        return tui.run(agent, ui)
     s = agent.s
     mode = " · trusted folder" if s.trusted() else ""
     mode += " · DRY RUN" if s.dry_run else ""
