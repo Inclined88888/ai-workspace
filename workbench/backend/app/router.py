@@ -112,6 +112,13 @@ def save_settings(new: dict) -> dict:
     return cur
 
 
+def put_first(cid: int) -> None:
+    """The user just chose this one (Use it / Start chatting on a plan): it answers first from now on; the rest keep
+    their order behind it."""
+    rest = [c["id"] for c in ordered_connections() if c["id"] != cid]
+    save_settings({"order": [cid, *rest]})
+
+
 def _rank(conn: dict) -> int:
     if conn["auth_kind"] == "oauth_subscription":
         return 0  # already paid for by the user's plan

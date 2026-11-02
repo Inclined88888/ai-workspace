@@ -70,12 +70,20 @@ def test_claude_sign_in_from_the_app_then_chat_on_the_plan(client, fakes):
     assert done["status"] == "done"
     st = client.get("/api/plans", headers=H).json()["claude"]
     assert st["signed_in"] and st["account"] == "me@example.com"
+    from app import db as _db
+    earlier = _db.run("INSERT INTO connections(name, auth_kind, protocol, base_url, secret_enc, residency, created_at) "
+                      "VALUES ('Groq', 'api_key', 'chat_completions', 'https://api.groq.com/openai/v1', '', 'cloud', 't')")
     c = client.post("/api/plans/claude/connect", headers=H).json()
     assert c["connected"]
     from app import db
     row = db.one("SELECT * FROM connections WHERE id = ?", c["connection_id"])
     assert row["base_url"] == "cli://claude" and row["enabled"] == 1
     assert client.post("/api/plans/claude/connect", headers=H).json()["connection_id"] == c["connection_id"]  # no duplicate
+    from app import router
+    ids = [x["id"] for x in router.ordered_connections()]
+    assert ids[0] == c["connection_id"] and earlier in ids  # chosen on purpose: ahead of the key added earlier
+    _db.run("DELETE FROM connections WHERE id = ?", earlier)
+    router.save_settings({"order": []})
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="pseudo-terminal sign-in is POSIX; Windows uses pipes")

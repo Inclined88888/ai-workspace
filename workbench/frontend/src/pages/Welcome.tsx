@@ -386,7 +386,7 @@ export default function Welcome({ onDone }: { onDone: () => void }) {
               </button>
               <button className="welcome-option" onClick={() => setStep("subscription")} disabled={!presets}>
                 <Sparkles size={20} />
-                <span className="grow"><strong>Sign in with your subscription</strong><span className="muted small">Your ChatGPT plan, or your Claude plan through Claude Code. No key needed.</span></span>
+                <span className="grow"><strong>Sign in with your subscription</strong><span className="muted small">ChatGPT, Claude or GitHub Copilot: sign in with the plan you already pay for. No key needed.</span></span>
                 <ArrowRight size={16} />
               </button>
               <button className="welcome-option" onClick={() => { setKeyPreset(undefined); setStep("key"); }} disabled={!presets}>

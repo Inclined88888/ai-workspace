@@ -157,8 +157,8 @@ def install_tools(src: Path, desk: bool = True) -> None:
 def desk_notes() -> list[str]:
     """What the user still has to do once for computer use on this OS. Nothing is granted silently."""
     if MAC:
-        return ["Computer use (rooks-desk) needs two macOS permissions, granted once: run `rooks-desk setup`, then allow",
-                "  Screen Recording and Accessibility for it in System Settings > Privacy & Security."]
+        return ["To let it use your screen (the Computer page), macOS asks once for two permissions: open the Computer",
+                "  page and press Ask macOS. (In a terminal: rooks-desk setup.)"]
     if WIN:
         return ["Computer use (rooks-desk) works without admin rights. It cannot click in windows that run as administrator",
                 "  (UAC) unless it runs elevated too, and never answers UAC prompts itself."]

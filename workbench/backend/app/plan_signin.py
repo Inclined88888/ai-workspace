@@ -268,6 +268,8 @@ def connect(agent: str) -> dict:
     if not ok:
         raise HTTPException(400, "Not signed in yet")
     cid = llm.plan_connection(PRESET[agent], create=True)["id"]
+    from . import router
+    router.put_first(cid)  # chosen on purpose, so it answers first rather than whichever free key was added earlier
     return {**state()[agent], "connection_id": cid}
 
 
