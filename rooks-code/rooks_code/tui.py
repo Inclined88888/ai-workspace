@@ -217,6 +217,14 @@ def sessions(root) -> list[tuple[str, str]]:
     return out
 
 
+def model_label(s, dim: str) -> str:
+    """'Auto, through your AI Workspace app' rather than 'default (workbench)'."""
+    if s.provider == "workbench":
+        name = "Auto" if s.model in ("", "default", "auto") else s.model
+        return f"{name}  [{dim}](through your AI Workspace app: same models, keys and plans)[/]"
+    return f"{s.model}  [{dim}]({s.provider})[/]"
+
+
 def banner(agent, ui: RichUI) -> None:
     s = agent.s
     accent, dim = ui.hexcolour("accent"), ui.hexcolour("dim")
@@ -226,7 +234,7 @@ def banner(agent, ui: RichUI) -> None:
     info = Table.grid(padding=(0, 2))
     info.add_column(style=dim, no_wrap=True)
     info.add_column()
-    info.add_row("Model", f"{s.model}  [{dim}]({s.provider})[/]")
+    info.add_row("Model", model_label(s, dim))
     info.add_row("Folder", str(agent.root))
     mode = "asks before every change" if not (s.auto_approve or s.trusted()) else "changes files without asking"
     if s.dry_run:
@@ -303,7 +311,8 @@ def run(agent, ui: RichUI) -> int:
         s = agent.s
         t = agent.log.totals()
         mode = "DRY RUN" if s.dry_run else ("auto" if (s.auto_approve or s.trusted()) else "asks first")
-        return FormattedText([("class:bar", f" {s.model} "), ("class:barsep", "│"),
+        shown = "Auto (app)" if s.provider == "workbench" and s.model in ("", "default", "auto") else s.model
+        return FormattedText([("class:bar", f" {shown} "), ("class:barsep", "│"),
                               ("class:bar", f" {Path(agent.root).name or agent.root} "), ("class:barsep", "│"),
                               ("class:bar", f" {t['tokens_in'] + t['tokens_out']:,} tokens "), ("class:barsep", "│"),
                               ("class:bar", f" {mode} "), ("class:barsep", "│"),

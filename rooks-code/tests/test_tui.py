@@ -99,3 +99,23 @@ def test_model_list_hides_models_that_cannot_chat_and_all_shows_them(tmp_path):
     out.truncate(0)
     cli.model_command(agent, ui, "all")
     assert "llama-guard" in out.getvalue() and len(agent._listed_models) == 5
+
+
+def test_app_models_read_as_auto_and_auto_is_listed_first(tmp_path):
+    import io
+
+    from rooks_code import cli
+
+    s = type("S", (), {"model": "default", "provider": "workbench"})()
+    assert tui.model_label(s, "#999").startswith("Auto  ") and "AI Workspace app" in tui.model_label(s, "#999")
+
+    class Model:
+        model = "default"
+
+        def list_models(self):
+            return ["1/meta/llama-4", "2/sonnet", "auto", "auto:fast"]
+
+    agent = FakeAgent(tmp_path)
+    agent.s, agent.model = s, Model()
+    cli.model_command(agent, cli.UI(out=io.StringIO(), color=False), "")
+    assert agent._listed_models[:2] == ["auto", "auto:fast"]

@@ -287,6 +287,8 @@ def model_command(agent, ui: UI, rest: str) -> None:
     if not show_all:
         chat = [m for m in listed if not NON_CHAT.search(m)]
         hidden, listed = len(listed) - len(chat), chat or listed
+    # the app's smart router (auto, auto:fast, auto:strong) is the easy choice, so it comes first
+    listed = sorted(listed, key=lambda m: not m.startswith("auto"))  # stable: the rest keep their order
     agent._listed_models = listed
     for i, m in enumerate(listed[:200], 1):
         ui.p(("→ " if m == s.model else "  ") + f"{i:>3}  {m}")
