@@ -199,7 +199,7 @@ def test_slack_inbound_answers_only_allowed_users(client, monkeypatch):
     assert len(posted) == n  # a Slack retry never runs twice
     assert client.put("/api/channels/slack", json={"bot_token": "nope"}).status_code == 400
     st = client.get("/api/channels").json()
-    assert st["slack"]["manifest"]["settings"]["socket_mode_enabled"] and st["whatsapp"]["available"] is False
+    assert st["slack"]["manifest"]["settings"]["socket_mode_enabled"] and st["whatsapp"]["available"] is True and not st["whatsapp"]["configured"]
 
 
 def _pair(client):
