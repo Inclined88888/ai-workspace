@@ -73,3 +73,29 @@ def test_new_clears_the_conversation_and_unknown_commands_suggest_one(tmp_path):
     assert agent.messages == []
     tui.command(agent, ui, "/hlep", "")
     assert "Did you mean /help?" in out.getvalue()
+
+
+def test_model_list_hides_models_that_cannot_chat_and_all_shows_them(tmp_path):
+    import io
+
+    from rooks_code import cli
+
+    class Model:
+        model = "a"
+
+        def list_models(self):
+            return ["meta/llama-4", "meta/llama-guard-4-12b", "nvidia/nv-embedqa-mistral-7b-v2", "whisper-1", "gpt-5.1"]
+
+    agent = FakeAgent(tmp_path)
+    agent.s = type("S", (), {"model": "gpt-5.1", "provider": "x"})()
+    agent.model = Model()
+    out = io.StringIO()
+    ui = cli.UI(out=out, color=False)
+    cli.model_command(agent, ui, "")
+    text = out.getvalue()
+    assert "meta/llama-4" in text and "gpt-5.1" in text and "llama-guard" not in text and "whisper" not in text
+    assert "3 more that can't chat are hidden" in text
+    assert agent._listed_models == ["meta/llama-4", "gpt-5.1"]
+    out.truncate(0)
+    cli.model_command(agent, ui, "all")
+    assert "llama-guard" in out.getvalue() and len(agent._listed_models) == 5

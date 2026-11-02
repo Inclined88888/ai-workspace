@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 import threading
 import time
@@ -251,10 +252,21 @@ def load_session(root: Path, session: str | None) -> tuple[list[dict], str]:
     return msgs, f"continuing session {files[-1].name.removesuffix('.messages.json')} ({prompts} earlier prompt(s), last on {data.get('provider')}/{data.get('model')})"
 
 
+# Models a provider lists that can't hold a conversation: embeddings, rerankers, safety filters, speech, image and
+# vision-only models, reward models. Hidden from /model (still usable by name; /model all lists everything).
+NON_CHAT = re.compile(r"embed|rerank|guard|safety|content-safety|topic-control|jailbreak|deplot|kosmos|\btts\b|whisper|"
+                      r"\basr\b|parakeet|canary|\bclip\b|nvclip|retriev|\bbge\b|\bocr\b|paddle|flux|stable-diffusion|"
+                      r"sdxl|dall-e|gpt-image|imagen|reward|moderation|fuyu|neva|\bvila\b|riva|transcri|audio|realtime|"
+                      r"\bsearch-preview\b|davinci|babbage", re.I)
+
+
 def model_command(agent, ui: UI, rest: str) -> None:
-    """/model: list what the provider offers, numbered; /model N or /model NAME switches."""
+    """/model: list the provider's chat models, numbered; /model N or /model NAME switches; /model all lists everything."""
     s = agent.s
     choice = rest.strip()
+    show_all = choice.lower() == "all"
+    if show_all:
+        choice = ""
     listed: list[str] = getattr(agent, "_listed_models", [])
     if choice.isdigit() and listed and 1 <= int(choice) <= len(listed):
         choice = listed[int(choice) - 1]
@@ -271,11 +283,17 @@ def model_command(agent, ui: UI, rest: str) -> None:
     if not listed:
         ui.p(f"{s.provider} lists no models; type /model NAME")
         return
+    hidden = 0
+    if not show_all:
+        chat = [m for m in listed if not NON_CHAT.search(m)]
+        hidden, listed = len(listed) - len(chat), chat or listed
     agent._listed_models = listed
     for i, m in enumerate(listed[:200], 1):
         ui.p(("→ " if m == s.model else "  ") + f"{i:>3}  {m}")
     if len(listed) > 200:
         ui.p(f"  ... {len(listed) - 200} more; type /model NAME")
+    if hidden:
+        ui.p(ui.c("2", f"  ({hidden} more that can't chat are hidden: embeddings, safety filters, speech, images. /model all shows them)"))
     ui.p(ui.c("2", "/model N or /model NAME to switch"))
 
 
