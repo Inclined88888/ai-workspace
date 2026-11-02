@@ -231,11 +231,19 @@ def model_label(s, dim: str) -> str:
 def _choose(message: str, options: list[tuple[str, str]], default: str | None = None) -> str | None:
     """An arrow-key menu (Enter picks, Esc or Ctrl+C cancels). None when cancelled or not available."""
     try:
+        from prompt_toolkit.key_binding import KeyBindings as Keys
         from prompt_toolkit.shortcuts import choice
     except ImportError:
         return None
+    keys = Keys()
+
+    @keys.add("escape", eager=True)
+    def _cancel(event):  # Esc backs out, as the hint says (choice() itself only knows Ctrl+C)
+        event.app.exit(exception=KeyboardInterrupt())
+
     try:
-        return choice(message=message, options=options, default=default if default in {v for v, _ in options} else None)
+        return choice(message=message, options=options, default=default if default in {v for v, _ in options} else None,
+                      key_bindings=keys, bottom_toolbar=" ↑↓ move · Enter picks · Esc cancels ")
     except (KeyboardInterrupt, EOFError):
         return None
 

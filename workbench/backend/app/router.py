@@ -550,9 +550,10 @@ async def stream(ref: str, messages: list[dict], trace: dict | None = None) -> A
 
 
 # Models a provider lists that can't hold a conversation (embeddings, rerankers, safety filters, speech, image and
-# vision-only models, reward models): kept out of the Models page pickers. Same list as rooks /model.
+# vision-only models, reward models, diffusion text models that answer empty): kept out of the pickers. Same list as
+# rooks /model.
 NON_CHAT = re.compile(r"embed|rerank|guard|safety|topic-control|jailbreak|deplot|kosmos|\btts\b|whisper|\basr\b|parakeet|"
-                      r"canary|\bclip\b|nvclip|retriev|\bbge\b|\bocr\b|paddle|flux|stable-diffusion|sdxl|dall-e|gpt-image|"
+                      r"canary|\bclip\b|nvclip|retriev|\bbge\b|\bocr\b|paddle|flux|diffusion|sdxl|dall-e|gpt-image|"
                       r"imagen|reward|moderation|fuyu|neva|\bvila\b|riva|transcri|audio|realtime|davinci|babbage", re.I)
 
 

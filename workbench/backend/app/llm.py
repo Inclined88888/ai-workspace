@@ -254,8 +254,10 @@ def _pickable(base_url: str, model: str) -> dict:
 
     if not catalog.provider_for(base_url):
         return {"chat": True, "released": ""}
+    from .router import NON_CHAT
+
     m = catalog.lookup(base_url, model)
-    ok = bool(m and m.get("tools") and (m.get("ctx") or 0) >= 16_000)
+    ok = bool(m and m.get("tools") and (m.get("ctx") or 0) >= 16_000) and not NON_CHAT.search(model)
     return {"chat": ok, "released": (m or {}).get("released", "")}
 
 

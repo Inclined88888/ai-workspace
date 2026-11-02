@@ -256,7 +256,7 @@ def load_session(root: Path, session: str | None) -> tuple[list[dict], str]:
 # Models a provider lists that can't hold a conversation: embeddings, rerankers, safety filters, speech, image and
 # vision-only models, reward models. Hidden from /model (still usable by name; /model all lists everything).
 NON_CHAT = re.compile(r"embed|rerank|guard|safety|content-safety|topic-control|jailbreak|deplot|kosmos|\btts\b|whisper|"
-                      r"\basr\b|parakeet|canary|\bclip\b|nvclip|retriev|\bbge\b|\bocr\b|paddle|flux|stable-diffusion|"
+                      r"\basr\b|parakeet|canary|\bclip\b|nvclip|retriev|\bbge\b|\bocr\b|paddle|flux|diffusion|"
                       r"sdxl|dall-e|gpt-image|imagen|reward|moderation|fuyu|neva|\bvila\b|riva|transcri|audio|realtime|"
                       r"\bsearch-preview\b|davinci|babbage", re.I)
 
