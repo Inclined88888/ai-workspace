@@ -1,10 +1,11 @@
-import { Cpu, Download, FolderOpen, KeyRound, Loader2, Monitor, Plug, Plus, RefreshCw, Shield, Trash2 } from "lucide-react";
+import { Check, Cpu, Download, FolderOpen, KeyRound, Loader2, Monitor, Plug, Plus, RefreshCw, Shield, Trash2 } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, stream } from "../api";
 import { AppInfo, Sidecar, appInfo, inDesktopShell, listSidecars, openDataDir, openLogs, requestApproval } from "../desktop";
 import { ModelSelect, useModels, useToast } from "../util";
 import ConnectMailCalendar from "./ConnectMailCalendar";
+import { AddKey, KeyInfo, SignInWithPlan } from "./ModelSignIn";
 import { PhoneCard } from "./Phone";
 
 type DesktopInfo = { desktop: boolean; data_dir: string; secret_backend: string };
@@ -55,25 +56,30 @@ type Provider = { id: number; name: string; auth_kind: string; protocol: string;
   has_key: boolean; key_hint: string; state: string; last_error: string };
 type Presets = Record<string, { name: string; auth_kind: string; protocol: string; base_url: string; note?: string }>;
 
-// The connection types a user can create here; subscription sign-in has its own flow (item 101)
+// The connection types for a custom connection (Advanced). Plans are signed in to with their own cards above it.
 const CONNECTION_TYPES: Record<string, string> = {
   "api_key/chat_completions": "API key · Chat Completions",
   "api_key/responses": "API key · OpenAI Responses",
   "api_key/anthropic_messages": "API key · Anthropic Messages",
   "openai_compatible/chat_completions": "OpenAI compatible server (key optional)",
   "local_ollama/ollama_native": "Ollama (local)",
-  "cli_subscription/cli_plan": "Your plan, through its CLI (cli://claude or cli://codex, no key)",
 };
-const typeLabel = (p: { auth_kind: string; protocol: string }) =>
-  CONNECTION_TYPES[`${p.auth_kind}/${p.protocol}`] ?? `${p.auth_kind} · ${p.protocol}`;
+const KIND_LABEL: Record<string, string> = {
+  api_key: "API key", cli_subscription: "Your plan", oauth: "Your plan", chatgpt: "Your plan", subscription: "Your plan",
+  local_ollama: "On this computer", openai_compatible: "Custom server",
+};
+const kindLabel = (p: { auth_kind: string; protocol: string }) =>
+  KIND_LABEL[p.auth_kind] ?? CONNECTION_TYPES[`${p.auth_kind}/${p.protocol}`] ?? p.auth_kind;
 const EMPTY_FORM = { name: "", type: "openai_compatible/chat_completions", base_url: "", api_key: "", models: "" };
 function Providers() {
-  const [list, setList] = useState<Provider[]>([]);
+  const [list, setList] = useState<Provider[] | null>(null);
   const [presets, setPresets] = useState<Presets>({});
+  const [info, setInfo] = useState<Record<string, KeyInfo>>({});
   const [form, setForm] = useState(EMPTY_FORM);
   const [note, setNote] = useState("");
   const toast = useToast();
-  const load = () => api<{ providers: Provider[]; presets: Presets }>("/providers").then((r) => { setList(r.providers); setPresets(r.presets); }).catch(toast.err);
+  const load = () => api<{ providers: Provider[]; presets: Presets; key_info?: Record<string, KeyInfo> }>("/providers")
+    .then((r) => { setList(r.providers); setPresets(r.presets); setInfo(r.key_info ?? {}); }).catch(toast.err);
   useEffect(() => { load(); }, []);
 
   const add = async (e: FormEvent) => {
@@ -82,8 +88,9 @@ function Providers() {
       const [auth_kind, protocol] = form.type.split("/");
       await api("/providers", { body: { name: form.name, auth_kind, protocol, base_url: form.base_url, api_key: form.api_key, models: form.models } });
       setForm(EMPTY_FORM);
+      setNote("");
       load();
-      toast.ok("Provider added");
+      toast.ok("Added");
     } catch (err) { toast.err(err); }
   };
   const toggle = async (p: Provider) => {
@@ -91,7 +98,7 @@ function Providers() {
     load();
   };
   const remove = async (p: Provider) => {
-    if (!confirm(`Remove ${p.name}?`)) return;
+    if (!confirm(`Disconnect ${p.name}? Its saved key or sign-in is removed from this computer.`)) return;
     await api(`/providers/${p.id}`, { method: "DELETE" });
     load();
   };
@@ -100,43 +107,68 @@ function Providers() {
     if (p) setForm({ ...form, name: p.name, base_url: p.base_url, type: `${p.auth_kind}/${p.protocol}` });
     setNote(p?.note ?? "");
   };
+  const advancedPresets = Object.keys(presets).filter((k) => presets[k].auth_kind !== "cli_subscription");
 
   return (
-    <div className="card col gap-lg">
-      <div className="row"><KeyRound size={16} /><h2>Model providers</h2></div>
-      <div className="muted small"><strong>Free options:</strong> local models with Ollama, OpenRouter models ending in :free (free key), and Google Gemini's free tier (free key). Free models are marked (free) in model menus. OpenCode's free models only run inside the OpenCode app, so here they are available to Company agents through the paperclip add-on. Any OpenAI compatible endpoint works: OpenAI, Anthropic, OpenRouter, Groq, Together, Mistral, LM Studio, vLLM, LiteLLM. If a provider has no model list endpoint, type model ids in “Models”.</div>
-      <div className="card flush">
-        {list.map((p) => (
-          <div key={p.id} className="list-item" style={{ cursor: "default" }}>
-            <input type="checkbox" checked={!!p.enabled} onChange={() => toggle(p)} />
-            <div className="grow">
-              <div>{p.name} <span className="badge">{typeLabel(p)}</span>{p.state !== "connected" && <span className="badge">{p.state === "needs_auth" ? "needs sign-in" : p.state}</span>}</div>
-              <div className="faint small mono truncate">{p.base_url}{p.has_key ? ` · key ${p.key_hint || "set"}` : ""}{p.models ? ` · ${p.models}` : ""}</div>
-              {p.last_error && <div className="small" style={{ color: "var(--danger)" }}>{p.last_error}</div>}
+    <div className="card col gap-lg" id="models">
+      <div className="row"><KeyRound size={16} /><h2>AI models</h2></div>
+      <div className="muted small">Connect at least one. With more than one, the app picks a fitting model for each job and moves to the next when one hits its limit.</div>
+      {list === null ? <Loader2 size={16} className="spin" /> : list.length > 0 ? (
+        <div className="card flush">
+          {list.map((p) => (
+            <div key={p.id} className="list-item" style={{ cursor: "default" }} title={p.base_url}>
+              <div className="grow">
+                <div className="row" style={{ gap: 8 }}>
+                  <strong>{p.name}</strong>
+                  <span className="badge">{kindLabel(p)}</span>
+                  {!p.enabled ? <span className="badge">Off</span>
+                    : p.state === "connected" ? <span className="badge ok"><Check size={11} /> Connected</span>
+                    : <span className="badge">{p.state === "needs_auth" ? "Needs sign-in" : p.state}</span>}
+                </div>
+                {p.last_error && <div className="small" style={{ color: "var(--danger)" }}>{p.last_error}</div>}
+              </div>
+              <button className="btn sm ghost" onClick={() => toggle(p)}>{p.enabled ? "Turn off" : "Turn on"}</button>
+              <button className="btn ghost sm icon" title="Disconnect" aria-label={`Disconnect ${p.name}`} onClick={() => remove(p)}><Trash2 size={13} /></button>
             </div>
-            <button className="btn ghost sm icon" onClick={() => remove(p)}><Trash2 size={13} /></button>
-          </div>
-        ))}
+          ))}
+        </div>
+      ) : <div className="alert">Nothing connected yet. Sign in with a plan or paste a key below.</div>}
+
+      <div className="col" style={{ gap: 4 }}>
+        <h3 style={{ margin: 0 }}>Sign in with a plan you already pay for</h3>
+        <div className="muted small">No key needed. Answers count against your plan.</div>
+        <SignInWithPlan onChange={load} />
       </div>
-      <form className="col" onSubmit={add}>
-        <div className="row wrap">
-          <span className="small muted">Preset:</span>
-          {Object.keys(presets).map((k) => <button type="button" key={k} className="btn sm" onClick={() => usePreset(k)}>{presets[k].name}</button>)}
-        </div>
-        {note && <div className="muted small">{note}</div>}
-        <div className="row wrap">
-          <input className="input" style={{ width: 180 }} required placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-          <select className="input" style={{ width: 250 }} value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })} aria-label="Connection type">
-            {Object.entries(CONNECTION_TYPES).map(([v, label]) => <option key={v} value={v}>{label}</option>)}
-          </select>
-          <input className="input grow" style={{ minWidth: 220 }} required placeholder="Base URL, e.g. https://api.groq.com/openai/v1" value={form.base_url} onChange={(e) => setForm({ ...form, base_url: e.target.value })} />
-        </div>
-        <div className="row wrap">
-          <input className="input grow" type="password" placeholder="API key" value={form.api_key} onChange={(e) => setForm({ ...form, api_key: e.target.value })} />
-          <input className="input grow" placeholder="Models (optional, comma separated)" value={form.models} onChange={(e) => setForm({ ...form, models: e.target.value })} />
-          <button className="btn primary"><Plus size={15} /> Add</button>
-        </div>
-      </form>
+
+      <div className="col" style={{ gap: 8 }}>
+        <h3 style={{ margin: 0 }}>Or paste a key</h3>
+        <div className="muted small">The ones marked (free) cost nothing. Paste any key and the provider is recognised from it.</div>
+        <AddKey presets={presets} info={info} onChange={load} />
+      </div>
+
+      <details>
+        <summary className="small">Advanced: a custom server, Ollama, or exact model ids</summary>
+        <form className="col" style={{ marginTop: 12 }} onSubmit={add}>
+          <div className="row wrap">
+            <span className="small muted">Start from:</span>
+            {advancedPresets.map((k) => <button type="button" key={k} className="btn sm" onClick={() => usePreset(k)}>{presets[k].name}</button>)}
+          </div>
+          {note && <div className="muted small">{note}</div>}
+          <div className="row wrap">
+            <input className="input" style={{ width: 180 }} required placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+            <select className="input" style={{ width: 250 }} value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })} aria-label="Connection type">
+              {Object.entries(CONNECTION_TYPES).map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+            </select>
+            <input className="input grow" style={{ minWidth: 220 }} required placeholder="Base URL, e.g. https://api.groq.com/openai/v1" value={form.base_url} onChange={(e) => setForm({ ...form, base_url: e.target.value })} />
+          </div>
+          <div className="row wrap">
+            <input className="input grow" type="password" placeholder="API key" value={form.api_key} onChange={(e) => setForm({ ...form, api_key: e.target.value })} />
+            <input className="input grow" placeholder="Models (optional, comma separated)" value={form.models} onChange={(e) => setForm({ ...form, models: e.target.value })} />
+            <button className="btn primary"><Plus size={15} /> Add</button>
+          </div>
+          <div className="muted small">Any OpenAI compatible server works (LM Studio, vLLM, LiteLLM, Together, Mistral). If it has no model list, type the model ids.</div>
+        </form>
+      </details>
       {toast.node}
     </div>
   );
@@ -251,6 +283,8 @@ export default function Settings({ onChanged }: { onChanged: () => void }) {
           </label>
           <div><button className="btn primary" onClick={save}>Save</button></div>
         </div>
+        <Providers />
+        <ConnectMailCalendar />
         {desktop?.desktop && <DesktopApp info={desktop} />}
         {/* feat/v02-anywhere-voice */}
         <div className="card col">
@@ -261,8 +295,6 @@ export default function Settings({ onChanged }: { onChanged: () => void }) {
         <PhoneCard />
         <Usage />
         <LocalModels />
-        <Providers />
-        <ConnectMailCalendar />
         <div className="card col">
           <h2>Calendars</h2>
           <div className="muted small">Google and Microsoft calendars come with the account above. Add ICS subscriptions or other CalDAV calendars from the Calendar page.</div>

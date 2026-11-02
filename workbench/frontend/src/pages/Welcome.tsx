@@ -1,7 +1,8 @@
-import { ArrowLeft, ArrowRight, Check, ClipboardPaste, Cloud, Cpu, Download, ExternalLink, KeyRound, Loader2, ListChecks, ShieldCheck, Sparkles, UserRound } from "lucide-react";
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { ArrowLeft, ArrowRight, Check, Cloud, Cpu, Download, ExternalLink, KeyRound, Loader2, ListChecks, ShieldCheck, Sparkles } from "lucide-react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import { api, stream } from "../api";
 import PlanCard from "./PlanCard";
+import { ChatGPTCard, KEY_ORDER, KeyField, KeyInfo, Preset, Sub, Validation } from "./ModelSignIn";
 import { ThemeGrid, TypeChoices } from "../ThemePicker";
 import { Tracer } from "../Tracer";
 import { saveAppearanceRemote } from "../themeSync";
@@ -10,14 +11,9 @@ import { readAppearance } from "../appearance";
 /** First run: "Choose how to think". Cloud is the default (nothing heavy runs on this computer); the smart router
  * then uses whatever was connected and falls back when a free tier runs out. */
 
-type Preset = { name: string; auth_kind: string; protocol: string; base_url: string; note?: string };
-type KeyInfo = { url: string; prefix: string; free?: boolean; limits?: string };
 type Model = { ref: string; model: string };
-type Validation = { ok: boolean; preset: string; name: string; detail: string; health: string };
-type Sub = { id: string; name: string; plans: string; available: boolean; detail: string; source: string; via?: string };
 
 const STARTER_MODEL = "qwen3:4b";
-const KEY_ORDER = ["openai", "anthropic", "xai", "gemini", "groq", "openrouter", "mistral", "deepseek", "compatible"];
 
 async function modelsFor(pid: number): Promise<Model[]> {
   const { models } = await api<{ models: Model[] }>("/models?fresh=true");
@@ -41,49 +37,6 @@ async function finishCloud() {
 
 function Back({ onBack }: { onBack: () => void }) {
   return <button type="button" className="btn ghost" onClick={onBack}><ArrowLeft size={16} /> Back</button>;
-}
-
-/** Paste box that recognises the provider from the key itself, and picks a key up from the clipboard when you come
- * back from the provider's page (only when the clipboard holds something shaped like a key for it). */
-function KeyField({ value, onChange, expect, autoFocus, onDetected }: {
-  value: string; onChange: (v: string) => void; expect?: string; autoFocus?: boolean; onDetected?: (preset: string | null, name: string | null) => void;
-}) {
-  const [found, setFound] = useState("");
-  const detect = useCallback(async (k: string) => {
-    if (k.trim().length < 8) return onDetected?.(null, null);
-    const r = await api<{ preset: string | null; name: string | null }>("/providers/detect", { body: { api_key: k.trim() } }).catch(() => null);
-    if (r) onDetected?.(r.preset, r.name);
-  }, [onDetected]);
-  const fromClipboard = useCallback(async (quiet: boolean) => {
-    try {
-      const t = (await navigator.clipboard.readText()).trim();
-      if (!t || t.length > 300 || /\s/.test(t) || (expect && !t.startsWith(expect))) {
-        if (!quiet) setFound("Your clipboard doesn't hold a key yet.");
-        return;
-      }
-      onChange(t);
-      setFound("Found a key on your clipboard.");
-      detect(t);
-    } catch {
-      if (!quiet) setFound("Paste it with Ctrl+V (or ⌘V) instead.");
-    }
-  }, [expect, onChange, detect]);
-  useEffect(() => {
-    const onFocus = () => { if (!value) fromClipboard(true); };
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
-  }, [value, fromClipboard]);
-  return (
-    <div className="col" style={{ gap: 6 }}>
-      <div className="key-field">
-        <input className="input mono" type="password" autoFocus={autoFocus} autoComplete="off" spellCheck={false} value={value}
-          placeholder={expect ? `${expect}…` : "Paste your key"} aria-label="API key"
-          onChange={(e) => { onChange(e.target.value); setFound(""); detect(e.target.value); }} />
-        <button type="button" className="btn sm ghost" onClick={() => fromClipboard(false)}><ClipboardPaste size={14} /> Paste</button>
-      </div>
-      {found && <div className="muted small">{found}</div>}
-    </div>
-  );
 }
 
 const FREE = [
@@ -171,42 +124,12 @@ function FreeStep({ info, onBack, onDone }: { info: Record<string, KeyInfo>; onB
 
 function SubscriptionStep({ onBack, onDone, onKey }: { onBack: () => void; onDone: () => void; onKey: (preset: string) => void }) {
   const [subs, setSubs] = useState<Sub[] | null>(null);
-  const [state, setState] = useState<{ state: string; url: string } | null>(null);
-  const [status, setStatus] = useState<{ status: string; error?: string; email?: string } | null>(null);
-  const [pasted, setPasted] = useState("");
-  const [error, setError] = useState("");
-  const timer = useRef<number>();
   useEffect(() => {
     api<{ options: Sub[] }>("/auth/subscriptions").then((r) => setSubs(r.options)).catch(() => setSubs([]));
-    return () => window.clearInterval(timer.current);
   }, []);
-
-  const start = async () => {
-    setError("");
-    setStatus(null);
-    try {
-      const r = await api<{ url: string; state: string }>("/auth/chatgpt/start", { body: {} });
-      setState(r);
-      window.open(r.url, "_blank", "noopener");
-      window.clearInterval(timer.current);
-      timer.current = window.setInterval(async () => {
-        const s = await api<{ status: string; error?: string; email?: string }>(`/auth/chatgpt/status/${r.state}`).catch(() => null);
-        if (s && s.status !== "pending") {
-          window.clearInterval(timer.current);
-          setStatus(s);
-        }
-      }, 1500);
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  };
-  const completePasted = async () => {
-    const s = await api<{ status: string; error?: string; email?: string }>("/auth/chatgpt/complete", { body: { url: pasted.trim() } });
-    window.clearInterval(timer.current);
-    setStatus(s);
-  };
   const chatgpt = subs?.find((s) => s.id === "chatgpt");
   const claude = subs?.find((s) => s.id === "claude" && s.available && s.via === "claude_code");
+  const start = async () => { await finishCloud(); onDone(); };
 
   return (
     <div className="col gap-lg">
@@ -215,47 +138,10 @@ function SubscriptionStep({ onBack, onDone, onKey }: { onBack: () => void; onDon
         <h1>Sign in with your plan</h1>
         <p className="muted">No API key: use the plan you already pay for, where the provider allows it.</p>
       </div>
-      {error && <div className="alert err">{error}</div>}
-      {status?.status === "failed" && <div className="alert err">{status.error}</div>}
       {subs === null && <Loader2 size={16} className="spin" />}
-      {claude && <PlanCard agent="claude" title="Claude" onConnected={async () => { await finishCloud(); onDone(); }}
+      {claude && <PlanCard agent="claude" title="Claude" onConnected={start}
         blurb={`For Claude ${claude.plans}. Uses Claude Code, Anthropic's own app: we set it up and open Anthropic's sign-in. Answers count against your plan.`} />}
-      {chatgpt && (
-        <div className="sub-card on">
-          <div className="row">
-            <strong className="sub-name">ChatGPT</strong>
-            <span className="badge ok">Available</span>
-            <div className="spacer" />
-            <span className="tiny muted">{chatgpt.plans}</span>
-          </div>
-          <p className="small muted">{chatgpt.detail}</p>
-          {status?.status === "connected" ? (
-            <div className="row">
-              <span className="row small"><Check size={14} /> Signed in as {status.email || "your ChatGPT account"}</span>
-              <div className="spacer" />
-              <button className="btn primary" onClick={async () => { await finishCloud(); onDone(); }}>Start chatting <ArrowRight size={16} /></button>
-            </div>
-          ) : state ? (
-            <div className="col" style={{ gap: 8 }}>
-              <div className="row small"><Loader2 size={14} className="spin" /> Waiting for you to finish in the browser…
-                <div className="spacer" /><a className="small" href={state.url} target="_blank" rel="noreferrer">Open again</a></div>
-              <details className="small">
-                <summary>Signed in on another device?</summary>
-                <div className="row" style={{ marginTop: 8 }}>
-                  <input className="input mono grow" value={pasted} onChange={(e) => setPasted(e.target.value)} placeholder="Paste the address the browser ended on (http://127.0.0.1…)" />
-                  <button className="btn sm" disabled={!pasted.includes("state=")} onClick={completePasted}>Finish</button>
-                </div>
-              </details>
-            </div>
-          ) : (
-            <div className="row"><button className="btn primary" onClick={start}><UserRound size={15} /> Sign in with ChatGPT</button></div>
-          )}
-          <details className="small"><summary>Didn't work? Use ChatGPT through Codex instead</summary>
-            <PlanCard agent="codex" title="ChatGPT through Codex" onConnected={async () => { await finishCloud(); onDone(); }}
-              blurb="OpenAI's own Codex app, signed in with your ChatGPT plan. A bit slower than the direct sign-in above." />
-          </details>
-        </div>
-      )}
+      {chatgpt && <ChatGPTCard sub={chatgpt} onConnected={start} />}
       {!!subs?.some((s) => !s.available) && (
         <details className="other-plans">
           <summary>Other plans: not available yet</summary>
