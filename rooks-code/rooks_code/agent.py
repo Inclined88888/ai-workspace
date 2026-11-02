@@ -91,7 +91,9 @@ class Agent:
         self.budget = Budget(settings.max_tokens, settings.max_usd, settings.model, settings.prices, settings.local)
         self.system = SYSTEM.format(root=self.root, os=f"{platform.system()} {platform.release()}", listing=_listing(self.root))
         self._turn: int | None = None
-        if settings.max_usd and self.budget.price is None:
+        # Through the app (provider workbench) the model is picked per task and the app keeps the spend, so a
+        # per-model price is neither known nor needed here: only warn when the user picked a model directly.
+        if settings.max_usd and self.budget.price is None and settings.provider != "workbench":
             ui.warn(f"price of {settings.model} is unknown, so the ${settings.max_usd} cap cannot be enforced; the token cap "
                     f"({settings.max_tokens or 'none'}) still is. Add it under [prices] to enforce a dollar cap.")
 

@@ -185,3 +185,18 @@ def test_an_overloaded_provider_is_tried_again(project, fake, monkeypatch):
     b = Agent(_settings(project, m2.url), StreamUI())
     assert b.run("hi").startswith("Model error") and len(m2.requests) == 1  # a refused key is not retried
     a.close(), b.close()
+
+
+def test_no_price_warning_through_the_app_but_still_for_a_direct_model(project):
+    from rooks_code.agent import Agent
+    from rooks_code.cli import UI
+
+    def warnings(provider):
+        err = io.StringIO()
+        s = _settings(project, "http://127.0.0.1:9", max_usd=1.0)
+        s.provider = provider
+        Agent(s, UI(out=io.StringIO(), err=err, color=False))
+        return err.getvalue()
+
+    assert "cannot be enforced" not in warnings("workbench")  # the app picks the model and keeps the spend
+    assert "cannot be enforced" in warnings("openai-compatible")
