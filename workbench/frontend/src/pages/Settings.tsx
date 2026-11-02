@@ -112,7 +112,6 @@ export function Providers({ onChange }: { onChange?: () => void } = {}) {
   return (
     <div className="card col gap-lg" id="models">
       <div className="row"><KeyRound size={16} /><h2>Connect</h2></div>
-      <div className="muted small">Connect at least one. With more than one, the app picks a fitting model for each job and moves to the next when one hits its limit.</div>
       {list === null ? <Loader2 size={16} className="spin" /> : list.length > 0 ? (
         <div className="card flush">
           {list.map((p) => (

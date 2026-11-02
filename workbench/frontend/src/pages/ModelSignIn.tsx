@@ -249,7 +249,7 @@ export function WebSearchSetup({ compact = false, onChange }: { compact?: boolea
       <ol className="free-steps">
         <li className={opened ? "done" : ""}>
           <span className="free-n">1</span>
-          <span className="grow">Open Tavily and sign up (Google sign-in works). Your key is on the first page.</span>
+          <span className="grow">Open Tavily and make a free account. Your key is on the first page after you sign up.</span>
           <a className="btn sm" href={st.signup.tavily || "https://app.tavily.com/home"} target="_blank" rel="noreferrer" onClick={() => setOpened(true)}>Open Tavily <ExternalLink size={12} /></a>
         </li>
         <li>
