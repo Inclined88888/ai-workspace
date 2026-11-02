@@ -1,7 +1,8 @@
 """Token and cost accounting, and the budget checks that pause agents before they overspend.
 
-Prices are per million tokens in USD, set by you in Settings (models change too often to ship a price list).
-OpenRouter returns the actual cost of every call, so OpenRouter models need no price entry.
+Prices are per million tokens in USD. A price set in Settings wins; otherwise the model catalog's list price is used
+(catalog.py, refreshed daily), so most calls are priced without typing anything. OpenRouter returns the actual cost of
+every call, which beats both. Plan sign-ins (ChatGPT) are covered by the plan, and local models cost nothing.
 """
 
 import json
@@ -17,16 +18,40 @@ def prices() -> dict[str, dict]:
         return {}
 
 
-def price_usd(model_ref: str, prompt_tokens: int, completion_tokens: int) -> float | None:
+def price_usd(model_ref: str, prompt_tokens: int, completion_tokens: int, cache_read: int = 0, cache_write: int = 0) -> float | None:
     """USD for one call from Settings prices (per million tokens), or None when no price is set.
 
     Prices may be keyed by the model ref ("3/openai/gpt-x") or by the bare model name ("openai/gpt-x").
     """
     table = prices()
     p = table.get(model_ref) or table.get(model_ref.partition("/")[2])
-    if not p:
+    if p:
+        return (prompt_tokens * float(p.get("in", 0)) + completion_tokens * float(p.get("out", 0))) / 1_000_000
+    listed = _catalog_price(model_ref)
+    if listed is None:
         return None
-    return (prompt_tokens * float(p.get("in", 0)) + completion_tokens * float(p.get("out", 0))) / 1_000_000
+    usd = (prompt_tokens * listed[0] + completion_tokens * listed[1]) / 1_000_000
+    if cache_read or cache_write:  # prompt_tokens counted them at the full input price; charge the cache prices instead
+        read_p, write_p = _catalog_cache_prices(model_ref)
+        if read_p is not None:
+            usd += cache_read * (read_p - listed[0]) / 1_000_000
+        if write_p is not None:
+            usd += cache_write * (write_p - listed[0]) / 1_000_000
+    return max(0.0, usd)
+
+
+def _catalog_cache_prices(model_ref: str) -> tuple[float | None, float | None]:
+    from . import catalog
+
+    cid, _, model = model_ref.partition("/")
+    conn = db.one("SELECT base_url FROM connections WHERE id = ?", int(cid)) if cid.isdigit() else None
+    return catalog.cache_prices(conn["base_url"], model) if conn else (None, None)
+
+
+def _catalog_price(model_ref: str) -> tuple[float, float] | None:
+    from .llm import list_price
+
+    return list_price(model_ref)
 
 
 def month_start() -> str:

@@ -41,6 +41,14 @@ PRESETS = {
                 "note": "Key from console.mistral.ai (the free Experiment plan works, with low limits)."},
     "deepseek": {"name": "DeepSeek", "auth_kind": "api_key", "protocol": "chat_completions", "base_url": "https://api.deepseek.com",
                  "note": "Pay as you go key from platform.deepseek.com."},
+    "nvidia": {"name": "NVIDIA NIM", "auth_kind": "api_key", "protocol": "chat_completions", "base_url": "https://integrate.api.nvidia.com/v1",
+               "note": "Key from build.nvidia.com (starts nvapi-). Free development access to Nemotron, Kimi, GLM, DeepSeek and more, with per minute limits."},
+    "cerebras": {"name": "Cerebras", "auth_kind": "api_key", "protocol": "chat_completions", "base_url": "https://api.cerebras.ai/v1",
+                 "note": "Key from cloud.cerebras.ai. Very fast inference of open models."},
+    "together": {"name": "Together AI", "auth_kind": "api_key", "protocol": "chat_completions", "base_url": "https://api.together.xyz/v1",
+                 "note": "Key from api.together.ai. Pay as you go open models."},
+    "fireworks": {"name": "Fireworks AI", "auth_kind": "api_key", "protocol": "chat_completions", "base_url": "https://api.fireworks.ai/inference/v1",
+                  "note": "Key from fireworks.ai (starts fw_). Pay as you go open models."},
     "opencode-go": {"name": "OpenCode Go", "auth_kind": "api_key", "protocol": "chat_completions",
                     "base_url": "https://opencode.ai/inference/go/openai/v1", "note": "OpenCode Go subscription ($10/month flat). Key from opencode.ai/console."},
     "opencode-zen": {"name": "OpenCode Zen", "auth_kind": "api_key", "protocol": "chat_completions",
@@ -48,7 +56,8 @@ PRESETS = {
     "compatible": {"name": "OpenAI compatible server", "auth_kind": "openai_compatible", "protocol": "chat_completions",
                    "base_url": "http://127.0.0.1:1234/v1" if config.DESKTOP else "http://host.docker.internal:1234/v1", "note": "LM Studio, vLLM, llama.cpp server, LiteLLM, Groq, Together. Key optional."},
 }
-SEED = {"openai": "openai", "anthropic": "anthropic", "openrouter": "openrouter", "gemini": "gemini", "groq": "groq", "xai": "xai"}  # .env key -> preset
+SEED = {"openai": "openai", "anthropic": "anthropic", "openrouter": "openrouter", "gemini": "gemini", "groq": "groq", "xai": "xai",
+        "nvidia": "nvidia", "cerebras": "cerebras", "together": "together", "fireworks": "fireworks"}  # .env key -> preset
 
 # Shown by the first-run screen and Models: where to get a key, what the free tier gives, and how a key looks.
 KEY_INFO = {
@@ -63,13 +72,19 @@ KEY_INFO = {
     "xai": {"url": "https://console.x.ai", "prefix": "xai-"},
     "mistral": {"url": "https://console.mistral.ai/api-keys", "prefix": ""},
     "deepseek": {"url": "https://platform.deepseek.com/api_keys", "prefix": "sk-"},
+    "nvidia": {"url": "https://build.nvidia.com/settings/api-keys", "prefix": "nvapi-", "free": True,
+               "limits": "Free development access with per minute rate limits."},
+    "cerebras": {"url": "https://cloud.cerebras.ai", "prefix": ""},
+    "together": {"url": "https://api.together.ai/settings/api-keys", "prefix": ""},
+    "fireworks": {"url": "https://fireworks.ai/account/api-keys", "prefix": "fw_"},
 }
 
 
 def detect_key(key: str) -> str | None:
-    """Which preset a pasted key belongs to, from its prefix. Ambiguous "sk-" keys are guessed as OpenAI."""
+    """Which preset a pasted key belongs to, from its prefix. Ambiguous "sk-" keys (OpenAI, DeepSeek) are guessed as
+    OpenAI; a wrong guess shows up as "key rejected" on the first check and the user picks the provider by hand."""
     k = key.strip()
-    for preset in ("openrouter", "anthropic", "gemini", "groq", "xai"):
+    for preset in ("openrouter", "anthropic", "gemini", "groq", "xai", "nvidia", "fireworks"):
         if k.startswith(KEY_INFO[preset]["prefix"]):
             return preset
     return "openai" if k.startswith("sk-") else None
@@ -187,7 +202,26 @@ def list_models_for(cid: int, fresh: bool = False) -> list[dict]:
     out = [{"ref": f"{cid}/{n}", "model": n, "provider": conn["name"], "provider_id": cid, "free": a.is_free(n)}
            for n in a.list_models()]
     _model_cache[cid] = (time.time(), out)
+    if a.list_error:  # shown on Models instead of a silent "no models"
+        db.run("UPDATE connections SET last_error = ? WHERE id = ?", a.list_error, cid)
     return out
+
+
+def prefetch_models(cids: list[int]) -> None:
+    """Fill the model list cache for several connections at once, so a slow provider costs one timeout, not one each."""
+    stale = [c for c in cids if not (_model_cache.get(c) and _model_cache[c][0] > time.time() - 120)]
+    if len(stale) < 2:
+        return
+    from concurrent.futures import ThreadPoolExecutor
+
+    def one(cid: int) -> None:
+        try:
+            list_models_for(cid)
+        except Exception:  # noqa: BLE001 - the caller lists it again and handles the error there
+            pass
+
+    with ThreadPoolExecutor(max_workers=min(8, len(stale))) as pool:
+        list(pool.map(one, stale))
 
 
 def list_models(fresh: bool = False) -> list[dict]:
@@ -218,10 +252,26 @@ def context_chars(ref: str | None) -> int:
     try:
         if router.is_auto(ref or default_model_ref()):
             first = router.candidates("strong")
-            return Adapter(first[0][0]).context_chars() if first else 300_000
-        return adapter(ref)[0].context_chars()
+            return Adapter(first[0][0]).context_chars(first[0][1]) if first else 300_000
+        a, _, model, _ = adapter(ref)
+        return a.context_chars(model)
     except HTTPException:
         return 300_000
+
+
+def list_price(ref: str) -> tuple[float, float] | None:
+    """Catalog list price (USD per million input, output tokens) for a model ref, or None when there is none to use."""
+    from . import catalog
+
+    cid, _, model = ref.partition("/")
+    if not cid.isdigit() or not model:
+        return None
+    conn = db.one("SELECT base_url, auth_kind FROM connections WHERE id = ?", int(cid))
+    if not conn or conn["auth_kind"] == "oauth_subscription":
+        return None  # a plan's usage has no per token price
+    if conn["auth_kind"] == "local_ollama":
+        return 0.0, 0.0
+    return catalog.price(conn["base_url"], model)
 
 
 def _reported_cost(usage: dict) -> float | None:
@@ -235,7 +285,8 @@ def _record(conn: dict, ref: str, trace: dict | None, started: float, usage: dic
 
     pt, ct = int(usage.get("prompt_tokens") or 0), int(usage.get("completion_tokens") or 0)
     reported = _reported_cost(usage)
-    usd = reported if reported is not None else price_usd(ref, pt, ct)
+    usd = reported if reported is not None else price_usd(ref, pt, ct, int(usage.get("cache_read_tokens") or 0),
+                                                          int(usage.get("cache_write_tokens") or 0))
     aid = actions.add("model_call", outcome, trace=trace, provider=conn["name"], model=ref, auth_kind=conn["auth_kind"],
                       protocol=conn["protocol"], latency_ms=int((time.monotonic() - started) * 1000), tokens_in=pt, tokens_out=ct,
                       usd_cost=usd, failure_reason=error)

@@ -297,7 +297,8 @@ def fake_url():
 @pytest.fixture(scope="session")
 def client(fake_url, tmp_path_factory):
     os.environ.update(APP_SECRET="a" * 40, TOOLS_API_KEY="k" * 30, DATA_DIR=str(tmp_path_factory.mktemp("data")),
-                      ROOKS_COMPANION_FILE=str(tmp_path_factory.mktemp("companion") / "companion.json"))
+                      ROOKS_COMPANION_FILE=str(tmp_path_factory.mktemp("companion") / "companion.json"),
+                      MODEL_CATALOG_REFRESH="0")  # tests never download the model catalog
     from fastapi.testclient import TestClient
 
     from app import db, main

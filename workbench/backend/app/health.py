@@ -79,7 +79,12 @@ def _connection(c: dict):
 async def connections() -> list[dict]:
     conns = db.all("SELECT * FROM connections WHERE enabled = 1 ORDER BY id")
     results = await asyncio.gather(*(_timed(c["name"], "model connection", _connection(c)) for c in conns))
+    from . import router
+
     for c, r in zip(conns, results):
+        q = router.quota(c)
+        if r["status"] == "ok" and q.get("cooling_reason"):  # lists models, but real requests are failing right now
+            r.update(status="degraded", detail=f"{r['detail']}; resting: {q['cooling_reason']} until {q['cooling_until']}")
         if r["status"] == "ok":
             db.run("UPDATE connections SET last_ok_at = ?, last_error = '' WHERE id = ?", db.now(), c["id"])
         else:

@@ -27,7 +27,7 @@ from zoneinfo import ZoneInfo
 import httpx
 from fastapi import HTTPException
 
-from . import db
+from . import catalog, db
 from .adapters import CAPTURE, ProviderError
 
 AUTO = {"auto": None, "auto:fast": "fast", "auto:strong": "strong"}
@@ -64,6 +64,15 @@ PROFILES: list[tuple[str, dict]] = [
     ("api.mistral.ai", {"label": "Mistral", "reset_tz": "UTC", "fast": ["mistral-small-latest"],
                         "strong": ["mistral-large-latest", "mistral-medium-latest"]}),
     ("api.deepseek.com", {"label": "DeepSeek", "reset_tz": "UTC", "fast": ["deepseek-chat"], "strong": ["deepseek-chat"]}),
+    ("integrate.api.nvidia.com", {
+        "label": "NVIDIA NIM", "free": True, "reset_tz": "UTC",
+        "note": "Free development access with per minute rate limits; see build.nvidia.com.",
+        "fast": ["nvidia/nemotron-3.5-lightning", "nvidia/nemotron-3-nano"],
+        "strong": ["nvidia/nemotron-3-ultra", "moonshotai/kimi-k3", "z-ai/glm-5.3"],
+        "vision": ["nvidia/nemotron-3.5-super-vl"]}),
+    ("api.cerebras.ai", {"label": "Cerebras", "reset_tz": "UTC", "fast": ["qwen-3.8"], "strong": ["gpt-oss-120b", "qwen-3.8"]}),
+    ("api.together.xyz", {"label": "Together AI", "reset_tz": "UTC"}),
+    ("api.fireworks.ai", {"label": "Fireworks AI", "reset_tz": "UTC"}),
 ]
 _SMALL = re.compile(r"(mini|nano|lite|small|haiku|instant|fast|flash|tiny|\b[0-9](\.[0-9])?b\b|[:-][0-9](\.[0-9])?b\b|-[0-9]{1,2}b\b)", re.I)
 # Model names that take images. Matched loosely; text-only exceptions first.
@@ -71,7 +80,10 @@ _BLIND = re.compile(r"(gpt-oss|coder|codestral|deepseek-(chat|reasoner|r1|v3)|ki
                     r"embed|whisper|tts|instant)", re.I)
 _SEES = re.compile(r"(gemini|gemma-3|gpt-4o|gpt-4\.1|gpt-5|gpt-6|\bo[34]\b|claude|grok-4|grok-2-vision|llama-4|llama3\.2-vision|"
                    r"-vl|vl[:-]|qwen3\.[5-9]|llava|pixtral|mistral-(medium|large|small)|muse-spark|minicpm-v|moondream)", re.I)
-_SKIP = re.compile(r"(embed|whisper|tts|guard|moderation|rerank|vision-preview|image|audio|transcribe|realtime|search)", re.I)
+_SKIP = re.compile(r"(embed|whisper|tts|guard|moderation|safety|rerank|vision-preview|image|audio|transcribe|realtime|search)", re.I)
+# How long a model that answered 404 is passed over before the router tries it again
+DEAD_MODEL_S = 3600
+_dead: dict[tuple[int, str], float] = {}
 
 
 def is_auto(ref: str | None) -> bool:
@@ -127,14 +139,49 @@ def _routable(conns: list[dict]) -> list[dict]:
     return cloud + (local if (s["local_fallback"] or not cloud) else [])
 
 
-def _match(models: list[str], prefs: list[str]) -> str | None:
+def _natural(name: str) -> list:
+    """Version aware sort key: gpt-5.10 after gpt-5.9, unlike plain string order."""
+    return [(1, int(t), "") if t.isdigit() else (0, 0, t) for t in re.split(r"(\d+)", name.lower())]
+
+
+def _newest(conn: dict | None, names: list[str]) -> str:
+    """The newest model by catalog release date, then by version number. Models the catalog does not know rank by
+    version only, after the known ones of the same family (a daily catalog refresh adds new releases)."""
+    base = (conn or {}).get("base_url", "")
+    return max(names, key=lambda m: (catalog.released(base, m), _natural(m)))
+
+
+def _match(models: list[str], prefs: list[str], tier: str = "", conn: dict | None = None) -> str | None:
+    """The first preference the provider lists, exact name or family prefix. A strong preference never resolves to a
+    small sibling (\"gpt-6\" must not pick gpt-6-nano), and the newest member of a family wins, not the last
+    alphabetically."""
     for p in prefs:
         if p in models:
             return p
-        hits = sorted(m for m in models if m.startswith(p))
+        hits = [m for m in models if m.startswith(p)]
+        if tier == "strong" and not _SMALL.search(p):
+            hits = [m for m in hits if not _SMALL.search(m[len(p):])]
         if hits:
-            return hits[-1]  # highest version of that family
+            return _newest(conn, hits)
     return None
+
+
+def _strength(conn: dict, model: str, tier: str) -> tuple:
+    """Rank for models no preference covers: tool use first (agentic work needs it), then newest; strong prefers the
+    pricier (usually larger) model of the same age, fast the cheaper."""
+    info = catalog.lookup(conn.get("base_url", ""), model) or {}
+    cost = (info.get("in_usd") or 0) + (info.get("out_usd") or 0)
+    return (bool(info.get("tools")) if info else True, info.get("released", ""), cost if tier == "strong" else -cost, _natural(model))
+
+
+def _alive(conn: dict, models: list[str]) -> list[str]:
+    now = time.time()
+    return [m for m in models if _dead.get((conn["id"], m), 0) < now]
+
+
+def mark_dead(conn: dict, model: str) -> None:
+    """A model the provider says it does not serve (404): pass over it for a while and use the next one there."""
+    _dead[(conn["id"], model)] = time.time() + DEAD_MODEL_S
 
 
 def choose_model(conn: dict, models: list[str], tier: str) -> str | None:
@@ -144,24 +191,28 @@ def choose_model(conn: dict, models: list[str], tier: str) -> str | None:
     prof = profile(conn)
     if prof.get("only_free"):
         models = [m for m in models if m.endswith(":free")]
-    usable = [m for m in models if not _SKIP.search(m)]
+    usable = [m for m in _alive(conn, models) if not _SKIP.search(m)]
     if not usable:
         return None
     if conn["auth_kind"] == "local_ollama":
         from . import config
 
         return config.DEFAULT_MODEL if config.DEFAULT_MODEL in usable else usable[0]
-    pick = _match(usable, prof.get(tier) or []) or _match(usable, prof.get("strong" if tier == "fast" else "fast") or [])
+    other = "strong" if tier == "fast" else "fast"
+    pick = _match(usable, prof.get(tier) or [], tier, conn) or _match(usable, prof.get(other) or [], other, conn)
     if pick:
         return pick
     small = [m for m in usable if _SMALL.search(m)]
     big = [m for m in usable if not _SMALL.search(m)]
     pool = (small or big) if tier == "fast" else (big or small)
-    return sorted(pool)[-1]
+    return max(pool, key=lambda m: _strength(conn, m, tier))
 
 
-def sees(model: str) -> bool:
-    """Whether a model takes images, by name (providers do not list it)."""
+def sees(model: str, conn: dict | None = None) -> bool:
+    """Whether a model takes images: the catalog's input modalities when it knows the model, else by name."""
+    known = catalog.sees((conn or {}).get("base_url", ""), model)
+    if known is not None:
+        return known
     return bool(_SEES.search(model)) and not _BLIND.search(model)
 
 
@@ -193,12 +244,14 @@ def strip_images(messages: list[dict]) -> list[dict]:
 def choose_vision_model(conn: dict, models: list[str], tier: str) -> str | None:
     """A model on this connection that can see: the user's choice if it sees, the profile's picks, then any by name."""
     first = choose_model(conn, models, tier)
-    if first and sees(first):
+    if first and sees(first, conn):
         return first
     prof = profile(conn)
     if prof.get("only_free"):
         models = [m for m in models if m.endswith(":free")]
-    return _match(models, prof.get("vision") or []) or next((m for m in sorted(models, reverse=True) if sees(m) and not _SKIP.search(m)), None)
+    models = _alive(conn, models)
+    seeing = [m for m in models if sees(m, conn) and not _SKIP.search(m)]
+    return _match(seeing, prof.get("vision") or [], "", conn) or (max(seeing, key=lambda m: _strength(conn, m, tier)) if seeing else None)
 
 
 def pick_tier(ref: str, tools: list | None, messages: list[dict], channel: str) -> str:
@@ -338,7 +391,9 @@ def candidates(tier: str, vision: bool = False) -> list[tuple[dict, str]]:
     from . import llm
 
     ready, parked = [], []
-    for c in _routable(ordered_connections()):
+    conns = _routable(ordered_connections())
+    llm.prefetch_models([c["id"] for c in conns])
+    for c in conns:
         try:
             models = [m["model"] for m in llm.list_models_for(c["id"])]
         except HTTPException:
@@ -397,13 +452,20 @@ async def chat(ref: str, messages: list[dict], tools: list[dict] | None = None, 
     text = strip_images(messages) if vision else messages
     seen = {(c["id"], m) for c, m, _ in plan}
     plan += [(c, m, text) for c, m in candidates(tier) if (c["id"], m) not in seen]
-    for conn, model, msgs in plan:
+    i = 0
+    while i < len(plan):
+        conn, model, msgs = plan[i]
+        i += 1
         box: dict = {}
         token = CAPTURE.set(box)
         try:
             res = await llm.chat_one(f"{conn['id']}/{model}", msgs, tools, trace, schema)
         except (ProviderError, HTTPException) as e:
-            tried.append({"provider": conn["name"], "model": model, "reason": note_fail(conn, e)})
+            reason = note_fail(conn, e)
+            tried.append({"provider": conn["name"], "model": model, "reason": reason})
+            nxt = _next_model(conn, model, reason, tier, vision=msgs is not text)
+            if nxt and (conn["id"], nxt) not in {(c["id"], m) for c, m, _ in plan}:
+                plan.insert(i, (conn, nxt, msgs))
             continue
         finally:
             CAPTURE.reset(token)
@@ -414,13 +476,32 @@ async def chat(ref: str, messages: list[dict], tools: list[dict] | None = None, 
     raise _all_failed(tried)
 
 
+def _next_model(conn: dict, model: str, reason: str, tier: str, vision: bool = False) -> str | None:
+    """After a 404 the same provider's next best model, instead of giving up on the whole provider."""
+    if reason != "model not available":
+        return None
+    from . import llm
+
+    mark_dead(conn, model)
+    try:
+        models = [m["model"] for m in llm.list_models_for(conn["id"])]
+    except HTTPException:
+        return None
+    nxt = choose_vision_model(conn, models, tier) if vision else choose_model(conn, models, tier)
+    return nxt if nxt and nxt != model else None
+
+
 async def stream(ref: str, messages: list[dict], trace: dict | None = None) -> AsyncIterator[dict]:
     """Like chat, streaming. Falls back only before the first token: a half-written answer is never restarted elsewhere."""
     from . import llm
 
     tier = pick_tier(ref, None, messages, _channel(trace))
     tried: list[dict] = []
-    for conn, model in candidates(tier):
+    plan = candidates(tier)
+    i = 0
+    while i < len(plan):
+        conn, model = plan[i]
+        i += 1
         box: dict = {}
         token = CAPTURE.set(box)
         started = False
@@ -450,7 +531,11 @@ async def stream(ref: str, messages: list[dict], trace: dict | None = None) -> A
             CAPTURE.reset(token)
         if started:
             return
-        tried.append({"provider": conn["name"], "model": model, "reason": note_fail(conn, failure or ProviderError(502, "no answer", kind="unreachable"))})
+        reason = note_fail(conn, failure or ProviderError(502, "no answer", kind="unreachable"))
+        tried.append({"provider": conn["name"], "model": model, "reason": reason})
+        nxt = _next_model(conn, model, reason, tier)
+        if nxt and (conn["id"], nxt) not in {(c["id"], m) for c, m in plan}:
+            plan.insert(i, (conn, nxt))
     err = _all_failed(tried)
     yield {"error": err.detail, "router": {"fallbacks": tried}}
 
@@ -462,6 +547,7 @@ def status() -> dict:
     s = settings()
     routable = {c["id"] for c in _routable(ordered_connections())}
     rows = []
+    llm.prefetch_models([c["id"] for c in ordered_connections()])
     for c in ordered_connections():
         try:
             models = [m["model"] for m in llm.list_models_for(c["id"])]

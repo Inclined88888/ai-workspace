@@ -40,6 +40,7 @@ R5_REFUSAL = ("This connection type is refused under rule R5 (legitimate only): 
               "the provider's official sign-in instead.")
 
 TIMEOUT = httpx.Timeout(connect=10, read=300, write=30, pool=10)
+LIST_TIMEOUT_S = 8  # a model list should be quick; a dead provider must not hold up every answer for long
 # Ollama's OpenAI endpoint (/v1) ignores num_ctx and runs at the server default (4096 tokens), silently cutting the
 # start of long prompts. Ollama is therefore spoken to natively, with an explicit window.
 OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "16384"))
@@ -50,7 +51,8 @@ OLLAMA_TIMEOUT = httpx.Timeout(connect=10, read=float(os.getenv("OLLAMA_TIMEOUT_
 ANTHROPIC_VERSION = "2023-06-01"  # the version in Anthropic's own Messages API example
 ANTHROPIC_MAX_TOKENS = 8192
 CHARS_PER_TOKEN = 3
-CLOUD_CONTEXT_CHARS = 300_000
+CLOUD_CONTEXT_CHARS = 300_000  # when the model catalog does not know the model
+MIN_CONTEXT_CHARS = 12_000
 THINK_RE = re.compile(r"<think>.*?</think>", re.S)
 
 
@@ -222,8 +224,15 @@ class Protocol:
             return [m["slug"] for m in data["models"] if m.get("slug") and m.get("visibility", "list") == "list"]
         return [m["id"].removeprefix("models/") for m in data.get("data", []) if m.get("id")]
 
-    def context_chars(self, conn: dict) -> int:
-        return CLOUD_CONTEXT_CHARS
+    def context_chars(self, conn: dict, model: str = "") -> int:
+        """Prompt characters the model takes, a quarter of its window kept for the reply. From the model catalog when
+        it knows the model (a 32K model must not get 300K characters, a 1M model should not be cut at 300K)."""
+        from . import catalog
+
+        tokens = catalog.context_tokens(conn.get("base_url", ""), model) if model else None
+        if not tokens:
+            return CLOUD_CONTEXT_CHARS
+        return max(MIN_CONTEXT_CHARS, int(tokens * CHARS_PER_TOKEN * 0.75))
 
     async def chat(self, conn: dict, secret: str, model: str, messages: list[dict], tools: list[dict] | None,
                    schema: dict | None = None) -> dict:
@@ -311,7 +320,7 @@ class OllamaNative(Protocol):
     def parse_models(self, data):
         return [m["name"] for m in data.get("models", []) if m.get("name")]
 
-    def context_chars(self, conn):
+    def context_chars(self, conn, model=""):
         return int(OLLAMA_NUM_CTX * CHARS_PER_TOKEN * 0.75)
 
     def convert(self, messages: list[dict]) -> list[dict]:
@@ -493,12 +502,38 @@ class Responses(Protocol):
         yield {"done": True, "usage": usage}
 
 
+# Prompt caching (Anthropic Messages API): the system prompt, the tool list and the conversation so far are marked as
+# cache breakpoints (at most 4 are allowed; 3 are used). Later turns then reread them at a fraction of the input price
+# instead of paying in full on every call. Prompts under the model's minimum cacheable length are simply not cached.
+CACHE = {"type": "ephemeral"}
+
+
+def _cache_last_turn(msgs: list[dict]) -> None:
+    """Breakpoint on the newest message's last block, so the whole conversation before it is cached for the next turn."""
+    if msgs and isinstance(msgs[-1].get("content"), list) and msgs[-1]["content"]:
+        msgs[-1]["content"][-1] = {**msgs[-1]["content"][-1], "cache_control": CACHE}
+
+
+def _anthropic_usage(u: dict | None) -> dict:
+    """Prompt tokens include cache writes and reads (Anthropic reports them apart from input_tokens)."""
+    u = u or {}
+    written, read = u.get("cache_creation_input_tokens") or 0, u.get("cache_read_input_tokens") or 0
+    out = {"prompt_tokens": (u.get("input_tokens") or 0) + written + read, "completion_tokens": u.get("output_tokens") or 0}
+    if written or read:
+        out.update(cache_write_tokens=written, cache_read_tokens=read)
+    return out
+
+
 class AnthropicMessages(Protocol):
     """Anthropic's native Messages API (system is top level, tools use input_schema, results are tool_result blocks)."""
     name = "anthropic_messages"
 
     def headers(self, conn, secret):
         return {"x-api-key": secret, "anthropic-version": ANTHROPIC_VERSION, "content-type": "application/json"}
+
+    def models_url(self, conn):
+        # GET /v1/models pages 20 at a time by default; limit=1000 takes the whole list in one call
+        return conn["base_url"].rstrip("/") + "/models?limit=1000"
 
     def convert(self, messages: list[dict]) -> tuple[str, list[dict]]:
         system, rest = _system_and_rest(messages)
@@ -535,10 +570,12 @@ class AnthropicMessages(Protocol):
         system, msgs = self.convert(messages)
         body: dict = {"model": model, "max_tokens": ANTHROPIC_MAX_TOKENS, "messages": msgs, "stream": stream}
         if system:
-            body["system"] = system
+            body["system"] = [{"type": "text", "text": system, "cache_control": CACHE}]
         if tools:
             body["tools"] = [{"name": t["function"]["name"], "description": t["function"].get("description", ""),
                               "input_schema": t["function"].get("parameters") or {"type": "object", "properties": {}}} for t in tools]
+            body["tools"][-1]["cache_control"] = CACHE
+        _cache_last_turn(msgs)
         if schema:  # the Messages API has no response_format: a forced tool with the schema as input is the documented route
             name = self.schema_tool(schema)
             body["tools"] = [*body.get("tools", []), {"name": name, "description": "Give the answer in this structure.",
@@ -554,9 +591,7 @@ class AnthropicMessages(Protocol):
         if schema:  # the forced tool's input is the structured answer
             forced = [c for c in calls if c["function"]["name"] == self.schema_tool(schema)]
             text, calls = (forced[0]["function"]["arguments"], []) if forced else (text, calls)
-        u = data.get("usage") or {}
-        return {"message": {"role": "assistant", "content": text, "tool_calls": calls},
-                "usage": {"prompt_tokens": u.get("input_tokens") or 0, "completion_tokens": u.get("output_tokens") or 0}}
+        return {"message": {"role": "assistant", "content": text, "tool_calls": calls}, "usage": _anthropic_usage(data.get("usage"))}
 
     async def stream(self, conn, secret, model, messages):
         usage = {"prompt_tokens": 0, "completion_tokens": 0}
@@ -567,7 +602,7 @@ class AnthropicMessages(Protocol):
                 yield ev
                 return
             if t == "message_start":
-                usage["prompt_tokens"] = ((ev.get("message") or {}).get("usage") or {}).get("input_tokens") or 0
+                usage.update(_anthropic_usage((ev.get("message") or {}).get("usage")), completion_tokens=0)
             elif t == "content_block_delta" and (ev.get("delta") or {}).get("type") == "text_delta":
                 yield {"delta": ev["delta"].get("text", "")}
             elif t == "message_delta":
@@ -586,6 +621,7 @@ class Adapter:
 
     def __init__(self, conn: dict):
         self.conn = conn
+        self.list_error = ""  # why the last model listing failed, for the user (never the provider's error body)
         self.protocol = _PROTOCOLS.get(conn["protocol"])
         if conn["auth_kind"] != "session_scraping_forbidden" and (self.protocol is None or conn["protocol"] not in ALLOWED.get(conn["auth_kind"], ())):
             raise HTTPException(400, f"Connection {conn['name']} has an invalid auth_kind/protocol pair")
@@ -600,10 +636,10 @@ class Adapter:
     def is_free(self, model: str) -> bool:
         return self.auth_kind == "local_ollama" or ("openrouter.ai" in self.conn["base_url"] and model.endswith(":free"))
 
-    def context_chars(self) -> int:
+    def context_chars(self, model: str = "") -> int:
         if self.auth_kind == "session_scraping_forbidden":
             raise HTTPException(403, R5_REFUSAL)
-        return self.protocol.context_chars(self.conn)
+        return self.protocol.context_chars(self.conn, model)
 
     def list_models(self) -> list[str]:
         """Models the endpoint lists plus the ones typed in by hand. A failed listing is not an error: manual ones remain."""
@@ -617,15 +653,24 @@ class Adapter:
         names: list[str] = []
         if secret or self.auth_kind != "oauth_subscription":  # plan tokens list the account's own catalogue
             try:
-                r = httpx.get(self.protocol.models_url(self.conn), headers=self.protocol.headers(self.conn, secret), timeout=15)
+                r = httpx.get(self.protocol.models_url(self.conn), headers=self.protocol.headers(self.conn, secret), timeout=LIST_TIMEOUT_S)
+                if r.status_code in (401, 403):
+                    self.list_error = f"the key was rejected (HTTP {r.status_code})"
                 r.raise_for_status()
                 names = [n for n in self.protocol.parse_models(r.json()) if keep_model(self.conn["base_url"], n)]
-            except (httpx.HTTPError, ValueError, KeyError, TypeError):
-                names = []
+            except httpx.TimeoutException:
+                self.list_error = f"no model list within {LIST_TIMEOUT_S} s"
+            except httpx.HTTPStatusError as e:
+                self.list_error = self.list_error or f"model list failed (HTTP {e.response.status_code})"
+            except httpx.HTTPError as e:
+                self.list_error = f"unreachable ({e.__class__.__name__})"
+            except (ValueError, KeyError, TypeError):
+                self.list_error = "its model list could not be read"
         return sorted(set(names) | set(manual))
 
-    def probe(self) -> tuple[str, str]:
+    def probe(self, deep: bool = False) -> tuple[str, str]:
         """Health check (item 25): (ok | degraded | down, detail). Unlike list_models, a failure is reported, not hidden.
+        deep: also make one tiny chat request, which catches keys that list models but cannot chat.
 
         Only status codes are reported, never the provider's error body: some quote the rejected key back (R7).
         """
@@ -646,7 +691,33 @@ class Adapter:
         except (ValueError, KeyError, TypeError):
             return "degraded", "reachable, but its model list could not be read"
         n = len(set(names) | set(manual))
-        return ("ok", f"{n} model{'s' if n != 1 else ''}") if n else ("degraded", "reachable, but it lists no models")
+        if not n:
+            return "degraded", "reachable, but it lists no models"
+        listed = f"{n} model{'s' if n != 1 else ''}"
+        if not deep:
+            return "ok", listed
+        return self._answer_check(sorted(set(names) | set(manual)), listed)
+
+    def _answer_check(self, models: list[str], listed: str) -> tuple[str, str]:
+        """One tiny real request: a key can list models and still be refused for chat (no credit, no billing, no
+        access to the model). Costs a few tokens, so it runs when a key is added or checked, not on every page load."""
+        import asyncio
+
+        from . import router
+
+        model = router.choose_model(self.conn, models, "fast")
+        if not model:
+            return "degraded", f"{listed}, none of them a chat model"
+        try:
+            asyncio.run(self.protocol.chat(self.conn, credential(self.conn), model, [{"role": "user", "content": "Reply with OK."}], None))
+        except ProviderError as e:
+            reason = router.classify(e)[0]
+            if e.upstream in (401, 403):
+                return "down", f"lists models, but chat was refused: {reason} (HTTP {e.upstream})"
+            return "degraded", f"lists models, but a test answer from {model} failed: {reason}" + (f" (HTTP {e.upstream})" if e.upstream else "")
+        except HTTPException as e:
+            return "degraded", f"lists models, but a test answer from {model} failed: {e.detail}"
+        return "ok", f"{listed}; {model} answered"
 
     async def chat(self, model: str, messages: list[dict], tools: list[dict] | None = None, schema: dict | None = None) -> dict:
         """schema: {"name", "schema"} for structured output; the answer's content is then JSON text matching it."""

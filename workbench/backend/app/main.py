@@ -17,8 +17,9 @@ from . import egress  # noqa: E402
 egress.install()  # before anything connects: every outbound request is in the audit log (R8, item 75)
 
 from . import actions, api, appearance, assistant_api, bridge, browser_proxy, cli_agents_api, company, config, connect, db, desk_proxy, health, llm, mobile, scheduler, sites, skills_hub, telegram, work_api  # noqa: E402
-from . import compression, credentials, ratelimit, recovery  # AIW-Phase1: Hermes-inspired reliability
+from . import compression  # AIW-Phase1: rolling compression of long chats
 from . import finetune, media  # noqa: E402 - phase 4
+from . import catalog  # noqa: E402 - model facts from models.dev
 from . import companion  # noqa: E402 - Companion: every agent's live steps, approvals and questions in one place
 from .mcp_server import mcp, mcp_app
 from .adapt import hooks as adapt_hooks, routes as adapt_routes  # adapt and learn (feat/learn-and-adapt)
@@ -36,10 +37,8 @@ async def lifespan(_: FastAPI):
     compression.init_compression_table()  # AIW-Phase1
     compression.init_summary_table()  # rolling summary of messages that fall out of the window
     finetune.ensure()  # phase 4
-    recovery.init_recovery_table()  # AIW-Phase1
-    credentials.init_credentials_table()  # AIW-Phase1
-    ratelimit.init_rate_limit_table()  # AIW-Phase1
     llm.seed_connections()
+    catalog.refresh_in_background()  # newer model facts (context, price, vision) at most once a day
     api.recover_interrupted()
     actions.recover()
     company.recover()

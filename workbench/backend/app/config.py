@@ -41,6 +41,10 @@ SEED_KEYS = {
     "gemini": os.getenv("GEMINI_API_KEY", ""),
     "groq": os.getenv("GROQ_API_KEY", ""),
     "xai": os.getenv("XAI_API_KEY", ""),
+    "nvidia": os.getenv("NVIDIA_API_KEY", ""),
+    "cerebras": os.getenv("CEREBRAS_API_KEY", ""),
+    "together": os.getenv("TOGETHER_API_KEY", ""),
+    "fireworks": os.getenv("FIREWORKS_API_KEY", ""),
 }
 
 if len(APP_SECRET) < 32:

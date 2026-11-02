@@ -71,7 +71,7 @@ def test_agent_loop_runs_a_tool_and_answers(client, backend):
         body = NATIVE_CALLS[-1]["body"]
         assert "Contract" in json.dumps(body)
         # the system prompt travels where each protocol defines it, never as user text
-        system = {"anthropic_messages": lambda: body.get("system", ""), "responses": lambda: body.get("instructions", ""),
+        system = {"anthropic_messages": lambda: json.dumps(body.get("system", "")), "responses": lambda: body.get("instructions", ""),
                   "ollama_native": lambda: body["messages"][0]["content"] if body["messages"][0]["role"] == "system" else ""}[backend["protocol"]]()
         assert "personal assistant" in system
         assert "personal assistant" not in json.dumps(body.get("messages") if backend["protocol"] != "ollama_native" else body["messages"][1:])

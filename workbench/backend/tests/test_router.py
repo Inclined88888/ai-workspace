@@ -28,7 +28,7 @@ def p_models(name: str, host: str):
 async def p_chat(name: str, host: str, req: Request):
     body = await req.json()
     HITS.append((name, body["model"]))
-    m = MODE.get(name, {})
+    m = MODE.get(f"{name}:{body['model']}") or MODE.get(name, {})  # per model first: a retired model 404s alone
     status = m.get("status", 200)
     if status != 200:
         return JSONResponse({"error": {"message": m.get("body", "error")}}, status_code=status, headers=m.get("headers", {}))
@@ -259,9 +259,10 @@ def test_which_models_can_see():
     from app.router import sees
 
     for m in ("gemini-2.5-flash", "meta-llama/llama-4-scout-17b-16e-instruct", "qwen/qwen3.8-27b", "gpt-4o-mini", "claude-sonnet-4",
-              "google/gemma-3-27b-it:free", "qwen2.5vl:7b", "llava:13b", "o3-mini"):
+              "google/gemma-3-27b-it:free", "qwen2.5vl:7b", "llava:13b"):
         assert sees(m), m
-    for m in ("openai/gpt-oss-120b", "qwen2.5:7b", "llama-3.3-70b-versatile", "qwen/qwen3-coder:free", "deepseek-chat", "llama-3.1-8b-instant"):
+    # o3-mini is text only; the name rules said it could see, the catalog knows it cannot
+    for m in ("o3-mini", "openai/gpt-oss-120b", "qwen2.5:7b", "llama-3.3-70b-versatile", "qwen/qwen3-coder:free", "deepseek-chat", "llama-3.1-8b-instant"):
         assert not sees(m), m
 
 
@@ -298,3 +299,156 @@ async def test_when_nothing_can_see_the_images_are_left_out(routed, monkeypatch)
     parts = seen[0][0]["content"]
     assert not any(p.get("type") == "image_url" for p in parts)
     assert "cannot see images" in parts[-1]["text"] and parts[0]["text"] == "What is on screen?"
+
+
+# Model catalog (models.dev): tiers, vision, context and price come from facts, not from model names.
+def _conn(host: str, cid: int = 990) -> dict:
+    return {"id": cid, "name": host, "base_url": f"https://{host}/v1", "auth_kind": "api_key"}
+
+
+def test_strong_never_resolves_to_a_small_sibling(client):
+    from app import router
+
+    openai = _conn("api.openai.com")
+    assert router.choose_model(openai, ["gpt-6-mini", "gpt-6-nano", "gpt-5"], "strong") == "gpt-5"
+    assert router.choose_model(openai, ["gpt-6-mini", "gpt-6-nano", "gpt-5"], "fast") == "gpt-6-mini"
+    xai = _conn("api.x.ai")
+    assert router.choose_model(xai, ["grok-4-fast-reasoning", "grok-4-0709", "grok-3-mini"], "strong") == "grok-4-0709"
+
+
+def test_newest_family_member_wins_by_release_date(client):
+    from app import router
+
+    anthropic = _conn("api.anthropic.com")
+    listed = ["claude-sonnet-4-20250514", "claude-sonnet-4-5-20250929", "claude-haiku-4-5-20251001"]
+    # plain string order would pick claude-sonnet-4-20250514 (\"2\" > \"5\" fails, but 20250514 > 5 by version number)
+    assert router.choose_model(anthropic, listed, "strong") == "claude-sonnet-4-5-20250929"
+
+
+def test_vision_and_context_come_from_the_catalog():
+    from app import catalog, router
+    from app.adapters import CHARS_PER_TOKEN, CLOUD_CONTEXT_CHARS, Adapter
+
+    assert router.sees("llama-3.2-11b-vision-instruct")  # the name rules called this blind
+    assert router.sees("gpt-5", _conn("api.openai.com"))
+    groq = {**_conn("api.groq.com"), "protocol": "chat_completions", "secret_enc": ""}
+    assert catalog.context_tokens(groq["base_url"], "openai/gpt-oss-120b") == 131072
+    assert Adapter(groq).context_chars("openai/gpt-oss-120b") == int(131072 * CHARS_PER_TOKEN * 0.75)
+    assert Adapter(groq).context_chars("never-heard-of-it") == CLOUD_CONTEXT_CHARS
+
+
+def test_cost_from_the_catalog_unless_settings_say_otherwise(client):
+    from app import catalog, db, usage
+
+    cid = client.post("/api/providers", json={"name": "OpenAI cat", "auth_kind": "api_key", "protocol": "chat_completions",
+                                              "base_url": "https://api.openai.com/v1", "api_key": "sk-test-123456"}).json()["id"]
+    try:
+        p_in, p_out = catalog.price("https://api.openai.com/v1", "gpt-5")
+        assert usage.price_usd(f"{cid}/gpt-5", 1_000_000, 1_000_000) == p_in + p_out
+        assert usage.price_usd(f"{cid}/never-heard-of-it", 10, 10) is None
+        db.set_setting("model_prices", json.dumps({f"{cid}/gpt-5": {"in": 1, "out": 1}}))
+        assert usage.price_usd(f"{cid}/gpt-5", 1_000_000, 0) == 1
+    finally:
+        db.set_setting("model_prices", "{}")
+        client.delete(f"/api/providers/{cid}")
+    assert catalog.price("https://openrouter.ai/api/v1", "openai/gpt-oss-120b:free") == (0.0, 0.0)
+    assert catalog.price("http://127.0.0.1:1234/v1", "gpt-5") is None  # another provider's price is not this server's
+
+
+@pytest.mark.anyio
+async def test_a_retired_model_falls_back_to_the_same_providers_next_model(routed):
+    from app import router
+
+    router._dead.clear()
+    MODE["groq:openai/gpt-oss-20b"] = {"status": 404, "body": "The model `openai/gpt-oss-20b` does not exist"}
+    try:
+        res = await _chat()
+        assert res["message"]["content"] == "answer from groq" and res["router"]["model"] == "openai/gpt-oss-120b"
+        assert res["router"]["fallbacks"] == [{"provider": "Groq", "model": "openai/gpt-oss-20b", "reason": "model not available"}]
+        HITS.clear()
+        await _chat()  # remembered: the retired model is not tried again
+        assert HITS == [("groq", "openai/gpt-oss-120b")]
+    finally:
+        router._dead.clear()
+
+
+def test_new_presets_and_key_detection():
+    from app import llm
+
+    assert llm.detect_key("nvapi-abc123") == "nvidia" and llm.detect_key("fw_abc123") == "fireworks"
+    assert llm.detect_key("sk-ant-abc") == "anthropic" and llm.detect_key("sk-abc") == "openai"
+    assert llm.PRESETS["nvidia"]["base_url"] == "https://integrate.api.nvidia.com/v1"
+
+
+def test_a_key_that_lists_models_but_cannot_chat_is_not_green(client, routed):
+    from app import db
+    from app.adapters import Adapter
+
+    groq = db.one("SELECT * FROM connections WHERE id = ?", routed["groq"])
+    assert Adapter(groq).probe()[0] == "ok"  # the model list alone looks fine
+    status, detail = Adapter(groq).probe(deep=True)
+    assert status == "ok" and "answered" in detail
+    MODE["groq"] = {"status": 429, "body": '{"error": {"code": "insufficient_quota"}}'}
+    status, detail = Adapter(groq).probe(deep=True)
+    assert status == "degraded" and "out of credit" in detail
+    MODE["groq"] = {"status": 403, "body": "no access"}
+    assert Adapter(groq).probe(deep=True)[0] == "down"
+
+
+def test_health_shows_a_resting_provider_as_degraded(client, routed):
+    from app import db, router
+
+    groq = db.one("SELECT * FROM connections WHERE id = ?", routed["groq"])
+    router.state(groq)  # the row _cool updates, as note_fail creates it first
+    router._cool(groq, time.time() + 600, "daily limit reached")
+    rows = {r["ref"]: r for r in client.get("/api/health", params={"fresh": "true"}).json()["checks"] if r.get("ref")}
+    assert rows[routed["groq"]]["status"] == "degraded" and "daily limit reached" in rows[routed["groq"]]["detail"]
+
+
+def test_a_rejected_key_says_so_instead_of_no_models(client, routed, monkeypatch):
+    from app import db, llm
+
+    monkeypatch.setitem(MODELS, "groq", [])
+    real = llm.Adapter.list_models
+
+    def rejected(self):
+        self.list_error = "the key was rejected (HTTP 401)"
+        return []
+    monkeypatch.setattr(llm.Adapter, "list_models", rejected)
+    llm._model_cache.clear()
+    assert llm.list_models_for(routed["groq"]) == []
+    assert db.one("SELECT last_error FROM connections WHERE id = ?", routed["groq"])["last_error"] == "the key was rejected (HTTP 401)"
+    monkeypatch.setattr(llm.Adapter, "list_models", real)
+
+
+def test_anthropic_requests_mark_cache_breakpoints_and_count_cached_tokens():
+    from app.adapters import AnthropicMessages, _anthropic_usage
+
+    tools = [{"type": "function", "function": {"name": n, "description": n, "parameters": {"type": "object", "properties": {}}}}
+             for n in ("a", "b")]
+    body = AnthropicMessages()._body("claude-x", [{"role": "system", "content": "You are helpful."},
+                                                  {"role": "user", "content": "hi"}, {"role": "assistant", "content": "hello"},
+                                                  {"role": "user", "content": "again"}], False, tools)
+    assert body["system"] == [{"type": "text", "text": "You are helpful.", "cache_control": {"type": "ephemeral"}}]
+    assert body["tools"][-1]["cache_control"] == {"type": "ephemeral"} and "cache_control" not in body["tools"][0]
+    assert body["messages"][-1]["content"][-1]["cache_control"] == {"type": "ephemeral"}
+    assert "cache_control" not in body["messages"][0]["content"][-1]
+    assert sum(json.dumps(body).count("cache_control") for _ in [0]) == 3  # Anthropic allows at most 4
+    u = _anthropic_usage({"input_tokens": 10, "cache_creation_input_tokens": 2000, "cache_read_input_tokens": 5000, "output_tokens": 7})
+    assert u == {"prompt_tokens": 7010, "completion_tokens": 7, "cache_write_tokens": 2000, "cache_read_tokens": 5000}
+
+
+def test_cached_tokens_are_priced_at_the_cache_rate(client):
+    from app import catalog, usage
+
+    cid = client.post("/api/providers", json={"name": "Claude cat", "auth_kind": "api_key", "protocol": "anthropic_messages",
+                                              "base_url": "https://api.anthropic.com/v1", "api_key": "sk-ant-test-123456"}).json()["id"]
+    try:
+        model = "claude-sonnet-4-5-20250929"
+        p_in, _ = catalog.price("https://api.anthropic.com/v1", model)
+        read_p, _ = catalog.cache_prices("https://api.anthropic.com/v1", model)
+        full = usage.price_usd(f"{cid}/{model}", 1_000_000, 0)
+        cached = usage.price_usd(f"{cid}/{model}", 1_000_000, 0, cache_read=1_000_000)
+        assert full == p_in and abs(cached - read_p) < 1e-9 and cached < full
+    finally:
+        client.delete(f"/api/providers/{cid}")

@@ -56,15 +56,15 @@ def test_phase1_status_endpoints_work_when_signed_in(client):
         assert client.get(path).status_code == 200, path
 
 
-def test_pooled_credentials_are_encrypted_at_rest_and_never_listed(client):
-    from app import credentials, db
+def test_credentials_status_never_lists_a_key(client):
+    """Connection health comes from the router; keys stay encrypted in connections and never appear here."""
+    key = "sk-route-test-secret-123456"
+    cid = client.post("/api/providers", json={"name": "Keyed", "auth_kind": "api_key", "protocol": "chat_completions",
+                                              "base_url": "http://127.0.0.1:9/v1", "api_key": key}).json()["id"]
+    try:
+        body = client.get("/api/credentials/status").text
+        assert key not in body and "Keyed" in body
+        assert key not in client.get("/api/ratelimit/status").text
+    finally:
+        client.delete(f"/api/providers/{cid}")
 
-    pool = credentials.get_pool("routetest")
-    cred = pool.add("sk-route-test-secret-123456", name="t")
-    assert pool.add("sk-route-test-secret-123456").id == cred.id  # no duplicate rows
-    row = db.one("SELECT key_enc FROM credentials WHERE id = ?", cred.id)
-    assert "sk-route-test-secret" not in row["key_enc"]
-    assert credentials.CredentialPool("routetest").get_next().key == "sk-route-test-secret-123456"
-    pool.mark_failure(cred, "401 bad key sk-route-test-secret-123456")
-    assert "sk-route-test-secret" not in str(pool.list())
-    pool.remove(cred.id)

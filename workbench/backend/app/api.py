@@ -2,6 +2,8 @@ import asyncio
 import json
 import os
 import secrets
+import time
+from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -338,7 +340,7 @@ def validate_key(data: KeyIn):
 
     preset, conn = _key_connection(data)
     try:
-        health, detail = Adapter(conn).probe()
+        health, detail = Adapter(conn).probe(deep=True)
     except HTTPException as e:
         health, detail = "down", str(e.detail)
     out = {"preset": preset, "name": conn["name"], "ok": health != "down", "health": health, "detail": detail}
@@ -897,24 +899,35 @@ def recover_interrupted():
     db.run("UPDATE research SET status = 'error', error = 'Interrupted by a restart', progress = 'Failed' WHERE status = 'running'")
 
 
-# AIW-Phase1: Compression and recovery status
+# Reliability status. Fallback, parking and limits live in the smart router (router.py); these read its real state.
 @api.get("/compression/status")
 def compression_status():
-    """Compression and recovery statistics."""
-    from . import compression, recovery
+    """Compression totals, and model call failures the router recovered from or reported, by reason (last 7 days)."""
+    since = datetime.fromtimestamp(time.time() - 7 * 86400, timezone.utc).isoformat(timespec="seconds")
     return {
         "compressions": db.one("SELECT COUNT(*) as c, SUM(original_tokens) as orig, SUM(compressed_tokens) as comp FROM compressions"),
-        "recoveries": db.all("SELECT error_type, COUNT(*) as count, AVG(delay_seconds) as avg_delay FROM recovery_attempts GROUP BY error_type"),
+        "recoveries": db.all("SELECT failure_reason AS error_type, COUNT(*) AS count FROM actions WHERE kind = 'model_call' "
+                             "AND failure_reason != '' AND ts >= ? GROUP BY failure_reason ORDER BY count DESC", since),
     }
+
 
 @api.get("/credentials/status")
 def credentials_status():
-    """Credential pool status (without keys)."""
-    from . import credentials
-    return {"providers": {p: credentials.get_pool(p).list() for p in ["openai", "anthropic", "openrouter", "gemini", "groq"]}}
+    """Every connection's health, never its key. Several keys for one provider are several connections in the router."""
+    from . import router
+
+    rows = []
+    for c in db.all("SELECT * FROM connections WHERE auth_kind != 'session_scraping_forbidden' ORDER BY id"):
+        q = router.quota(c)
+        rows.append({"id": c["id"], "name": c["name"], "provider": router.profile(c).get("label", c["name"]), "enabled": bool(c["enabled"]),
+                     "state": c["state"], "last_error": c["last_error"], "cooling_until": q.get("cooling_until"),
+                     "cooling_reason": q.get("cooling_reason")})
+    return {"connections": rows}
+
 
 @api.get("/ratelimit/status")
 def ratelimit_status():
-    """Rate limit status for all providers."""
-    from . import ratelimit
-    return {"providers": {p: ratelimit.get_tracker(p).get_status() for p in ["openai", "anthropic", "openrouter", "gemini", "groq"]}}
+    """Requests used, limits the providers reported, and cool-downs, per connection (the router's own counters)."""
+    from . import router
+
+    return {"connections": [{"id": c["id"], "name": c["name"], **router.quota(c)} for c in router.ordered_connections()]}
