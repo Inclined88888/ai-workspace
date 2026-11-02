@@ -645,9 +645,17 @@ class CliPlan(Protocol):
         return 400_000  # both CLIs manage their own window; this only bounds what the app sends in one turn
 
     @staticmethod
-    def transcript(messages: list[dict], tools: list[dict] | None) -> tuple[str, str]:
+    def transcript(messages: list[dict], tools: list[dict] | None, xml: bool = False) -> tuple[str, str]:
+        """xml: ask for Claude's own tool-call format (Claude models slip out of a made-up one); both are parsed."""
         system, rest = _system_and_rest(messages)
-        if tools:
+        if tools and xml:
+            specs = "\n".join(json.dumps({"name": t["function"]["name"], "description": t["function"].get("description", ""),
+                                           "parameters": t["function"].get("parameters") or {}}) for t in tools)
+            system += ("\n\nYou can call these tools. To call them, write your calls in this format and stop; the results come "
+                       "back in the next message. Several calls may go in one reply.\n<function_calls>\n<invoke name=\"TOOL\">\n"
+                       "<parameter name=\"ARG\">value (JSON for arrays and objects)</parameter>\n</invoke>\n</function_calls>\n"
+                       "Tools:\n" + specs)
+        elif tools:
             specs = "\n".join(json.dumps({"name": t["function"]["name"], "description": t["function"].get("description", ""),
                                            "parameters": t["function"].get("parameters") or {}}) for t in tools)
             system += ("\n\nYou can call these tools. To call one, reply with only <tool_call>{\"name\": ..., \"arguments\": "
@@ -657,8 +665,15 @@ class CliPlan(Protocol):
             if m["role"] == "tool":
                 lines.append(f"TOOL RESULT ({m.get('tool_call_id', '')}):\n{_text(m.get('content'))}")
             elif m["role"] == "assistant":
-                calls = "".join(f"<tool_call>{json.dumps({'name': c['function']['name'], 'arguments': _json_args(c['function'].get('arguments'))})}</tool_call>"
-                                for c in m.get("tool_calls") or [])
+                if xml and m.get("tool_calls"):
+                    calls = "\n<function_calls>\n" + "".join(
+                        f"<invoke name=\"{c['function']['name']}\">\n" + "".join(
+                            f"<parameter name=\"{k}\">{v if isinstance(v, str) else json.dumps(v)}</parameter>\n"
+                            for k, v in _json_args(c['function'].get('arguments')).items()) + "</invoke>\n"
+                        for c in m["tool_calls"]) + "</function_calls>"
+                else:
+                    calls = "".join(f"<tool_call>{json.dumps({'name': c['function']['name'], 'arguments': _json_args(c['function'].get('arguments'))})}</tool_call>"
+                                    for c in m.get("tool_calls") or [])
                 lines.append(f"ASSISTANT:\n{_text(m.get('content'))}{calls}")
             else:
                 lines.append(f"USER:\n{_text(m.get('content'))}")
@@ -700,7 +715,7 @@ class CliPlan(Protocol):
         if not path:
             raise ProviderError(502, f"{cli_agents.AGENTS[agent]['name']} isn't installed on this computer "
                                      f"({cli_agents.AGENTS[agent]['install']})", kind="unreachable")
-        system, prompt = self.transcript(messages, tools)
+        system, prompt = self.transcript(messages, tools, xml=agent == "claude")
         if schema:
             system += f"\n\nAnswer with only JSON matching this schema, no other text:\n{json.dumps(schema['schema'])}"
         if agent in ("codex", "copilot") and system:  # no system prompt flag: it leads the prompt

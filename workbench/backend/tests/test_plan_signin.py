@@ -257,3 +257,16 @@ def test_a_plan_answering_in_claudes_own_tool_format_still_calls_the_tools():
     assert calls[0]["function"]["name"] == "web_search" and json.loads(calls[0]["function"]["arguments"]) == {"query": "weather sydney"}
     assert rest == ""
     assert parse_text_tool_calls('<invoke name="delete_everything"><parameter name="x">1</parameter></invoke>', {"web_search"})[0] == []
+
+
+def test_claude_plan_is_asked_for_and_shown_its_own_tool_format():
+    from app.adapters import CliPlan, parse_text_tool_calls
+
+    msgs = [{"role": "user", "content": "hi"},
+            {"role": "assistant", "content": "", "tool_calls": [{"id": "a", "type": "function", "function": {"name": "todo", "arguments": json.dumps({"items": [{"text": "x", "status": "doing"}]})}}]},
+            {"role": "tool", "tool_call_id": "a", "content": "ok"}]
+    tools = [{"type": "function", "function": {"name": "todo", "description": "d", "parameters": {}}}]
+    system, prompt = CliPlan.transcript(msgs, tools, xml=True)
+    assert "<invoke name=\"TOOL\">" in system and "<tool_call>" not in prompt
+    calls, _ = parse_text_tool_calls(prompt.split("ASSISTANT:\n", 1)[1].split("TOOL RESULT")[0], {"todo"})
+    assert json.loads(calls[0]["function"]["arguments"]) == {"items": [{"text": "x", "status": "doing"}]}  # round-trips
