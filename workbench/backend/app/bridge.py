@@ -5,21 +5,27 @@ here, so their model calls use the one adapter layer (R1), never hold provider k
 channel "browser"). Model ids are Workbench model refs ("3/claude-…") or "default".
 
 Auth: Bearer BROWSER_API_KEY, the secret the browser service already shares with Workbench (or DESK_API_KEY, Rooks
-Desk's). Refused when neither is set.
+Desk's), or the token from Settings > Terminal access, which already grants the whole /api and is what a person setting
+up the rooks terminal agent has in hand. Refused when none is set.
 
 /v1/desk/send_email lets Rooks Desk (computer use) email a result, with attachments, from the user's own mail account.
 Rooks Desk asks the user to approve every email before it calls this; the endpoint only answers the rooks-desk channel.
-Streaming is not offered: no caller needs it yet.
+stream: true answers as server-sent events in OpenAI's chunk format. Without tools the text streams token by token
+(with the router's fallback before the first token); with tools the turn runs whole and arrives as one chunk, since
+tool calls are only usable complete.
 """
 
 import asyncio
 import base64
 import binascii
+import hashlib
 import hmac
+import json
 import time
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from . import config, db, llm
@@ -32,8 +38,12 @@ def require_bridge_key(request: Request) -> None:
     auth = request.headers.get("authorization", "")
     token = auth[7:] if auth.lower().startswith("bearer ") else ""
     keys = [k for k in (config.BROWSER_API_KEY, config.DESK_API_KEY) if k]
-    if not (token and any(hmac.compare_digest(token, k) for k in keys)):
-        raise HTTPException(401, "Invalid or missing bridge key")
+    if token and any(hmac.compare_digest(token, k) for k in keys):
+        return
+    cli = db.get_setting("cli_token_hash", "") or ""
+    if token and cli and hmac.compare_digest(hashlib.sha256(token.encode()).hexdigest(), cli):
+        return
+    raise HTTPException(401, "Invalid or missing bridge key (use BROWSER_API_KEY from .env, or the Terminal access token)")
 
 
 router = APIRouter(prefix="/v1", dependencies=[Depends(require_bridge_key)])
@@ -61,14 +71,14 @@ def _schema(response_format: dict | None) -> dict | None:
 
 @router.post("/chat/completions")
 async def chat_completions(data: CompletionIn, request: Request):
-    if data.stream:
-        raise HTTPException(400, "Streaming is not supported on this endpoint")
     ref = None if data.model in ("default", "") else data.model
     # Rooks Code sends X-Workbench-Channel: rooks-code; the router picks a strong model for both clients either way
     channel = request.headers.get("x-workbench-channel", "browser")
     channel = channel if channel in CHANNELS else "browser"
     if ref is None and channel == "rooks-code":
         ref = llm.local_coder_ref()
+    if data.stream:
+        return StreamingResponse(_sse(ref, data, channel), media_type="text/event-stream")
     res = await llm.chat(ref, data.messages, data.tools, trace={"channel": channel}, schema=_schema(data.response_format))
     msg = res["message"]
     out = {"role": "assistant", "content": msg.get("content") or None}
@@ -80,6 +90,46 @@ async def chat_completions(data: CompletionIn, request: Request):
             "usage": {"prompt_tokens": u.get("prompt_tokens", 0), "completion_tokens": u.get("completion_tokens", 0),
                       "total_tokens": u.get("prompt_tokens", 0) + u.get("completion_tokens", 0)},
             **({"router": res["router"]} if res.get("router") else {})}
+
+
+def _chunk(cid: str, model: str, delta: dict | None = None, finish: str | None = None, usage: dict | None = None) -> str:
+    body: dict = {"id": cid, "object": "chat.completion.chunk", "created": int(time.time()), "model": model,
+                  "choices": [] if delta is None else [{"index": 0, "delta": delta, "finish_reason": finish}]}
+    if usage is not None:
+        body["usage"] = {"prompt_tokens": usage.get("prompt_tokens", 0), "completion_tokens": usage.get("completion_tokens", 0),
+                         "total_tokens": usage.get("prompt_tokens", 0) + usage.get("completion_tokens", 0)}
+    return f"data: {json.dumps(body)}\n\n"
+
+
+async def _sse(ref: str | None, data: CompletionIn, channel: str):
+    cid = f"chatcmpl-{uuid.uuid4().hex[:24]}"
+    model = ref or "default"
+    try:
+        if data.tools or data.response_format:
+            res = await llm.chat(ref, data.messages, data.tools, trace={"channel": channel}, schema=_schema(data.response_format))
+            msg, model = res["message"], res["ref"]
+            delta: dict = {"role": "assistant", "content": msg.get("content") or ""}
+            if msg.get("tool_calls"):
+                delta["tool_calls"] = [{**tc, "index": i} for i, tc in enumerate(msg["tool_calls"])]
+            yield _chunk(cid, model, delta)
+            yield _chunk(cid, model, {}, "tool_calls" if msg.get("tool_calls") else "stop")
+            yield _chunk(cid, model, usage=res["usage"])
+        else:
+            async for e in llm.stream(ref, data.messages, trace={"channel": channel}):
+                if "error" in e:
+                    yield f"data: {json.dumps({'error': {'message': str(e['error'])[:400]}})}\n\n"
+                    return
+                if (e.get("router") or {}).get("ref"):
+                    model = e["router"]["ref"]
+                if e.get("delta"):
+                    yield _chunk(cid, model, {"content": e["delta"]})
+                if e.get("done"):
+                    yield _chunk(cid, model, {}, "stop")
+                    yield _chunk(cid, model, usage=e.get("usage") or {})
+    except HTTPException as e:
+        yield f"data: {json.dumps({'error': {'message': str(e.detail)[:400]}})}\n\n"
+        return
+    yield "data: [DONE]\n\n"
 
 
 @router.get("/models")
