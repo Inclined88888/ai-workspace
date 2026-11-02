@@ -207,3 +207,27 @@ def test_app_down_never_breaks_a_request(tmp_path):
     assert learn.context("x") == ""
     assert learn.remember("Something durable").startswith("Error")
     learn.after("p", "a", [], wait=True)  # no exception
+
+
+def test_memory_and_skills_commands_show_what_was_learned(app, tmp_path, monkeypatch):
+    from rooks_code import tui
+
+    url, seen = app
+    agent, ui = FakeAgent(_app_settings(url, tmp_path)), UI()
+    agent.learning = Learning(agent.s)
+    orig = Learning._req
+
+    def req(self, method, path, body=None):
+        if path == "/memory":
+            return {"facts": [{"content": "Name is Azad"}]}
+        return orig(self, method, path, body)
+
+    monkeypatch.setattr(Learning, "_req", req)
+    tui.command(agent, ui, "/memory", "")
+    assert "  • Name is Azad" in ui.out
+    tui.command(agent, ui, "/skills", "")
+    assert any("weekly-report" in line for line in ui.out)
+    local = FakeAgent(config.Settings(root=tmp_path, provider="openai", kind="openai", base_url="http://127.0.0.1:9/v1", model="m"))
+    local.learning = Learning(local.s)
+    tui.command(local, ui, "/skills", "")
+    assert "isn't connected" in ui.out[-1]

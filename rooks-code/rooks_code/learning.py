@@ -141,6 +141,21 @@ class Learning:
             return f"Error: could not save it ({e})"
         return f"Saved. Rooks will remember it in later sessions ({p})."
 
+    def facts(self) -> list[str]:
+        """What is remembered, for /memory."""
+        if self.app:
+            try:
+                return [f["content"] for f in self._req("GET", "/memory").get("facts") or [] if f.get("content")]
+            except (OSError, ValueError, urllib.error.URLError):
+                return []
+        return _load_local()
+
+    def skill_list(self) -> list[dict]:
+        """Saved skills, for /skills (the app's; none without it)."""
+        if self.app and not self.skills:
+            self.context("")
+        return self.skills
+
     def load_skill(self, name: str) -> str:
         if not self.app:
             return "Error: saved skills come from the AI Workspace app; it is not connected."

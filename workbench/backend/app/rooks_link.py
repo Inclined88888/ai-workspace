@@ -1,6 +1,7 @@
 """The rooks terminal learns with the app: one memory and one set of skills for chat, terminal, browser and computer.
 
 /v1/rooks/context    what the app knows that fits this request (facts about the user) and the saved skills index
+/v1/rooks/memory     the facts the app keeps (the terminal's /memory)
 /v1/rooks/skills/N   one skill's steps (counts as a use, like load_skill in chat)
 /v1/rooks/remember   save a fact the user stated in the terminal (same store as chat's remember tool)
 /v1/rooks/turn       a finished terminal request: kept as a conversation (shown in the app's chat history as a
@@ -34,6 +35,15 @@ def context(q: str = ""):
             block = ""
     skills = db.all("SELECT name, description FROM skills WHERE enabled = 1 ORDER BY uses DESC, updated_at DESC LIMIT 30")
     return {"context": block, "skills": [dict(s) for s in skills], "learning": learn.enabled()}
+
+
+@router.get("/memory")
+def memory():
+    """What the app knows about the user (the terminal's /memory), newest and pinned first."""
+    from .adapt import knowledge
+
+    facts = [{"content": f["content"], "category": f.get("category", "")} for f in knowledge.all_facts()[:40]]
+    return {"facts": facts, "learning": learn.enabled()}
 
 
 @router.get("/skills/{name}")

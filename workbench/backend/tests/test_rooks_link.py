@@ -41,6 +41,7 @@ def test_a_fact_saved_in_the_terminal_is_the_one_chat_sees(client, auth):
     r = client.post("/v1/rooks/remember", headers=auth, json={"content": "Prefers tabs over spaces in Python files", "kind": "preference"})
     assert r.status_code == 200 and r.json().get("saved")
     assert any("tabs over spaces" in f["content"] for f in knowledge.all_facts())
+    assert any("tabs over spaces" in f["content"] for f in client.get("/v1/rooks/memory", headers=auth).json()["facts"])
     again = client.post("/v1/rooks/remember", headers=auth, json={"content": "Prefers tabs over spaces in Python files"}).json()
     assert again["saved"] is None  # already known
 

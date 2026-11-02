@@ -17,6 +17,7 @@ import time
 from pathlib import Path
 
 from . import __version__, config
+from .learning import local_path as learning_path
 from .cli import UI, HELP, app_models, effort_command, load_session, model_command, provider_command, set_model, short_model, undo_text
 
 try:
@@ -51,6 +52,8 @@ COMMANDS: dict[str, str] = {
     "/effort": "how hard a plan's model thinks: /effort low, medium, high or auto",
     "/provider": "switch the AI service: /provider NAME",
     "/login": "connect an AI service (paste a key, or use your AI Workspace app)",
+    "/memory": "what Rooks remembers about you (shared with the AI Workspace app)",
+    "/skills": "procedures Rooks learned from your past tasks",
     "/undo": "put back the files changed by the last request",
     "/sessions": "earlier conversations in this folder",
     "/resume": "continue an earlier conversation: /resume ID",
@@ -437,6 +440,26 @@ def command(agent, ui: RichUI, cmd: str, rest: str) -> None:
         provider_command(agent, ui, rest)
     elif cmd == "/login":
         relogin(agent, ui)
+    elif cmd == "/memory":
+        learning = getattr(agent, "learning", None)
+        facts = learning.facts() if learning else []
+        if not learning:
+            ui.p("  Learning is off (learn = false in rooks.toml).")
+        elif not facts:
+            ui.p("  Nothing remembered yet. Tell Rooks something lasting, like \"I use pnpm\", and it saves it.")
+        for f in facts[:40]:
+            ui.p(f"  • {f}")
+        if facts:
+            ui.p(ui.c("dim", "  Shared with the AI Workspace app (About you page)." if learning.app else
+                      f"  Kept in {learning_path()}. Connect the app to share it with chat."))
+    elif cmd == "/skills":
+        learning = getattr(agent, "learning", None)
+        found = learning.skill_list() if learning else []
+        if not found:
+            ui.p("  No saved skills yet. After a task of several steps, the app saves the procedure so next time is faster."
+                 if learning and learning.app else "  Skills are learned through the AI Workspace app; it isn't connected.")
+        for sk in found:
+            ui.p(f"  {ui.c('accent', sk['name'])}  {sk.get('description', '')}")
     elif cmd == "/undo":
         ui.p(undo_text(agent.changes))
     elif cmd == "/sessions":

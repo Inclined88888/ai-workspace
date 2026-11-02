@@ -51,7 +51,26 @@ rooks -P codex "fix the build"         # delegate to your own signed-in Codex (y
 what it does. Edits and commands are still asked about first (`--yes` = accept edits, `--dry-run` = plan only); Rooks
 never handles a key or token for them. See [../docs/CLAUDE-CODE.md](../docs/CLAUDE-CODE.md).
 
-Inside a session: `/undo`, `/cost`, `/dry-run`, `/yes`, `/model NAME`, `/receipt`, `/clear`, `/exit`.
+Inside a session type `/` for the command menu (every command with what it does) and `@` to pick a file:
+
+* `/model` opens a menu: Auto or an AI, then a short list of its newest chat models (older ones behind "More"),
+  then, for a Claude, ChatGPT or Copilot plan, how hard it thinks. `/effort low|medium|high|auto` changes only that.
+  The choice shows in the status bar and is kept for the next start.
+* `/new`, `/sessions`, `/resume ID`, `/compact`, `/copy`, `/undo`, `/cost`, `/auto`, `/dry-run`, `/login`, `/provider`,
+  `/doctor`, `/receipt`, `/exit`.
+* `/memory` and `/skills` show what Rooks has learned (below).
+
+## It learns
+
+Rooks gets better the more you use it, the same way the AI Workspace app does, and shares what it learns with it:
+
+* Tell it something lasting ("I use pnpm", "my name is Azad") and it saves it with its `remember` tool.
+* Through the app, every finished request is kept in the app's chat history as a terminal chat and learned from in the
+  background: facts about you, and after a task of several steps a reusable skill (procedure). Before each request
+  the facts that fit and the skills index go into its instructions; `load_skill` reads a skill's steps.
+* Requests that read web pages never become skills (injected text must not become a standing instruction).
+* Without the app, remembered facts live in `memory.json` next to `rooks.toml` and come back in every session.
+* `learn = false` in `rooks.toml` turns it off. The app's "Learn about me" switch also applies.
 
 Other commands: `rooks undo`, `rooks receipts [list|show|import --db workbench.db]`, `rooks doctor` (checks the provider,
 key and MCP servers with one real call), `rooks mcp` (lists MCP tools), `rooks init` (writes an example config).
@@ -117,9 +136,11 @@ calls are asked about like commands. Only stdio servers are supported so far; HT
   ran the test and stopped correctly; `qwen2.5:3b` and `qwen2.5-coder:7b` described steps without calling tools, even
   with Rooks' recovery of tool calls printed as text and its "you announced a step, call the tool" nudge. Use a 7B+
   general instruct model, or a hosted model, for real work.
-* Replies are not streamed token by token yet (a spinner shows while the model works).
+* In the interactive terminal, answers appear formatted once complete (a "Working" line with a timer shows progress);
+  plain mode (`ROOKS_PLAIN=1`) streams token by token in a terminal; piped output arrives whole.
 * No sandbox: approved commands run with your user's permissions. Approval, dry run and trusted folders are the controls.
-* MCP over HTTP/SSE, prompt caching, and resuming a past session are not implemented yet.
+* MCP over HTTP/SSE and prompt caching are not implemented yet.
+* Skills are learned only through the AI Workspace app; on its own Rooks learns facts, not procedures.
 
 ## Development
 
