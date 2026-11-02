@@ -430,6 +430,27 @@ def put_assistant_settings(data: AssistantSettings):
     return get_assistant_settings()
 
 
+class SearchKeyIn(BaseModel):
+    provider: str = Field(..., pattern="^(tavily|brave)$")
+    key: str = Field(..., min_length=8, max_length=200)
+
+
+@router.post("/assistant/search-key")
+async def set_search_key(data: SearchKeyIn):
+    """Test the key with one real search; save it only when that works."""
+    problem = await search.test_key(data.provider, data.key)
+    if problem:
+        raise HTTPException(400, problem)
+    db.set_setting(f"secret:{data.provider.upper()}_API_KEY", encrypt(data.key.strip()))
+    return {"ok": True, "provider": search.provider(), "name": search.NAMES[data.provider]}
+
+
+@router.get("/assistant/search")
+def search_status():
+    p = search.provider()
+    return {"provider": p, "name": search.NAMES.get(p, ""), "signup": search.SIGNUP}
+
+
 @router.post("/cli-token")
 def new_cli_token():
     token = "wb_" + secrets.token_urlsafe(32)

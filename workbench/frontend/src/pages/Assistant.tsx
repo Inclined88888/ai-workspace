@@ -8,6 +8,7 @@ import { Thinking, useExit } from "../motion";
 import { LiveMarkdown } from "../v02/LiveBlocks"; // feat/v02-automations: live docs, sheets and charts in replies
 import { DictateButton } from "../voice/DictateButton"; // feat/v02-anywhere-voice (drawn as the motion voice orb)
 import { CheckThis, CheckToggle, ProjectSwitcher } from "../v02/ChatExtras"; // feat/v02-core
+import { WebSearchSetup } from "./ModelSignIn";
 
 type Conv = { id: number; title: string; channel: string; updated_at: string; model: string };
 type Msg = { id: number; role: string; content: string; tool_calls: string[]; name: string; via?: RouterInfo };
@@ -341,7 +342,7 @@ type ASettings = { assistant_name: string; timezone: string; learning_enabled: b
 
 function SettingsTab() {
   const [s, setS] = useState<ASettings | null>(null);
-  const [f, setF] = useState({ assistant_name: "", timezone: "", brave: "", tavily: "", tg_token: "", tg_users: "" });
+  const [f, setF] = useState({ assistant_name: "", timezone: "", tg_token: "", tg_users: "" });
   const [token, setToken] = useState("");
   const toast = useToast();
   const load = () => api<ASettings>("/assistant/settings").then((r) => { setS(r); setF((x) => ({ ...x, assistant_name: r.assistant_name, timezone: r.timezone, tg_users: r.telegram.allowed_users })); });
@@ -368,12 +369,7 @@ function SettingsTab() {
       </div>
       <div className="card col">
         <h3>Web search</h3>
-        <div className="muted small">Currently: {s.search_provider || "not set up"}. Add a Brave Search or Tavily API key, or enable the SearXNG add-on.</div>
-        <div className="row wrap">
-          <input className="input grow" type="password" placeholder="Brave Search API key" value={f.brave} onChange={(e) => setF({ ...f, brave: e.target.value })} />
-          <input className="input grow" type="password" placeholder="Tavily API key" value={f.tavily} onChange={(e) => setF({ ...f, tavily: e.target.value })} />
-          <button className="btn" onClick={() => put({ ...(f.brave ? { brave_api_key: f.brave } : {}), ...(f.tavily ? { tavily_api_key: f.tavily } : {}) }, "Search key saved")}>Save</button>
-        </div>
+        <WebSearchSetup />
       </div>
       <div className="card col">
         <div className="row"><h3 className="grow">Telegram</h3>{s.telegram.running ? <span className="badge ok">@{s.telegram.bot} online</span> : s.telegram.configured ? <span className="badge danger">offline</span> : <span className="badge">not set up</span>}</div>

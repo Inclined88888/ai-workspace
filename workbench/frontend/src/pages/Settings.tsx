@@ -1,11 +1,11 @@
-import { Check, Cpu, Download, FolderOpen, KeyRound, Loader2, Monitor, Plug, Plus, RefreshCw, Shield, Trash2 } from "lucide-react";
+import { Check, Cpu, Search, Download, FolderOpen, KeyRound, Loader2, Monitor, Plug, Plus, RefreshCw, Shield, Trash2 } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, stream } from "../api";
 import { AppInfo, Sidecar, appInfo, inDesktopShell, listSidecars, openDataDir, openLogs, requestApproval } from "../desktop";
 import { ModelSelect, useModels, useToast } from "../util";
 import ConnectMailCalendar from "./ConnectMailCalendar";
-import { AddKey, KeyInfo, SignInWithPlan } from "./ModelSignIn";
+import { AddKey, KeyInfo, SignInWithPlan, WebSearchSetup } from "./ModelSignIn";
 import { PhoneCard } from "./Phone";
 
 type DesktopInfo = { desktop: boolean; data_dir: string; secret_backend: string };
@@ -284,6 +284,11 @@ export default function Settings({ onChanged }: { onChanged: () => void }) {
           <div><button className="btn primary" onClick={save}>Save</button></div>
         </div>
         <Providers />
+        <div className="card col" id="search">
+          <div className="row"><Search size={16} /><h2>Web search</h2></div>
+          <div className="muted small">Lets Research and Chat look things up on the web.</div>
+          <WebSearchSetup />
+        </div>
         <ConnectMailCalendar />
         {desktop?.desktop && <DesktopApp info={desktop} />}
         {/* feat/v02-anywhere-voice */}

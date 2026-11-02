@@ -202,3 +202,66 @@ export function AddKey({ presets, info, onChange }: { presets: Record<string, Pr
     </form>
   );
 }
+
+type SearchStatus = { provider: string; name: string; signup: Record<string, string> };
+
+/** Web search for Research and Chat: a free Tavily key, guided (open the page, copy, paste; tested before saving). */
+export function WebSearchSetup({ compact = false, onChange }: { compact?: boolean; onChange?: () => void }) {
+  const [st, setSt] = useState<SearchStatus | null>(null);
+  const [key, setKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [opened, setOpened] = useState(false);
+  const [change, setChange] = useState(false);
+  const load = () => api<SearchStatus>("/assistant/search").then(setSt).catch(() => setSt({ provider: "", name: "", signup: {} }));
+  useEffect(() => { load(); }, []);
+  const save = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      await api("/assistant/search-key", { body: { provider: "tavily", key: key.trim() } });
+      setKey("");
+      setChange(false);
+      await load();
+      onChange?.();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (!st) return <Loader2 size={16} className="spin" />;
+  if (st.provider && !change) {
+    return (
+      <div className="row small">
+        <Check size={14} /> <span className="grow">Web search is on ({st.name}).</span>
+        {!compact && <button className="btn sm ghost" onClick={() => setChange(true)}>Change key</button>}
+      </div>
+    );
+  }
+  return (
+    <form className="col" style={{ gap: 10 }} onSubmit={save}>
+      <div className="small">{compact ? "Web search is off. " : ""}Turn it on with a free Tavily key: 1,000 searches a month, no card, about a minute.</div>
+      <ol className="free-steps">
+        <li className={opened ? "done" : ""}>
+          <span className="free-n">1</span>
+          <span className="grow">Open Tavily and sign up (Google sign-in works). Your key is on the first page.</span>
+          <a className="btn sm" href={st.signup.tavily || "https://app.tavily.com/home"} target="_blank" rel="noreferrer" onClick={() => setOpened(true)}>Open Tavily <ExternalLink size={12} /></a>
+        </li>
+        <li>
+          <span className="free-n">2</span>
+          <span className="grow col" style={{ gap: 8 }}>
+            <span>Copy the key (it starts with tvly-), come back and paste it.</span>
+            <KeyField value={key} onChange={setKey} expect="tvly-" />
+          </span>
+        </li>
+      </ol>
+      {error && <div className="alert err">{error}</div>}
+      <div className="row">
+        <button className="btn primary" disabled={busy || key.trim().length < 8}>{busy ? <><Loader2 size={15} className="spin" /> Testing…</> : "Turn on web search"}</button>
+        {change && <button type="button" className="btn ghost" onClick={() => setChange(false)}>Cancel</button>}
+      </div>
+    </form>
+  );
+}
