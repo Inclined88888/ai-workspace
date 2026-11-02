@@ -39,7 +39,8 @@ if [[ ! -x "$PY" ]]; then
   uv venv -q -p 3.12 "$VENV" || exit 1
 fi
 VIRTUAL_ENV="$VENV" uv pip install -q -r workbench/backend/requirements.txt -r workbench/backend/requirements-dev.txt \
-  -r workbench/backend/requirements-files.txt && ok "dependencies" || bad "dependencies"
+  -r workbench/backend/requirements-files.txt "prompt_toolkit>=3.0.43" "rich>=13.7" && ok "dependencies" || bad "dependencies"
+# prompt_toolkit and rich are Rooks Code's interactive terminal (rooks-code/pyproject.toml): without them its tests skip
 
 step "Backend (workbench/backend)"
 EXTRA=(); $QUICK && EXTRA=(-k "not sandbox and not run_python")

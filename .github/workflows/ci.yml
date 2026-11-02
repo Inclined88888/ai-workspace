@@ -53,8 +53,8 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.11"  # the minimum supported version (tomllib)
-      - run: python -m pip install pytest
-      - name: Tests, including the fake-model end-to-end run
+      - run: python -m pip install -e ".[dev]"  # pytest, plus prompt_toolkit and rich so the terminal UI tests run
+      - name: Tests, including the fake-model end-to-end run and the interactive terminal
         run: python -m pytest -q
       - name: Installs as a command and runs
         run: |
