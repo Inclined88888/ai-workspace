@@ -433,6 +433,18 @@ def migrate(c: sqlite3.Connection, path) -> None:
         (2, lambda: migrate_v2(c, "providers" in legacy)),
         (3, lambda: migrate_v3(c)),
     ]
+    # Foreign keys off for the whole upgrade. SQLite ignores this pragma inside a transaction, so it has to be set
+    # here, before BEGIN: with keys on, a table rebuild's DROP TABLE is an implicit DELETE that cascades (migrate_v3
+    # would empty messages). Every step keeps ids, so no new dangling references can appear.
+    fk = c.execute("PRAGMA foreign_keys").fetchone()[0]
+    c.execute("PRAGMA foreign_keys=OFF")
+    try:
+        _run_steps(c, version, steps)
+    finally:
+        c.execute(f"PRAGMA foreign_keys={'ON' if fk else 'OFF'}")
+
+
+def _run_steps(c: sqlite3.Connection, version: int, steps: list) -> None:
     for target, step in steps:
         if version >= target:
             continue
@@ -552,47 +564,45 @@ def migrate_v3(c: sqlite3.Connection) -> None:
     # Get max id for sqlite_sequence seeding
     max_id = c.execute("SELECT COALESCE(MAX(id), 0) FROM conversations").fetchone()[0]
 
-    # Disable foreign keys temporarily for the rebuild
-    c.execute("PRAGMA foreign_keys=OFF")
+    if c.execute("PRAGMA foreign_keys").fetchone()[0]:
+        raise RuntimeError("migrate_v3 needs foreign keys off (set before the transaction, see migrate)")
+    rows = c.execute("SELECT COUNT(*) FROM conversations").fetchone()[0]
+    # Create new table with AUTOINCREMENT
+    c.execute("""
+        CREATE TABLE conversations_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL DEFAULT 'New chat',
+            channel TEXT NOT NULL DEFAULT 'web',
+            external_id TEXT NOT NULL DEFAULT '',
+            agent_id INTEGER,
+            model TEXT NOT NULL DEFAULT '',
+            memory_cursor INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+    """)
 
-    try:
-        # Create new table with AUTOINCREMENT
-        c.execute("""
-            CREATE TABLE conversations_new (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                title TEXT NOT NULL DEFAULT 'New chat',
-                channel TEXT NOT NULL DEFAULT 'web',
-                external_id TEXT NOT NULL DEFAULT '',
-                agent_id INTEGER,
-                model TEXT NOT NULL DEFAULT '',
-                memory_cursor INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            )
-        """)
+    # Copy data preserving IDs
+    c.execute("""
+        INSERT INTO conversations_new (id, title, channel, external_id, agent_id, model, memory_cursor, created_at, updated_at)
+        SELECT id, title, channel, external_id, agent_id, model, memory_cursor, created_at, updated_at
+        FROM conversations
+    """)
 
-        # Copy data preserving IDs
-        c.execute("""
-            INSERT INTO conversations_new (id, title, channel, external_id, agent_id, model, memory_cursor, created_at, updated_at)
-            SELECT id, title, channel, external_id, agent_id, model, memory_cursor, created_at, updated_at
-            FROM conversations
-        """)
+    # Drop old table and rename new one
+    c.execute("DROP TABLE conversations")
+    c.execute("ALTER TABLE conversations_new RENAME TO conversations")
 
-        # Drop old table and rename new one
-        c.execute("DROP TABLE conversations")
-        c.execute("ALTER TABLE conversations_new RENAME TO conversations")
+    # Recreate index
+    c.execute("CREATE INDEX IF NOT EXISTS conversations_channel ON conversations(channel, external_id)")
 
-        # Recreate index
-        c.execute("CREATE INDEX IF NOT EXISTS conversations_channel ON conversations(channel, external_id)")
+    # Seed sqlite_sequence so next insert uses max_id + 1
+    if max_id > 0:
+        c.execute("DELETE FROM sqlite_sequence WHERE name = 'conversations'")
+        c.execute("INSERT INTO sqlite_sequence (name, seq) VALUES ('conversations', ?)", (max_id,))
 
-        # Seed sqlite_sequence so next insert uses max_id + 1
-        if max_id > 0:
-            c.execute("DELETE FROM sqlite_sequence WHERE name = 'conversations'")
-            c.execute("INSERT INTO sqlite_sequence (name, seq) VALUES ('conversations', ?)", (max_id,))
-
-        # Foreign keys will be re-enabled by the caller's PRAGMA foreign_keys=ON in conn()
-    finally:
-        c.execute("PRAGMA foreign_keys=ON")
+    if c.execute("SELECT COUNT(*) FROM conversations").fetchone()[0] != rows:
+        raise RuntimeError("migrate_v3 lost conversations; rolled back")
 
 
 OFFICIAL_HOSTS = ("api.openai.com", "api.anthropic.com", "openrouter.ai", "generativelanguage.googleapis.com", "opencode.ai")
