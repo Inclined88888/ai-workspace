@@ -232,3 +232,17 @@ def test_v1_models_tells_a_picker_what_to_show(client):
         assert sonnet["owned_by"] == "Claude plan (Claude Code)" and sonnet["effort"] and sonnet["pick"] and sonnet["label"] == "sonnet"
     finally:
         db.run("DELETE FROM connections WHERE id = ?", cid)
+
+
+def test_chat_takes_a_thinking_level_for_plans_and_the_picker_knows_which_models_take_one(client):
+    from app import db
+
+    assert client.post("/api/assistant/chat", headers=H, json={"message": "hi", "effort": "extreme"}).status_code == 422
+    cid = db.run("INSERT INTO connections(name, auth_kind, protocol, base_url, secret_enc, residency, created_at) "
+                 "VALUES ('Claude plan (Claude Code)', 'cli_subscription', 'cli_plan', 'cli://claude', '', 'cloud', 't')")
+    try:
+        rows = {m["ref"]: m for m in client.get("/api/models", headers=H).json()["models"]}
+        assert rows[f"{cid}/opus"]["effort"] is True
+        assert all(not m["effort"] for r, m in rows.items() if not r.startswith(f"{cid}/"))
+    finally:
+        db.run("DELETE FROM connections WHERE id = ?", cid)
