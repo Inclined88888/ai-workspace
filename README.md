@@ -73,7 +73,10 @@ are still Docker-only; the server install below is unchanged.
 
 The full list of [100 reasons people pick AI Workspace](docs/README.md) — including what is roadmap, clearly marked — lives in the docs.
 
-## Quick start
+## Run it on a server (Docker, optional)
+
+Only for running AI Workspace on a home server or VPS for several devices. On your own computer use the one command
+install above: it needs no Docker.
 
 Requirements: Docker with Compose v2 (Docker Desktop or OrbStack on a Mac), 1 GB RAM free, about 2 GB of disk for the build. At least one model provider key, or Ollama.
 
