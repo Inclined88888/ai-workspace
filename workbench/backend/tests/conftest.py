@@ -306,6 +306,10 @@ def fake_url():
 
 @pytest.fixture(scope="session")
 def client(fake_url, tmp_path_factory):
+    # Direct pytest runs must be as isolated as scripts/test-all.sh: never seed a real provider from the shell.
+    for name in tuple(os.environ):
+        if name.endswith(("_API_KEY", "_TOKEN")):
+            os.environ.pop(name, None)
     os.environ.update(APP_SECRET="a" * 40, TOOLS_API_KEY="k" * 30, DATA_DIR=str(tmp_path_factory.mktemp("data")),
                       ROOKS_COMPANION_FILE=str(tmp_path_factory.mktemp("companion") / "companion.json"),
                       MODEL_CATALOG_REFRESH="0")  # tests never download the model catalog
