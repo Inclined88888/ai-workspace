@@ -23,7 +23,10 @@ microsoft() {
   command -v az >/dev/null || { echo "Installing Microsoft's Azure CLI (brew install azure-cli)…"; brew install azure-cli; }
   say "Microsoft: a browser opens on Microsoft's sign-in page. Sign in with the account that should own the registration."
   echo "(A personal Outlook account works if it has a Microsoft Entra directory; a work account works if your organisation lets members register apps.)"
-  az login --allow-no-subscriptions --only-show-errors >/dev/null
+  if ! az login --allow-no-subscriptions --only-show-errors >/dev/null || ! az ad signed-in-user show --query id -o tsv >/dev/null 2>&1; then
+    microsoft_by_hand
+    return
+  fi
   graph=00000003-0000-0000-c000-000000000000
   # the delegated permission ids, read from Microsoft Graph itself (never typed in by hand)
   scopes=$(az ad sp show --id $graph --query "oauth2PermissionScopes[?contains(['openid','email','profile','offline_access','User.Read','Mail.ReadWrite','Mail.Send','Calendars.ReadWrite'], value)].{id:id,type:'Scope'}" -o json)
@@ -53,6 +56,27 @@ PY
   fi
 }
 
+microsoft_by_hand() {
+  # az signs in but cannot register apps for an account with no Microsoft Entra directory (most personal Outlook
+  # accounts since 2024) or when an organisation blocks it. Microsoft's own web page does the same registration.
+  say "Microsoft did not let the CLI register the app for that account. Microsoft's own registration page opens instead."
+  cat <<MSG
+  If it says you need a directory: sign in with a work or school account, or press "Create a free Azure account"
+  (no charge, it only creates the directory). A personal Outlook address can still SIGN IN to AI Workspace later.
+
+  1. New registration: Name "AI Workspace".
+     Supported account types: "Accounts in any organizational directory and personal Microsoft accounts".
+     Redirect URI: platform "Public client/native (mobile & desktop)", value  http://localhost   > Register.
+  2. Authentication: "Allow public client flows" = Yes > Save.
+  3. API permissions > Add > Microsoft Graph > Delegated: offline_access, User.Read, Mail.ReadWrite, Mail.Send,
+     Calendars.ReadWrite > Add permissions.
+  4. Overview: copy "Application (client) ID" and paste it here.
+MSG
+  open "https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/CreateApplicationBlade/quickStartType~/null/isMSAApp~/false" 2>/dev/null || true
+  read -r -p "Application (client) ID: " MS_ID
+  [[ $MS_ID =~ ^[0-9a-fA-F-]{36}$ ]] || { echo "That is not a client ID (36 characters like 1a2b3c4d-...). Run again: scripts/setup-sign-in.sh microsoft" >&2; MS_ID=""; }
+}
+
 google() {
   command -v gcloud >/dev/null || { echo "Install the Google Cloud CLI first: brew install --cask google-cloud-sdk" >&2; exit 1; }
   say "Google: a browser opens on Google's sign-in page. Sign in with the Google account that should own the registration."
@@ -76,13 +100,13 @@ EOF
   open "https://console.cloud.google.com/auth/clients/create?project=$project" 2>/dev/null || true
   read -r -p "Client ID: " G_ID
   read -r -s -p "Client secret: " G_SECRET; echo
-  [[ $G_ID == *.apps.googleusercontent.com ]] || { echo "That doesn't look like a Google client ID." >&2; exit 1; }
+  [[ $G_ID == *.apps.googleusercontent.com ]] || { echo "That doesn't look like a Google client ID (it ends in .apps.googleusercontent.com). Run again: scripts/setup-sign-in.sh google" >&2; G_ID=""; G_SECRET=""; }
 }
 
 case $which_ones in
   microsoft) microsoft ;;
   google) google ;;
-  both) microsoft; google ;;
+  both) microsoft || true; google || true ;;  # one provider failing never loses the other's registration
   *) echo "usage: $0 [microsoft|google]" >&2; exit 2 ;;
 esac
 
