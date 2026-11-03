@@ -185,9 +185,37 @@ def main(argv: list[str] | None = None) -> int:
     root = Path(args.cwd or os.getcwd()).resolve()
     if not root.is_dir():
         sys.exit(f"rooks: {root} is not a folder")
+    interactive = not args.prompt and sys.stdin.isatty() and sys.stdout.isatty()
+    # Sensible behavior in $HOME or non-git folder: ask what to do instead of exploring
+    if interactive and not args.prompt:
+        home = Path.home()
+        if root == home or (not (root / ".git").exists() and not any((root / p).exists() for p in (".rooks", "AGENTS.md", "pyproject.toml", "package.json", "Cargo.toml", "go.mod"))):
+            print(f"  {root} is not a project folder (no git repo, no project markers).")
+            print("  Choose an option:")
+            print("  1  Open a project folder (type path)")
+            print("  2  Initialize here (creates AGENTS.md)")
+            print("  3  Continue anyway")
+            try:
+                choice = input("  › ").strip()
+            except (EOFError, KeyboardInterrupt):
+                return 0
+            if choice == "1":
+                try:
+                    new_path = input("  Path to project folder: ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    return 0
+                if new_path:
+                    root = Path(new_path).expanduser().resolve()
+                    if not root.is_dir():
+                        sys.exit(f"rooks: {root} is not a folder")
+            elif choice == "2":
+                pass  # continue in current folder, /init will create AGENTS.md
+            elif choice == "3":
+                pass  # continue anyway
+            else:
+                return 0
     overrides = {"provider": args.provider, "model": args.model, "base_url": args.base_url, "yes": args.yes,
                  "dry_run": args.dry_run, "max_usd": args.max_usd, "max_tokens": args.max_tokens, "max_steps": args.max_steps}
-    interactive = not args.prompt and sys.stdin.isatty() and sys.stdout.isatty()
     try:
         s = config.resolve(overrides, root)
     except SystemExit:
@@ -591,22 +619,16 @@ def subcommand(name: str, rest: list[str]) -> int:
 
 
 def diagnose(problem: str) -> int:
-    """No usable model: list what was looked for and found, then the one thing to do."""
-    print(f"problem: {problem.removeprefix('rooks: ').splitlines()[0]}")
-    print("looked for:")
+    """No usable model: show the problem and the one thing to do."""
+    msg = problem.removeprefix("rooks: ").splitlines()[0]
+    print(f"rooks: {msg}")
     link = config.app_link()
-    print(f"  AI Workspace desktop app: {'open at ' + link['url'] if link else 'not open'}")
     docker = config.docker_workbench()
     has_wb_key = bool(os.environ.get("WORKBENCH_API_KEY") or config.stored_keys().get("workbench"))
-    print(f"  AI Workspace server (Docker): {('running at ' + docker) if docker else 'not answering on ' + config.DOCKER_URL}"
-          + (f", key {'set' if has_wb_key else 'NOT set'}" if docker else ""))
-    found = [n for n in config.KEY_ORDER if os.environ.get(config.PROVIDERS[n]["key_env"])]
-    stored = sorted(config.stored_keys())
-    print(f"  API keys in the environment: {', '.join(config.PROVIDERS[n]['key_env'] for n in found) or 'none'}")
-    print(f"  keys saved by rooks login: {', '.join(stored) or 'none'} ({config.keys_path()})")
-    print(f"  Ollama: {'running' if config._ollama_up() else 'not running'}")
-    print("fix: " + ("run `rooks login`, choose the AI Workspace server and paste the token from Settings > Terminal access"
-                     if docker and not has_wb_key else "run `rooks login` and paste a key (free: NVIDIA, Groq, Gemini)"))
+    if docker and not has_wb_key:
+        print("fix: run `rooks login`, choose the AI Workspace server, paste the token from Settings > Terminal access")
+    else:
+        print("fix: run `rooks login` and paste a key (free: NVIDIA, Groq, Gemini)")
     return 1
 
 

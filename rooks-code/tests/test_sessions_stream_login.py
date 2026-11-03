@@ -152,7 +152,7 @@ def test_doctor_explains_what_is_missing(project):
     env["OLLAMA_HOST"] = "127.0.0.1:9"
     r = rooks(project, "doctor", "-C", str(project), env=env)
     assert r.returncode == 1
-    assert "looked for:" in r.stdout and "fix: run `rooks login`" in r.stdout
+    assert "rooks:" in r.stdout and "fix: run `rooks login`" in r.stdout
 
 
 def test_model_picker_lists_and_switches(project, fake):
