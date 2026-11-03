@@ -194,6 +194,7 @@ CREATE TABLE IF NOT EXISTS messages (
   role TEXT NOT NULL,                           -- user | assistant | tool
   content TEXT NOT NULL DEFAULT '',
   tool_calls TEXT NOT NULL DEFAULT '',          -- JSON (assistant)
+  attachments TEXT NOT NULL DEFAULT '',         -- JSON list of attachment metadata (user; attachments.py)
   tool_call_id TEXT NOT NULL DEFAULT '',        -- (tool)
   name TEXT NOT NULL DEFAULT '',                -- tool name (tool)
   created_at TEXT NOT NULL
@@ -393,6 +394,22 @@ CREATE INDEX IF NOT EXISTS actions_conversation ON actions(conversation_id);
 CREATE INDEX IF NOT EXISTS actions_parent ON actions(parent_action_id);
 -- a held tool call is answered at most once
 CREATE UNIQUE INDEX IF NOT EXISTS actions_one_decision ON actions(parent_action_id) WHERE kind = 'decision';
+
+-- MCP client (mcp_client.py): servers the user connected Workbench to. spec_json keeps the non-secret config
+-- (command/args/url/transport, non-secret env and headers); secret env/header values are encrypted in
+-- secret_enc like provider keys (security.py) and never leave the API.
+CREATE TABLE IF NOT EXISTS mcp_servers (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  transport TEXT NOT NULL DEFAULT 'stdio',      -- stdio | streamable_http | sse
+  url TEXT NOT NULL DEFAULT '',
+  command TEXT NOT NULL DEFAULT '',
+  enabled INTEGER NOT NULL DEFAULT 1,
+  spec_json TEXT NOT NULL DEFAULT '{}',
+  secret_enc TEXT NOT NULL DEFAULT '',
+  last_error TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
 """
 
 
@@ -472,6 +489,7 @@ ADDED_COLUMNS = (
     ("mail_accounts", "kind", "TEXT NOT NULL DEFAULT 'imap'"),
     ("mail_accounts", "linked_account_id", "INTEGER REFERENCES linked_accounts(id) ON DELETE CASCADE"),
     ("calendars", "linked_account_id", "INTEGER REFERENCES linked_accounts(id) ON DELETE CASCADE"),
+    ("messages", "attachments", "TEXT NOT NULL DEFAULT ''"),  # feat/attachments
 )
 
 

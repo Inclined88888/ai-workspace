@@ -388,7 +388,11 @@ def main() -> int:
         if a.native == "yes":
             return 1
     hint = ensure_path(bin_dir)
-    (home / "install.json").write_text(json.dumps({"src": str(src), "app": str(app), "python": str(py), "browser": browser,
+    try:  # keep the update channel the owner chose (ai-workspace --update --channel)
+        channel = json.loads((home / "install.json").read_text()).get("channel")
+    except (OSError, ValueError):
+        channel = None
+    (home / "install.json").write_text(json.dumps({**({"channel": channel} if channel else {}), "src": str(src), "app": str(app), "python": str(py), "browser": browser,
                                                    "native": native, "bin": str(bin_dir)}, indent=1))
     print("\nDone. Start it with:\n\n    ai-workspace\n\nAlso installed:  rooks (coding agent)   rooks-browser (browser agent)"
           + ("" if a.no_desk else "   rooks-desk (computer use)"))

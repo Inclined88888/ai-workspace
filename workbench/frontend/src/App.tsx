@@ -1,6 +1,6 @@
 import {
   Activity, Gauge, Bot, Brain, Building2, CalendarClock, CalendarDays, ChevronRight, MessageSquare, CheckSquare, Globe, Columns3, ExternalLink, FileText, Home, LogOut, Mail, Menu, NotebookPen,
-  Code2, FolderOpen, Globe2, GraduationCap, ListTree, Monitor, Palette as PaletteIcon, Sparkles, Puzzle, Search, Settings as SettingsIcon,
+  Code2, FolderOpen, Globe2, GraduationCap, ListTree, Monitor, Palette as PaletteIcon, Plug, Sparkles, Puzzle, Search, Settings as SettingsIcon,
   Layers, // feat/v02-automations
   AudioLines, Users, // feat/v02-anywhere-voice
   Package, // feat/v02-packs
@@ -46,6 +46,7 @@ import Teach from "./pages/Teach"; // adapt and learn (feat/learn-and-adapt)
 import Plan from "./pages/Plan";
 import { AccountLayer } from "./ProGate";
 import JobsPage from "./v02/Jobs"; // feat/v02-automations: background jobs board
+import DesktopBridge from "./DesktopBridge"; // feat/tauri-native: aiworkspace:// links + tray
 import JobNotifier from "./v02/JobNotifier"; // feat/v02-automations: desktop notifications for jobs
 // feat/v02-anywhere-voice: ask bar, Talk, Meetings, their settings
 import AskBar from "./pages/AskBar";
@@ -58,6 +59,7 @@ import { FileText as FileTextIcon, Lock as LockIcon, MessageCircle as MessageCir
 import { FlaskConical, Mic, UserRound, Video } from "lucide-react"; // one icon per meaning in the nav
 import Projects from "./pages/Projects"; // feat/v02-core
 import HistoryPage from "./pages/History"; // feat/v02-core
+import McpServers from "./pages/McpServers"; // feat/mcp-client
 import Packs from "./pages/Packs"; // feat/v02-packs
 import PackTrade from "./pages/PackTrade"; // feat/v02-packs
 import PackLegal from "./pages/PackLegal"; // feat/v02-packs
@@ -124,6 +126,7 @@ const NAV: NavGroup[] = [
     { to: "/vault", label: "Vault", icon: LockIcon },
     { to: "/sites", label: "Sites", icon: Globe2 },
     { to: "/skills", label: "Skills", icon: Puzzle },
+    { to: "/mcp", label: "MCP servers", icon: Plug },
     { to: "/packs", label: "Packs", icon: Package },
     { to: "/teach", label: "Show me how", icon: GraduationCap },
   ] },
@@ -305,6 +308,7 @@ export default function App() {
           <Route path="/assistant-memory" element={<Assistant tab="memory" />} />
           <Route path="/assistant-skills" element={<Navigate to="/skills" replace />} />
           <Route path="/skills" element={<Skills />} />
+          <Route path="/mcp" element={<McpServers />} />{/* feat/mcp-client */}
           <Route path="/about-you" element={<AboutYou />} />
           <Route path="/knowledge" element={<Knowledge />} />{/* feat/memory-core */}
           <Route path="/teach" element={<Teach />} />
@@ -367,7 +371,7 @@ export default function App() {
         </div>
       </main>
       <DeskGlow enabled={!!status.desk_enabled} />
-      <JobNotifier />{/* feat/v02-automations */}
+      <JobNotifier />{/* feat/v02-automations */}<DesktopBridge />{/* feat/tauri-native */}
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} pages={palettePages} />
       <AccountLayer />
     </div>

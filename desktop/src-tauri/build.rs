@@ -13,6 +13,9 @@ fn main() {
             "set_ask_shortcut",
             "hide_ask_bar",
             "show_main_window",
+            // notifications and aiworkspace:// links (native.rs)
+            "notify",
+            "desktop_ready",
         ]),
     ))
     .expect("failed to run tauri-build");

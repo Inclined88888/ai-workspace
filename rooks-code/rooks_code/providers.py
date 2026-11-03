@@ -358,7 +358,15 @@ class Anthropic:
                 out.append({"role": role, "content": [block]})
 
         for m in messages:
-            if m["role"] == "user":
+            if m["role"] == "user" and isinstance(m["content"], list):  # text + images (images.py)
+                for p in m["content"]:
+                    url = (p.get("image_url") or {}).get("url", "") if p.get("type") == "image_url" else ""
+                    if url.startswith("data:") and ";base64," in url:
+                        mime, data = url[5:].split(";base64,", 1)
+                        push("user", {"type": "image", "source": {"type": "base64", "media_type": mime, "data": data}})
+                    elif p.get("type") == "text":
+                        push("user", {"type": "text", "text": p.get("text") or " "})
+            elif m["role"] == "user":
                 push("user", {"type": "text", "text": m["content"]})
             elif m["role"] == "assistant":
                 if m.get("content"):

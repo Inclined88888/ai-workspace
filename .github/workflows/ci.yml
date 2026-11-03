@@ -37,6 +37,8 @@ jobs:
         run: python -m pytest -q
       - name: Terminal CLI contract
         run: python -m pytest -q ../../cli/tests
+      - name: Desktop release scripts (updater manifest)
+        run: python -m pytest -q ../../desktop/scripts
 
   rooks-code:
     name: Terminal coding agent (${{ matrix.os }})

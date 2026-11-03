@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
+import { inBackground, notify } from "../desktop";
 import "./v02.css";
 
 type Notice = { id: number; job_id: number; kind: "needs_you" | "finished" | "failed"; title: string; body: string; at: string };
@@ -25,10 +26,7 @@ export default function JobNotifier() {
           last.current = Math.max(last.current, n.id);
           if (stop) return;
           setPill(n);
-          if (typeof Notification !== "undefined" && Notification.permission === "granted" && (document.hidden || !document.hasFocus())) {
-            const note = new Notification(n.title, { body: n.body, tag: `job-${n.job_id}` });
-            note.onclick = () => { window.focus(); navigate("/jobs"); note.close(); };
-          }
+          if (inBackground()) void notify(n.title, n.body, { tag: `job-${n.job_id}`, onClick: () => navigate("/jobs") }); // native in the desktop app
         }
       } catch { /* signed out or offline: try again later */ }
     };

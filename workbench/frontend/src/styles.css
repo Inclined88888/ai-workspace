@@ -430,6 +430,52 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--text); width: 
 .prose th { font-size: var(--text-2xs); letter-spacing: var(--track); text-transform: uppercase; font-weight: 650; }
 .prose tr:last-child td { border-bottom: none; }
 .prose hr { border: none; border-top: 1px solid var(--rule); margin: 1.6em 0; }
+
+/* ---- Syntax highlighting (highlight.js): GitHub-ish palette tuned for our tokens; dark palette under
+   [data-theme="dark"] and [data-theme="neon"], the only dark color schemes. ---- */
+.hljs { color: var(--text); background: transparent; }
+.hljs-comment, .hljs-quote { color: var(--muted); font-style: italic; }
+.hljs-keyword, .hljs-selector-tag, .hljs-doctag, .hljs-template-tag { color: #a61c1c; }
+.hljs-string, .hljs-regexp, .hljs-meta .hljs-string { color: #2d6236; }
+.hljs-number, .hljs-literal { color: #7a4c00; }
+.hljs-title, .hljs-title.function_, .hljs-section { color: #17457c; }
+.hljs-title.class_, .hljs-type, .hljs-built_in { color: #6d28a8; }
+.hljs-attr, .hljs-attribute, .hljs-variable, .hljs-template-variable, .hljs-selector-attr, .hljs-selector-class, .hljs-selector-id { color: #8a5a00; }
+.hljs-name, .hljs-tag { color: #a61c1c; }
+.hljs-symbol, .hljs-bullet, .hljs-link, .hljs-meta { color: var(--accent-text); }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: 700; }
+.hljs-addition { color: var(--ok-text); background: var(--ok-soft); }
+.hljs-deletion { color: var(--danger-text); background: var(--danger-soft); }
+:root:is([data-theme="dark"], [data-theme="neon"]) .hljs-keyword,
+:root:is([data-theme="dark"], [data-theme="neon"]) .hljs-selector-tag,
+:root:is([data-theme="dark"], [data-theme="neon"]) .hljs-doctag,
+:root:is([data-theme="dark"], [data-theme="neon"]) .hljs-template-tag,
+:root:is([data-theme="dark"], [data-theme="neon"]) .hljs-name,
+:root:is([data-theme="dark"], [data-theme="neon"]) .hljs-tag { color: #ff7a86; }
+:root:is([data-theme="dark"], [data-theme="neon"]) .hljs-string,
+:root:is([data-theme="dark"], [data-theme="neon"]) .hljs-regexp,
+:root:is([data-theme="dark"], [data-theme="neon"]) .hljs-meta .hljs-string { color: #7fc08a; }
+:root:is([data-theme="dark"], [data-theme="neon"]) .hljs-number,
+:root:is([data-theme="dark"], [data-theme="neon"]) .hljs-literal { color: #e2b15a; }
+:root:is([data-theme="dark"], [data-theme="neon"]) .hljs-title,
+:root:is([data-theme="dark"], [data-theme="neon"]) .hljs-title.function_,
+:root:is([data-theme="dark"], [data-theme="neon"]) .hljs-section { color: #8ab8e8; }
+:root:is([data-theme="dark"], [data-theme="neon"]) .hljs-title.class_,
+:root:is([data-theme="dark"], [data-theme="neon"]) .hljs-type,
+:root:is([data-theme="dark"], [data-theme="neon"]) .hljs-built_in { color: #c9a0e8; }
+:root:is([data-theme="dark"], [data-theme="neon"]) .hljs-attr,
+:root:is([data-theme="dark"], [data-theme="neon"]) .hljs-attribute,
+:root:is([data-theme="dark"], [data-theme="neon"]) .hljs-variable,
+:root:is([data-theme="dark"], [data-theme="neon"]) .hljs-template-variable,
+:root:is([data-theme="dark"], [data-theme="neon"]) .hljs-selector-attr,
+:root:is([data-theme="dark"], [data-theme="neon"]) .hljs-selector-class,
+:root:is([data-theme="dark"], [data-theme="neon"]) .hljs-selector-id { color: #e2b15a; }
+
+/* ---- Mermaid diagrams (src/util.tsx MermaidBlock): centered SVG, source fallback on parse failure. ---- */
+.mermaid-diagram { margin: 1em 0; padding: 16px 18px; background: var(--code-bg); border: 1px solid var(--border); overflow: auto; text-align: center; }
+.mermaid-diagram svg { max-width: 100%; height: auto; }
+.mermaid-fallback pre { margin: 1em 0; }
 .code-block { margin: 1em 0; border: 1px solid var(--border); overflow: hidden; background: var(--code-bg); }
 .code-block pre { margin: 0; border: none; }
 .code-head { display: flex; align-items: center; height: 34px; padding: 0 8px 0 18px; border-bottom: 1px solid var(--border); font-family: var(--font); font-size: var(--text-2xs); font-weight: 650; letter-spacing: var(--track); text-transform: uppercase; color: var(--muted); }
@@ -474,6 +520,9 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--text); width: 
 .msg-tools { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: var(--text-2xs); color: var(--muted); padding: 3px 8px; border: 1px solid var(--border); margin-bottom: 10px; }
 .msg-feedback { margin-top: 6px; opacity: .55; transition: opacity .15s; }
 .msg:hover .msg-feedback, .msg-feedback:focus-within { opacity: 1; }
+.msg-user-row { display: flex; align-items: flex-start; gap: 6px; justify-content: flex-end; }
+.msg-edit { opacity: 0; transition: opacity .15s; margin-top: 6px; }
+.msg:hover .msg-edit, .msg-edit:focus-visible, .msg-user-row:focus-within .msg-edit { opacity: 1; }
 .msg-feedback .btn.icon.on { color: var(--accent-text, var(--accent)); opacity: 1; }
 .steps-list { display: flex; flex-direction: column; gap: 3px; padding: 10px 14px; background: transparent; border-left: 1px solid var(--rule); }
 .step { display: flex; align-items: flex-start; gap: 8px; font-family: var(--mono); font-size: var(--text-xs); color: var(--muted); animation: fade-in var(--dur) var(--ease-out) both; }

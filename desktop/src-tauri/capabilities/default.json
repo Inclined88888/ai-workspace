@@ -25,6 +25,8 @@
     "allow-get-ask-shortcut",
     "allow-set-ask-shortcut",
     "allow-hide-ask-bar",
-    "allow-show-main-window"
+    "allow-show-main-window",
+    "allow-notify",
+    "allow-desktop-ready"
   ]
 }

@@ -1,13 +1,10 @@
-//! In-app updates. Prepared but OFF until signing keys exist.
+//! In-app updates.
 //!
-//! Turning it on (docs/desktop-release.md):
-//! 1. `npx tauri signer generate` → keep the private key + password as the TAURI_SIGNING_PRIVATE_KEY and
-//!    TAURI_SIGNING_PRIVATE_KEY_PASSWORD repository secrets, and put the public key in `tauri.updater.conf.json`.
-//! 2. The release workflow then builds with `--features updater --config src-tauri/tauri.updater.conf.json`, which
-//!    signs update bundles (`.sig`). Generating and uploading `latest.json` is the remaining step
-//!    (see docs/desktop-release.md).
+//! Release builds turn this on: the TAURI_SIGNING_PRIVATE_KEY secret is set and the public key is in
+//! `tauri.updater.conf.json`, so desktop.yml builds with `--features updater --config src-tauri/tauri.updater.conf.json`,
+//! signs update bundles (`.sig`) and publishes `latest.json` (desktop/scripts/make_latest_json.py).
 //!
-//! Without the feature this module compiles to no-ops, so no update request is ever made.
+//! Local builds without the feature compile this module to no-ops, so no update request is ever made.
 
 use tauri::{AppHandle, Builder, Runtime};
 

@@ -5,7 +5,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "REPLACE_WITH_THE_PUBLIC_KEY_FROM_tauri_signer_generate",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQxRTVCM0RFMzI0OTFBQ0EKUldUS0dra3kzclBsMGRFRGZ0WWZNVjN6enl0RnlWa1BkUHpuQUZYSjFpcjlpNS9aQ2swc3RTV1QK",
       "endpoints": [
         "https://github.com/Inclined88888/ai-workspace/releases/latest/download/latest.json"
       ]

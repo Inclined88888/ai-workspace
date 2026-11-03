@@ -9,7 +9,7 @@ import re
 import time
 from pathlib import Path
 
-from . import providers
+from . import images, providers
 from .extras import READ_ONLY, Extras, project_instructions
 from .extras import NAMES as EXTRA_NAMES
 from .extras import SPECS as EXTRA_SPECS
@@ -156,7 +156,7 @@ class Agent:
         try:
             self.transcript_path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.transcript_path.with_suffix(".tmp")
-            tmp.write_text(json.dumps({"provider": self.s.provider, "model": self.s.model, "messages": self.messages},
+            tmp.write_text(json.dumps({"provider": self.s.provider, "model": self.s.model, "messages": images.without_pixels(self.messages)},
                                       ensure_ascii=False), encoding="utf-8")
             tmp.replace(self.transcript_path)
         except OSError as e:
@@ -173,7 +173,8 @@ class Agent:
 
     # compaction --------------------------------------------------------------------------------------------------
     def _estimate(self) -> int:
-        return len(self.system + json.dumps(self.messages) + json.dumps(self.tool_specs())) // 4
+        pics = sum(1 for m in self.messages if isinstance(m.get("content"), list) for p in m["content"] if p.get("type") == "image_url")
+        return len(self.system + json.dumps(images.without_pixels(self.messages)) + json.dumps(self.tool_specs())) // 4 + pics * 1000
 
     def _split(self) -> int:
         """Index where the kept tail starts: at a real user prompt, so no tool result loses its call."""
@@ -188,7 +189,7 @@ class Agent:
         old, before = self.messages[:cut], self._estimate()
         lines = []
         for m in old:
-            body = m.get("content") or ""
+            body = images.text_of(m.get("content"))
             if m.get("tool_calls"):
                 body += " " + " ".join(f"[calls {c['function']['name']} {c['function']['arguments'][:300]}]" for c in m["tool_calls"])
             lines.append(f"{m['role'].upper()}: {body[:4000]}")
@@ -227,7 +228,7 @@ class Agent:
     def run(self, prompt: str) -> str:
         first = len(self.messages)
         self._extra = self.learning.context(prompt) if self.learning else ""
-        self.messages.append({"role": "user", "content": prompt})
+        self.messages.append({"role": "user", "content": images.content(prompt, self.root)})  # @shot.png sends the picture
         self._turn = turn = self.log.add("turn", "running", args=prompt)
         self.changes.begin(prompt)
         started, outcome, answer, writes, failed_checks, nudges = time.monotonic(), "no_claim", "", 0, 0, 0
