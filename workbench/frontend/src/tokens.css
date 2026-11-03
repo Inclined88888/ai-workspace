@@ -1,0 +1,308 @@
+/* ==========================================================================
+   AI Workspace — Design Tokens
+   Calm, professional product aesthetic (Linear / Raycast / Claude quality).
+   One accent (cobalt), neutral grays, no warm paper, no gradients, no emoji.
+   WCAG AA for all text pairs in both themes.
+   Import this FIRST in main.tsx before styles.css / themes.css / sunshine.css.
+   ========================================================================== */
+
+/* ---- Colour: neutrals (theme-independent names, theme-dependent values) ---- */
+:root {
+  /* Light theme defaults (overridden by [data-theme="sunshine"] etc.) */
+  --color-bg: #ffffff;
+  --color-bg-hover: #f5f5f5;
+  --color-bg-active: #eeeeee;
+  --color-surface: #ffffff;
+  --color-surface-raised: #ffffff;
+  --color-surface-sunken: #f5f5f5;
+  --color-border: #e0e0e0;
+  --color-border-strong: #d0d0d0;
+  --color-border-focus: #3b82f6;      /* cobalt focus ring */
+  --color-ink: #111827;               /* primary text, 15.8:1 on white */
+  --color-ink-muted: #6b7280;         /* secondary text, 4.7:1 on white */
+  --color-ink-faint: #9ca3af;         /* tertiary/disabled, 3.1:1 (non-text only) */
+  --color-accent: #2563eb;            /* cobalt 600 — primary actions, links */
+  --color-accent-hover: #1d4ed8;      /* cobalt 700 */
+  --color-accent-soft: #eff6ff;       /* cobalt 50 — fills, badges */
+  --color-accent-text: #1e40af;       /* cobalt 800 — text on accent-soft, 7.2:1 */
+  --color-on-accent: #ffffff;         /* text on solid accent */
+  --color-danger: #dc2626;            /* red 600 */
+  --color-danger-hover: #b91c1c;
+  --color-danger-soft: #fef2f2;
+  --color-danger-text: #991b1b;
+  --color-success: #16a34a;           /* green 600 */
+  --color-success-hover: #15803d;
+  --color-success-soft: #f0fdf4;
+  --color-success-text: #166534;
+  --color-warning: #ca8a04;           /* yellow 600 */
+  --color-warning-hover: #a16207;
+  --color-warning-soft: #fefce8;
+  --color-warning-text: #854d0e;
+  --color-code-bg: #f5f5f5;
+  --color-scrim: rgba(17, 24, 39, 0.4);
+
+  /* ---- Radius scale (6 / 10 / 14) ---- */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-full: 999px;
+
+  /* ---- Spacing scale (base 4px) ---- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* ---- Type scale (rem-based, scales with html font-size) ---- */
+  --text-2xs: 0.6875rem;   /* 11px @ 16px base */
+  --text-xs: 0.75rem;      /* 12px */
+  --text-sm: 0.875rem;     /* 14px */
+  --text-md: 1rem;         /* 16px */
+  --text-lg: 1.125rem;     /* 18px */
+  --text-xl: 1.25rem;      /* 20px */
+  --text-2xl: 1.5rem;      /* 24px */
+  --text-3xl: 2rem;        /* 32px */
+  --text-4xl: 3rem;        /* 48px */
+
+  --font-sans: "Hanken Grotesk Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-serif: "Bodoni Moda Variable", ui-serif, Georgia, serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+
+  --leading-tight: 1.1;
+  --leading-snug: 1.35;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.65;
+
+  --tracking-tight: -0.02em;
+  --tracking-normal: 0;
+  --tracking-wide: 0.02em;
+
+  /* ---- Shadow / elevation ---- */
+  --shadow-1: 0 1px 2px rgba(17, 24, 39, 0.04), 0 1px 1px rgba(17, 24, 39, 0.03);
+  --shadow-2: 0 1px 2px rgba(17, 24, 39, 0.04), 0 4px 12px -4px rgba(17, 24, 39, 0.08);
+  --shadow-3: 0 2px 4px rgba(17, 24, 39, 0.04), 0 12px 24px -8px rgba(17, 24, 39, 0.12);
+  --shadow-4: 0 24px 48px -24px rgba(17, 24, 39, 0.2);
+
+  /* ---- Motion ---- */
+  --dur-fast: 100ms;
+  --dur-normal: 150ms;
+  --dur-slow: 200ms;
+  --ease-out: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* ---- Layout ---- */
+  --sidebar-w: 240px;
+  --header-h: 48px;
+  --max-content-width: 760px;      /* chat message width */
+  --max-page-width: 1120px;
+}
+
+/* ---- Dark theme overrides ---- */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="sunshine"]):not([data-theme="paper"]):not([data-theme="cherry"]):not([data-theme="linen"]):not([data-theme="gallery"]):not([data-theme="contrast"]) {
+    --color-bg: #0f1012;
+    --color-bg-hover: #181a1d;
+    --color-bg-active: #1f2226;
+    --color-surface: #141619;
+    --color-surface-raised: #1a1d21;
+    --color-surface-sunken: #0f1012;
+    --color-border: #2a2d31;
+    --color-border-strong: #3a3e43;
+    --color-border-focus: #60a5fa;      /* cobalt 400 */
+    --color-ink: #f3f4f6;
+    --color-ink-muted: #9ca3af;
+    --color-ink-faint: #6b7280;
+    --color-accent: #3b82f6;            /* cobalt 500 */
+    --color-accent-hover: #60a5fa;      /* cobalt 400 */
+    --color-accent-soft: #1e3a5f;       /* cobalt 900/800 mix */
+    --color-accent-text: #93c5fd;       /* cobalt 300 */
+    --color-on-accent: #0f1012;
+    --color-danger: #ef4444;
+    --color-danger-hover: #f87171;
+    --color-danger-soft: #450a0a;
+    --color-danger-text: #fca5a5;
+    --color-success: #22c55e;
+    --color-success-hover: #4ade80;
+    --color-success-soft: #052e16;
+    --color-success-text: #86efac;
+    --color-warning: #eab308;
+    --color-warning-hover: #facc15;
+    --color-warning-soft: #422006;
+    --color-warning-text: #fde047;
+    --color-code-bg: #0d1117;
+    --color-scrim: rgba(0, 0, 0, 0.6);
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 1px rgba(0, 0, 0, 0.2);
+    --shadow-2: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 12px -4px rgba(0, 0, 0, 0.4);
+    --shadow-3: 0 2px 4px rgba(0, 0, 0, 0.3), 0 12px 24px -8px rgba(0, 0, 0, 0.5);
+    --shadow-4: 0 24px 48px -24px rgba(0, 0, 0, 0.6);
+  }
+}
+
+/* Explicit dark theme classes (used by appearance.tsx data-theme="night" -> data-theme="dark") */
+[data-theme="dark"] {
+  --color-bg: #0f1012;
+  --color-bg-hover: #181a1d;
+  --color-bg-active: #1f2226;
+  --color-surface: #141619;
+  --color-surface-raised: #1a1d21;
+  --color-surface-sunken: #0f1012;
+  --color-border: #2a2d31;
+  --color-border-strong: #3a3e43;
+  --color-border-focus: #60a5fa;
+  --color-ink: #f3f4f6;
+  --color-ink-muted: #9ca3af;
+  --color-ink-faint: #6b7280;
+  --color-accent: #3b82f6;
+  --color-accent-hover: #60a5fa;
+  --color-accent-soft: #1e3a5f;
+  --color-accent-text: #93c5fd;
+  --color-on-accent: #0f1012;
+  --color-danger: #ef4444;
+  --color-danger-hover: #f87171;
+  --color-danger-soft: #450a0a;
+  --color-danger-text: #fca5a5;
+  --color-success: #22c55e;
+  --color-success-hover: #4ade80;
+  --color-success-soft: #052e16;
+  --color-success-text: #86efac;
+  --color-warning: #eab308;
+  --color-warning-hover: #facc15;
+  --color-warning-soft: #422006;
+  --color-warning-text: #fde047;
+  --color-code-bg: #0d1117;
+  --color-scrim: rgba(0, 0, 0, 0.6);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 1px rgba(0, 0, 0, 0.2);
+  --shadow-2: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 12px -4px rgba(0, 0, 0, 0.4);
+  --shadow-3: 0 2px 4px rgba(0, 0, 0, 0.3), 0 12px 24px -8px rgba(0, 0, 0, 0.5);
+  --shadow-4: 0 24px 48px -24px rgba(0, 0, 0, 0.6);
+  color-scheme: dark;
+}
+
+/* High contrast theme */
+[data-theme="contrast"] {
+  --color-bg: #ffffff;
+  --color-bg-hover: #f0f0f0;
+  --color-bg-active: #e0e0e0;
+  --color-surface: #ffffff;
+  --color-surface-raised: #ffffff;
+  --color-surface-sunken: #f5f5f5;
+  --color-border: #000000;
+  --color-border-strong: #000000;
+  --color-border-focus: #000000;
+  --color-ink: #000000;
+  --color-ink-muted: #333333;
+  --color-ink-faint: #666666;
+  --color-accent: #0033aa;
+  --color-accent-hover: #002080;
+  --color-accent-soft: #e0e8ff;
+  --color-accent-text: #001a55;
+  --color-on-accent: #ffffff;
+  --color-danger: #a00000;
+  --color-danger-hover: #800000;
+  --color-danger-soft: #ffe5e5;
+  --color-danger-text: #660000;
+  --color-success: #005c1f;
+  --color-success-hover: #004518;
+  --color-success-soft: #e1f5e7;
+  --color-success-text: #003d15;
+  --color-warning: #6b4000;
+  --color-warning-hover: #553300;
+  --color-warning-soft: #fff1d6;
+  --color-warning-text: #452a00;
+  --color-code-bg: #f5f5f5;
+  --color-scrim: rgba(0, 0, 0, 0.5);
+  --shadow-1: none;
+  --shadow-2: 0 0 0 1px #000;
+  --shadow-3: 0 0 0 1px #000, 0 4px 8px rgba(0,0,0,0.2);
+  --shadow-4: 0 0 0 1px #000, 0 12px 24px rgba(0,0,0,0.3);
+  color-scheme: light;
+}
+
+/* Neon theme (dark, electric lime accent — keep distinct) */
+[data-theme="neon"] {
+  --color-bg: #08090a;
+  --color-bg-hover: #0f1114;
+  --color-bg-active: #16191d;
+  --color-surface: #0d0f12;
+  --color-surface-raised: #13161a;
+  --color-surface-sunken: #08090a;
+  --color-border: #1f2328;
+  --color-border-strong: #30363d;
+  --color-border-focus: #d4ff3a;
+  --color-ink: #e6edf3;
+  --color-ink-muted: #8b949e;
+  --color-ink-faint: #6e7681;
+  --color-accent: #d4ff3a;
+  --color-accent-hover: #e2ff66;
+  --color-accent-soft: #1d2410;
+  --color-accent-text: #d4ff3a;
+  --color-on-accent: #08090a;
+  --color-danger: #ff5c6c;
+  --color-danger-hover: #ff8b95;
+  --color-danger-soft: #2e1418;
+  --color-danger-text: #ff8b95;
+  --color-success: #5ef0a0;
+  --color-success-hover: #8cffba;
+  --color-success-soft: #0f2419;
+  --color-success-text: #5ef0a0;
+  --color-warning: #ffc94d;
+  --color-warning-hover: #ffd57a;
+  --color-warning-soft: #2a2210;
+  --color-warning-text: #ffc94d;
+  --color-code-bg: #06080a;
+  --color-scrim: rgba(0, 0, 0, 0.7);
+  --shadow-1: 0 1px 2px rgba(0,0,0,0.4), 0 1px 1px rgba(0,0,0,0.3);
+  --shadow-2: 0 1px 2px rgba(0,0,0,0.4), 0 4px 12px -4px rgba(0,0,0,0.5);
+  --shadow-3: 0 2px 4px rgba(0,0,0,0.4), 0 12px 24px -8px rgba(0,0,0,0.6);
+  --shadow-4: 0 24px 48px -24px rgba(0,0,0,0.8), 0 0 0 1px rgba(212,255,58,0.08);
+  color-scheme: dark;
+}
+
+/* Focus visible — consistent ring using token */
+:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--color-border-focus);
+  border-radius: var(--radius-sm);
+}
+
+/* Selection */
+::selection {
+  background: var(--color-accent-soft);
+  color: var(--color-accent-text);
+}
+
+/* Scrollbar */
+* { scrollbar-width: thin; scrollbar-color: var(--color-border) transparent; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--color-border); border: 2px solid transparent; background-clip: content-box; border-radius: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-border-strong); }
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+/* Aliases for names older components still use. */
+:root {
+  --sans: var(--font-sans);
+  --border-focus: var(--color-border-focus);
+  --danger-hover: var(--color-danger-hover);
+  --success-soft: var(--color-success-soft);
+  --success-text: var(--color-success-text);
+  --warning-soft: var(--color-warning-soft);
+  --warning-text: var(--color-warning-text);
+  --dur-2: var(--dur-normal);
+  --dur-3: var(--dur-slow);
+  --dur-med: var(--dur-normal);
+}
