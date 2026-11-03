@@ -67,6 +67,18 @@ def test_search_and_list_skip_noise(tmp_path):
     assert tb.prepare("list_files", {"pattern": "*.js"}).apply()[0] == "src/b.js"
 
 
+def test_node_modules_stay_skipped_even_when_git_would_track_them(tmp_path):
+    # regression for task 00: rg respects .gitignore but also its own defaults; node_modules is in SKIP_DIRS and
+    # must never be walked or searched, even with no .gitignore and no git repo.
+    (tmp_path / "node_modules" / "pkg").mkdir(parents=True)
+    (tmp_path / "node_modules" / "pkg" / "a.js").write_text("needle\n")
+    (tmp_path / "app.js").write_text("needle\n")
+    tb = Toolbox(tmp_path)
+    out = tb.prepare("search", {"pattern": "needle"}).apply()[0]
+    assert "app.js" in out and "node_modules" not in out
+    assert tb.prepare("list_files", {}).apply()[0] == "app.js"
+
+
 def test_tool_calls_printed_as_text_are_recovered_only_when_valid():
     names = {"list_files", "read_file"}
     text = 'Let me look.\n\n```json\n{"name": "list_files", "arguments": {}}\n```\n\nThen I will read.'

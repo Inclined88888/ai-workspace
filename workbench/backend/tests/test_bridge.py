@@ -67,6 +67,26 @@ def test_the_bridge_needs_its_key(client, monkeypatch):
     assert client.get("/v1/models").status_code == 401
 
 
+def test_the_bridge_accepts_the_terminal_access_token(client, monkeypatch):
+    """The wb_… token from Settings > Terminal access (setup.sh prints it for the rooks CLI) must drive /v1."""
+    import hashlib
+
+    from app import config, db
+
+    monkeypatch.setattr(config, "BROWSER_API_KEY", "")
+    monkeypatch.setattr(config, "DESK_API_KEY", "")
+    token = "wb_" + "t" * 43
+    db.set_setting("cli_token_hash", hashlib.sha256(token.encode()).hexdigest())
+    r = client.get("/v1/models", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200, r.text
+    # a wrong wb_ token is refused
+    bad = "wb_" + "x" * 43
+    assert client.get("/v1/models", headers={"Authorization": f"Bearer {bad}"}).status_code == 401
+    # and the bridge keys still work alongside it
+    monkeypatch.setattr(config, "BROWSER_API_KEY", BRIDGE_KEY)
+    assert client.get("/v1/models", headers={"Authorization": f"Bearer {BRIDGE_KEY}"}).status_code == 200
+
+
 def test_models_and_default(client, sdk):
     ids = [m.id for m in sdk.models.list().data]
     assert f"{client.pid}/fake-model" in ids

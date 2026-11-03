@@ -207,7 +207,7 @@ has hermes && { ./scripts/hermes-config.sh || info "Hermes config not written; r
 
 echo; bold "Ready"
 info "Workspace:  http://${HOST}:$(get_env WORKBENCH_PORT)    setup code: $(get_env SETUP_CODE)"
-info "Terminal:   cli/ws login http://${HOST}:$(get_env WORKBENCH_PORT)   (token: Assistant > Settings > Terminal access)"
+info "Terminal:   rooks login   (choose 'connect to a running Workbench', URL above, token: Assistant > Settings > Terminal access)"
 info "Telegram, web search keys, timezone: Assistant > Settings"
 has openwebui && info "Open WebUI: $(get_env CHAT_URL)    (first account becomes admin; create it now)"
 if has paperclip; then

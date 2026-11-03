@@ -178,6 +178,11 @@ uv tool install "git+https://github.com/Inclined88888/ai-workspace#subdirectory=
 cd your-project && rooks -P ollama -m qwen2.5:7b
 ```
 
+To use a running Workbench (Docker or the app) with its keys and free tiers, get a token from **Assistant > Settings >
+Terminal access**, then run `rooks login` and pick "connect to a running Workbench". The token is stored in the OS
+keychain (or `~/.config/ai-workspace/rooks.env`, mode 600), never printed, and the `/v1` bridge accepts it.
+`rooks login` also takes a pasted provider key or Ollama, and `rooks doctor` checks the whole chain.
+
 Install on macOS, Windows and Linux, configuration, MCP servers and limits: [rooks-code/README.md](rooks-code/README.md).
 
 ### Your Claude plan, through Claude Code
