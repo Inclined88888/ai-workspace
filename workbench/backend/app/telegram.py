@@ -8,8 +8,9 @@ import asyncio
 import logging
 
 import httpx
+from fastapi import HTTPException
 
-from . import actions, assistant, db
+from . import actions, assistant, attachments, db
 from .redact import redact
 from .security import decrypt, encrypt
 
@@ -84,9 +85,35 @@ def _conversation(chat_id: int, fresh: bool = False) -> int:
     return cid
 
 
+async def _download(client: httpx.AsyncClient, file_id: str) -> bytes:
+    f = await _api(client, "getFile", file_id=file_id)
+    if int(f.get("file_size") or 0) > attachments.MAX_BYTES:
+        raise HTTPException(413, f"files are limited to {attachments.MAX_BYTES // (1024 * 1024)} MB")
+    try:  # the URL carries the bot token: never let it reach a log or a reply
+        r = await client.get(f"{API}/file/bot{token()}/{f['file_path']}")
+        r.raise_for_status()
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"Telegram did not send the file ({e.__class__.__name__})") from None
+    return r.content
+
+
+async def _attachments(client: httpx.AsyncClient, msg: dict) -> list[dict]:
+    """A photo (the largest size Telegram offers) or a document, stored like a web upload (attachments.py)."""
+    out = []
+    if msg.get("photo"):
+        best = max(msg["photo"], key=lambda p: (int(p.get("file_size") or 0) <= attachments.MAX_BYTES, p.get("width", 0)))
+        out.append(attachments.save("photo.jpg", await _download(client, best["file_id"]), "image/jpeg"))
+    doc = msg.get("document")
+    if doc:
+        if int(doc.get("file_size") or 0) > attachments.MAX_BYTES:
+            raise HTTPException(413, f"files are limited to {attachments.MAX_BYTES // (1024 * 1024)} MB")
+        out.append(attachments.save(doc.get("file_name") or "file", await _download(client, doc["file_id"]), doc.get("mime_type") or ""))
+    return out
+
+
 async def _handle(client: httpx.AsyncClient, msg: dict, update_id: int | None = None) -> None:
     chat_id, user_id = msg["chat"]["id"], (msg.get("from") or {}).get("id")
-    text = (msg.get("text") or "").strip()
+    text = (msg.get("text") or msg.get("caption") or "").strip()
     if user_id not in allowed():
         from .team import replies  # feat/team-lead: a team member answering a task message
 
@@ -94,8 +121,8 @@ async def _handle(client: httpx.AsyncClient, msg: dict, update_id: int | None = 
             return
         await send(client, chat_id, f"This assistant is private. Your Telegram user id is {user_id}.")
         return
-    if not text:
-        await send(client, chat_id, "I can read text messages for now.")
+    if not text and not (msg.get("photo") or msg.get("document")):
+        await send(client, chat_id, "I can read text, photos and documents. Voice notes and stickers aren't supported yet.")
         return
     if text in ("/start", "/help"):
         await send(client, chat_id, "Talk to me normally. /new starts a fresh conversation (memory and skills carry over).")
@@ -112,7 +139,12 @@ async def _handle(client: httpx.AsyncClient, msg: dict, update_id: int | None = 
         log.info("telegram update %s already handled", update_id)
         return
     await _api(client, "sendChatAction", chat_id=chat_id, action="typing")
-    ctx = assistant.Ctx(channel="telegram", conversation_id=_conversation(chat_id), request_key=key)
+    try:
+        files = await _attachments(client, msg)
+    except HTTPException as e:
+        await send(client, chat_id, f"I couldn't take that file: {e.detail}")
+        return
+    ctx = assistant.Ctx(channel="telegram", conversation_id=_conversation(chat_id), request_key=key, attachments=files)
     reply, events = await assistant.ask(ctx, text)
     held = [e for e in events if e["type"] == "approval_required"]
     if held:

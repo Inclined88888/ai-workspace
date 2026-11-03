@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from . import actions, assistant, company, db, egress, health, learn, receipts, scheduler, search, telegram, usage
+from . import attachments as attachments_mod
 from .api import sse
 from .security import COOKIE, check_session, encrypt
 
@@ -34,15 +35,36 @@ router = APIRouter(prefix="/api", dependencies=[Depends(require_user_or_cli)])
 
 # Chat
 class ChatIn(BaseModel):
-    message: str = Field(..., min_length=1, max_length=50_000)
+    message: str = Field("", max_length=50_000)  # may be empty when files are attached
     conversation_id: int | None = None
     model: str | None = None
     channel: str = Field("web", pattern="^(web|cli|mobile)$")
     effort: str = Field("", pattern="^(|low|medium|high)$")  # how hard a plan's model thinks; "" = the plan's default
     resend: bool = False      # this turn's user message is already stored (edit-and-resend); don't save it again
+    attachments: list[str] = Field(default_factory=list, max_length=attachments_mod.MAX_PER_MESSAGE)  # ids from /assistant/attachments
 
 
 IDEMPOTENCY_KEY = re.compile(r"^[A-Za-z0-9._:-]{8,200}$")
+
+
+@router.post("/assistant/attachments")
+def upload_attachment(data: attachments_mod.UploadIn):
+    """One file for the next chat turn (base64 JSON). Images: PNG, JPEG, WebP, GIF. Documents are read now."""
+    m = attachments_mod.save_b64(data)
+    return {**attachments_mod.public(m), **({"chars": m["chars"], "notes": m["notes"]} if m["kind"] == "document" else {})}
+
+
+@router.get("/assistant/attachments/{aid}")
+def get_attachment(aid: str):
+    """The stored file, for previews in the chat history. Images inline; documents download. Never sniffed as HTML."""
+    from fastapi.responses import FileResponse
+
+    m = attachments_mod.meta(aid)
+    image = m["kind"] == "image"
+    return FileResponse(attachments_mod.file_path(m), media_type=m["mime"] if image else "application/octet-stream",
+                        filename=m["name"], content_disposition_type="inline" if image else "attachment",
+                        headers={"X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'",
+                                 "Cache-Control": "private, max-age=86400"})
 
 
 @router.post("/assistant/chat")
@@ -58,6 +80,9 @@ def chat(data: ChatIn, idempotency_key: str | None = Header(None)):
             return JSONResponse(status_code=409, content={
                 "detail": "This request was already received (same Idempotency-Key); it was not run again",
                 "conversation_id": prior["conversation_id"], "turn_id": prior["id"], "outcome": prior["outcome"]})
+    files = attachments_mod.resolve(data.attachments) if data.attachments else []
+    if not data.message.strip() and not files:
+        raise HTTPException(422, "Say something or attach a file")
     cid = data.conversation_id
     if cid:
         if not db.one("SELECT id FROM conversations WHERE id = ?", cid):
@@ -74,7 +99,7 @@ def chat(data: ChatIn, idempotency_key: str | None = Header(None)):
 
         EFFORT.set(data.effort)  # this turn only: the stream runs in its own task
         yield {"type": "start", "conversation_id": cid}
-        ctx = assistant.Ctx(channel=data.channel, conversation_id=cid, request_key=key, skip_save=data.resend)
+        ctx = assistant.Ctx(channel=data.channel, conversation_id=cid, request_key=key, skip_save=data.resend, attachments=files)
         task = asyncio.current_task()
         if task is not None:
             assistant.TURNS[cid] = task  # the Stop button cancels this task; finally() hands the slot back
@@ -142,8 +167,9 @@ def conversation(cid: int):
     c = db.one("SELECT * FROM conversations WHERE id = ?", cid)
     if not c:
         raise HTTPException(404, "Not found")
-    rows = db.all("SELECT id, role, content, tool_calls, name, created_at FROM messages WHERE conversation_id = ? ORDER BY id", cid)
+    rows = db.all("SELECT id, role, content, tool_calls, name, attachments, created_at FROM messages WHERE conversation_id = ? ORDER BY id", cid)
     for r in rows:
+        r["attachments"] = [attachments_mod.public(a) for a in json.loads(r["attachments"])] if r["attachments"] else []
         r["tool_calls"] = [tc["function"]["name"] for tc in json.loads(r["tool_calls"])] if r["tool_calls"] else []
         if r["role"] == "tool":
             r["content"] = r["content"][:400]

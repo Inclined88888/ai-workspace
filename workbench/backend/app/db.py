@@ -194,6 +194,7 @@ CREATE TABLE IF NOT EXISTS messages (
   role TEXT NOT NULL,                           -- user | assistant | tool
   content TEXT NOT NULL DEFAULT '',
   tool_calls TEXT NOT NULL DEFAULT '',          -- JSON (assistant)
+  attachments TEXT NOT NULL DEFAULT '',         -- JSON list of attachment metadata (user; attachments.py)
   tool_call_id TEXT NOT NULL DEFAULT '',        -- (tool)
   name TEXT NOT NULL DEFAULT '',                -- tool name (tool)
   created_at TEXT NOT NULL
@@ -488,6 +489,7 @@ ADDED_COLUMNS = (
     ("mail_accounts", "kind", "TEXT NOT NULL DEFAULT 'imap'"),
     ("mail_accounts", "linked_account_id", "INTEGER REFERENCES linked_accounts(id) ON DELETE CASCADE"),
     ("calendars", "linked_account_id", "INTEGER REFERENCES linked_accounts(id) ON DELETE CASCADE"),
+    ("messages", "attachments", "TEXT NOT NULL DEFAULT ''"),  # feat/attachments
 )
 
 
