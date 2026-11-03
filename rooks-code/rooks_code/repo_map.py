@@ -12,12 +12,15 @@ from __future__ import annotations
 import ast
 import hashlib
 import os
-import re
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set
 
 from .tools import SKIP_DIRS
+
+MAX_FILES = 400          # Python files parsed for the map, at most
+MAX_WALK_SECONDS = 1.5   # the map is a hint: never hold up startup for it
 
 
 @dataclass
@@ -66,8 +69,15 @@ class RepoMap:
 
     def _walk_python_files(self) -> List[Path]:
         """Walk the project and find all Python files."""
-        files = []
+        files: list[Path] = []
+        root = self.root.resolve()
+        # A home folder or filesystem root is not a project: walking it would stall startup (cli-agent-hardening).
+        if root in (Path.home().resolve(), Path(root.anchor)):
+            return files
+        deadline = time.monotonic() + MAX_WALK_SECONDS
         for dirpath, dirnames, filenames in os.walk(self.root):
+            if len(files) >= MAX_FILES or time.monotonic() > deadline:
+                break
             # Skip directories in SKIP_DIRS
             dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
             for fname in filenames:

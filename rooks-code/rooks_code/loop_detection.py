@@ -15,7 +15,7 @@ import json
 import re
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Deque, Dict, List, Optional, Set, Tuple
+from typing import Deque, Dict, List, Tuple
 
 
 # Configuration constants (tunable)
@@ -142,6 +142,11 @@ class LoopDetector:
         # Check for read-heavy pattern (many reads without progress)
         is_loop, detail = self._check_read_heavy()
         if is_loop:
+            # Exploring a codebase legitimately reads a lot, so this only nudges the model (once per window); a stop
+            # is kept for true repetition (identical calls in a cycle) above.
+            self._recent_tools.clear()
+            return LoopDetectionResult(detected=True, loop_type="read_heavy", detail=detail, count=self._detected_count)
+        if False:
             self._loop_detected = True
             self._detected_count += 1
             self._last_loop_type = "read_heavy"

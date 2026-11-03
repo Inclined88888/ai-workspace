@@ -15,11 +15,10 @@ from .extras import NAMES as EXTRA_NAMES
 from .extras import SPECS as EXTRA_SPECS
 from .learning import Learning
 from .lint_test import LintTestRunner
-from .loop_detection import LoopDetector, LoopDetectionResult
+from .loop_detection import LoopDetector
 from .mcp import MCPError, MCPManager
-from .providers import ProviderError
 from .receipts import RunLog
-from .repo_map import RepoMap, build_repo_map_for_context
+from .repo_map import RepoMap
 from .tools import SPECS, Plan, Toolbox, ToolError
 from .undo import ChangeSets
 
@@ -120,6 +119,7 @@ class Agent:
             self.system += "\n\n" + self.instructions
         self._extra = ""  # this request's memory and skills context (learning.py)
         self.loop_detector = LoopDetector() if not sub else None
+        self._nudge = ""
         # Build lightweight repo map for project overview
         self.repo_map = RepoMap(self.root, max_tokens=1500) if not sub else None
         if self.repo_map:
@@ -249,19 +249,6 @@ class Agent:
             self.ui.tool_note(f"shortened {changed} old tool output(s) to fit the context window")
         return bool(changed)
 
-    def _proactive_prune(self) -> bool:
-        """Prune large tool results immediately after they're added, before they bloat context."""
-        changed = 0
-        # Find the most recent tool result that's too large
-        for m in reversed(self.messages):
-            if m["role"] == "tool" and len(m.get("content") or "") > PRUNE_TOOL_RESULT_AT:
-                m["content"] = m["content"][:PRUNE_TOOL_RESULT_AT - 500] + "\n[... output shortened to fit the model's context window ...]"
-                changed += 1
-                break  # Only prune the most recent one per call
-        if changed:
-            self.log.add("compaction", "ok", parent=self._turn, detail="proactively pruned large tool result")
-        return bool(changed)
-
     # one prompt --------------------------------------------------------------------------------------------------
     def run(self, prompt: str) -> str:
         first = len(self.messages)
@@ -343,9 +330,9 @@ class Agent:
                     result, kind = self._call(call, turn)
                     writes += kind in ("verified", "check_failed")
                     failed_checks += kind == "check_failed"
+                    if self._nudge:
+                        result, self._nudge = f"{result}\n\n{self._nudge}", ""
                     self.messages.append({"role": "tool", "tool_call_id": call.id, "content": result})
-                    # Proactive pruning: shrink large tool results immediately
-                    self._proactive_prune()
 
                 # After all tool calls in this step, run lint/test on changed files if enabled
                 if self.lint_test_runner and writes:
@@ -419,7 +406,8 @@ class Agent:
             if fb_idx > 0:
                 # Switch to fallback provider/model
                 from . import providers as providers_mod
-                fallback_settings = self.s
+                import copy
+                fallback_settings = copy.copy(self.s)
                 fallback_settings.provider = fb_provider
                 fallback_settings.model = fb_model
                 # Look up provider config
@@ -449,14 +437,10 @@ class Agent:
                     self.log.add("model_call", "retry", parent=self._turn, failure_reason=str(e)[:500])
                     time.sleep(wait)
                     self.ui.thinking(True)
-            else:
-                # Retries exhausted for this fallback, continue to next fallback
-                continue
-            # If we broke out of the attempt loop (non-transient or max retries), try next fallback
-            continue
-        else:
-            # All fallbacks exhausted
-            raise ProviderError(f"All {len(fallback_chain)} model(s) failed. Last error: {last_error}")
+            if streamed or not getattr(last_error, "transient", False):
+                break  # text was already shown, or the error will not heal by switching (bad request, bad key)
+        assert last_error is not None
+        raise last_error  # the original error, with its status, so callers explain it the same way as before
 
     def _streaming(self) -> bool:
         return bool(getattr(self.s, "stream", False)) and getattr(self.ui, "can_stream", lambda: False)()
@@ -497,7 +481,11 @@ class Agent:
         # Loop detection: check this tool call
         if self.loop_detector:
             loop_result = self.loop_detector.on_tool_call(call.name, call.arguments)
-            if loop_result.detected:
+            if loop_result.detected and loop_result.loop_type == "read_heavy":
+                self.log.add("loop_detection", "nudged", parent=turn, tool=call.name, detail=loop_result.detail)
+                self._nudge = ("Note: you have read many files without changing anything or running a command. If you "
+                               "have enough to act, act now; if the request is unclear, stop and ask the user.")
+            elif loop_result.detected:
                 self.log.add("loop_detection", "detected", parent=turn, tool=call.name,
                              detail=f"{loop_result.loop_type}: {loop_result.detail}")
                 self.ui.tool_note(f"Loop detected: {loop_result.detail}")

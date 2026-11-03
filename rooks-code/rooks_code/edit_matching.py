@@ -12,10 +12,9 @@ On failure, generates a helpful hint showing the closest matching lines.
 
 from __future__ import annotations
 
-import difflib
 import re
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
 
 # Unicode normalization maps
@@ -302,95 +301,93 @@ def generate_miss_hint(source: str, search: str, replacement: str, max_hint_line
     return "\n".join(hint_lines)
 
 
+def _line_spans(source: str) -> List[Tuple[int, int, str]]:
+    """(start, end, text without the line break) for every line of source."""
+    out, pos = [], 0
+    for raw in source.splitlines(keepends=True):
+        body = raw.rstrip("\r\n")
+        out.append((pos, pos + len(body), body))
+        pos += len(raw)
+    return out
+
+
+def _indent(line: str) -> str:
+    return line[: len(line) - len(line.lstrip(" \t"))]
+
+
+def _block_matches(source: str, search: str, key) -> List[Tuple[int, int, List[str]]]:
+    """Whole line windows of source whose lines equal search's lines under key(). Returns (start, end, source lines)
+    with end at the end of the last line's text (its line break is kept), so the replacement never eats a newline."""
+    lines = _line_spans(source)
+    want = search.replace("\r\n", "\n").rstrip("\n").split("\n")
+    while want and not want[0].strip():
+        want.pop(0)
+    if not want:
+        return []
+    wanted = [key(w) for w in want]
+    hits = []
+    for i in range(len(lines) - len(want) + 1):
+        if all(key(lines[i + j][2]) == wanted[j] for j in range(len(want))):
+            hits.append((lines[i][0], lines[i + len(want) - 1][1], [lines[i + j][2] for j in range(len(want))]))
+    return hits
+
+
+def _reindent(replacement: str, search: str, found_first_line: str) -> str:
+    """Shift every replacement line by the indent difference between the file and what the model sent, so a block
+    the model sent without (or with the wrong) indentation lands at the file's indentation."""
+    first_search = next((l for l in search.split("\n") if l.strip()), "")
+    have, sent = _indent(found_first_line), _indent(first_search)
+    out = []
+    for line in replacement.rstrip("\n").split("\n"):
+        if not line.strip():
+            out.append(line)
+        elif line.startswith(sent):
+            out.append(have + line[len(sent):])
+        else:
+            out.append(have + line.lstrip(" \t"))
+    return "\n".join(out)
+
+
 def calculate_edit_match(
     source: str,
     search: str,
     replacement: str,
     replace_all: bool = False,
-    fuzzy_threshold: float = 0.1,
+    fuzzy_threshold: float = 0.1,  # kept for callers; fuzzy matching is a hint only, it never edits (see below)
 ) -> EditMatchResult:
-    """Main entry point: try all matching strategies in order.
+    """Find old_text in a file, most exact first, and return the edited file.
 
-    Returns EditMatchResult with the matched content and strategy used.
+    Order, after OpenCode's layered replacers (packages/opencode edit tool, MIT) and aider's search/replace blocks
+    (Apache 2.0): 1 exact text; 2 the same lines with trailing whitespace ignored; 3 the same lines with any
+    indentation, re-indented to the file's. Near misses are never edited automatically: a wrong but similar block (a
+    copy of a function, say) would be changed silently. They come back as a hint with the closest lines instead.
     """
     if not search:
-        return EditMatchResult(
-            matched=False,
-            matches=[],
-            strategy="empty_search",
-            error_hint="old_text must not be empty",
-        )
+        return EditMatchResult(matched=False, matches=[], strategy="empty_search", error_hint="old_text must not be empty")
+    crlf = "\r\n" in source
+    search_n = search.replace("\r\n", "\n")
+    replacement_n = replacement.replace("\r\n", "\n")
+    if crlf:
+        search_n, replacement_n = search_n.replace("\n", "\r\n"), replacement_n.replace("\n", "\r\n")
 
-    # Normalize line endings for matching
-    file_ending = line_ending(source)
-    search_norm = search.replace(CRLF, "\n")
-    replacement_norm = replacement.replace(CRLF, "\n")
+    exact = find_exact_occurrences(source, search_n)
+    if exact:
+        return EditMatchResult(True, exact, "exact", apply_replacement(source, exact, replacement_n, replace_all))
 
-    # Strategy 1: Exact match
-    exact_matches = find_exact_occurrences(source, search_norm)
-    if exact_matches:
-        new_content = apply_replacement(source, exact_matches, replacement_norm, replace_all)
-        return EditMatchResult(
-            matched=True,
-            matches=exact_matches,
-            strategy="exact",
-            new_content=new_content,
-        )
+    nl = "\r\n" if crlf else "\n"
+    for strategy, key in (("line_trimmed", lambda l: l.rstrip()), ("indentation", lambda l: l.strip())):
+        hits = _block_matches(source, search, key)
+        if not hits:
+            continue
+        matches = [Match(a, b) for a, b, _ in hits]
+        chosen = hits if replace_all else hits[:1]
+        out = source
+        for a, b, found in reversed(chosen):
+            new = replacement.replace("\r\n", "\n").rstrip("\n")
+            if strategy == "indentation":
+                new = _reindent(new, search.replace("\r\n", "\n"), found[0])
+            out = out[:a] + new.replace("\n", nl) + out[b:]
+        return EditMatchResult(True, matches, strategy, out)
 
-    # Strategy 2: Whitespace/Unicode normalization
-    ws_matches = find_whitespace_insensitive_occurrences(source, search_norm)
-    if ws_matches:
-        new_content = apply_replacement(source, ws_matches, replacement_norm, replace_all)
-        return EditMatchResult(
-            matched=True,
-            matches=ws_matches,
-            strategy="whitespace",
-            new_content=new_content,
-        )
-
-    # Strategy 3: Indentation flexible
-    indent_matches = find_indentation_flexible_occurrences(source, search_norm)
-    if indent_matches:
-        new_content = apply_replacement(source, indent_matches, replacement_norm, replace_all)
-        return EditMatchResult(
-            matched=True,
-            matches=indent_matches,
-            strategy="indentation",
-            new_content=new_content,
-        )
-
-    # Strategy 4: Line-trimmed (trailing whitespace ignored)
-    trimmed_matches = find_line_trimmed_occurrences(source, search_norm)
-    if trimmed_matches:
-        new_content = apply_replacement(source, trimmed_matches, replacement_norm, replace_all)
-        return EditMatchResult(
-            matched=True,
-            matches=trimmed_matches,
-            strategy="line_trimmed",
-            new_content=new_content,
-        )
-
-    # Strategy 5: Fuzzy (Levenshtein)
-    fuzzy_matches = find_fuzzy_occurrences(source, search_norm, fuzzy_threshold)
-    if fuzzy_matches:
-        new_content = apply_replacement(source, fuzzy_matches, replacement_norm, replace_all)
-        return EditMatchResult(
-            matched=True,
-            matches=fuzzy_matches,
-            strategy="fuzzy",
-            new_content=new_content,
-        )
-
-    # No match found - generate hint
-    hint = generate_miss_hint(source, search_norm, replacement_norm)
-    error_msg = f"old_text was not found in the file"
-    if hint:
-        error_msg += f";\n\n{hint}"
-    error_msg += ". Read the file and copy the text exactly, or use more surrounding context."
-
-    return EditMatchResult(
-        matched=False,
-        matches=[],
-        strategy="none",
-        error_hint=error_msg,
-    )
+    return EditMatchResult(matched=False, matches=[], strategy="none",
+                           error_hint=generate_miss_hint(source, search, replacement))

@@ -333,3 +333,40 @@ lint_after_edit = true
     monkeypatch.setenv("ROOKS_CONFIG", str(tmp_path / "rooks.toml"))
     s = config.resolve({}, tmp_path)
     assert s.lint_after_edit is True
+
+
+def test_fuzzy_edit_reindents_and_never_corrupts():
+    from rooks_code.edit_matching import calculate_edit_match as m
+
+    src = "class A:\n    def f(self):\n        if x:\n            return 1\n        return 2\n"
+    r = m(src, "if x:\n    return 1\n", "if y:\n    return 3\n")  # the model dropped the indentation
+    assert r.strategy == "indentation"
+    assert r.new_content == "class A:\n    def f(self):\n        if y:\n            return 3\n        return 2\n"
+    r = m(src, "        if x:  \n            return 1", "        if y:\n            return 3")  # trailing spaces
+    assert r.strategy == "line_trimmed" and r.new_content.endswith("            return 3\n        return 2\n")
+    crlf = src.replace("\n", "\r\n")
+    r = m(crlf, "            return 1\n", "            return 9\n")
+    assert r.matched and "\r\n            return 9\r\n" in r.new_content and "\n\n" not in r.new_content.replace("\r\n", "")
+    near = m(src, "if x:\n    return 7\n", "z")  # similar but not the same text: never edited, a hint instead
+    assert not near.matched and near.error_hint
+
+
+def test_loop_detector_nudges_on_reads_and_stops_on_repeats():
+    from rooks_code.loop_detection import LoopDetector
+
+    d = LoopDetector()
+    kinds = [d.on_tool_call("read_file", {"path": f"f{i}.py"}).loop_type for i in range(25)]
+    assert "read_heavy" in kinds and not d.is_loop_detected()  # exploring is allowed, the model gets a nudge
+    d = LoopDetector()
+    hits = [d.on_tool_call("read_file", {"path": "same.py"}).detected for _ in range(6)]
+    assert any(hits) and d.is_loop_detected()
+
+
+def test_repo_map_skips_the_home_folder(monkeypatch, tmp_path):
+    from pathlib import Path
+
+    from rooks_code.repo_map import RepoMap
+
+    (tmp_path / "a.py").write_text("def f():\n    pass\n")
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    assert RepoMap(tmp_path).get_repo_map() == ""
