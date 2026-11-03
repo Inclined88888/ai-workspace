@@ -1,56 +1,81 @@
 import DOMPurify from "dompurify";
-import katex from "katex";
 import "katex/dist/katex.min.css";
-import { marked } from "marked";
 import { Check, X } from "lucide-react";
 import { MouseEvent, useEffect, useRef, useState } from "react";
 import { api, Model } from "./api";
 import { motionOff } from "./appearance";
+import { MERMAID_RE, renderMarkdownHtml, unesc } from "./markdown";
 
-marked.setOptions({ gfm: true, breaks: true });
+// In non-browser contexts (tests) dompurify's default export is a factory whose product needs a real
+// DOM window; without one it stays a bare function with no sanitize/addHook. Treat that as "no purifier".
+const _dp: unknown = DOMPurify;
+const _made = typeof _dp === "function" ? (_dp as (w?: unknown) => Partial<typeof DOMPurify>)() : _dp;
+const purify: typeof DOMPurify | null = typeof (_made as Partial<typeof DOMPurify>)?.sanitize === "function" ? (_made as typeof DOMPurify) : null;
 
-const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-// Fenced code gets a header with the language and a copy button (handled by onCopyClick below; no inline JS).
-marked.use({
-  renderer: {
-    code({ text, lang }) {
-      const language = (lang || "").split(/\s/)[0];
-      return `<div class="code-block"><div class="code-head"><span>${esc(language || "code")}</span><button type="button" class="code-copy" aria-label="Copy code">Copy</button></div><pre><code>${esc(text)}</code></pre></div>`;
-    },
-  },
+// highlight.js CSS classes are token classes, not raw styles — keep them through sanitization.
+purify?.addHook("uponSanitizeAttribute", (_node, data) => {
+  if (data.attrName === "class" && data.attrValue.includes("hljs")) data.forceKeepAttr = true;
 });
 
-// Maths: $$...$$ blocks and $...$ inline, rendered with KaTeX. "$5 and $10" stays text (no space inside the dollars,
-// no digit right after the closing one).
-const tex = (src: string, displayMode: boolean) => {
-  try {
-    return katex.renderToString(src, { displayMode, throwOnError: false, output: "htmlAndMathml", strict: "ignore" });
-  } catch {
-    return `<code>${esc(src)}</code>`;
-  }
+// Mermaid is ~500 kB min: load it only when a mermaid block actually appears, and only once.
+type MermaidApi = typeof import("mermaid")["default"];
+let mermaidP: Promise<MermaidApi> | null = null;
+const loadMermaid = () => (mermaidP ??= import("mermaid").then((m) => m.default));
+
+const MERMAID_THEME_VARS = {
+  fontFamily: "var(--font)",
+  primaryColor: "var(--panel-2)",
+  primaryBorderColor: "var(--border-strong)",
+  primaryTextColor: "var(--text)",
+  lineColor: "var(--muted)",
+  textColor: "var(--text)",
+  mainBkg: "var(--panel-2)",
+  nodeBorder: "var(--border-strong)",
+  clusterBkg: "var(--code-bg)",
+  titleColor: "var(--text)",
+  edgeLabelBackground: "var(--panel)",
 };
-marked.use({
-  extensions: [
-    {
-      name: "mathBlock", level: "block",
-      start: (src: string) => src.match(/\$\$|\\\[/)?.index,
-      tokenizer(src: string) {
-        const m = /^\$\$([\s\S]+?)\$\$|^\\\[([\s\S]+?)\\\]/.exec(src);
-        return m ? { type: "mathBlock", raw: m[0], text: (m[1] ?? m[2]).trim() } : undefined;
-      },
-      renderer: (t) => `<div class="math-block">${tex((t as unknown as { text: string }).text, true)}</div>`,
-    },
-    {
-      name: "mathInline", level: "inline",
-      start: (src: string) => src.match(/\$|\\\(/)?.index,
-      tokenizer(src: string) {
-        const m = /^\$(?!\s)((?:\\.|[^$\\\n])+?)(?<!\s)\$(?!\d)|^\\\((.+?)\\\)/.exec(src);
-        return m ? { type: "mathInline", raw: m[0], text: m[1] ?? m[2] } : undefined;
-      },
-      renderer: (t) => tex((t as unknown as { text: string }).text, false),
-    },
-  ],
-});
+
+// Rendered once per app run; theme switching happens via mermaid's own CSS variables (themeCSS below).
+let mermaidReady: Promise<MermaidApi> | null = null;
+function initMermaid(): Promise<MermaidApi> {
+  return (mermaidReady ??= loadMermaid().then((m) => {
+    m.initialize({
+      startOnLoad: false,
+      securityLevel: "strict",
+      theme: "base",
+      themeVariables: MERMAID_THEME_VARS,
+    });
+    return m;
+  }));
+}
+
+/** A ```mermaid fence rendered as an SVG diagram. Falls back to the escaped source when the source is
+ *  incomplete (still streaming) or invalid. SVG is sanitized before insertion (mermaid emits raw markup). */
+export function MermaidBlock({ code }: { code: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let live = true;
+    const el = ref.current;
+    if (!el) return;
+    setFailed(false);
+    initMermaid()
+      .then((m) => m.parse(code, { suppressErrors: true }).then((ok) => {
+        if (ok === false) throw new Error("invalid mermaid source");
+        return m.render(`mmd-${Math.random().toString(36).slice(2)}`, code);
+      }))
+      .then(({ svg }) => {
+        if (live && ref.current) ref.current.innerHTML = purify ? purify.sanitize(svg, { USE_PROFILES: { svg: true, svgFilters: true } }) : svg;
+      })
+      .catch(() => { if (live) setFailed(true); });
+    return () => { live = false; };
+  }, [code]);
+  if (failed) return <div className="mermaid-fallback"><pre>{code}</pre></div>;
+  return <div className="mermaid-diagram" ref={ref} aria-label="Diagram" />;
+}
+
+// Maths support ($$...$$ and $...$ via KaTeX) is registered in ./markdown alongside the code renderer.
 
 function onCopyClick(e: MouseEvent<HTMLDivElement>) {
   const btn = (e.target as HTMLElement).closest(".code-copy");
@@ -63,9 +88,24 @@ function onCopyClick(e: MouseEvent<HTMLDivElement>) {
   }).catch(() => undefined);
 }
 
+// Splits sanitized HTML on the mermaid placeholders so those blocks become live <MermaidBlock/> components.
+// Marked keeps the raw text of an unclosed trailing fence out of the output until the fence closes, so a
+// half-typed ```mermaid block mid-stream renders nothing until it is complete — then the diagram appears.
+// (MERMAID_RE and unesc come from ./markdown.)
+
 export function Markdown({ text, className = "" }: { text: string; className?: string }) {
-  const html = DOMPurify.sanitize(marked.parse(text || "", { async: false }) as string);
-  return <div className={`prose ${className}`} onClick={onCopyClick} dangerouslySetInnerHTML={{ __html: html }} />;
+  const raw = renderMarkdownHtml(text);
+  const html = purify ? purify.sanitize(raw) : raw; // purify is only null in DOM-less tests
+  const parts = html.split(MERMAID_RE);
+  if (parts.length === 1) return <div className={`prose ${className}`} onClick={onCopyClick} dangerouslySetInnerHTML={{ __html: html }} />;
+  return (
+    <div className={`prose ${className}`} onClick={onCopyClick}>
+      {parts.map((part, i) =>
+        i % 2 === 1
+          ? <MermaidBlock key={i} code={unesc(part)} />
+          : <div key={i} dangerouslySetInnerHTML={{ __html: part }} />)}
+    </div>
+  );
 }
 
 const reducedMotion = motionOff;
