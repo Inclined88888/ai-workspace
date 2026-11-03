@@ -1,3 +1,4 @@
+import * as RadioGroup from "@radix-ui/react-radio-group";
 import { ArrowLeft, Play, ShieldAlert } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
@@ -146,11 +147,12 @@ export default function MotionLab() {
           <p className="muted">Every moving moment, live in your theme. Pick Calm to keep them as gentle fades, or Off to keep them still.</p>
         </div>
         <div className="col" style={{ gap: 8, alignItems: "flex-end" }}>
-          <div className="ap-seg" role="radiogroup" aria-label="Motion">
+          <RadioGroup.Root className="ap-seg" aria-label="Motion" orientation="horizontal" loop value={a.motion}
+            onValueChange={(v) => set({ motion: v as typeof a.motion })}>
             {([["full", "Full"], ["subtle", "Calm"], ["off", "Off"]] as const).map(([v, l]) => (
-              <button key={v} type="button" role="radio" aria-checked={a.motion === v} onClick={() => set({ motion: v })}>{l}</button>
+              <RadioGroup.Item key={v} value={v}>{l}</RadioGroup.Item>
             ))}
-          </div>
+          </RadioGroup.Root>
           <div className="row wrap" style={{ gap: 6, justifyContent: "flex-end" }}>
             {THEMES.filter((t) => t.id !== "auto").map((t) => (
               <button key={t.id} className={`btn sm${a.theme === t.id ? " primary" : ""}`} onClick={() => pickTheme(t.id)}>{t.label}</button>
