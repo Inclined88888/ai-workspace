@@ -489,9 +489,23 @@ def _hold_message(t: Tool, aid: int, ctx: Ctx, reason: str = HOLD_REASON) -> str
 
 def available_tools(ctx: Ctx) -> list[Tool]:
     from .teammates import hooks as tm_hooks  # feat/grok-style: a teammate's tool groups; nothing outbound in group chats
-    from . import goals
+    from . import goals, mcp_client
 
     tools = [t for t in TOOLS if t.when(ctx)]
+    # MCP servers the user connected (feat/mcp-client): tools join the loop as mcp__<server>__<tool>. Output is
+    # third party content, so every MCP tool taints the turn (ctx.tainted) and anything external/persistent after
+    # it waits for the user; the calls themselves are not held just for being MCP.
+    for spec in mcp_client.tool_specs():
+        props = (spec.get("parameters") or {}).get("properties") or {}
+        req = tuple((spec.get("parameters") or {}).get("required") or ())
+
+        def _mcp_call(_qualified: str = spec["name"], **kw) -> dict:
+            ok, text = mcp_client.call(_qualified, kw)
+            return {"ok": ok, "result": text}
+
+        _mcp_call.__signature__ = inspect.Signature(
+            [inspect.Parameter(p, inspect.Parameter.POSITIONAL_OR_KEYWORD) for p in props])
+        tools.append(Tool(spec["name"], spec["description"], props, _mcp_call, req, untrusted=True))
     # Only show complete_goal when there's an active goal for this conversation
     has_active_goal = goals.get_by_conversation(ctx.conversation_id) is not None
     if not has_active_goal:
@@ -506,6 +520,11 @@ async def run_tool(name: str, raw_args: str, ctx: Ctx, approved: bool = False) -
     """Run one tool call, check what it changed, and record the outcome against the model."""
     started = time.monotonic()
     t = TOOL_MAP.get(name)
+    if not t:  # feat/mcp-client: connected servers' tools are built per turn (available_tools), so look the name up
+        from . import mcp_client
+
+        if mcp_client.resolve(name):
+            t = next((x for x in available_tools(ctx) if x.name == name), None)
 
     def done(ok: bool, out: str, outcome: str, verified: bool | None = None, evidence: str = "", ref=None,
              **row) -> tuple[bool, str]:
