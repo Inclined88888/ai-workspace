@@ -18,7 +18,7 @@ import secrets
 from fastapi import HTTPException
 
 from .. import db, keychain
-from ..security import decrypt, encrypt
+from ..security import decrypt
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS vault_items (
@@ -77,10 +77,9 @@ def backend() -> str:
 
 
 def _seal(item_key: str, values: dict) -> str:
-    blob = json.dumps(values)
-    if keychain.enabled():
-        return keychain.put(f"vault:{item_key}", blob)
-    return encrypt(blob)
+    from ..security import seal
+
+    return seal(f"vault:{item_key}", json.dumps(values))
 
 
 def _unseal(ref: str) -> dict:

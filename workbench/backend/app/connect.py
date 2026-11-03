@@ -36,7 +36,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from . import config, db, oauth_clients
-from .security import decrypt, encrypt, require_user
+from .security import decrypt, encrypt, require_user, seal
 
 log = logging.getLogger("workbench.connect")
 
@@ -310,7 +310,7 @@ def _store(aid: int, record: dict) -> None:
 
     value = json.dumps(record)
     old = db.one("SELECT secret_enc FROM linked_accounts WHERE id = ?", aid)
-    stored = keychain.put(f"linked-account:{aid}", value) if keychain.enabled() else encrypt(value)
+    stored = seal(f"linked-account:{aid}", value)
     if old and old["secret_enc"] and keychain.is_ref(old["secret_enc"]) and not keychain.is_ref(stored):
         keychain.delete(old["secret_enc"])
     db.run("UPDATE linked_accounts SET secret_enc = ?, updated_at = ? WHERE id = ?", stored, db.now(), aid)

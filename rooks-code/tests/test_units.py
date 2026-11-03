@@ -119,3 +119,33 @@ def test_rooks_desk_is_added_as_an_untrusted_mcp_server_when_installed(tmp_path,
     monkeypatch.setattr(config.shutil, "which", lambda name: None)
     monkeypatch.delenv("ROOKS_DESK_MCP")
     assert "desk" not in config.resolve({"provider": "ollama"}, tmp_path, {}).mcp_servers
+
+
+def test_rooks_code_opens_the_session_instead_of_running_the_task_code(monkeypatch, tmp_path):
+    """`rooks code` once ran "code" as a prompt and read the whole home folder until the token cap."""
+    from rooks_code import cli
+
+    seen = {}
+
+    def fake_resolve(overrides, root):
+        raise SystemExit("stop")
+
+    monkeypatch.setattr(cli.config, "resolve", fake_resolve)
+    orig = cli.parser
+
+    def spy():
+        p = orig()
+        real = p.parse_args
+
+        def parse(argv=None):
+            a = real(argv)
+            seen["args"] = a
+            return a
+        p.parse_args = parse
+        return p
+
+    monkeypatch.setattr(cli, "parser", spy)
+    import pytest
+    with pytest.raises(SystemExit):
+        cli.main(["code", "--cwd", str(tmp_path)])
+    assert seen["args"].prompt == []

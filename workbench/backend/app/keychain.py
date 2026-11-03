@@ -46,7 +46,14 @@ def put(name: str, secret: str) -> str:
     kr = _keyring()
     if kr is None:
         raise RuntimeError("No OS keychain is available")
-    kr.set_password(SERVICE, name, secret)
+    try:
+        kr.set_password(SERVICE, name, secret)
+    except Exception:  # noqa: BLE001 - macOS -25244/-25299: an item left by an older build, owned by another binary
+        try:
+            kr.delete_password(SERVICE, name)
+        except Exception:  # noqa: BLE001 - nothing to remove, or not ours to remove
+            pass
+        kr.set_password(SERVICE, name, secret)
     return PREFIX + name
 
 

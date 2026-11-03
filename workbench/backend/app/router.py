@@ -340,6 +340,8 @@ def classify(err: Exception) -> tuple[str, float, bool]:
     after = getattr(err, "retry_after", None)
     body = getattr(err, "body", "") or str(getattr(err, "detail", ""))
     status = getattr(err, "status_code", 500)
+    if kind == "no_key":
+        return "no key saved: paste it again under Models", 0, True
     if "insufficient_quota" in body:
         return "out of credit", 3600, True
     if upstream == 429 or kind == "quota" or (upstream is None and _RATE.search(body) and status != 401):

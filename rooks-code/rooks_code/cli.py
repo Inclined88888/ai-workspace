@@ -180,6 +180,8 @@ def main(argv: list[str] | None = None) -> int:
     if argv and argv[0] in SUBCOMMANDS:
         return subcommand(argv[0], argv[1:])
     args = parser().parse_args(argv)
+    if args.prompt in (["code"], ["chat"]):
+        args.prompt = []  # "rooks code" means open Rooks Code, not "run the task 'code'" (which read the whole folder)
     root = Path(args.cwd or os.getcwd()).resolve()
     if not root.is_dir():
         sys.exit(f"rooks: {root} is not a folder")

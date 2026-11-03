@@ -112,7 +112,8 @@ class Agent:
         self._extra = ""  # this request's memory and skills context (learning.py)
         # Through the app (provider workbench) the model is picked per task and the app keeps the spend, so a
         # per-model price is neither known nor needed here: only warn when the user picked a model directly.
-        if settings.max_usd and self.budget.price is None and settings.provider != "workbench":
+        # NVIDIA NIM's hosted API is a free trial (no card, no bill), so a missing price there is not a risk to flag.
+        if settings.max_usd and self.budget.price is None and settings.provider not in ("workbench", "nvidia"):
             ui.warn(f"price of {settings.model} is unknown, so the ${settings.max_usd} cap cannot be enforced; the token cap "
                     f"({settings.max_tokens or 'none'}) still is. Add it under [prices] to enforce a dollar cap.")
 

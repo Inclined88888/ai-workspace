@@ -2,6 +2,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import secrets
 import time
 
@@ -9,6 +10,8 @@ from cryptography.fernet import Fernet, InvalidToken
 from fastapi import HTTPException, Request
 
 from . import config, db
+
+log = logging.getLogger("workbench.security")
 
 COOKIE = "wb_session"
 
@@ -62,6 +65,19 @@ def decrypt(value: str) -> str:
         return ""
 
 
+def seal(name: str, value: str) -> str:
+    """What to keep in the database for a secret: a keychain reference when the desktop app enabled the keychain
+    and it accepts the item, else the Fernet ciphertext. A refused keychain never loses the secret."""
+    from . import keychain
+
+    if value and keychain.enabled():
+        try:
+            return keychain.put(name, value)
+        except Exception as e:  # noqa: BLE001 - a refused keychain must not lose the key or stop the app starting
+            log.warning("Keychain refused %s (%s); keeping it encrypted in the database", name, e.__class__.__name__)
+    return encrypt(value)
+
+
 def store_connection_secret(cid: int, value: str) -> None:
     """Save a model connection's key: in the OS keychain when the desktop app enabled it, else encrypted in SQLite."""
     from . import keychain
@@ -69,8 +85,7 @@ def store_connection_secret(cid: int, value: str) -> None:
     old = db.one("SELECT secret_enc FROM connections WHERE id = ?", cid)
     if old and keychain.is_ref(old["secret_enc"]) and not value:
         keychain.delete(old["secret_enc"])
-    stored = keychain.put(f"connection:{cid}", value) if value and keychain.enabled() else encrypt(value)
-    db.run("UPDATE connections SET secret_enc = ? WHERE id = ?", stored, cid)
+    db.run("UPDATE connections SET secret_enc = ? WHERE id = ?", seal(f"connection:{cid}", value), cid)
 
 
 def forget_connection_secret(stored: str) -> None:

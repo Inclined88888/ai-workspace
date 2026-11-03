@@ -5,6 +5,7 @@ which one is active. Model references are "<connection_id>/<model>", e.g. "1/qwe
 """
 
 import json
+import logging
 import re
 import time
 from typing import AsyncIterator
@@ -16,6 +17,8 @@ from .adapters import (  # noqa: F401 - re-exported for callers and tests
     OLLAMA_NUM_CTX, THINK_RE, Adapter, keep_model, parse_text_tool_calls, validate,
 )
 from .security import encrypt, store_connection_secret  # noqa: F401 - encrypt kept for callers
+
+log = logging.getLogger("workbench.llm")
 
 # Presets offered in Settings. Each names the auth kind and protocol it uses; the base URL is editable.
 PRESETS = {
@@ -129,7 +132,11 @@ def seed_connections() -> None:
             "INSERT INTO connections(name, auth_kind, protocol, base_url, secret_enc, residency, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
             p["name"], p["auth_kind"], p["protocol"], p["base_url"], "", "local" if p["auth_kind"] == "local_ollama" else "cloud", db.now())
         if key:
-            store_connection_secret(cid, key)
+            try:
+                store_connection_secret(cid, key)
+            except Exception as e:  # noqa: BLE001 - one bad key store must never stop the whole app starting
+                log.warning("Could not save the %s key from .env (%s)", preset, e.__class__.__name__)
+                continue
             db.run("UPDATE connections SET state = 'connected', last_error = '' WHERE id = ?", cid)
             db.set_setting(mark, fingerprint)
             _model_cache.pop(cid, None)

@@ -577,10 +577,9 @@ def create(name: str, url: str, mode: str = "auto", api_key: str = "", max_pages
 
 
 def set_key(sid: int, api_key: str) -> dict:
-    from . import keychain
-    from .security import encrypt
+    from .security import seal
 
-    stored = keychain.put(f"site:{sid}", api_key) if keychain.enabled() else encrypt(api_key)
+    stored = seal(f"site:{sid}", api_key)
     db.run("UPDATE sites SET secret_enc = ?, mode = 'api' WHERE id = ?", stored, sid)
     return get(sid)
 
@@ -818,7 +817,7 @@ def write_digest(site: dict, ch: dict, structure: dict) -> str:
     if overdue:
         lines.append(f"Overdue: {_plural(len(overdue), 'item')} — " + "; ".join(f"{r['title']} (due {r['due']})" for r in overdue[:8]) + ".")
     if soon:
-        lines.append(f"Coming up in the next 7 days: " + "; ".join(f"{r['title']} ({r['due'] or r['start']})" for r in soon[:8]) + ".")
+        lines.append("Coming up in the next 7 days: " + "; ".join(f"{r['title']} ({r['due'] or r['start']})" for r in soon[:8]) + ".")
     return "\n".join(lines)
 
 

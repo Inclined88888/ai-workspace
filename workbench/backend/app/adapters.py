@@ -117,7 +117,18 @@ def credential(conn: dict) -> str:
         return ""  # a local server, or a CLI that holds its own sign-in: nothing for the app to send
     if kind == "oauth_subscription":
         return _oauth_access_token(conn)
-    return decrypt(conn["secret_enc"])  # api_key, openai_compatible (key optional)
+    secret = decrypt(conn["secret_enc"])  # api_key, openai_compatible (key optional)
+    if not secret and kind == "api_key" and not _is_local(conn.get("base_url") or ""):
+        # Sending an empty Bearer gets a 401 that reads as "key rejected" and parks the provider for an hour, when the
+        # truth is that no key was saved (or the keychain lost it). Say that, and never call the provider.
+        raise ProviderError(401, f"{conn['name']}: no key saved", kind="no_key")
+    return secret
+
+
+def _is_local(url: str) -> bool:
+    from urllib.parse import urlsplit
+
+    return (urlsplit(url).hostname or "") in ("127.0.0.1", "localhost", "::1", "host.docker.internal")
 
 
 def _oauth_access_token(conn: dict) -> str:

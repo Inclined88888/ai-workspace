@@ -121,3 +121,52 @@ def test_launcher_handoff_code_is_one_time(client, desktop):
 def test_launcher_handoff_needs_desktop_mode(client):
     assert client.post("/api/desktop/handoff", headers={"Authorization": "Bearer x"}).status_code == 403
     assert client.get("/api/desktop/handoff", params={"code": "nope"}, follow_redirects=False).status_code == 403
+
+
+class RefusingKeyring(MemoryKeyring):
+    """macOS answering -25244: an item exists that this binary may not edit, so every write is refused."""
+
+    def set_password(self, service, username, password):
+        from keyring.errors import PasswordSetError
+
+        raise PasswordSetError("Can't store password on keychain: (-25244, 'Unknown Error')")
+
+
+def test_a_refused_keychain_keeps_the_key_encrypted_instead_of_losing_it(client, desktop, fake_url):
+    from app import db
+    from app.security import decrypt
+
+    keyring.set_keyring(RefusingKeyring())
+    r = client.post("/api/providers", json={"name": "Keyed", "kind": "openai", "base_url": fake_url, "api_key": "sk-refused-0001"})
+    assert r.status_code == 200, r.text
+    stored = db.one("SELECT secret_enc FROM connections WHERE id = ?", r.json()["id"])["secret_enc"]
+    assert stored and not stored.startswith("keychain:")
+    assert decrypt(stored) == "sk-refused-0001"
+
+
+def test_env_key_seeding_survives_a_refused_keychain(client, desktop, monkeypatch):
+    """This exact failure stopped the desktop app starting and left NVIDIA connected with an empty key."""
+    from app import config, db, llm
+    from app.security import decrypt
+
+    keyring.set_keyring(RefusingKeyring())
+    monkeypatch.setitem(config.SEED_KEYS, "nvidia", "nvapi-seeded-0001")
+    llm.seed_connections()
+    row = db.one("SELECT id, secret_enc FROM connections WHERE base_url = ?", llm.PRESETS["nvidia"]["base_url"])
+    assert decrypt(row["secret_enc"]) == "nvapi-seeded-0001"
+    db.run("DELETE FROM connections WHERE id = ?", row["id"])
+    db.run("DELETE FROM settings WHERE key = 'seeded_env:nvidia'")
+
+
+def test_an_api_key_connection_without_a_key_says_so_and_never_calls_out(client):
+    from app import db, router
+    from app.adapters import ProviderError, credential
+
+    cid = db.run("INSERT INTO connections(name, auth_kind, protocol, base_url, secret_enc, residency, created_at) "
+                 "VALUES ('NVIDIA NIM', 'api_key', 'chat_completions', 'https://integrate.api.nvidia.com/v1', '', 'cloud', ?)",
+                 db.now())
+    conn = db.one("SELECT * FROM connections WHERE id = ?", cid)
+    with pytest.raises(ProviderError) as e:
+        credential(conn)
+    reason, park, fallback = router.classify(e.value)
+    assert reason.startswith("no key saved") and park == 0 and fallback
