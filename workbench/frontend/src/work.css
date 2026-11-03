@@ -1,0 +1,61 @@
+/* Files and Sites pages. Theme tokens only, so every theme (Sunshine, Neon, …) restyles them. */
+.work-drop {
+  display: flex; align-items: center; gap: 16px; padding: 22px 24px; margin-bottom: 16px; cursor: pointer;
+  border: 1.5px dashed var(--border-strong); background: var(--panel); color: var(--text);
+  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+.work-drop:hover, .work-drop:focus-visible, .work-drop.over { border-color: var(--accent); background: var(--accent-soft); outline: none; }
+.work-drop > svg { color: var(--accent); flex: none; }
+.work-drop > div { flex: 1; }
+.work-busy { margin: 0 0 12px; }
+.work-layout { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 860px) { .work-layout { grid-template-columns: 1fr; } }
+.work-list { max-height: 72vh; overflow: auto; }
+.work-list .pad { padding: 12px; }
+.work-item { display: flex; align-items: center; gap: 8px; padding: 10px 14px; cursor: pointer; border-bottom: 1px solid var(--rule); }
+.work-item:hover { background: var(--panel-2); }
+.work-item.on { background: var(--panel-2); box-shadow: inset 2px 0 0 var(--accent); }
+.work-item .dot { background: var(--faint); }
+.work-item .dot.ok { background: var(--ok); }
+.work-item .dot.needs_sign_in { background: var(--warn); }
+.work-item .dot.error { background: var(--danger); }
+.work-main { min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.work-main h3 { font-size: var(--text-sm); font-weight: 650; margin: 4px 0; }
+.work-caps { padding: 0 4px; }
+.alert.info { background: var(--blue-soft); color: var(--text); }
+.work-passages { gap: 10px; }
+.work-passage { border-left: 2px solid var(--rule); padding: 2px 0 2px 12px; }
+.work-passage .badge { margin-bottom: 4px; }
+.work-table-wrap { overflow: auto; max-height: 460px; border: 1px solid var(--border); }
+.work-table { border-collapse: collapse; width: 100%; font-size: var(--text-sm); }
+.work-table th, .work-table td { padding: 6px 10px; border-bottom: 1px solid var(--rule); text-align: left; vertical-align: top; }
+.work-table th { position: sticky; top: 0; background: var(--panel-2); color: var(--muted); font-size: var(--text-2xs); letter-spacing: var(--track); text-transform: uppercase; font-weight: 650; }
+.work-table tr.late td:first-child { box-shadow: inset 2px 0 0 var(--danger); }
+.work-table tr.done { color: var(--muted); }
+.work-chart { max-width: 100%; border: 1px solid var(--border); background: var(--bg); }
+.work-out { white-space: pre-wrap; font-family: var(--mono); font-size: var(--text-xs); background: var(--code-bg); padding: 10px 12px; margin: 0; overflow: auto; max-height: 360px; }
+.work-digest { background: var(--panel-2); padding: 14px 16px; border-left: 2px solid var(--accent); }
+.work-digest p { margin: 0 0 6px; }
+.work-watch { padding: 6px 0; border-bottom: 1px solid var(--rule); }
+.chip { display: inline-block; padding: 1px 8px; margin-right: 4px; border-radius: var(--radius-full); background: var(--panel-2); border: 1px solid var(--border); font-size: var(--text-2xs); }
+.chip.late { background: var(--danger-soft); color: var(--danger-text); border-color: transparent; }
+.chip.done { background: var(--ok-soft); color: var(--ok-text); border-color: transparent; }
+.redline { line-height: 1.6; }
+.redline del, .work del { color: var(--danger-text); background: var(--danger-soft); }
+.redline ins, .work ins { color: var(--ok-text); background: var(--ok-soft); text-decoration: underline; }
+.gantt { position: relative; display: flex; flex-direction: column; gap: 4px; padding: 8px 0; }
+.gantt-row { display: grid; grid-template-columns: minmax(120px, 220px) 1fr 110px; gap: 10px; align-items: center; font-size: var(--text-sm); }
+.gantt-track { position: relative; height: 14px; background: var(--panel-2); }
+.gantt-bar { position: absolute; top: 2px; height: 10px; background: var(--muted); border-radius: var(--radius-sm); }
+.gantt-bar.late { background: var(--danger); box-shadow: 0 0 0 1px var(--danger); }
+.gantt-bar.done { background: var(--ok); opacity: 0.6; }
+.gantt-when { text-align: right; }
+.math-block { overflow-x: auto; margin: 0.6em 0; }
+.gantt-now { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--accent); z-index: 1; }
+.gantt-key { gap: 6px; }
+.gantt-swatch { display: inline-block; width: 14px; height: 8px; background: var(--muted); margin-left: 8px; }
+.gantt-swatch.late { background: var(--danger); }
+.gantt-swatch.done { background: var(--ok); opacity: 0.6; }
+.gantt-swatch.now { width: 2px; background: var(--accent); }
+.work-helpers { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-bottom: 14px; }
+.work-helpers p { margin: 0; flex: 1 1 320px; }

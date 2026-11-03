@@ -1,0 +1,61 @@
+/* ==========================================================================
+   Motion. Three levels, chosen in Appearance and set as html[data-motion]:
+   full (default) · subtle (slower, fades only) · off (nothing moves).
+   The OS "reduce motion" setting always wins and behaves like off.
+   Only transform, opacity and a hairline stroke move.
+   ========================================================================== */
+:root { --tracer-speed: 2.4s; --lift: 2px; }
+:root[data-motion="subtle"] { --tracer-speed: 6.5s; --lift: 0px; }
+
+/* ---- Signature tracer: a cherry stroke with an ink tip running round the working element ---- */
+.has-tracer { position: relative; }
+.tracer { position: absolute; inset: -1px; pointer-events: none; z-index: 3; animation: fade-in var(--dur-slow) var(--ease-out) both; }
+.tracer svg { display: block; overflow: visible; }
+.tracer rect { fill: none; shape-rendering: geometricPrecision; }
+.tracer-base { stroke: var(--rule); stroke-width: 1; opacity: 0.14; }
+.tracer-dash { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 18 82; animation: tracer-run var(--tracer-speed) linear infinite; }
+.tracer-tip { stroke: var(--rule); stroke-width: 3; stroke-dasharray: 1.2 98.8; animation: tracer-tip var(--tracer-speed) linear infinite; }
+@keyframes tracer-run { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -100; } }
+@keyframes tracer-tip { from { stroke-dashoffset: -17; } to { stroke-dashoffset: -117; } }
+/* While the tracer runs, the element's own frame steps back to a hairline so the moving line reads */
+.has-tracer:has(> .tracer), .has-tracer:has(> .tracer):focus-within { border-color: var(--border); box-shadow: none; }
+:root[data-motion="subtle"] .tracer-dash { stroke-dasharray: 12 88; opacity: 0.8; }
+:root[data-motion="subtle"] .tracer-tip { display: none; }
+/* Off: a still cherry keyline says "working" without moving */
+:root[data-motion="off"] .tracer-dash { animation: none; stroke-dasharray: none; stroke-width: 1; }
+:root[data-motion="off"] .tracer-tip, :root[data-motion="off"] .tracer-base { display: none; }
+
+/* ---- Page turns and arrivals ---- */
+@keyframes page-turn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+:root[data-motion="full"] .route { animation: page-turn 260ms var(--ease-out) both; }
+:root[data-motion="subtle"] .route { animation: fade-in 200ms var(--ease-out) both; }
+:root[data-motion="full"] .card { animation: page-turn 280ms var(--ease-out) both; }
+:root[data-motion="full"] .grid > .card:nth-child(2) { animation-delay: 40ms; }
+:root[data-motion="full"] .grid > .card:nth-child(3) { animation-delay: 80ms; }
+:root[data-motion="full"] .grid > .card:nth-child(n + 4) { animation-delay: 120ms; }
+
+/* ---- Micro-interactions: hover lifts a hairline, press settles 1px ---- */
+.btn { transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), transform 90ms var(--ease-out); }
+:root:not([data-motion="off"]) .btn:active:not(:disabled) { transform: translateY(1px); }
+.card.lift { transition: border-color var(--dur) var(--ease-out), transform var(--dur) var(--ease-out); }
+.card.lift:hover { border-color: var(--text); }
+:root[data-motion="full"] .card.lift:hover { transform: translateY(calc(var(--lift) * -1)); }
+.list-item { transition: background-color var(--dur-fast) var(--ease-out); }
+.list-item > .grow { transition: transform var(--dur) var(--ease-out); }
+:root[data-motion="full"] a.list-item:hover > .grow, :root[data-motion="full"] button.list-item:hover > .grow { transform: translateX(3px); }
+.nav-link { transition: color var(--dur-fast) var(--ease-out); }
+:root[data-motion="full"] .nav-link.active::before { animation: dot-in 220ms var(--ease-out) both; }
+@keyframes dot-in { from { transform: scale(0); } to { transform: scale(1); } }
+
+/* ---- Off and OS reduced motion: keep state changes, drop all movement ---- */
+:root[data-motion="off"] *, :root[data-motion="off"] *::before, :root[data-motion="off"] *::after {
+  animation-duration: 1ms !important; animation-iteration-count: 1 !important; animation-delay: 0ms !important; transition-duration: 1ms !important;
+}
+:root[data-motion="off"] .skeleton, :root[data-motion="off"] .typing span, :root[data-motion="off"] .spin { animation: none !important; }
+@media (prefers-reduced-motion: reduce) {
+  .tracer-dash { animation: none !important; stroke-dasharray: none; stroke-width: 1; }
+  .tracer-tip, .tracer-base { display: none; }
+}
+
+/* Inside clipped lists the tracer sits on the row's own edge */
+.list-item > .tracer, .card.flush .tracer { inset: 0; }

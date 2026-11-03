@@ -12,6 +12,7 @@ ways. Wire formats follow the vendors' documentation and their generated SDK typ
 
 from __future__ import annotations
 
+import contextvars
 import json
 import os
 import re
@@ -24,14 +25,16 @@ from fastapi import HTTPException
 from . import db
 from .security import decrypt
 
-AUTH_KINDS = ("api_key", "oauth_subscription", "session_scraping_forbidden", "local_ollama", "openai_compatible")
-PROTOCOLS = ("responses", "chat_completions", "anthropic_messages", "ollama_native")
+AUTH_KINDS = ("api_key", "oauth_subscription", "session_scraping_forbidden", "local_ollama", "openai_compatible", "cli_subscription")
+PROTOCOLS = ("responses", "chat_completions", "anthropic_messages", "ollama_native", "cli_plan")
 ALLOWED = {
     "api_key": ("chat_completions", "responses", "anthropic_messages"),
     "oauth_subscription": ("responses",),  # Sign in with ChatGPT: plan usage covers Responses API requests only
     "session_scraping_forbidden": (),
     "local_ollama": ("ollama_native",),
     "openai_compatible": ("chat_completions",),
+    # The user's own signed-in Claude Code or Codex CLI, run on their computer (cli_agents.py explains why this shape)
+    "cli_subscription": ("cli_plan",),
 }
 # D7: shown to the user wherever such a connection would be created or used
 R5_REFUSAL = ("This connection type is refused under rule R5 (legitimate only): reusing a consumer web session or its "
@@ -39,15 +42,19 @@ R5_REFUSAL = ("This connection type is refused under rule R5 (legitimate only): 
               "the provider's official sign-in instead.")
 
 TIMEOUT = httpx.Timeout(connect=10, read=300, write=30, pool=10)
+LIST_TIMEOUT_S = 8  # a model list should be quick; a dead provider must not hold up every answer for long
 # Ollama's OpenAI endpoint (/v1) ignores num_ctx and runs at the server default (4096 tokens), silently cutting the
 # start of long prompts. Ollama is therefore spoken to natively, with an explicit window.
 OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "16384"))
+# A cap on one answer: small local models sometimes repeat themselves until the timeout (seen with qwen2.5 7B)
+OLLAMA_NUM_PREDICT = int(os.getenv("OLLAMA_NUM_PREDICT", "4096"))
 # Local models on a CPU need minutes per answer (qwen3:4b on 4 cores ran past 300 s)
 OLLAMA_TIMEOUT = httpx.Timeout(connect=10, read=float(os.getenv("OLLAMA_TIMEOUT_S", "900")), write=30, pool=10)
 ANTHROPIC_VERSION = "2023-06-01"  # the version in Anthropic's own Messages API example
 ANTHROPIC_MAX_TOKENS = 8192
 CHARS_PER_TOKEN = 3
-CLOUD_CONTEXT_CHARS = 300_000
+CLOUD_CONTEXT_CHARS = 300_000  # when the model catalog does not know the model
+MIN_CONTEXT_CHARS = 12_000
 THINK_RE = re.compile(r"<think>.*?</think>", re.S)
 
 
@@ -61,21 +68,62 @@ def validate(auth_kind: str, protocol: str) -> None:
         raise HTTPException(400, f"{auth_kind} connections speak {', '.join(ALLOWED[auth_kind])}, not {protocol!r}")
 
 
+class ProviderError(HTTPException):
+    """A provider call that failed, with what the smart router needs to decide on a fallback (router.py).
+
+    upstream: the provider's HTTP status (None when it never answered); kind: http | timeout | unreachable | quota.
+    retry_after: seconds the provider asked us to wait, when it said. body: the start of its error text (never logged
+    whole: some providers quote the key back).
+    """
+
+    def __init__(self, status_code: int, detail: str, upstream: int | None = None, kind: str = "http",
+                 retry_after: float | None = None, body: str = ""):
+        super().__init__(status_code, detail)
+        self.upstream, self.kind, self.retry_after, self.body = upstream, kind, retry_after, body
+
+
+# The router sets a dict here before a call; the transport writes the response's rate-limit headers into it
+CAPTURE: contextvars.ContextVar[dict | None] = contextvars.ContextVar("provider_capture", default=None)
+_LIMIT_HEADERS = re.compile(r"^(x-ratelimit-|anthropic-ratelimit-|ratelimit|retry-after$)", re.I)
+
+
+def _capture(headers) -> None:
+    box = CAPTURE.get()
+    if box is not None:
+        box["headers"] = {k.lower(): v for k, v in headers.items() if _LIMIT_HEADERS.match(k)}
+
+
+def retry_after(headers) -> float | None:
+    v = headers.get("retry-after") if headers else None
+    try:
+        return max(0.0, float(v)) if v is not None else None
+    except ValueError:
+        return None
+
+
+def error_event(conn: dict, status: int, text: str, headers=None) -> dict:
+    """A streaming error in the same terms as ProviderError, so the router can tell a quota from a crash."""
+    return {"error": f"{conn['name']} error {status}: {text[:400]}", "status": status, "retry_after": retry_after(headers),
+            "body": text[:400]}
+
+
 # Credentials, by auth_kind
 def credential(conn: dict) -> str:
     """The secret to send for this connection, or raise with the reason it cannot be used."""
     kind = conn["auth_kind"]
     if kind == "session_scraping_forbidden":
         raise HTTPException(403, R5_REFUSAL)
-    if kind == "local_ollama":
-        return ""
+    if kind in ("local_ollama", "cli_subscription"):
+        return ""  # a local server, or a CLI that holds its own sign-in: nothing for the app to send
     if kind == "oauth_subscription":
         return _oauth_access_token(conn)
     return decrypt(conn["secret_enc"])  # api_key, openai_compatible (key optional)
 
 
 def _oauth_access_token(conn: dict) -> str:
-    """Access token from the connection's token store. Refresh is item 101; until then an expired token needs sign-in."""
+    """Access token from the connection's token store, refreshed near expiry (Sign in with ChatGPT, siwc.py)."""
+    from . import siwc
+
     try:
         tokens = json.loads(decrypt(conn["secret_enc"]) or "{}")
     except ValueError:
@@ -83,6 +131,10 @@ def _oauth_access_token(conn: dict) -> str:
     expires = tokens.get("expires_at") or 0
     if tokens.get("access_token") and expires > time.time() + 30:
         return tokens["access_token"]
+    if tokens.get("refresh_token"):
+        fresh = siwc.refresh(conn, tokens)
+        if fresh:
+            return fresh
     db.run("UPDATE connections SET state = 'needs_auth', last_error = ? WHERE id = ?",
            "Sign-in expired or missing", conn["id"])
     raise HTTPException(401, f"{conn['name']} needs you to sign in again (Settings → Model providers).")
@@ -128,11 +180,13 @@ async def _post(conn: dict, url: str, body: dict, headers: dict, timeout: httpx.
         async with httpx.AsyncClient(timeout=timeout) as client:
             r = await client.post(url, headers=headers, json=body)
     except httpx.TimeoutException as e:
-        raise HTTPException(504, f"{conn['name']} did not answer within {int(timeout.read or 0)} s") from e
+        raise ProviderError(504, f"{conn['name']} did not answer within {int(timeout.read or 0)} s", kind="timeout") from e
     except httpx.HTTPError as e:
-        raise HTTPException(502, f"{conn['name']} unreachable: {e.__class__.__name__}") from e
+        raise ProviderError(502, f"{conn['name']} unreachable: {e.__class__.__name__}", kind="unreachable") from e
+    _capture(r.headers)
     if r.status_code >= 400:
-        raise HTTPException(502, f"{conn['name']} error {r.status_code}: {r.text[:400]}")
+        raise ProviderError(502, f"{conn['name']} error {r.status_code}: {r.text[:400]}", upstream=r.status_code,
+                            retry_after=retry_after(r.headers), body=r.text[:400])
     return r
 
 
@@ -140,9 +194,10 @@ async def _sse(conn: dict, url: str, body: dict, headers: dict, timeout: httpx.T
     """Server-sent events as parsed JSON payloads. An HTTP error becomes one {"error": ...} item."""
     async with httpx.AsyncClient(timeout=timeout) as client:
         async with client.stream("POST", url, headers=headers, json=body) as r:
+            _capture(r.headers)
             if r.status_code >= 400:
                 text = (await r.aread()).decode(errors="replace")
-                yield {"error": f"{conn['name']} error {r.status_code}: {text[:400]}"}
+                yield error_event(conn, r.status_code, text, r.headers)
                 return
             async for line in r.aiter_lines():
                 if not line.startswith("data:"):
@@ -167,10 +222,19 @@ class Protocol:
         return conn["base_url"].rstrip("/") + "/models"
 
     def parse_models(self, data: dict) -> list[str]:
+        if isinstance(data.get("models"), list) and not data.get("data"):  # Sign in with ChatGPT's per-account catalogue
+            return [m["slug"] for m in data["models"] if m.get("slug") and m.get("visibility", "list") == "list"]
         return [m["id"].removeprefix("models/") for m in data.get("data", []) if m.get("id")]
 
-    def context_chars(self, conn: dict) -> int:
-        return CLOUD_CONTEXT_CHARS
+    def context_chars(self, conn: dict, model: str = "") -> int:
+        """Prompt characters the model takes, a quarter of its window kept for the reply. From the model catalog when
+        it knows the model (a 32K model must not get 300K characters, a 1M model should not be cut at 300K)."""
+        from . import catalog
+
+        tokens = catalog.context_tokens(conn.get("base_url", ""), model) if model else None
+        if not tokens:
+            return CLOUD_CONTEXT_CHARS
+        return max(MIN_CONTEXT_CHARS, int(tokens * CHARS_PER_TOKEN * 0.75))
 
     async def chat(self, conn: dict, secret: str, model: str, messages: list[dict], tools: list[dict] | None,
                    schema: dict | None = None) -> dict:
@@ -213,6 +277,14 @@ class ChatCompletions(Protocol):
             body["response_format"] = {"type": "json_schema", "json_schema": {"name": schema["name"], "schema": schema["schema"], "strict": True}}
         if "openrouter.ai" in conn["base_url"]:
             body["usage"] = {"include": True}
+        on_text = ON_TEXT.get()
+        if on_text is not None and not schema:
+            try:
+                return await self._chat_streamed(conn, secret, body, on_text)
+            except ProviderError as e:
+                if e.upstream not in (400, 404, 415, 422):
+                    raise  # a server that refuses streaming with tools answers below the normal way
+
         data = (await _post(conn, f"{conn['base_url'].rstrip('/')}/chat/completions", body, self.headers(conn, secret), self.timeout)).json()
         msg = (data.get("choices") or [{}])[0].get("message") or {}
         calls = [_call(tc.get("id") or f"call_{i}", tc["function"]["name"], tc["function"].get("arguments") or "{}")
@@ -222,12 +294,47 @@ class ChatCompletions(Protocol):
                 "usage": {"prompt_tokens": u.get("prompt_tokens") or 0, "completion_tokens": u.get("completion_tokens") or 0,
                           **({"cost": u["cost"]} if isinstance(u.get("cost"), (int, float)) else {})}}
 
+    async def _chat_streamed(self, conn, secret, body: dict, on_text) -> dict:
+        """The same turn as chat(), read as a stream: answer text goes to on_text as it arrives (through a TextGate, for
+        models that print calls as text), tool calls are assembled from their pieces. Returns chat()'s shape."""
+        body = {**body, "stream": True, "stream_options": {"include_usage": True}}
+        gate, text, usage, calls = TextGate(), "", {}, {}
+        try:
+            async for chunk in _sse(conn, f"{conn['base_url'].rstrip('/')}/chat/completions", body, self.headers(conn, secret), self.timeout):
+                if "error" in chunk and not chunk.get("choices"):
+                    err = chunk["error"] if isinstance(chunk["error"], str) else json.dumps(chunk["error"])[:400]
+                    raise ProviderError(502, err, upstream=chunk.get("status"), retry_after=chunk.get("retry_after"),
+                                        body=chunk.get("body") or err)
+                if chunk.get("usage"):
+                    usage = chunk["usage"]
+                for choice in chunk.get("choices") or []:
+                    d = choice.get("delta") or {}
+                    if d.get("content"):
+                        text += d["content"]
+                        piece = gate.feed(d["content"])
+                        if piece:
+                            on_text(piece)
+                    for tc in d.get("tool_calls") or []:
+                        slot = calls.setdefault(tc.get("index", 0), {"id": "", "name": "", "arguments": ""})
+                        f = tc.get("function") or {}
+                        slot["id"] = tc.get("id") or slot["id"]
+                        slot["name"] += f.get("name") or ""
+                        slot["arguments"] += f.get("arguments") or ""
+        except httpx.TimeoutException as e:
+            raise ProviderError(504, f"{conn['name']} did not answer within {int(self.timeout.read or 0)} s", kind="timeout") from e
+        except httpx.HTTPError as e:
+            raise ProviderError(502, f"{conn['name']} unreachable: {e.__class__.__name__}", kind="unreachable") from e
+        out = [_call(c["id"] or f"call_{i}", c["name"], c["arguments"] or "{}") for i, c in sorted(calls.items()) if c["name"]]
+        return {"message": {"role": "assistant", "content": text, "tool_calls": out},
+                "usage": {"prompt_tokens": usage.get("prompt_tokens") or 0, "completion_tokens": usage.get("completion_tokens") or 0,
+                          **({"cost": usage["cost"]} if isinstance(usage.get("cost"), (int, float)) else {})}}
+
     async def stream(self, conn, secret, model, messages):
         usage: dict = {}
         async for chunk in _sse(conn, f"{conn['base_url'].rstrip('/')}/chat/completions", self._body(conn, model, messages, True),
                                 self.headers(conn, secret), self.timeout):
             if "error" in chunk and not chunk.get("choices"):
-                yield {"error": chunk["error"] if isinstance(chunk["error"], str) else json.dumps(chunk["error"])[:400]}
+                yield {**chunk, "error": chunk["error"] if isinstance(chunk["error"], str) else json.dumps(chunk["error"])[:400]}
                 return
             if chunk.get("usage"):
                 usage = chunk["usage"]
@@ -258,7 +365,7 @@ class OllamaNative(Protocol):
     def parse_models(self, data):
         return [m["name"] for m in data.get("models", []) if m.get("name")]
 
-    def context_chars(self, conn):
+    def context_chars(self, conn, model=""):
         return int(OLLAMA_NUM_CTX * CHARS_PER_TOKEN * 0.75)
 
     def convert(self, messages: list[dict]) -> list[dict]:
@@ -280,7 +387,7 @@ class OllamaNative(Protocol):
         return out
 
     def _body(self, model, messages, stream, tools=None, schema=None):
-        body: dict = {"model": model, "messages": self.convert(messages), "stream": stream, "options": {"num_ctx": OLLAMA_NUM_CTX}}
+        body: dict = {"model": model, "messages": self.convert(messages), "stream": stream, "options": {"num_ctx": OLLAMA_NUM_CTX, "num_predict": OLLAMA_NUM_PREDICT}}
         if tools:
             body["tools"] = tools
         if schema:
@@ -307,7 +414,7 @@ class OllamaNative(Protocol):
             async with client.stream("POST", self.root(conn) + "/api/chat", json=self._body(model, messages, True)) as r:
                 if r.status_code >= 400:
                     text = (await r.aread()).decode(errors="replace")
-                    yield {"error": f"{conn['name']} error {r.status_code}: {text[:400]}"}
+                    yield error_event(conn, r.status_code, text, r.headers)
                     return
                 async for line in r.aiter_lines():
                     try:
@@ -372,8 +479,11 @@ class Responses(Protocol):
         return {"prompt_tokens": u.get("input_tokens") or 0, "completion_tokens": u.get("output_tokens") or 0}
 
     async def chat(self, conn, secret, model, messages, tools, schema=None):
-        data = (await _post(conn, conn["base_url"].rstrip("/") + "/responses", self._body(model, messages, False, tools, schema),
-                            self.headers(conn, secret), self.timeout)).json()
+        if conn.get("auth_kind") == "oauth_subscription":  # ChatGPT plan usage: every request must be store:false, stream:true
+            data = await self._collect(conn, secret, model, messages, tools, schema)
+        else:
+            data = (await _post(conn, conn["base_url"].rstrip("/") + "/responses", self._body(model, messages, False, tools, schema),
+                                self.headers(conn, secret), self.timeout)).json()
         text, calls = "", []
         for item in data.get("output") or []:
             if item.get("type") == "message":
@@ -382,8 +492,41 @@ class Responses(Protocol):
                 calls.append(_call(item.get("call_id") or f"call_{len(calls)}", item["name"], item.get("arguments") or "{}"))
         return {"message": {"role": "assistant", "content": text, "tool_calls": calls}, "usage": self._usage(data.get("usage"))}
 
+    @staticmethod
+    def _failure(conn: dict, ev: dict) -> dict:
+        err = ev.get("error") or (ev.get("response") or {}).get("error") or ev
+        text = json.dumps(err)[:400]
+        code = err.get("code", "") if isinstance(err, dict) else ""
+        # Sign in with ChatGPT: the plan's usage limit can arrive mid stream (developers.openai.com/siwc, models-and-inference)
+        status = 429 if code in ("subscription_sharing_usage_limit_exceeded", "subscription_sharing_usage_unavailable",
+                                 "rate_limit_exceeded", "insufficient_quota") else 502
+        return {"error": f"{conn['name']}: {text}", "status": status, "body": text}
+
+    async def _collect(self, conn, secret, model, messages, tools, schema) -> dict:
+        """A whole answer read from the event stream: text, function calls and usage, complete only at response.completed."""
+        text, items, final = "", [], None
+        async for ev in _sse(conn, conn["base_url"].rstrip("/") + "/responses", self._body(model, messages, True, tools, schema),
+                             self.headers(conn, secret), self.timeout):
+            t = ev.get("type")
+            if "error" in ev and not t:
+                raise ProviderError(502, ev["error"], upstream=ev.get("status"), retry_after=ev.get("retry_after"), body=ev.get("body", ""))
+            if t == "response.output_text.delta":
+                text += ev.get("delta", "")
+            elif t == "response.output_item.done" and isinstance(ev.get("item"), dict):
+                items.append(ev["item"])
+            elif t == "response.completed":
+                final = ev.get("response") or {}
+            elif t in ("error", "response.failed", "response.incomplete"):
+                f = self._failure(conn, ev)
+                raise ProviderError(502, f["error"], upstream=f["status"], kind="quota" if f["status"] == 429 else "http", body=f["body"])
+        if final is None:
+            raise ProviderError(502, f"{conn['name']} stream ended before response.completed", kind="unreachable")
+        output = final.get("output") or items or ([{"type": "message", "content": [{"type": "output_text", "text": text}]}] if text else [])
+        return {"output": output, "usage": final.get("usage")}
+
     async def stream(self, conn, secret, model, messages):
         usage: dict = {}
+        completed = False
         async for ev in _sse(conn, conn["base_url"].rstrip("/") + "/responses", self._body(model, messages, True),
                              self.headers(conn, secret), self.timeout):
             t = ev.get("type")
@@ -393,11 +536,37 @@ class Responses(Protocol):
             if t == "response.output_text.delta":
                 yield {"delta": ev.get("delta", "")}
             elif t == "response.completed":
+                completed = True
                 usage = self._usage((ev.get("response") or {}).get("usage"))
-            elif t in ("error", "response.failed"):
-                yield {"error": json.dumps(ev.get("error") or (ev.get("response") or {}).get("error") or ev)[:400]}
+            elif t in ("error", "response.failed", "response.incomplete"):
+                yield self._failure(conn, ev)
                 return
+        if not completed and conn.get("auth_kind") == "oauth_subscription":
+            yield {"error": f"{conn['name']} stream ended before response.completed", "status": 502}
+            return
         yield {"done": True, "usage": usage}
+
+
+# Prompt caching (Anthropic Messages API): the system prompt, the tool list and the conversation so far are marked as
+# cache breakpoints (at most 4 are allowed; 3 are used). Later turns then reread them at a fraction of the input price
+# instead of paying in full on every call. Prompts under the model's minimum cacheable length are simply not cached.
+CACHE = {"type": "ephemeral"}
+
+
+def _cache_last_turn(msgs: list[dict]) -> None:
+    """Breakpoint on the newest message's last block, so the whole conversation before it is cached for the next turn."""
+    if msgs and isinstance(msgs[-1].get("content"), list) and msgs[-1]["content"]:
+        msgs[-1]["content"][-1] = {**msgs[-1]["content"][-1], "cache_control": CACHE}
+
+
+def _anthropic_usage(u: dict | None) -> dict:
+    """Prompt tokens include cache writes and reads (Anthropic reports them apart from input_tokens)."""
+    u = u or {}
+    written, read = u.get("cache_creation_input_tokens") or 0, u.get("cache_read_input_tokens") or 0
+    out = {"prompt_tokens": (u.get("input_tokens") or 0) + written + read, "completion_tokens": u.get("output_tokens") or 0}
+    if written or read:
+        out.update(cache_write_tokens=written, cache_read_tokens=read)
+    return out
 
 
 class AnthropicMessages(Protocol):
@@ -406,6 +575,10 @@ class AnthropicMessages(Protocol):
 
     def headers(self, conn, secret):
         return {"x-api-key": secret, "anthropic-version": ANTHROPIC_VERSION, "content-type": "application/json"}
+
+    def models_url(self, conn):
+        # GET /v1/models pages 20 at a time by default; limit=1000 takes the whole list in one call
+        return conn["base_url"].rstrip("/") + "/models?limit=1000"
 
     def convert(self, messages: list[dict]) -> tuple[str, list[dict]]:
         system, rest = _system_and_rest(messages)
@@ -442,10 +615,12 @@ class AnthropicMessages(Protocol):
         system, msgs = self.convert(messages)
         body: dict = {"model": model, "max_tokens": ANTHROPIC_MAX_TOKENS, "messages": msgs, "stream": stream}
         if system:
-            body["system"] = system
+            body["system"] = [{"type": "text", "text": system, "cache_control": CACHE}]
         if tools:
             body["tools"] = [{"name": t["function"]["name"], "description": t["function"].get("description", ""),
                               "input_schema": t["function"].get("parameters") or {"type": "object", "properties": {}}} for t in tools]
+            body["tools"][-1]["cache_control"] = CACHE
+        _cache_last_turn(msgs)
         if schema:  # the Messages API has no response_format: a forced tool with the schema as input is the documented route
             name = self.schema_tool(schema)
             body["tools"] = [*body.get("tools", []), {"name": name, "description": "Give the answer in this structure.",
@@ -461,9 +636,7 @@ class AnthropicMessages(Protocol):
         if schema:  # the forced tool's input is the structured answer
             forced = [c for c in calls if c["function"]["name"] == self.schema_tool(schema)]
             text, calls = (forced[0]["function"]["arguments"], []) if forced else (text, calls)
-        u = data.get("usage") or {}
-        return {"message": {"role": "assistant", "content": text, "tool_calls": calls},
-                "usage": {"prompt_tokens": u.get("input_tokens") or 0, "completion_tokens": u.get("output_tokens") or 0}}
+        return {"message": {"role": "assistant", "content": text, "tool_calls": calls}, "usage": _anthropic_usage(data.get("usage"))}
 
     async def stream(self, conn, secret, model, messages):
         usage = {"prompt_tokens": 0, "completion_tokens": 0}
@@ -474,7 +647,7 @@ class AnthropicMessages(Protocol):
                 yield ev
                 return
             if t == "message_start":
-                usage["prompt_tokens"] = ((ev.get("message") or {}).get("usage") or {}).get("input_tokens") or 0
+                usage.update(_anthropic_usage((ev.get("message") or {}).get("usage")), completion_tokens=0)
             elif t == "content_block_delta" and (ev.get("delta") or {}).get("type") == "text_delta":
                 yield {"delta": ev["delta"].get("text", "")}
             elif t == "message_delta":
@@ -485,7 +658,255 @@ class AnthropicMessages(Protocol):
         yield {"done": True, "usage": usage}
 
 
-_PROTOCOLS: dict[str, Protocol] = {p.name: p for p in (ChatCompletions(), OllamaNative(), Responses(), AnthropicMessages())}
+# How hard a plan's model thinks for this request: "", low, medium or high. Set by the /v1 bridge from the request's
+# reasoning_effort (the rooks terminal's /effort); empty means the plan's own default.
+EFFORT: "contextvars.ContextVar[str]" = contextvars.ContextVar("effort", default="")
+EFFORTS = ("low", "medium", "high")
+
+# Where a tool-using turn's answer text goes while it is still being written (set by the /v1 bridge for a streaming
+# request). Adapters that can stream call it with each piece; tool-call markup is held back (TextGate).
+ON_TEXT: "contextvars.ContextVar" = contextvars.ContextVar("on_text", default=None)
+
+
+class TextGate:
+    """Passes answer text through as it arrives and stops at the first tool-call markup, so a client sees the prose
+    the model writes before its tool calls, never the calls' raw XML or JSON."""
+    MARKS = ("<function_calls", "<invoke", "<tool_call")
+
+    def __init__(self):
+        self.sent, self.pending, self.closed = "", "", False
+
+    def feed(self, delta: str) -> str:
+        if self.closed or not delta:
+            return ""
+        self.pending += delta
+        cut = min((i for i in (self.pending.find(m) for m in self.MARKS) if i >= 0), default=-1)
+        if cut >= 0:
+            out, self.closed = self.pending[:cut], True
+        else:
+            lt = self.pending.rfind("<")
+            hold = lt >= 0 and any(m.startswith(self.pending[lt:]) for m in self.MARKS)
+            out = self.pending[:lt] if hold else self.pending
+        self.pending = self.pending[len(out):] if not self.closed else ""
+        self.sent += out
+        return out
+
+
+class CliPlan(Protocol):
+    """A chat turn answered by the user's own signed-in `claude` or `codex` CLI, so their Claude or ChatGPT plan pays.
+
+    The app never sees a token: it runs the unmodified binary in print mode with no tools of its own (Claude Code:
+    --tools ""; Codex: read-only sandbox) in an empty folder, sends the conversation on stdin and reads the answer.
+    The app's own tools are described in the prompt and a call comes back as <tool_call>{...}</tool_call> text, which
+    Adapter.chat already turns into a structured call. base_url is cli://claude or cli://codex.
+    """
+    name = "cli_plan"
+    timeout_s = 600
+
+    @staticmethod
+    def agent(conn: dict) -> str:
+        base = conn["base_url"].rstrip("/")
+        return "codex" if base.endswith("codex") else "copilot" if base.endswith("copilot") else "claude"
+
+    def models(self, conn: dict) -> list[str]:
+        # Claude Code takes these aliases for the newest model of each family (claude --help, --model)
+        return ["default", "sonnet", "opus", "haiku"] if self.agent(conn) == "claude" else ["default"]
+
+    def context_chars(self, conn, model=""):
+        return 400_000  # both CLIs manage their own window; this only bounds what the app sends in one turn
+
+    @staticmethod
+    def transcript(messages: list[dict], tools: list[dict] | None, xml: bool = False) -> tuple[str, str]:
+        """xml: ask for Claude's own tool-call format (Claude models slip out of a made-up one); both are parsed."""
+        system, rest = _system_and_rest(messages)
+        if tools and xml:
+            specs = "\n".join(json.dumps({"name": t["function"]["name"], "description": t["function"].get("description", ""),
+                                           "parameters": t["function"].get("parameters") or {}}) for t in tools)
+            system += ("\n\nYou can call these tools. To call them, write your calls in this format and stop; the results come "
+                       "back in the next message. Several calls may go in one reply.\n<function_calls>\n<invoke name=\"TOOL\">\n"
+                       "<parameter name=\"ARG\">value (JSON for arrays and objects)</parameter>\n</invoke>\n</function_calls>\n"
+                       "Tools:\n" + specs)
+        elif tools:
+            specs = "\n".join(json.dumps({"name": t["function"]["name"], "description": t["function"].get("description", ""),
+                                           "parameters": t["function"].get("parameters") or {}}) for t in tools)
+            system += ("\n\nYou can call these tools. To call one, reply with only <tool_call>{\"name\": ..., \"arguments\": "
+                       "{...}}</tool_call> (one per call) and nothing else; the result comes back in the next message.\n" + specs)
+        lines = []
+        for m in rest:
+            if m["role"] == "tool":
+                lines.append(f"TOOL RESULT ({m.get('tool_call_id', '')}):\n{_text(m.get('content'))}")
+            elif m["role"] == "assistant":
+                if xml and m.get("tool_calls"):
+                    calls = "\n<function_calls>\n" + "".join(
+                        f"<invoke name=\"{c['function']['name']}\">\n" + "".join(
+                            f"<parameter name=\"{k}\">{v if isinstance(v, str) else json.dumps(v)}</parameter>\n"
+                            for k, v in _json_args(c['function'].get('arguments')).items()) + "</invoke>\n"
+                        for c in m["tool_calls"]) + "</function_calls>"
+                else:
+                    calls = "".join(f"<tool_call>{json.dumps({'name': c['function']['name'], 'arguments': _json_args(c['function'].get('arguments'))})}</tool_call>"
+                                    for c in m.get("tool_calls") or [])
+                lines.append(f"ASSISTANT:\n{_text(m.get('content'))}{calls}")
+            else:
+                lines.append(f"USER:\n{_text(m.get('content'))}")
+        prompt = "\n\n".join(lines) if len(rest) > 1 else _text(rest[-1].get("content")) if rest else ""
+        if len(rest) > 1:
+            prompt = "The conversation so far. Reply as the assistant to the last message.\n\n" + prompt
+        return system, prompt
+
+    def argv(self, conn: dict, path: str, model: str, system: str) -> list[str]:
+        effort = EFFORT.get() if EFFORT.get() in EFFORTS else ""
+        if self.agent(conn) == "claude":
+            argv = [path, "-p", "--output-format", "json", "--tools", "", "--no-session-persistence"]
+            if effort:
+                argv += ["--effort", effort]
+            if system:
+                argv += ["--system-prompt", system]
+            # a chat backend, not a coding session: none of the user's hooks, plugins, skills, MCP servers or CLAUDE.md
+            # (a hook could otherwise run commands on every chat message), and only the tokens of this conversation
+            argv += ["--safe-mode", "--strict-mcp-config"]
+            return argv + (["--model", model] if model and model != "default" else [])
+        if self.agent(conn) == "copilot":
+            # one prompt, answer only, no tools and no built-in GitHub MCP server: a chat backend, not an agent
+            return [path, "-s", "--no-ask-user", "--no-color", "--stream", "off", "--available-tools=",
+                    "--disable-builtin-mcps", "--no-custom-instructions", "--model", model if model and model != "default" else "auto",
+                    *(["--reasoning-effort", effort] if effort else [])]
+        argv = [path, "exec", "--json", "--skip-git-repo-check", "--sandbox", "read-only", "--color", "never"]
+        if effort:
+            argv += ["-c", f'model_reasoning_effort="{effort}"']
+        return argv + (["-m", model] if model and model != "default" else []) + ["-"]
+
+    async def chat(self, conn, secret, model, messages, tools, schema=None):
+        import asyncio
+        import tempfile
+
+        from . import cli_agents
+
+        agent = self.agent(conn)
+        path = cli_agents.find_binary(agent)
+        if not path:
+            raise ProviderError(502, f"{cli_agents.AGENTS[agent]['name']} isn't installed on this computer "
+                                     f"({cli_agents.AGENTS[agent]['install']})", kind="unreachable")
+        system, prompt = self.transcript(messages, tools, xml=agent == "claude")
+        if schema:
+            system += f"\n\nAnswer with only JSON matching this schema, no other text:\n{json.dumps(schema['schema'])}"
+        if agent in ("codex", "copilot") and system:  # no system prompt flag: it leads the prompt
+            prompt = f"{system}\n\n{prompt}"
+        argv = self.argv(conn, path, model, system if agent == "claude" else "")
+        if agent == "copilot":  # takes the prompt as an argument, not on stdin
+            argv[1:1] = ["-p", prompt]
+            prompt = ""
+        on_text = ON_TEXT.get()
+        live = agent == "claude" and on_text is not None and not schema
+        if live:  # same answer, written out as it is produced
+            i = argv.index("--output-format")
+            argv[i + 1:i + 2] = ["stream-json", "--verbose", "--include-partial-messages"]
+        with tempfile.TemporaryDirectory(prefix="aiw-cli-") as empty:  # no project files, no CLAUDE.md, nothing to touch
+            try:
+                proc = await asyncio.create_subprocess_exec(*argv,
+                                                            cwd=empty, env=cli_agents.child_env(agent),
+                                                            stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+                                                            stderr=asyncio.subprocess.PIPE, limit=16 * 1024 * 1024)
+                if live:
+                    out, err = await asyncio.wait_for(self._read_live(proc, prompt, on_text), self.timeout_s)
+                else:
+                    out, err = await asyncio.wait_for(proc.communicate(prompt.encode()), self.timeout_s)
+            except asyncio.TimeoutError as e:
+                proc.kill()
+                raise ProviderError(504, f"{conn['name']} did not answer within {self.timeout_s} s", kind="timeout") from e
+            except OSError as e:
+                raise ProviderError(502, f"{conn['name']} could not start: {e}", kind="unreachable") from e
+        text, usage, error = self.parse(agent, out.decode(errors="replace"))
+        if agent == "copilot" and proc.returncode != 0 and not error:
+            error = err.decode(errors="replace").strip() or out.decode(errors="replace").strip()
+        if proc.returncode != 0 or error:
+            detail = (error or err.decode(errors="replace") or f"exit code {proc.returncode}")[:400]
+            limited = any(w in detail.lower() for w in ("usage limit", "rate limit", "limit reached", "quota"))
+            if agent == "copilot" and "monthly quota" in detail.lower():
+                detail = ("Your Copilot plan's premium requests for this month are used up. They reset on the 1st; "
+                          "until then the other connected models answer.")
+            signed_out = any(w in detail.lower() for w in ("not logged in", "login", "sign in", "authenticate"))
+            raise ProviderError(502, f"{conn['name']}: {detail}", upstream=429 if limited else (401 if signed_out else None),
+                                kind="quota" if limited else "http", body=detail)
+        return {"message": {"role": "assistant", "content": text, "tool_calls": []}, "usage": usage}
+
+    @staticmethod
+    async def _read_live(proc, prompt: str, on_text) -> tuple[bytes, bytes]:
+        """claude --output-format stream-json: hand each text delta to on_text (through a TextGate); the last line is
+        the same result object --output-format json prints, so parse() reads the answer and usage from it."""
+        import asyncio
+
+        proc.stdin.write(prompt.encode())
+        await proc.stdin.drain()
+        proc.stdin.close()
+        gate, last = TextGate(), b""
+        err_task = asyncio.ensure_future(proc.stderr.read())
+        while True:
+            line = await proc.stdout.readline()
+            if not line:
+                break
+            if line.strip():
+                last = line
+            try:
+                ev = json.loads(line)
+            except ValueError:
+                continue
+            e = ev.get("event") or {}
+            if ev.get("type") == "stream_event" and e.get("type") == "content_block_delta":
+                d = e.get("delta") or {}
+                if d.get("type") == "text_delta":
+                    piece = gate.feed(d.get("text") or "")
+                    if piece:
+                        on_text(piece)
+        await proc.wait()
+        return last, await err_task
+
+    @staticmethod
+    def parse(agent: str, out: str) -> tuple[str, dict, str]:
+        """(answer, usage, error) from the CLI's JSON output (Copilot: its plain answer with -s)."""
+        if agent == "copilot":
+            return out.strip(), {"prompt_tokens": 0, "completion_tokens": 0}, ""
+        if agent == "claude":
+            try:
+                d = json.loads(out.strip().splitlines()[-1]) if out.strip() else {}
+            except ValueError:
+                return "", {}, f"unreadable output: {out[:200]}"
+            u = d.get("usage") or {}
+            usage = {"prompt_tokens": (u.get("input_tokens") or 0) + (u.get("cache_creation_input_tokens") or 0)
+                     + (u.get("cache_read_input_tokens") or 0), "completion_tokens": u.get("output_tokens") or 0}
+            err = str(d.get("result") or d.get("subtype") or "error") if d.get("is_error") else ""
+            return str(d.get("result") or ""), usage, err
+        text, usage, err = "", {"prompt_tokens": 0, "completion_tokens": 0}, ""
+        for line in out.splitlines():  # codex exec --json: one event per line (same events cli_agents.parse_codex reads)
+            try:
+                ev = json.loads(line)
+            except ValueError:
+                continue
+            t = ev.get("type", "")
+            it = ev.get("item") or {}
+            if t == "item.completed" and it.get("type") == "agent_message":
+                text = it.get("text", "")
+            elif t == "turn.completed":
+                u = ev.get("usage") or {}
+                usage = {"prompt_tokens": int(u.get("input_tokens") or 0), "completion_tokens": int(u.get("output_tokens") or 0)}
+                err = ""
+            elif t in ("turn.failed", "error"):
+                e = ev.get("error")
+                err = (e.get("message") if isinstance(e, dict) else None) or ev.get("message") or "Codex reported an error"
+        return text, usage, err
+
+    def stream(self, conn, secret, model, messages):
+        async def gen():
+            try:
+                res = await self.chat(conn, secret, model, messages, None)
+            except ProviderError as e:
+                yield {"error": str(e.detail), "status": e.upstream, "body": e.body}
+                return
+            yield {"delta": res["message"]["content"]}
+            yield {"done": True, "usage": res["usage"]}
+        return gen()
+
+
+_PROTOCOLS: dict[str, Protocol] = {p.name: p for p in (ChatCompletions(), OllamaNative(), Responses(), AnthropicMessages(), CliPlan())}
 
 
 class Adapter:
@@ -493,6 +914,7 @@ class Adapter:
 
     def __init__(self, conn: dict):
         self.conn = conn
+        self.list_error = ""  # why the last model listing failed, for the user (never the provider's error body)
         self.protocol = _PROTOCOLS.get(conn["protocol"])
         if conn["auth_kind"] != "session_scraping_forbidden" and (self.protocol is None or conn["protocol"] not in ALLOWED.get(conn["auth_kind"], ())):
             raise HTTPException(400, f"Connection {conn['name']} has an invalid auth_kind/protocol pair")
@@ -507,34 +929,57 @@ class Adapter:
     def is_free(self, model: str) -> bool:
         return self.auth_kind == "local_ollama" or ("openrouter.ai" in self.conn["base_url"] and model.endswith(":free"))
 
-    def context_chars(self) -> int:
+    def context_chars(self, model: str = "") -> int:
         if self.auth_kind == "session_scraping_forbidden":
             raise HTTPException(403, R5_REFUSAL)
-        return self.protocol.context_chars(self.conn)
+        return self.protocol.context_chars(self.conn, model)
 
     def list_models(self) -> list[str]:
         """Models the endpoint lists plus the ones typed in by hand. A failed listing is not an error: manual ones remain."""
-        secret = credential(self.conn) if self.auth_kind != "oauth_subscription" else ""
+        try:
+            secret = credential(self.conn)
+        except HTTPException:
+            if self.auth_kind != "oauth_subscription":
+                raise
+            secret = ""  # signed out: typed-in models remain listed, a call then asks to sign in again
         manual = [m.strip() for m in (self.conn.get("models") or "").split(",") if m.strip()]
+        if isinstance(self.protocol, CliPlan):
+            return sorted(set(self.protocol.models(self.conn)) | set(manual))
         names: list[str] = []
-        if self.auth_kind != "oauth_subscription":  # plan tokens are for Responses requests only; models are typed in
+        if secret or self.auth_kind != "oauth_subscription":  # plan tokens list the account's own catalogue
             try:
-                r = httpx.get(self.protocol.models_url(self.conn), headers=self.protocol.headers(self.conn, secret), timeout=15)
+                r = httpx.get(self.protocol.models_url(self.conn), headers=self.protocol.headers(self.conn, secret), timeout=LIST_TIMEOUT_S)
+                if r.status_code in (401, 403):
+                    self.list_error = f"the key was rejected (HTTP {r.status_code})"
                 r.raise_for_status()
                 names = [n for n in self.protocol.parse_models(r.json()) if keep_model(self.conn["base_url"], n)]
-            except (httpx.HTTPError, ValueError, KeyError, TypeError):
-                names = []
+            except httpx.TimeoutException:
+                self.list_error = f"no model list within {LIST_TIMEOUT_S} s"
+            except httpx.HTTPStatusError as e:
+                self.list_error = self.list_error or f"model list failed (HTTP {e.response.status_code})"
+            except httpx.HTTPError as e:
+                self.list_error = f"unreachable ({e.__class__.__name__})"
+            except (ValueError, KeyError, TypeError):
+                self.list_error = "its model list could not be read"
         return sorted(set(names) | set(manual))
 
-    def probe(self) -> tuple[str, str]:
+    def probe(self, deep: bool = False) -> tuple[str, str]:
         """Health check (item 25): (ok | degraded | down, detail). Unlike list_models, a failure is reported, not hidden.
+        deep: also make one tiny chat request, which catches keys that list models but cannot chat.
 
         Only status codes are reported, never the provider's error body: some quote the rejected key back (R7).
         """
         secret = credential(self.conn)  # raises for a refused kind (R5) or an expired sign-in
         manual = [m.strip() for m in (self.conn.get("models") or "").split(",") if m.strip()]
-        if self.auth_kind == "oauth_subscription":  # no model listing on plan tokens; a valid token is the check
-            return "ok", f"signed in; {len(manual)} models typed in"
+        if isinstance(self.protocol, CliPlan):
+            from . import cli_agents
+
+            info = cli_agents.detect(self.protocol.agent(self.conn))
+            if not info["installed"] or not info["signed_in"]:
+                return "down", info["detail"]
+            if not deep:
+                return ("ok" if info["auth"] == "subscription" else "degraded"), info["detail"]
+            return self._answer_check(self.protocol.models(self.conn), info["detail"])
         try:
             r = httpx.get(self.protocol.models_url(self.conn), headers=self.protocol.headers(self.conn, secret), timeout=8)
         except httpx.HTTPError as e:
@@ -550,7 +995,33 @@ class Adapter:
         except (ValueError, KeyError, TypeError):
             return "degraded", "reachable, but its model list could not be read"
         n = len(set(names) | set(manual))
-        return ("ok", f"{n} model{'s' if n != 1 else ''}") if n else ("degraded", "reachable, but it lists no models")
+        if not n:
+            return "degraded", "reachable, but it lists no models"
+        listed = f"{n} model{'s' if n != 1 else ''}"
+        if not deep:
+            return "ok", listed
+        return self._answer_check(sorted(set(names) | set(manual)), listed)
+
+    def _answer_check(self, models: list[str], listed: str) -> tuple[str, str]:
+        """One tiny real request: a key can list models and still be refused for chat (no credit, no billing, no
+        access to the model). Costs a few tokens, so it runs when a key is added or checked, not on every page load."""
+        import asyncio
+
+        from . import router
+
+        model = router.choose_model(self.conn, models, "fast")
+        if not model:
+            return "degraded", f"{listed}, none of them a chat model"
+        try:
+            asyncio.run(self.protocol.chat(self.conn, credential(self.conn), model, [{"role": "user", "content": "Reply with OK."}], None))
+        except ProviderError as e:
+            reason = router.classify(e)[0]
+            if e.upstream in (401, 403):
+                return "down", f"lists models, but chat was refused: {reason} (HTTP {e.upstream})"
+            return "degraded", f"lists models, but a test answer from {model} failed: {reason}" + (f" (HTTP {e.upstream})" if e.upstream else "")
+        except HTTPException as e:
+            return "degraded", f"lists models, but a test answer from {model} failed: {e.detail}"
+        return "ok", f"{listed}; {model} answered"
 
     async def chat(self, model: str, messages: list[dict], tools: list[dict] | None = None, schema: dict | None = None) -> dict:
         """schema: {"name", "schema"} for structured output; the answer's content is then JSON text matching it."""
@@ -599,9 +1070,61 @@ def keep_model(base_url: str, model: str) -> bool:
 _TOOL_TAG_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.S)
 _FENCE_RE = re.compile(r"^```(?:json)?\s*(.*?)\s*```$", re.S)
 
+# Claude models (notably through the Claude Code plan) sometimes answer in Anthropic's own XML tool format instead of the
+# <tool_call> JSON they were asked for: <invoke name="tool"><parameter name="p">value</parameter></invoke>, optionally
+# inside <function_calls>. Parameter values are JSON when they parse (arrays, numbers), else text.
+_INVOKE_RE = re.compile(r"<(?:antml:)?invoke\s+name=[\"']([^\"']+)[\"'][^>]*>(.*?)(?:</(?:antml:)?invoke>|(?=<(?:antml:)?invoke\s)|\Z)", re.S)
+_PARAM_RE = re.compile(r"<(?:antml:)?parameter\s+name=[\"']([^\"']+)[\"'][^>]*>(.*?)(?:</(?:antml:)?parameter>|(?=<(?:antml:)?parameter\s)|(?=</(?:antml:)?invoke)|\Z)", re.S)
+# Names Claude models reach for out of habit (Claude Code's own tools), mapped to the offered tool that does the job.
+_TOOL_ALIASES = {"read": ("read_file", "read"), "view": ("read_file",), "cat": ("read_file",), "bash": ("run_command", "terminal", "shell"),
+                 "shell": ("run_command", "terminal"), "terminal": ("run_command",), "edit": ("edit_file", "patch"),
+                 "str_replace": ("edit_file",), "write": ("write_file",), "create": ("write_file",), "ls": ("list_files",),
+                 "glob": ("list_files", "search"), "grep": ("search",), "websearch": ("web_search",), "webfetch": ("web_fetch",),
+                 "todowrite": ("todo",), "agent": ("task",)}
+
+
+def _tool_name(name: str, tool_names: set[str]) -> str | None:
+    """The offered tool a call means: exact, then ignoring case and separators, then a habitual alias."""
+    if name in tool_names:
+        return name
+    norm = lambda n: re.sub(r"[^a-z]", "", n.lower())  # noqa: E731
+    by = {norm(t): t for t in tool_names}
+    if norm(name) in by:
+        return by[norm(name)]
+    for alias in _TOOL_ALIASES.get(norm(name), ()):
+        if alias in tool_names:
+            return alias
+    return None
+_WRAP_RE = re.compile(r"</?(?:antml:)?function_calls>")
+
+
+def _xml_calls(content: str, tool_names: set[str]) -> tuple[list[tuple[str, dict]], str]:
+    found, rest, seen = [], content, set()
+    for m in _INVOKE_RE.finditer(content):
+        rest = rest.replace(m.group(0), "")
+        name = _tool_name(m.group(1), tool_names)
+        if name is None:  # never a tool nobody offered
+            continue
+        args = {}
+        for p in _PARAM_RE.finditer(m.group(2)):
+            raw = p.group(2).strip()
+            try:
+                args[p.group(1)] = json.loads(raw)
+            except ValueError:
+                args[p.group(1)] = raw
+        key = (name, json.dumps(args, sort_keys=True))
+        if key not in seen:  # the same call repeated in one reply runs once
+            seen.add(key)
+            found.append((name, args))
+    return found, _WRAP_RE.sub("", rest).strip()
+
 
 def parse_text_tool_calls(content: str, tool_names: set[str]) -> tuple[list[dict], str]:
     """Returns (tool_calls, remaining_text). Empty list when the text holds no valid call to an offered tool."""
+    if "invoke" in content:
+        xml, left = _xml_calls(content, tool_names)
+        if xml:
+            return [_call(f"text_{i}", n, a) for i, (n, a) in enumerate(xml)], left
     candidates = [(m.group(0), m.group(1)) for m in _TOOL_TAG_RE.finditer(content)]
     if not candidates:
         stripped = content.strip()

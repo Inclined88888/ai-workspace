@@ -11,7 +11,7 @@ type Egress = { hours: number; local_only: boolean; external_requests: number; h
 
 const TONE = { ok: "ok", degraded: "warn", down: "danger", off: "" } as const;
 const LABEL = { ok: "Working", degraded: "Degraded", down: "Down", off: "Not set up" } as const;
-const GROUPS: [string, string][] = [["core", "Workbench"], ["model connection", "Model connections"], ["add-on", "Add-ons"], ["integration", "Integrations"]];
+const GROUPS: [string, string][] = [["core", "The app"], ["model connection", "Model connections"], ["add-on", "Add-ons"], ["integration", "Integrations"]];
 
 export default function Status() {
   const [report, setReport] = useState<Report | null>(null);
@@ -78,9 +78,9 @@ export default function Status() {
           <h3 className="muted small" style={{ margin: "0 0 6px" }}>Outbound connections, last {egress.hours} hours</h3>
           <div className={`alert ${egress.local_only ? "ok" : ""}`} style={{ marginBottom: 8 }}>
             {egress.local_only
-              ? "Local only: Workbench sent nothing beyond this machine or its private network."
+              ? "Local only: nothing was sent beyond this computer or your home network."
               : `${egress.external_requests} requests went to the internet, to ${egress.hosts.filter((h) => h.effect === "external").length} hosts.`}
-            <span className="small" style={{ marginLeft: 8, opacity: 0.8 }}>From the audit log of every connection Workbench makes. Pages the browser add-on visits are listed in its own job steps, not here.</span>
+            <span className="small" style={{ marginLeft: 8, opacity: 0.8 }}>From the log of every connection the app makes. Pages the browser add-on visits are listed in its own job steps, not here.</span>
           </div>
           {egress.hosts.length > 0 && (
             <div className="card flush">

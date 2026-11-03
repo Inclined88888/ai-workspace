@@ -6,6 +6,7 @@ A self hosted AI workspace in one light container. Start with the [README](../RE
 - [Security audit](AUDIT.md)
 - [Phase 0 gate](PHASE0-GATE.md)
 - [Releases](RELEASES.md)
+- [Connect Google and Microsoft (OAuth setup)](connect-google-microsoft.md)
 - Design notes: [run log and connections](design/0001-run-log-and-connections.md), [adapters](design/0002-adapters.md)
 
 ---
@@ -16,7 +17,7 @@ A self hosted AI workspace in one light container. Start with the [README](../RE
 
 ## Weight and footprint
 
-1. Core image is ~350 MB, not multi-GB.
+1. Core image is 248 MB (CI, unpacked layers), not multi-GB.
 2. ~100 MB RAM at idle, measured outside Docker.
 3. Runs comfortably on a €4 VPS.
 4. No GPU required for the core.
@@ -136,7 +137,7 @@ A self hosted AI workspace in one light container. Start with the [README](../RE
 ## Install and ops
 
 90. Install is one `curl | bash`.
-91. `install.sh` wraps everything in `main()`, so a cut-off download runs nothing.
+91. `install-server.sh` (the Docker server installer) wraps everything in `main()`, so a cut-off download runs nothing.
 92. OS and Docker checks with helpful prompts instead of silent failures.
 93. Tarball fallback when git is missing or is only the macOS stub.
 94. `setup.sh` is bash 3.2 compatible, so stock macOS works.

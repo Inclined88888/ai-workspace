@@ -27,3 +27,9 @@ The local config includes the terminal token, last conversation and any pending
 prompt: keep it private. Atomic writes create mode-0600 files before writing data.
 Server-side credentials are encrypted, but this client config and the deployment
 `.env` are protected by file permissions, not encryption.
+
+## Phone companion app
+
+The iPhone and Android app pairs with a one-time code from Settings → Phone and then uses a device token that reaches
+only `/api/mobile/*` (approvals, runs, chat, tasks, notes, attachments, push token). See `docs/mobile-pairing.md` for
+every route, the LAN listener, the relay interface and push setup.

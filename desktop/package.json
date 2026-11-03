@@ -1,0 +1,17 @@
+{
+  "name": "ai-workspace-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Native macOS / Windows / Linux shell for Workbench (Tauri v2 + frozen Python sidecar)",
+  "type": "module",
+  "scripts": {
+    "frontend": "npm --prefix ../workbench/frontend ci --no-audit --no-fund && npm --prefix ../workbench/frontend run build",
+    "sidecar": "node scripts/build-sidecar.mjs",
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.4"
+  }
+}

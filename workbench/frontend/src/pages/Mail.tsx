@@ -1,8 +1,8 @@
-import { ArrowLeft, Inbox, Loader2, Mail, PenSquare, RefreshCw, Reply, Search, Send, Sparkles, Trash2, X } from "lucide-react";
+import { ArrowLeft, Inbox, Loader2, Mail, PenSquare, RefreshCw, Reply, Search, PenLine, Send, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 import { api, stream } from "../api";
 import { Empty, ModelSelect, relTime, useModels, useToast } from "../util";
+import ConnectMailCalendar from "./ConnectMailCalendar";
 
 type Account = { id: number; name: string; email: string };
 type Summary = { uid: string; from: string; subject: string; date: string; unread: boolean };
@@ -51,7 +51,7 @@ function Composer({ account, initial, onClose, onSent }: { account: Account; ini
       <input className="input" placeholder="To" value={c.to} onChange={(e) => setC({ ...c, to: e.target.value })} />
       <input className="input" placeholder="Subject" value={c.subject} onChange={(e) => setC({ ...c, subject: e.target.value })} />
       <div className="row wrap">
-        <Sparkles size={15} className="prio-1" />
+        <PenLine size={15} className="prio-1" />
         <input className="input grow" style={{ minWidth: 180 }} placeholder="What should it say? e.g. 'accept, suggest Thursday 2pm'" value={intent} onChange={(e) => setIntent(e.target.value)} />
         <div style={{ width: 170 }}><ModelSelect value={model} onChange={setModel} models={models} /></div>
         <button className="btn" onClick={draft} disabled={drafting}>{drafting ? <Loader2 size={15} className="spin" /> : "Draft with AI"}</button>
@@ -98,7 +98,7 @@ export default function MailPage() {
 
   const open = async (uid: string) => {
     setCompose(null);
-    try { setMsg(await api<Message>(`/mail/${account!.id}/messages/${uid}`)); } catch (e) { toast.err(e); }
+    try { setMsg(await api<Message>(`/mail/${account!.id}/messages/${encodeURIComponent(uid)}`)); } catch (e) { toast.err(e); }
   };
   const reply = () => {
     if (!msg) return;
@@ -113,8 +113,9 @@ export default function MailPage() {
   if (!account) {
     return (
       <div className="page">
-        <Empty icon={<Mail size={28} />} title="No mail account connected" hint="Add an IMAP/SMTP account in Settings. Gmail and Outlook need an app password." />
-        <div className="row" style={{ justifyContent: "center" }}><Link className="btn primary" to="/settings#mail">Connect mail</Link></div>
+        <div style={{ maxWidth: 720, margin: "0 auto", width: "100%" }}>
+          <ConnectMailCalendar onChange={() => api<Account[]>("/mail/accounts").then((a) => { setAccounts(a); setAccount(a[0] ?? null); }).catch(() => undefined)} />
+        </div>
       </div>
     );
   }

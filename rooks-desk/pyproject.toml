@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rooks-desk"
+version = "0.1.0"
+description = "ai-workspace's computer-use agent: sees your screen, clicks, types, runs terminal commands and works with files in folders you allow, asking before anything risky"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+# Screenshots: mss (all platforms). Input: pynput on macOS and Windows, python-xlib (XTest) on Linux/X11.
+# Accessibility trees: pyobjc on macOS (AX), uiautomation on Windows (UI Automation), AT-SPI on Linux when the system
+# has pyatspi. Model calls, the HTTP API and the MCP server/client are standard library.
+dependencies = [
+  "mss>=9",
+  "Pillow>=10",
+  "pynput>=1.7; sys_platform == 'darwin' or sys_platform == 'win32'",
+  "python-xlib>=0.33; sys_platform == 'linux'",
+  "pyobjc-framework-Quartz>=10; sys_platform == 'darwin'",
+  "pyobjc-framework-ApplicationServices>=10; sys_platform == 'darwin'",
+  "uiautomation>=2.0.20; sys_platform == 'win32'",
+]
+classifiers = ["Environment :: Console", "Operating System :: MacOS", "Operating System :: Microsoft :: Windows", "Operating System :: POSIX :: Linux"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+rooks-desk = "rooks_desk.cli:main"
+
+[tool.setuptools]
+packages = ["rooks_desk", "rooks_desk.backends"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["gui: needs a real display (Xvfb on Linux); skipped without one"]

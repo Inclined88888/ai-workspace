@@ -2,6 +2,8 @@ import asyncio
 import json
 import os
 import secrets
+import time
+from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -13,7 +15,8 @@ from .adapters import ALLOWED, validate
 from .db import OFFICIAL_HOSTS
 from .redact import redact, redact_obj
 from .security import (
-    COOKIE, check_session, decrypt, encrypt, hash_password, make_session, require_user, throttle, verify_password,
+    COOKIE, check_session, decrypt, encrypt, forget_connection_secret, hash_password, make_session, require_user,
+    store_connection_secret, throttle, verify_password,
 )
 
 public = APIRouter(prefix="/api")
@@ -37,26 +40,32 @@ def sse(gen):
     return StreamingResponse(body(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
+from .security import set_session_cookie
+
 def _login(response: Response) -> None:
-    response.set_cookie(
-        COOKIE, make_session(), max_age=config.SESSION_DAYS * 86400, httponly=True, samesite="lax",
-        secure=config.COOKIE_SECURE, path="/",
-    )
+    set_session_cookie(response, make_session())
 
 
 # Status, setup, auth
 @public.get("/status")
 def status(request: Request):
+    signed_in = check_session(request.cookies.get(COOKIE))
     return {
         "setup_complete": db.get_setting("setup_complete") == "1",
-        "signed_in": check_session(request.cookies.get(COOKIE)),
+        "signed_in": signed_in,
+        # Docker installs get the same first-run "Choose how to think" screen while no model is connected
+        "needs_models": bool(signed_in) and not db.one("SELECT id FROM connections WHERE enabled = 1 LIMIT 1"),
         "setup_code_required": bool(SETUP_CODE),
         "workspace_name": db.get_setting("workspace_name", config.WORKSPACE_NAME),
         "chat_url": config.CHAT_URL,
         "paperclip_url": config.PAPERCLIP_URL,
         "hermes_url": config.HERMES_URL,
         "browser_enabled": bool(config.BROWSER_URL and config.BROWSER_API_KEY),
+        "desk_enabled": bool(config.DESK_URL and config.DESK_API_KEY),
         "local_models_enabled": bool(config.OLLAMA_URL),
+        "desktop": config.DESKTOP,
+        "welcome_done": db.get_setting("desktop_welcome_done") == "1",
+        "welcome_pending": db.get_setting("desktop_welcome_done") == "0",
     }
 
 
@@ -64,6 +73,8 @@ class SetupIn(BaseModel):
     password: str = Field(..., min_length=10, max_length=200)
     setup_code: str = ""
     workspace_name: str = Field("", max_length=80)
+    timezone: str = Field("", max_length=64)  # the browser's zone, used when the server can't tell (Docker: UTC)
+
 
 
 @public.post("/setup")
@@ -74,12 +85,83 @@ def setup(data: SetupIn, request: Request, response: Response):
     if SETUP_CODE and not secrets.compare_digest(data.setup_code.strip(), SETUP_CODE):
         raise HTTPException(403, "Setup code is wrong. It is printed by setup.sh and stored as SETUP_CODE in .env")
     db.set_setting("password_hash", hash_password(data.password))
+    if db.get_setting("desktop_welcome_done") != "1":
+        db.set_setting("desktop_welcome_done", "0")  # a brand new workspace: everyone gets the first-run welcome
     if data.workspace_name.strip():
         db.set_setting("workspace_name", data.workspace_name.strip())
+    if data.timezone and config.TIMEZONE == "UTC" and not db.get_setting("timezone", ""):
+        try:
+            from zoneinfo import ZoneInfo
+            ZoneInfo(data.timezone)
+            db.set_setting("timezone", data.timezone)
+        except Exception:  # noqa: BLE001 - a zone this server doesn't know: keep the default
+            pass
     db.set_setting("setup_complete", "1")
     services.local_calendar_id()
     _login(response)
     return {"ok": True}
+
+
+# Desktop app: the native shell owns the machine and the window, so there is no password. On each launch it starts
+# this backend with a fresh random WORKBENCH_DESKTOP_TOKEN and opens /api/desktop/session?token=... in its own window.
+@public.get("/desktop/session")
+def desktop_session(token: str, request: Request):
+    from fastapi.responses import RedirectResponse
+
+    if not config.DESKTOP or not config.DESKTOP_TOKEN or not secrets.compare_digest(token, config.DESKTOP_TOKEN):
+        throttle(request.client.host if request.client else "?")
+        raise HTTPException(403, "Desktop session is only available inside the desktop app")
+    if db.get_setting("setup_complete") != "1":
+        db.set_setting("password_hash", hash_password(secrets.token_urlsafe(32)))  # never typed: the window is the login
+        db.set_setting("setup_complete", "1")
+        services.local_calendar_id()
+    target = "/" if db.get_setting("desktop_welcome_done") == "1" else "/welcome"
+    response = RedirectResponse(target, status_code=303)
+    _login(response)
+    return response
+
+
+# The launcher (`ai-workspace`) opens the app in a Chrome/Edge window. Putting the launch token on that browser's command
+# line would show it to other local users (ps), so the launcher trades it for a one-time code that expires in two
+# minutes, and opens /api/desktop/handoff?code=... instead.
+HANDOFF_TTL = 120
+_handoffs: dict[str, float] = {}
+
+
+@public.post("/desktop/handoff")
+def desktop_handoff_code(request: Request):
+    import time
+
+    auth = request.headers.get("authorization", "")
+    token = auth.removeprefix("Bearer ").strip()
+    if not config.DESKTOP or not config.DESKTOP_TOKEN or not secrets.compare_digest(token, config.DESKTOP_TOKEN):
+        throttle(request.client.host if request.client else "?")
+        raise HTTPException(403, "Only the AI Workspace launcher can ask for a sign-in code")
+    now = time.monotonic()
+    for c, exp in list(_handoffs.items()):
+        if exp < now:
+            _handoffs.pop(c, None)
+    code = secrets.token_urlsafe(24)
+    _handoffs[code] = now + HANDOFF_TTL
+    return {"code": code, "expires_in": HANDOFF_TTL}
+
+
+@public.get("/desktop/handoff")
+def desktop_handoff(code: str, request: Request):
+    import time
+
+    from fastapi.responses import HTMLResponse
+
+    exp = _handoffs.pop(code, None)
+    if exp is None or exp < time.monotonic():
+        throttle(request.client.host if request.client else "?")
+        return HTMLResponse(
+            '<!doctype html><meta charset="utf-8"><title>AI Workspace</title>'
+            '<body style="font:16px -apple-system,system-ui,sans-serif;max-width:34em;margin:4em auto;color:#222">'
+            "<h2>This sign-in link has already been used or has expired</h2>"
+            "<p>Close this window and open AI Workspace again (run <code>ai-workspace</code> in a terminal, "
+            "or click AI Workspace in Applications / the Start menu).</p></body>", status_code=403)
+    return desktop_session(config.DESKTOP_TOKEN, request)
 
 
 class LoginIn(BaseModel):
@@ -117,6 +199,19 @@ def change_password(data: PasswordIn, response: Response):
     return {"ok": True}
 
 
+@api.post("/desktop/welcome-done")
+def desktop_welcome_done():
+    db.set_setting("desktop_welcome_done", "1")
+    return {"ok": True}
+
+
+@api.get("/desktop/info")
+def desktop_info():
+    from . import keychain
+
+    return {"desktop": config.DESKTOP, "data_dir": str(config.DATA_DIR), "secret_backend": keychain.backend_name()}
+
+
 # Settings and providers
 @api.get("/settings")
 def get_settings():
@@ -139,7 +234,7 @@ def put_settings(data: SettingsIn):
         db.set_setting("workspace_name", data.workspace_name.strip() or config.WORKSPACE_NAME)
     if data.default_model is not None:
         if data.default_model:
-            llm.split_ref(data.default_model)
+            llm.check_ref(data.default_model)
         db.set_setting("default_model", data.default_model)
     return get_settings()
 
@@ -154,6 +249,7 @@ def _provider_out(c: dict) -> dict:
 def providers():
     """Model connections (one per provider account or local server). See adapters.py for auth kinds and protocols."""
     return {"providers": [_provider_out(c) for c in db.all("SELECT * FROM connections ORDER BY id")], "presets": llm.PRESETS,
+            "key_info": llm.KEY_INFO,
             "auth_kinds": {k: list(v) for k, v in ALLOWED.items() if k != "session_scraping_forbidden"}}
 
 
@@ -166,7 +262,7 @@ class ProviderIn(BaseModel):
     auth_kind: str | None = Field(None, max_length=40)
     protocol: str | None = Field(None, max_length=40)
     kind: Literal["openai", "anthropic", "ollama"] | None = None
-    base_url: str = Field(..., pattern=r"^https?://", max_length=300)
+    base_url: str = Field(..., pattern=r"^(https?://|cli://(claude|codex)/?$)", max_length=300)
     api_key: str | None = Field(None, max_length=500)
     models: str = Field("", max_length=2000)
     enabled: bool = True
@@ -180,6 +276,8 @@ class ProviderIn(BaseModel):
         validate(auth or "", proto or "")
         if auth == "oauth_subscription":
             raise HTTPException(400, "Subscription connections are created by signing in with the provider (item 101), not by pasting a token.")
+        if (auth == "cli_subscription") != self.base_url.startswith("cli://"):
+            raise HTTPException(400, "A plan CLI connection uses cli://claude or cli://codex, and only it can")
         return auth, proto
 
 
@@ -189,9 +287,10 @@ def add_provider(data: ProviderIn):
     cid = db.run(
         "INSERT INTO connections(name, auth_kind, protocol, base_url, secret_enc, models, enabled, residency, created_at) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        data.name, auth, proto, data.base_url.rstrip("/"), encrypt(data.api_key or ""), data.models, int(data.enabled),
+        data.name, auth, proto, data.base_url.rstrip("/"), "", data.models, int(data.enabled),
         "local" if auth == "local_ollama" else "cloud", db.now(),
     )
+    store_connection_secret(cid, data.api_key or "")
     return _provider_out(db.one("SELECT * FROM connections WHERE id = ?", cid))
 
 
@@ -205,20 +304,180 @@ def edit_provider(pid: int, data: ProviderIn):
            data.name, auth, proto, data.base_url.rstrip("/"), data.models, int(data.enabled),
            "local" if auth == "local_ollama" else "cloud", pid)
     if data.api_key is not None and auth != "oauth_subscription":
-        db.run("UPDATE connections SET secret_enc = ? WHERE id = ?", encrypt(data.api_key), pid)
+        store_connection_secret(pid, data.api_key)
     llm._model_cache.pop(pid, None)
     return _provider_out(db.one("SELECT * FROM connections WHERE id = ?", pid))
 
 
 @api.delete("/providers/{pid}")
 def delete_provider(pid: int):
+    old = db.one("SELECT secret_enc FROM connections WHERE id = ?", pid)
+    if old:
+        forget_connection_secret(old["secret_enc"])
     db.run("DELETE FROM connections WHERE id = ?", pid)
+    db.run("DELETE FROM settings WHERE key = ?", f"image_model:{pid}")  # ids are reused: never hand it to the next connection
     llm._model_cache.pop(pid, None)
     return {"ok": True}
 
 
+class KeyIn(BaseModel):
+    api_key: str = Field(..., min_length=8, max_length=500)
+    preset: str | None = Field(None, max_length=40)
+    base_url: str | None = Field(None, pattern=r"^https?://", max_length=300)
+    save: bool = False
+
+
+def _key_connection(data: KeyIn) -> tuple[str, dict]:
+    preset = data.preset or llm.detect_key(data.api_key)
+    if not preset or preset not in llm.PRESETS or llm.PRESETS[preset]["auth_kind"] == "local_ollama":
+        raise HTTPException(400, "That doesn't look like a key we know. Pick the provider, then paste it again.")
+    p = llm.PRESETS[preset]
+    return preset, {"id": 0, "name": p["name"], "auth_kind": p["auth_kind"], "protocol": p["protocol"],
+                    "base_url": (data.base_url or p["base_url"]).rstrip("/"), "secret_enc": encrypt(data.api_key.strip()),
+                    "models": "", "state": "connected", "enabled": 1}
+
+
+@api.post("/providers/detect")
+def detect_key(data: KeyIn):
+    """Which provider a pasted key is for, from its shape. The key is not sent anywhere."""
+    preset = llm.detect_key(data.api_key)
+    return {"preset": preset, "name": llm.PRESETS[preset]["name"] if preset else None}
+
+
+@api.post("/providers/validate")
+def validate_key(data: KeyIn):
+    """Checks a pasted key against the provider's model list before anything is saved; with save, connects it.
+
+    Only the outcome is returned, never the provider's error text (some quote the key back)."""
+    from .adapters import Adapter
+
+    preset, conn = _key_connection(data)
+    try:
+        health, detail = Adapter(conn).probe(deep=True)
+    except HTTPException as e:
+        health, detail = "down", str(e.detail)
+    out = {"preset": preset, "name": conn["name"], "ok": health != "down", "health": health, "detail": detail}
+    if out["ok"] and data.save:
+        same = db.one("SELECT id FROM connections WHERE base_url = ? AND auth_kind = ?", conn["base_url"], conn["auth_kind"])
+        cid = same["id"] if same else db.run(
+            "INSERT INTO connections(name, auth_kind, protocol, base_url, secret_enc, residency, created_at) VALUES (?, ?, ?, ?, '', 'cloud', ?)",
+            conn["name"], conn["auth_kind"], conn["protocol"], conn["base_url"], db.now())
+        db.run("UPDATE connections SET enabled = 1, state = 'connected', last_error = '' WHERE id = ?", cid)
+        store_connection_secret(cid, data.api_key.strip())
+        llm._model_cache.pop(cid, None)
+        out["provider"] = _provider_out(db.one("SELECT * FROM connections WHERE id = ?", cid))
+    return out
+
+
+@api.get("/router")
+def router_status():
+    """The smart router: routing order, the fast and strong model each provider would use, quota and cool-downs."""
+    from . import router
+
+    return router.status()
+
+
+class RouterIn(BaseModel):
+    order: list[int] | None = None
+    disabled: list[int] | None = None
+    models: dict[str, dict[str, str]] | None = None
+    local_fallback: bool | None = None
+
+
+@api.put("/router")
+def router_save(data: RouterIn):
+    from . import router
+
+    router.save_settings(data.model_dump())
+    return router.status()
+
+
+@api.post("/router/reset/{cid}")
+def router_reset(cid: int):
+    """Try a provider again now, even though it said to wait."""
+    from . import router
+
+    router.reset(cid)
+    return router.status()
+
+
+class ChatGPTStartIn(BaseModel):
+    account: str | None = Field(None, max_length=200)
+
+
+@api.post("/auth/chatgpt/start")
+async def chatgpt_start(data: ChatGPTStartIn | None = None):
+    """Sign in with ChatGPT (OpenAI's official flow for open-source apps). Open the URL in the system browser."""
+    from . import siwc
+
+    return await siwc.start((data.account if data else None), listen=True)
+
+
+@api.get("/auth/chatgpt/status/{state}")
+def chatgpt_status(state: str):
+    from . import siwc
+
+    return siwc.status(state)
+
+
+class CallbackIn(BaseModel):
+    url: str = Field(..., min_length=10, max_length=8000)
+
+
+@api.post("/auth/chatgpt/complete")
+async def chatgpt_complete(data: CallbackIn):
+    """Finish a sign-in from a pasted callback URL (when the browser can't reach this computer's 127.0.0.1)."""
+    from . import siwc
+
+    res = await siwc.complete(data.url)
+    if res.get("connection_id"):
+        llm._model_cache.pop(res["connection_id"], None)
+    return res
+
+
+@api.post("/auth/chatgpt/signout/{cid}")
+def chatgpt_signout(cid: int):
+    from . import siwc
+
+    conn = db.one("SELECT * FROM connections WHERE id = ? AND auth_kind = 'oauth_subscription'", cid)
+    if not conn:
+        raise HTTPException(404, "No ChatGPT sign-in with that id")
+    llm._model_cache.pop(cid, None)
+    return siwc.sign_out(conn)
+
+
+@api.get("/auth/subscriptions")
+def subscriptions():
+    """Which plan sign-ins exist, and an honest reason for each one that isn't offered."""
+    return {"options": SUBSCRIPTIONS}
+
+
+SUBSCRIPTIONS = [
+    {"id": "chatgpt", "name": "ChatGPT", "plans": "Free, Go, Plus, Pro, Business", "available": True,
+     "detail": "OpenAI lets open-source apps use your ChatGPT plan through its official sign-in. Usage counts against your "
+               "plan's limits, shared with your other apps.",
+     "source": "https://developers.openai.com/siwc/token-sharing-open-source"},
+    {"id": "claude", "name": "Claude", "plans": "Pro, Max, Team, Enterprise", "available": True, "via": "claude_code",
+     "detail": "Through Claude Code, Anthropic's own app: one click sets it up and opens Anthropic's sign-in. Chat and coding "
+               "then run on your plan. Your password never passes through this app.",
+     "source": "https://code.claude.com/docs/en/legal-and-compliance"},
+    {"id": "copilot", "name": "GitHub Copilot", "plans": "Pro, Pro+, Business, Enterprise", "available": True, "via": "copilot_cli",
+     "detail": "Through GitHub's own Copilot CLI: one click sets it up and opens GitHub's sign-in. Each answer uses your "
+               "plan's monthly premium requests.",
+     "source": "https://docs.github.com/en/copilot/how-tos/set-up/install-copilot-cli"},
+    {"id": "grok", "name": "Grok", "plans": "SuperGrok", "available": False,
+     "detail": "Not available yet. xAI only offers SuperGrok sign-in to partner apps so far, with no public sign-up for "
+               "other apps. Use an xAI API key for now.",
+     "source": "https://x.ai/news/grok-hermes"},
+    {"id": "gemini", "name": "Gemini", "plans": "Google AI Pro, Ultra", "available": False,
+     "detail": "Not available. Google doesn't allow other apps to use Gemini CLI or Antigravity sign-ins. A free AI Studio "
+               "key gives you Gemini anyway.",
+     "source": "https://github.com/google-gemini/gemini-cli/discussions/20632"},
+]
+
+
 @api.get("/models")
-def models(fresh: bool = False):
+def models(fresh: bool = False, all: bool = False):  # noqa: A002 - the query parameter's name
     try:
         default = llm.default_model_ref()
     except HTTPException:
@@ -226,7 +485,11 @@ def models(fresh: bool = False):
     from .receipts import reliability
 
     stats = reliability()
-    return {"models": [m | {"reliability": stats.get(m["ref"])} for m in llm.list_models(fresh)], "default": default}
+    every = llm.list_models(fresh)
+    shown = every if all else [m for m in every if m.get("chat", True) or m["ref"] == default]
+    plans = {c["id"] for c in db.all("SELECT id FROM connections WHERE base_url LIKE 'cli://%'")}  # take a thinking level
+    return {"models": [m | {"reliability": stats.get(m["ref"]), "effort": m.get("provider_id") in plans} for m in shown],
+            "default": default, "hidden": len(every) - len(shown)}
 
 
 @api.get("/ollama/status")
@@ -389,7 +652,7 @@ def calendars():
 
 class CalendarIn(BaseModel):
     name: str = Field(..., min_length=1, max_length=80)
-    kind: Literal["ics", "caldav", "local"]
+    kind: Literal["ics", "caldav", "local", "google", "microsoft", "mac"]  # google/microsoft/mac come from Connect, edits only
     url: str = Field("", max_length=1000)
     username: str = Field("", max_length=200)
     password: str | None = Field(None, max_length=500)
@@ -399,6 +662,8 @@ class CalendarIn(BaseModel):
 
 @api.post("/calendars")
 async def add_calendar(data: CalendarIn):
+    if data.kind in ("google", "microsoft", "mac"):
+        raise HTTPException(400, "Use Connect Google or Connect Microsoft in Settings to add that calendar")
     if data.kind != "local" and not data.url.startswith(("http://", "https://", "webcal://")):
         raise HTTPException(400, "Calendar URL must start with https://, http:// or webcal://")
     cid = db.run(
@@ -427,6 +692,9 @@ def edit_calendar(cid: int, data: CalendarIn):
 
 @api.delete("/calendars/{cid}")
 def delete_calendar(cid: int):
+    c = db.one("SELECT kind FROM calendars WHERE id = ?", cid)
+    if c and c["kind"] in ("google", "microsoft"):
+        raise HTTPException(400, "This calendar comes from a connected account. Turn it off, or disconnect the account.")
     db.run("DELETE FROM calendars WHERE id = ?", cid)
     return {"ok": True}
 
@@ -476,6 +744,66 @@ def mail_accounts():
     return [{k: v for k, v in a.items() if k != "password_enc"} for a in db.all("SELECT * FROM mail_accounts ORDER BY id")]
 
 
+class MacMailIn(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)   # the account's name in Apple Mail
+    email: str = Field(..., min_length=3, max_length=320)
+
+
+@api.get("/mail/mac")
+async def mac_mail_accounts():
+    """Mail accounts signed in on this Mac (Internet Accounts), for "Use the sign-in on this Mac"."""
+    from . import mac_mail
+
+    if not mac_mail.available():
+        return {"available": False, "accounts": []}
+    try:
+        found = await asyncio.to_thread(mac_mail.accounts)
+    except HTTPException as e:
+        return {"available": True, "accounts": [], "error": e.detail}
+    have = {(a["username"], a["email"].lower()) for a in db.all("SELECT username, email FROM mail_accounts WHERE kind = 'mac'")}
+    return {"available": True, "accounts": [a | {"connected": any((a["name"], e.lower()) in have for e in a["emails"])} for a in found]}
+
+
+@api.post("/mail/mac")
+async def mac_mail_connect(data: MacMailIn):
+    from . import mac_mail
+
+    found = next((a for a in await asyncio.to_thread(mac_mail.accounts) if a["name"] == data.name), None)
+    if not found or data.email.lower() not in {e.lower() for e in found["emails"]}:
+        raise HTTPException(404, f"{data.email} isn't signed in on this Mac. Add it in System Settings > Internet Accounts.")
+    if not found["enabled"]:
+        raise HTTPException(400, f"Mail is switched off for {data.email} on this Mac. In System Settings > Internet Accounts, "
+                                 "open the account and turn on Mail, then try again.")
+    await asyncio.to_thread(mac_mail.list_messages, {"username": data.name}, "INBOX", 1)  # proves access (macOS asks once)
+    row = db.one("SELECT id FROM mail_accounts WHERE kind = 'mac' AND lower(email) = lower(?)", data.email)
+    if row:
+        return {"id": row["id"]}
+    aid = db.run("INSERT INTO mail_accounts(name, email, imap_host, imap_port, smtp_host, smtp_port, smtp_security, username, "
+                 "password_enc, kind) VALUES (?, ?, 'apple-mail', 0, 'apple-mail', 0, 'ssl', ?, '', 'mac')",
+                 data.email.split("@")[0], data.email, data.name)
+    return {"id": aid}
+
+
+@api.post("/mail/mac/settings")
+def mac_mail_settings():
+    """Open System Settings > Internet Accounts, where the user signs in with the provider's normal page."""
+    import subprocess
+
+    from . import mac_mail
+
+    if not mac_mail.available():
+        raise HTTPException(400, "Only on a Mac")
+    subprocess.Popen(["open", "x-apple.systempreferences:com.apple.Internet-Accounts-Settings.extension"])
+    return {"ok": True}
+
+
+@api.get("/mail/autodetect")
+async def mail_autodetect(email: str):
+    from . import mail_autodetect as autodetect
+
+    return await asyncio.to_thread(autodetect.detect, email)
+
+
 class MailAccountIn(BaseModel):
     name: str = Field(..., min_length=1, max_length=120)
     email: str = Field(..., pattern=r"^[^@\s]+@[^@\s]+$")
@@ -491,7 +819,15 @@ class MailAccountIn(BaseModel):
 @api.post("/mail/accounts")
 async def add_mail_account(data: MailAccountIn):
     row = data.model_dump(exclude={"password"}) | {"password_enc": encrypt(data.password)}
-    await asyncio.to_thread(mail.test, row)
+    try:
+        await asyncio.to_thread(mail.test, row)
+    except HTTPException:
+        # iCloud accepts the bare name before the @ when the full address is refused; try that once before giving up
+        local = row["username"].split("@", 1)[0]
+        if "@" not in row["username"] or row["imap_host"] != "imap.mail.me.com":
+            raise
+        row["username"] = local
+        await asyncio.to_thread(mail.test, row)
     aid = db.run(
         "INSERT INTO mail_accounts(name, email, imap_host, imap_port, smtp_host, smtp_port, smtp_security, username, password_enc) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -503,6 +839,9 @@ async def add_mail_account(data: MailAccountIn):
 
 @api.delete("/mail/accounts/{aid}")
 def delete_mail_account(aid: int):
+    a = db.one("SELECT kind FROM mail_accounts WHERE id = ?", aid)
+    if a and a["kind"] in ("google", "microsoft"):
+        raise HTTPException(400, "This inbox comes from a connected account. Disconnect it in Settings under Connect your mail & calendar.")
     db.run("DELETE FROM mail_accounts WHERE id = ?", aid)
     return {"ok": True}
 
@@ -512,7 +851,7 @@ async def mail_list(aid: int, folder: str = "INBOX", q: str = ""):
     return await asyncio.to_thread(mail.list_messages, _account(aid), folder, 50, q)
 
 
-@api.get("/mail/{aid}/messages/{uid}")
+@api.get("/mail/{aid}/messages/{uid:path}")
 async def mail_get(aid: int, uid: str, folder: str = "INBOX"):
     return await asyncio.to_thread(mail.get_message, _account(aid), uid, folder)
 
@@ -572,7 +911,7 @@ class ResearchIn(BaseModel):
 @api.post("/research")
 def start_research(data: ResearchIn):
     model = data.model or llm.default_model_ref()
-    llm.split_ref(model)
+    llm.check_ref(model)
     now = db.now()
     rid = db.run("INSERT INTO research(question, model, created_at, updated_at) VALUES (?, ?, ?, ?)", data.question, model, now, now)
     task = asyncio.get_running_loop().create_task(research.run(rid, data.question, model, data.depth))
@@ -633,3 +972,36 @@ async def calendar_loop():
 def recover_interrupted():
     db.run("UPDATE research SET status = 'error', error = 'Interrupted by a restart', progress = 'Failed' WHERE status = 'running'")
 
+
+# Reliability status. Fallback, parking and limits live in the smart router (router.py); these read its real state.
+@api.get("/compression/status")
+def compression_status():
+    """Compression totals, and model call failures the router recovered from or reported, by reason (last 7 days)."""
+    since = datetime.fromtimestamp(time.time() - 7 * 86400, timezone.utc).isoformat(timespec="seconds")
+    return {
+        "compressions": db.one("SELECT COUNT(*) as c, SUM(original_tokens) as orig, SUM(compressed_tokens) as comp FROM compressions"),
+        "recoveries": db.all("SELECT failure_reason AS error_type, COUNT(*) AS count FROM actions WHERE kind = 'model_call' "
+                             "AND failure_reason != '' AND ts >= ? GROUP BY failure_reason ORDER BY count DESC", since),
+    }
+
+
+@api.get("/credentials/status")
+def credentials_status():
+    """Every connection's health, never its key. Several keys for one provider are several connections in the router."""
+    from . import router
+
+    rows = []
+    for c in db.all("SELECT * FROM connections WHERE auth_kind != 'session_scraping_forbidden' ORDER BY id"):
+        q = router.quota(c)
+        rows.append({"id": c["id"], "name": c["name"], "provider": router.profile(c).get("label", c["name"]), "enabled": bool(c["enabled"]),
+                     "state": c["state"], "last_error": c["last_error"], "cooling_until": q.get("cooling_until"),
+                     "cooling_reason": q.get("cooling_reason")})
+    return {"connections": rows}
+
+
+@api.get("/ratelimit/status")
+def ratelimit_status():
+    """Requests used, limits the providers reported, and cool-downs, per connection (the router's own counters)."""
+    from . import router
+
+    return {"connections": [{"id": c["id"], "name": c["name"], **router.quota(c)} for c in router.ordered_connections()]}

@@ -1,7 +1,10 @@
-import { ChevronLeft, ChevronRight, Loader2, Plus, RefreshCw, Trash2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2, Plus, RefreshCw, Settings2, Trash2, X } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { api, Calendar, CalEvent } from "../api";
 import { fmtTime, localDateISO, useToast } from "../util";
+
+const KIND_LABEL: Record<string, string> = { local: "Local", ics: "ICS subscription", caldav: "CalDAV", google: "Google Calendar", microsoft: "Outlook Calendar" };
 
 function eventDays(ev: CalEvent): [string, string] {
   if (ev.all_day) {
@@ -83,7 +86,9 @@ function AddCalendar({ onClose, onAdded }: { onClose: () => void; onAdded: () =>
 
 function AddEvent({ date, calendars, onClose, onAdded }: { date: string; calendars: Calendar[]; onClose: () => void; onAdded: () => void }) {
   const writable = calendars.filter((c) => c.kind !== "ics" && c.enabled);
-  const [form, setForm] = useState({ title: "", date, startTime: "09:00", endTime: "10:00", all_day: false, location: "", description: "", calendar_id: writable[0]?.id ?? 0 });
+  const [form, setForm] = useState({ title: "", date, startTime: "09:00", endTime: "10:00", all_day: false, location: "", description: "", attendees: "", calendar_id: writable[0]?.id ?? 0 });
+  const target = writable.find((c) => c.id === form.calendar_id);
+  const canInvite = !!target && ["google", "microsoft", "caldav"].includes(target.kind);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const submit = async (e: FormEvent) => {
@@ -96,6 +101,7 @@ function AddEvent({ date, calendars, onClose, onAdded }: { date: string; calenda
       await api("/events", {
         body: {
           title: form.title, all_day: form.all_day, location: form.location, description: form.description, calendar_id: form.calendar_id || null,
+          attendees: canInvite ? form.attendees.split(/[,;\s]+/).filter((a) => a.includes("@")) : [],
           start: form.all_day ? form.date : iso(form.startTime), end: form.all_day ? localDateISO(next) : iso(form.endTime),
         },
       });
@@ -127,9 +133,10 @@ function AddEvent({ date, calendars, onClose, onAdded }: { date: string; calenda
         <input className="input" placeholder="Location" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} />
         <textarea className="input" rows={3} placeholder="Description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
         <select className="input" value={form.calendar_id} onChange={(e) => setForm({ ...form, calendar_id: Number(e.target.value) })}>
-          {writable.map((c) => <option key={c.id} value={c.id}>{c.name}{c.kind === "caldav" ? " (CalDAV)" : ""}</option>)}
+          {writable.map((c) => <option key={c.id} value={c.id}>{c.name}{c.kind === "caldav" ? " (CalDAV)" : c.kind === "google" ? " (Google)" : c.kind === "microsoft" ? " (Microsoft)" : ""}</option>)}
         </select>
-        <button className="btn primary" disabled={busy}>{busy ? <Loader2 size={16} className="spin" /> : "Create event"}</button>
+        {canInvite && <input className="input" placeholder="Invite people (emails, comma separated): they get an invitation" value={form.attendees} onChange={(e) => setForm({ ...form, attendees: e.target.value })} />}
+        <button className="btn primary" disabled={busy}>{busy ? <Loader2 size={16} className="spin" /> : canInvite && form.attendees.includes("@") ? "Create and send invitations" : "Create event"}</button>
       </form>
     </div>
   );
@@ -246,11 +253,13 @@ export default function CalendarPage() {
                 <input type="checkbox" checked={!!c.enabled} onChange={() => toggle(c)} style={{ accentColor: c.color }} />
                 <div className="grow">
                   <div className="truncate">{c.name}</div>
-                  <div className="faint small truncate">{c.kind === "local" ? "Local" : c.kind === "ics" ? "ICS subscription" : "CalDAV"}{c.last_synced ? ` · synced ${new Date(c.last_synced).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}</div>
+                  <div className="faint small truncate">{KIND_LABEL[c.kind] ?? c.kind}{c.last_synced ? ` · synced ${new Date(c.last_synced).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}</div>
                   {c.last_error && <div className="small" style={{ color: "var(--danger)" }}>{c.last_error}</div>}
                 </div>
                 {c.kind !== "local" && <button className="btn ghost sm icon" onClick={() => sync(c)} title="Sync now">{syncing === c.id ? <Loader2 size={13} className="spin" /> : <RefreshCw size={13} />}</button>}
-                <button className="btn ghost sm icon" onClick={() => removeCal(c)} title="Remove"><Trash2 size={13} /></button>
+                {c.kind === "google" || c.kind === "microsoft"
+                  ? <Link className="btn ghost sm icon" to="/settings#mail" title="Connected account: manage in Settings"><Settings2 size={13} /></Link>
+                  : <button className="btn ghost sm icon" onClick={() => removeCal(c)} title="Remove"><Trash2 size={13} /></button>}
               </div>
             ))}
           </div>

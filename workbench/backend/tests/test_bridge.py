@@ -74,13 +74,29 @@ def test_models_and_default(client, sdk):
     assert sdk.chat.completions.create(model="default", messages=[{"role": "user", "content": "hi"}]).choices[0].message.content == "plain answer"
 
 
-def test_streaming_is_refused_plainly(client, monkeypatch):
+def test_streaming_text_and_tool_calls(client, sdk):
+    """stream: true speaks OpenAI's chunk format: text token by token, a tool call whole in one chunk, usage last."""
+    from conftest import tool_call
+
+    chunks = list(sdk.chat.completions.create(model="default", stream=True, messages=[{"role": "user", "content": "hi"}]))
+    assert "".join(c.choices[0].delta.content or "" for c in chunks if c.choices)
+    assert chunks[-1].usage is not None and not chunks[-1].choices
+    SCRIPT[:] = [tool_call("read_file", {"path": "a.py"}, "c1")]
+    tools = [{"type": "function", "function": {"name": "read_file", "description": "read", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}}}}]
+    chunks = list(sdk.chat.completions.create(model="default", stream=True, tools=tools, messages=[{"role": "user", "content": "read a.py"}]))
+    calls = [tc for c in chunks if c.choices for tc in (c.choices[0].delta.tool_calls or [])]
+    assert calls[0].function.name == "read_file" and json.loads(calls[0].function.arguments) == {"path": "a.py"}
+    assert [c.choices[0].finish_reason for c in chunks if c.choices][-1] == "tool_calls"
+
+
+def test_the_terminal_access_token_opens_the_bridge(client, monkeypatch):
+    """setup.sh tells people to use Settings > Terminal access for the terminal; the rooks agent speaks /v1, so it works."""
     from app import config
 
     monkeypatch.setattr(config, "BROWSER_API_KEY", BRIDGE_KEY)
-    r = client.post("/v1/chat/completions", json={"model": "default", "stream": True, "messages": [{"role": "user", "content": "hi"}]},
-                    headers={"Authorization": f"Bearer {BRIDGE_KEY}"})
-    assert r.status_code == 400 and "Streaming" in r.json()["detail"]
+    token = client.post("/api/cli-token").json()["token"]
+    assert client.get("/v1/models", headers={"Authorization": f"Bearer {token}"}).status_code == 200
+    assert client.get("/v1/models", headers={"Authorization": "Bearer not-the-token"}).status_code == 401
 
 
 def test_browse_tool_runs_the_browser_on_the_conversations_model(client, fake_url, monkeypatch):
@@ -96,3 +112,18 @@ def test_browse_tool_runs_the_browser_on_the_conversations_model(client, fake_ur
     ev = events(client.post("/api/assistant/chat", json={"message": "check the hours", "model": f"{client.pid}/fake-model"}))
     assert next(e for e in ev if e["type"] == "tool_result")["ok"]
     assert BROWSER_JOBS == [{"goal": "find the opening hours", "max_steps": 5, "provider": "workbench", "model": f"{client.pid}/fake-model"}]
+
+
+def test_rooks_code_gets_a_local_coder_model_when_ollama_only(monkeypatch):
+    from app import llm
+
+    monkeypatch.setattr(llm, "default_model_ref", lambda: "1/qwen2.5:7b")
+    monkeypatch.setattr(llm, "_connection", lambda cid: {"id": cid, "auth_kind": "local_ollama"})
+    monkeypatch.setattr(llm, "list_models_for", lambda cid, fresh=False: [
+        {"ref": "1/qwen2.5:7b", "model": "qwen2.5:7b"}, {"ref": "1/qwen2.5-coder:7b", "model": "qwen2.5-coder:7b"}])
+    assert llm.local_coder_ref() == "1/qwen2.5-coder:7b"
+    monkeypatch.setattr(llm, "default_model_ref", lambda: "auto")
+    assert llm.local_coder_ref() is None
+    monkeypatch.setattr(llm, "default_model_ref", lambda: "1/qwen2.5:7b")
+    monkeypatch.setattr(llm, "_connection", lambda cid: {"id": cid, "auth_kind": "api_key"})
+    assert llm.local_coder_ref() is None

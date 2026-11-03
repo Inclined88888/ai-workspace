@@ -79,7 +79,12 @@ def _connection(c: dict):
 async def connections() -> list[dict]:
     conns = db.all("SELECT * FROM connections WHERE enabled = 1 ORDER BY id")
     results = await asyncio.gather(*(_timed(c["name"], "model connection", _connection(c)) for c in conns))
+    from . import router
+
     for c, r in zip(conns, results):
+        q = router.quota(c)
+        if r["status"] == "ok" and q.get("cooling_reason"):  # lists models, but real requests are failing right now
+            r.update(status="degraded", detail=f"{r['detail']}; resting: {q['cooling_reason']} until {q['cooling_until']}")
         if r["status"] == "ok":
             db.run("UPDATE connections SET last_ok_at = ?, last_error = '' WHERE id = ?", db.now(), c["id"])
         else:
@@ -108,6 +113,8 @@ async def addons() -> list[dict]:
         out.append(await _http("Browser agent", "add-on", f"{config.BROWSER_URL}/healthz"))
     else:
         out.append(_result("Browser agent", "add-on", "off", "add-on not enabled"))
+    if config.DESK_URL and config.DESK_API_KEY:
+        out.append(await _http("Computer use (Rooks Desk)", "add-on", f"{config.DESK_URL}/healthz"))
     p = search.provider()
     if p == "searxng":
         out.append(await _http("Web search (SearXNG)", "add-on", f"{config.SEARXNG_URL}/healthz"))

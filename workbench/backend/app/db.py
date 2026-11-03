@@ -37,6 +37,23 @@ CREATE TABLE IF NOT EXISTS connections (
   created_at TEXT NOT NULL
 );
 
+-- Smart router (router.py): per connection usage today, the provider's own limit headers, and cool-downs after a 429
+CREATE TABLE IF NOT EXISTS router_state (
+  connection_id INTEGER PRIMARY KEY,
+  day TEXT NOT NULL DEFAULT '',                 -- the provider's quota day this row counts (its own reset time zone)
+  requests INTEGER NOT NULL DEFAULT 0,          -- answered requests on that day
+  tokens INTEGER NOT NULL DEFAULT 0,
+  limit_requests INTEGER,                       -- from x-ratelimit-limit-requests and the like, when sent
+  remaining_requests INTEGER,
+  limit_tokens INTEGER,
+  remaining_tokens INTEGER,
+  window TEXT NOT NULL DEFAULT '',              -- what the request numbers cover: day | minute
+  cooldown_until REAL NOT NULL DEFAULT 0,       -- unix time; skipped until then
+  cooldown_reason TEXT NOT NULL DEFAULT '',
+  last_ok_at TEXT,
+  last_error TEXT NOT NULL DEFAULT ''
+);
+
 CREATE TABLE IF NOT EXISTS docs (
   id INTEGER PRIMARY KEY,
   kind TEXT NOT NULL DEFAULT 'note',            -- note | document
@@ -85,7 +102,8 @@ CREATE TABLE IF NOT EXISTS calendars (
   color TEXT NOT NULL DEFAULT '#6366f1',
   enabled INTEGER NOT NULL DEFAULT 1,
   last_synced TEXT,
-  last_error TEXT
+  last_error TEXT,
+  linked_account_id INTEGER REFERENCES linked_accounts(id) ON DELETE CASCADE  -- kind google | microsoft
 );
 
 CREATE TABLE IF NOT EXISTS events (
@@ -113,7 +131,23 @@ CREATE TABLE IF NOT EXISTS mail_accounts (
   smtp_port INTEGER NOT NULL DEFAULT 465,
   smtp_security TEXT NOT NULL DEFAULT 'ssl',    -- ssl | starttls
   username TEXT NOT NULL,
-  password_enc TEXT NOT NULL
+  password_enc TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'imap',            -- imap | google | microsoft (connect.py)
+  linked_account_id INTEGER REFERENCES linked_accounts(id) ON DELETE CASCADE
+);
+
+-- Connect Google / Connect Microsoft (connect.py): one sign-in, tokens in the keychain or encrypted here
+CREATE TABLE IF NOT EXISTS linked_accounts (
+  id INTEGER PRIMARY KEY,
+  provider TEXT NOT NULL,                       -- google | microsoft
+  email TEXT NOT NULL,
+  name TEXT NOT NULL DEFAULT '',
+  scopes TEXT NOT NULL DEFAULT '',
+  secret_enc TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'connected',     -- connected | reauth
+  last_error TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS mail_drafts (
@@ -142,7 +176,7 @@ CREATE TABLE IF NOT EXISTS research (
 
 -- Assistant: conversations from every channel share one memory
 CREATE TABLE IF NOT EXISTS conversations (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   title TEXT NOT NULL DEFAULT 'New chat',
   channel TEXT NOT NULL DEFAULT 'web',          -- web | cli | telegram | schedule | agent
   external_id TEXT NOT NULL DEFAULT '',         -- telegram chat id, agent task id, ...
@@ -160,17 +194,25 @@ CREATE TABLE IF NOT EXISTS messages (
   role TEXT NOT NULL,                           -- user | assistant | tool
   content TEXT NOT NULL DEFAULT '',
   tool_calls TEXT NOT NULL DEFAULT '',          -- JSON (assistant)
+  attachments TEXT NOT NULL DEFAULT '',         -- JSON list of attachment metadata (user; attachments.py)
   tool_call_id TEXT NOT NULL DEFAULT '',        -- (tool)
   name TEXT NOT NULL DEFAULT '',                -- tool name (tool)
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS messages_conv ON messages(conversation_id, id);
-CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(content, content='messages', content_rowid='id', tokenize='porter unicode61');
+-- Chat search. Its own copy of the text (not content='messages'): only user and assistant messages are indexed, and an
+-- external-content index over a subset always fails PRAGMA integrity_check. Kept in step on insert, edit and delete
+-- (a streamed answer is written once, then updated with the final text). Rebuilt for older databases by migrate_v4.
+CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(content, tokenize='porter unicode61');
 CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages WHEN new.role IN ('user', 'assistant') BEGIN
   INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content);
 END;
-CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages WHEN old.role IN ('user', 'assistant') BEGIN
-  INSERT INTO messages_fts(messages_fts, rowid, content) VALUES ('delete', old.id, old.content);
+CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
+  DELETE FROM messages_fts WHERE rowid = old.id;
+END;
+CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE OF content, role ON messages BEGIN
+  DELETE FROM messages_fts WHERE rowid = old.id;
+  INSERT INTO messages_fts(rowid, content) SELECT new.id, new.content WHERE new.role IN ('user', 'assistant');
 END;
 
 CREATE TABLE IF NOT EXISTS memories (
@@ -204,6 +246,46 @@ CREATE TABLE IF NOT EXISTS skills (
   enabled INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
+);
+
+-- Skills from GitHub (skills_hub.py): reviewed candidates, installs, audit log, run-time permission requests
+CREATE TABLE IF NOT EXISTS hub_skills (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  kind TEXT NOT NULL DEFAULT 'skill',            -- skill (SKILL.md) | mcp (MCP server)
+  source_url TEXT NOT NULL,
+  owner TEXT NOT NULL,
+  repo TEXT NOT NULL,
+  path TEXT NOT NULL DEFAULT '',
+  ref TEXT NOT NULL DEFAULT '',
+  commit_sha TEXT NOT NULL,
+  status TEXT NOT NULL,                          -- reviewed | installed | disabled | rejected | superseded | uninstalled
+  risk TEXT NOT NULL DEFAULT 'low',
+  report TEXT NOT NULL DEFAULT '{}',
+  granted TEXT NOT NULL DEFAULT '{}',
+  update_of INTEGER,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  installed_at TEXT
+);
+CREATE TABLE IF NOT EXISTS skill_audit (
+  id INTEGER PRIMARY KEY,
+  hub_skill_id INTEGER,
+  skill_name TEXT NOT NULL DEFAULT '',
+  event TEXT NOT NULL,
+  detail TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS skill_permission_requests (
+  id INTEGER PRIMARY KEY,
+  hub_skill_id INTEGER NOT NULL,
+  kind TEXT NOT NULL,
+  target TEXT NOT NULL DEFAULT '',
+  what TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',        -- pending | allowed | denied
+  created_at TEXT NOT NULL,
+  decided_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS schedules (
@@ -258,6 +340,24 @@ CREATE TABLE IF NOT EXISTS agent_tasks (
   updated_at TEXT NOT NULL
 );
 
+-- Paired phones (mobile.py): one row per device. Only a hash of the device token is stored.
+CREATE TABLE IF NOT EXISTS devices (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL DEFAULT 'Phone',
+  platform TEXT NOT NULL DEFAULT '',            -- ios | android | web
+  token_hash TEXT NOT NULL UNIQUE,              -- sha256 of the device token
+  push_token TEXT NOT NULL DEFAULT '',          -- Expo push token; empty until the phone allows notifications
+  created_at TEXT NOT NULL,
+  last_seen TEXT
+);
+
+-- Short-lived pairing codes shown as a QR code in Settings; each is exchanged once for a device token.
+CREATE TABLE IF NOT EXISTS pairing_codes (
+  code_hash TEXT PRIMARY KEY,
+  expires_at REAL NOT NULL,                     -- unix seconds
+  used INTEGER NOT NULL DEFAULT 0
+);
+
 -- The run log (actions.py): every agent action is one row. Replaced usage, tool_runs, turn_checks and
 -- pending_actions in schema version 1 (see migrate_v1).
 CREATE TABLE IF NOT EXISTS actions (
@@ -294,6 +394,22 @@ CREATE INDEX IF NOT EXISTS actions_conversation ON actions(conversation_id);
 CREATE INDEX IF NOT EXISTS actions_parent ON actions(parent_action_id);
 -- a held tool call is answered at most once
 CREATE UNIQUE INDEX IF NOT EXISTS actions_one_decision ON actions(parent_action_id) WHERE kind = 'decision';
+
+-- MCP client (mcp_client.py): servers the user connected Workbench to. spec_json keeps the non-secret config
+-- (command/args/url/transport, non-secret env and headers); secret env/header values are encrypted in
+-- secret_enc like provider keys (security.py) and never leave the API.
+CREATE TABLE IF NOT EXISTS mcp_servers (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  transport TEXT NOT NULL DEFAULT 'stdio',      -- stdio | streamable_http | sse
+  url TEXT NOT NULL DEFAULT '',
+  command TEXT NOT NULL DEFAULT '',
+  enabled INTEGER NOT NULL DEFAULT 1,
+  spec_json TEXT NOT NULL DEFAULT '{}',
+  secret_enc TEXT NOT NULL DEFAULT '',
+  last_error TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
 """
 
 
@@ -314,7 +430,7 @@ def conn() -> sqlite3.Connection:
     return c
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 4
 LEGACY_LEDGERS = ("usage", "tool_runs", "turn_checks", "pending_actions")
 LEGACY_TABLES = (*LEGACY_LEDGERS, "providers")
 
@@ -335,7 +451,25 @@ def migrate(c: sqlite3.Connection, path) -> None:
         with sqlite3.connect(backup) as dest:
             c.backup(dest)
     c.executescript(SCHEMA)
-    steps = [(1, lambda: migrate_v1(c, [t for t in legacy if t in LEGACY_LEDGERS])), (2, lambda: migrate_v2(c, "providers" in legacy))]
+    ensure_columns(c)
+    steps = [
+        (1, lambda: migrate_v1(c, [t for t in legacy if t in LEGACY_LEDGERS])),
+        (2, lambda: migrate_v2(c, "providers" in legacy)),
+        (3, lambda: migrate_v3(c)),
+        (4, lambda: migrate_v4(c)),
+    ]
+    # Foreign keys off for the whole upgrade. SQLite ignores this pragma inside a transaction, so it has to be set
+    # here, before BEGIN: with keys on, a table rebuild's DROP TABLE is an implicit DELETE that cascades (migrate_v3
+    # would empty messages). Every step keeps ids, so no new dangling references can appear.
+    fk = c.execute("PRAGMA foreign_keys").fetchone()[0]
+    c.execute("PRAGMA foreign_keys=OFF")
+    try:
+        _run_steps(c, version, steps)
+    finally:
+        c.execute(f"PRAGMA foreign_keys={'ON' if fk else 'OFF'}")
+
+
+def _run_steps(c: sqlite3.Connection, version: int, steps: list) -> None:
     for target, step in steps:
         if version >= target:
             continue
@@ -348,6 +482,22 @@ def migrate(c: sqlite3.Connection, path) -> None:
             c.execute("ROLLBACK")
             raise
         version = target
+
+
+# Columns added after a table first shipped: added in place (idempotent), so no schema version bump is needed
+ADDED_COLUMNS = (
+    ("mail_accounts", "kind", "TEXT NOT NULL DEFAULT 'imap'"),
+    ("mail_accounts", "linked_account_id", "INTEGER REFERENCES linked_accounts(id) ON DELETE CASCADE"),
+    ("calendars", "linked_account_id", "INTEGER REFERENCES linked_accounts(id) ON DELETE CASCADE"),
+    ("messages", "attachments", "TEXT NOT NULL DEFAULT ''"),  # feat/attachments
+)
+
+
+def ensure_columns(c: sqlite3.Connection) -> None:
+    for table, column, decl in ADDED_COLUMNS:
+        have = {row[1] for row in c.execute(f"PRAGMA table_info({table})")}
+        if have and column not in have:
+            c.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
 
 
 def migrate_v1(c: sqlite3.Connection, legacy: list[str]) -> None:
@@ -423,6 +573,88 @@ def migrate_v2(c: sqlite3.Connection, has_providers: bool) -> None:
                   "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                   (p["id"], p["name"], auth, proto, p["base_url"], p["api_key_enc"], residency, p["models"], p["enabled"], p["created_at"]))
     c.execute("DROP TABLE providers")
+
+
+MESSAGES_FTS = (
+    "CREATE VIRTUAL TABLE messages_fts USING fts5(content, tokenize='porter unicode61')",
+    "CREATE TRIGGER messages_ai AFTER INSERT ON messages WHEN new.role IN ('user', 'assistant') BEGIN "
+    "INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content); END",
+    "CREATE TRIGGER messages_ad AFTER DELETE ON messages BEGIN DELETE FROM messages_fts WHERE rowid = old.id; END",
+    "CREATE TRIGGER messages_au AFTER UPDATE OF content, role ON messages BEGIN "
+    "DELETE FROM messages_fts WHERE rowid = old.id; "
+    "INSERT INTO messages_fts(rowid, content) SELECT new.id, new.content WHERE new.role IN ('user', 'assistant'); END",
+)
+
+
+def migrate_v4(c: sqlite3.Connection) -> None:
+    """Rebuild chat search. The old index borrowed its text from messages and had no update trigger, so a streamed
+    answer's final text was never searchable, deleting that message later corrupted the index, and PRAGMA
+    integrity_check always failed once tool messages existed. Same rows and ranking; messages itself is unchanged."""
+    for t in ("messages_ai", "messages_ad", "messages_au"):
+        c.execute(f"DROP TRIGGER IF EXISTS {t}")
+    c.execute("DROP TABLE IF EXISTS messages_fts")
+    for stmt in MESSAGES_FTS:  # one by one: executescript would COMMIT the upgrade's open transaction
+        c.execute(stmt)
+    c.execute("INSERT INTO messages_fts(rowid, content) SELECT id, content FROM messages WHERE role IN ('user', 'assistant')")
+
+
+def migrate_v3(c: sqlite3.Connection) -> None:
+    """Rebuild conversations table with AUTOINCREMENT to prevent ID reuse after deletion.
+
+    This migration is idempotent: if the table already has AUTOINCREMENT, it's a no-op.
+    Preserves all data, indexes, triggers, and foreign key relationships.
+    Seeds sqlite_sequence with max(id) so new IDs continue from the highest existing.
+    """
+    # Check if conversations table already has AUTOINCREMENT
+    table_info = c.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='conversations'").fetchone()
+    if table_info and "AUTOINCREMENT" in table_info[0].upper():
+        return  # already migrated
+
+    # Get max id for sqlite_sequence seeding
+    max_id = c.execute("SELECT COALESCE(MAX(id), 0) FROM conversations").fetchone()[0]
+
+    if c.execute("PRAGMA foreign_keys").fetchone()[0]:
+        raise RuntimeError("migrate_v3 needs foreign keys off (set before the transaction, see migrate)")
+    rows = c.execute("SELECT COUNT(*) FROM conversations").fetchone()[0]
+    # Create new table with AUTOINCREMENT
+    c.execute("""
+        CREATE TABLE conversations_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL DEFAULT 'New chat',
+            channel TEXT NOT NULL DEFAULT 'web',
+            external_id TEXT NOT NULL DEFAULT '',
+            agent_id INTEGER,
+            model TEXT NOT NULL DEFAULT '',
+            memory_cursor INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+    """)
+
+    # Copy data preserving IDs
+    c.execute("""
+        INSERT INTO conversations_new (id, title, channel, external_id, agent_id, model, memory_cursor, created_at, updated_at)
+        SELECT id, title, channel, external_id, agent_id, model, memory_cursor, created_at, updated_at
+        FROM conversations
+    """)
+
+    # Drop old table and rename new one
+    c.execute("DROP TABLE conversations")
+    c.execute("ALTER TABLE conversations_new RENAME TO conversations")
+
+    # Recreate index
+    c.execute("CREATE INDEX IF NOT EXISTS conversations_channel ON conversations(channel, external_id)")
+
+    # Seed sqlite_sequence so next insert uses max_id + 1
+    if max_id > 0:
+        c.execute("DELETE FROM sqlite_sequence WHERE name = 'conversations'")
+        c.execute("INSERT INTO sqlite_sequence (name, seq) VALUES ('conversations', ?)", (max_id,))
+
+    if c.execute("SELECT COUNT(*) FROM conversations").fetchone()[0] != rows:
+        raise RuntimeError("migrate_v3 lost conversations; rolled back")
+
+
+OFFICIAL_HOSTS = ("api.openai.com", "api.anthropic.com", "openrouter.ai", "generativelanguage.googleapis.com", "opencode.ai")
 
 
 @contextmanager

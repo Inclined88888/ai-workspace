@@ -1,8 +1,8 @@
-import { ArrowLeft, Eye, FileText, Loader2, NotebookPen, Pencil, Pin, Plus, Search, Sparkles, Trash2, Wand2, X } from "lucide-react";
+import { ArrowLeft, Eye, FileText, Loader2, NotebookPen, Pencil, Pin, Plus, PenLine, Search, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, Doc, stream } from "../api";
-import { Empty, Markdown, ModelSelect, relTime, useModels, useToast } from "../util";
+import { Empty, Markdown, ModelSelect, relTime, SkeletonList, useModels, useToast } from "../util";
 
 const ACTIONS = [
   { id: "improve", label: "Improve writing" },
@@ -97,7 +97,7 @@ function Editor({ doc, onSaved, onDeleted }: { doc: Doc; onSaved: (d: Doc) => vo
         </div>
         <div style={{ width: 180 }}><ModelSelect value={model} onChange={setModel} models={models} /></div>
         <select className="input" style={{ width: 170 }} value="" onChange={(e) => e.target.value && runAssist(e.target.value)}>
-          <option value="">✨ AI assist…</option>
+          <option value="">Assist…</option>
           {ACTIONS.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
         </select>
         <div className="spacer" />
@@ -109,14 +109,14 @@ function Editor({ doc, onSaved, onDeleted }: { doc: Doc; onSaved: (d: Doc) => vo
         <input className="editor-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Untitled" />
         <input className="input" style={{ border: "none", padding: 0, height: 24, background: "transparent", color: "var(--muted)" }} value={tags} onChange={(e) => setTags(e.target.value)} placeholder="Add tags, comma separated" />
         <div className="row">
-          <input className="input grow" value={instruction} onChange={(e) => setInstruction(e.target.value)} placeholder="Ask AI to change this (e.g. 'make it more formal', 'add a conclusion')…"
+          <input className="input grow" value={instruction} onChange={(e) => setInstruction(e.target.value)} placeholder="Describe an edit, e.g. 'make it more formal' or 'add a conclusion'"
             onKeyDown={(e) => { if (e.key === "Enter" && instruction.trim()) runAssist("custom"); }} />
-          <button className="btn" disabled={!instruction.trim()} onClick={() => runAssist("custom")}><Wand2 size={15} /> Apply</button>
+          <button className="btn" disabled={!instruction.trim()} onClick={() => runAssist("custom")}><PenLine size={15} /> Apply</button>
         </div>
         {assist && (
           <div className="card col" style={{ borderColor: "var(--accent)" }}>
             <div className="row">
-              <Sparkles size={15} className="prio-1" />
+              <PenLine size={15} className="prio-1" />
               <strong>{ACTIONS.find((a) => a.id === assist.action)?.label ?? "Custom edit"}</strong>
               {assist.busy && <Loader2 size={14} className="spin" />}
               <div className="spacer" />
@@ -145,13 +145,14 @@ export default function Docs({ kind }: { kind: "note" | "document" }) {
   const { id } = useParams();
   const navigate = useNavigate();
   const [list, setList] = useState<Doc[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [q, setQ] = useState("");
   const [current, setCurrent] = useState<Doc | null>(null);
   const toast = useToast();
   const base = kind === "note" ? "/notes" : "/documents";
   const Icon = kind === "note" ? NotebookPen : FileText;
 
-  const load = () => api<Doc[]>(`/docs?kind=${kind}&q=${encodeURIComponent(q)}`).then(setList).catch(toast.err);
+  const load = () => api<Doc[]>(`/docs?kind=${kind}&q=${encodeURIComponent(q)}`).then(setList).catch(toast.err).finally(() => setLoaded(true));
   useEffect(() => {
     const t = setTimeout(load, 200);
     return () => clearTimeout(t);
@@ -181,7 +182,8 @@ export default function Docs({ kind }: { kind: "note" | "document" }) {
           </div>
         </div>
         <div className="scroll">
-          {list.length === 0 && <Empty icon={<Icon size={22} />} title={q ? "No matches" : `No ${kind}s yet`} />}
+          {!loaded && <SkeletonList rows={4} />}
+          {loaded && list.length === 0 && <Empty icon={<Icon size={22} />} title={q ? "No matches" : `No ${kind}s yet`} />}
           {list.map((d) => (
             <div key={d.id} className={`list-item ${current?.id === d.id ? "active" : ""}`} onClick={() => navigate(`${base}/${d.id}`)} style={{ alignItems: "flex-start" }}>
               <div className="grow">

@@ -2,7 +2,7 @@
 
 A self hosted AI workspace in **one light container**. Chat with an assistant that remembers you and learns skills, plus notes, documents, tasks, calendar, mail, research with sources, scheduled reports, a company of AI agents with budgets, and model comparison. Runs on Anthropic, OpenAI, OpenRouter or any OpenAI compatible provider, or local models.
 
-**The core is Workbench:** FastAPI + SQLite + React, one image (about 350 MB), about 100 MB of RAM at idle (measured on the backend process; real use depends on traffic). No GPU, no database server, no extra containers. A small VPS with 1 GB of RAM or a Mac laptop runs it.
+**The core is Workbench:** FastAPI + SQLite + React, one image (248 MB of unpacked layers, measured by CI), about 100 MB of RAM at idle (measured on the backend process; real use depends on traffic). No GPU, no database server, no extra containers. A small VPS with 1 GB of RAM or a Mac laptop runs it.
 
 Everything heavier is an **optional add-on, off by default**:
 
@@ -11,7 +11,7 @@ Everything heavier is an **optional add-on, off by default**:
 | `search` | SearXNG | Free private web search (otherwise use a Brave or Tavily key, or none) | small |
 | `codex` | Official Codex CLI 0.163.0 | Explicit CLI task hand-off ([setup](cli-launcher/CODEX.md)) | image size unmeasured |
 | `claude-code` | Official Claude Code 2.1.308 | Explicit CLI task hand-off using the user's own official login ([setup and API](cli-launcher/README.md)) | image size unmeasured |
-| `browser` | browser-use + Chromium | Browser agent page and a `browse_web` tool | ≈ 2.5 GB image |
+| `browser` | browser-use + Chromium | Browser agent page and a `browse_web` tool (or use the lighter [Rooks Browser](rooks-browser/README.md), no image) | ≈ 2.5 GB image |
 | `local-models` | Ollama in Docker | Local models (on a Mac, native Ollama is faster and is detected by setup) | ≈ 8.5 GB image + models |
 | `openwebui` | Open WebUI | A second chat app with RAG knowledge bases and multi user accounts | ≈ 6.5 GB image |
 | `paperclip` | Paperclip | Upstream company of agents running coding CLIs (Claude Code, Codex, OpenCode) | ≈ 13 GB image |
@@ -19,9 +19,52 @@ Everything heavier is an **optional add-on, off by default**:
 
 You don't need any of them for the assistant, memory, skills, schedules, Telegram or the company of agents. Those are built into Workbench.
 
+## Install on your computer (one command, no Docker)
+
+**[QUICKSTART.md](QUICKSTART.md)** has the full walk-through. In short:
+
+```bash
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/main/install.sh | bash
+```
+
+```powershell
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/Inclined88888/ai-workspace/main/install.ps1 | iex
+```
+
+This installs three commands for your user only (no admin password): `ai-workspace` (the app, in its own window),
+`rooks` (terminal coding agent) and `rooks-browser` (AI browser agent). The only prerequisite is `curl` (built into macOS
+and Windows 10/11). Run it again to upgrade; your chats, keys and settings are kept.
+
+Something wrong? `ai-workspace --status` checks the app and its web UI, and `ai-workspace --logs` prints the log
+folder and the last lines of `launcher.log` and `workbench.log`.
+
+## Download for Mac / Windows
+
+**Desktop app (preview).** Double-click to install. No Docker, no terminal: it runs Workbench on your own computer,
+keeps your data in your user folder and your API keys in the system keychain. On first launch, paste an API key
+(OpenAI, Anthropic, OpenRouter, Gemini and more) or use free local models with [Ollama](https://ollama.com/download),
+and you land in chat.
+
+| | Download |
+| --- | --- |
+| **macOS** (Apple silicon) | `AI Workspace_<version>_aarch64.dmg` from [Releases](https://github.com/Inclined88888/ai-workspace/releases) |
+| **macOS** (Intel) | `AI Workspace_<version>_x64.dmg` from [Releases](https://github.com/Inclined88888/ai-workspace/releases) |
+| **Windows** 10/11 | `AI Workspace_<version>_x64-setup.exe` (or `.msi`) from [Releases](https://github.com/Inclined88888/ai-workspace/releases) |
+| Linux | `.AppImage` or `.deb` from [Releases](https://github.com/Inclined88888/ai-workspace/releases) |
+
+No release has been published yet: until one is, use the one-command install above (same app, same data), or build
+the installers with the `desktop` workflow in GitHub Actions.
+
+Preview builds are **not code-signed yet**. On macOS, right-click the app → **Open** the first time; on Windows, click
+**More info → Run anyway**. Signing, notarisation and auto-updates switch on once the keys exist
+([docs/desktop-release.md](docs/desktop-release.md)). The add-ons below (browser agent, Paperclip, Hermes, Open WebUI)
+are still Docker-only; the server install below is unchanged.
+
 ## Why AI Workspace
 
-1. **Light.** Core image is ~350 MB, not multi-GB, and idles at ~100 MB of RAM (measured outside Docker).
+1. **Light.** Core image is 248 MB (CI, unpacked layers), not multi-GB, and idles at ~100 MB of RAM (measured outside Docker).
 2. **Cheap to run.** Comfortable on a €4 VPS; no GPU required for the core.
 3. **Pay for nothing you don't use.** Every add-on is off by default; Compose profiles add weight only when you ask for it.
 4. **Real GPU on a Mac.** Native Ollama on macOS is supported, so the GPU is actually used.
@@ -30,24 +73,27 @@ You don't need any of them for the assistant, memory, skills, schedules, Telegra
 
 The full list of [100 reasons people pick AI Workspace](docs/README.md) — including what is roadmap, clearly marked — lives in the docs.
 
-## Quick start
+## Run it on a server (Docker, optional)
+
+Only for running AI Workspace on a home server or VPS for several devices. On your own computer use the one command
+install above: it needs no Docker.
 
 Requirements: Docker with Compose v2 (Docker Desktop or OrbStack on a Mac), 1 GB RAM free, about 2 GB of disk for the build. At least one model provider key, or Ollama.
 
 One command (Linux or macOS):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/main/install-server.sh | bash
 ```
 
 With add-ons, or with no questions:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/main/install.sh | bash -s -- --with search,browser
-curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/main/install.sh | bash -s -- --yes
+curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/main/install-server.sh | bash -s -- --with search,browser
+curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/main/install-server.sh | bash -s -- --yes
 ```
 
-The installer checks Docker (on Linux it offers to install it with Docker's official script; on a Mac install Docker Desktop or OrbStack first), downloads the code to `~/ai-workspace` (`AI_WORKSPACE_DIR` changes that), and runs `setup.sh`. Run the same command again to upgrade. Prefer to read it first? `curl -fsSL .../install.sh -o install.sh`, read it, then `bash install.sh`.
+The installer checks Docker (on Linux it offers to install it with Docker's official script; on a Mac install Docker Desktop or OrbStack first), downloads the code to `~/ai-workspace` (`AI_WORKSPACE_DIR` changes that), and runs `setup.sh`. Run the same command again to upgrade. Prefer to read it first? `curl -fsSL .../install-server.sh -o install-server.sh`, read it, then `bash install-server.sh`.
 
 From a clone instead:
 
@@ -70,7 +116,7 @@ Re-running is safe and is how you upgrade or change add-ons: it adds new setting
 brew install ollama && brew services start ollama
 ollama pull qwen3:4b
 # 3. Install:
-curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/main/install-server.sh | bash
 ```
 
 Native Ollama uses the Mac GPU; the `local-models` add-on would run on CPU inside Docker's VM, so skip it on a Mac.
@@ -79,10 +125,10 @@ Native Ollama uses the Mac GPU; the `local-models` add-on would run on CPU insid
 
 **Assistant** is the main page: one chat that can use every part of the workspace.
 
-* **Tools.** Notes (search, read, create, append), tasks, calendar (agenda, create event), mail (search, save draft only, never send), web search and page reading, the browser agent when that add-on is on, memory, skills and schedules. Each tool step shows live in the chat.
+* **Tools.** Notes (search, read, create, append), tasks, calendar (agenda, create event), mail (search, read, save draft; send only after you approve each email), web search and page reading, the browser agent when that add-on is on, memory, skills and schedules. Each tool step shows live in the chat.
 * **Memory.** After a conversation it quietly extracts durable facts about you (profile, preferences, facts), at most 5 per conversation, skipping duplicates. Relevant ones are injected into every new conversation. You can also say "remember that…" or "forget…". Review and edit everything under **Memory & skills**. Turn learning off in Assistant settings.
 * **Skills.** When a task took 3 or more tool calls, it can save the procedure as a named skill and improve it on later use. Skills are listed to the model and loaded on demand, so they cost almost nothing until used.
-* **Approvals.** Web pages and email can contain instructions written by someone else (prompt injection). Once a conversation has read either, actions that leave the workspace or change the assistant's future behaviour (remember, forget, save a skill, schedule a task, create a calendar event, browse, delegate) are held until you approve them in the chat, with `ws approve <id>`, or refused outright in unattended runs (schedules, company agents). Web and email content is labelled as untrusted for the model, and skills are never learned from such turns. This narrows the damage an injection can do; it does not make the model immune to it.
+* **Approvals.** Web pages and email can contain instructions written by someone else (prompt injection). Once a conversation has read either, actions that leave the workspace or change the assistant's future behaviour (remember, forget, save a skill, schedule a task, create a calendar event, browse, delegate) are held until you approve them in the chat, with `ws approve <id>`, or refused outright in unattended runs (schedules, company agents). Sending an email and sending calendar invitations are always held for approval, even in a clean conversation. Web and email content is labelled as untrusted for the model, and skills are never learned from such turns. This narrows the damage an injection can do; it does not make the model immune to it.
 * **Receipts.** Every change the assistant makes is checked in the database after the tool runs (the task, note, event, draft, memory, skill or schedule must exist as asked), and the chat shows what was confirmed. If an answer says something was done and nothing confirms it, the answer is withdrawn and the model gets one chance to act or correct itself; if it still is not true you see it marked **Not verified**.
 * **Reliability record.** Every tool call and every answer is recorded per model, so you can see how a model really performs with your tools: the model menu shows the share of tool calls that worked, and `ws reliability` adds false claims caught. To measure a local model before relying on it: `cd workbench/backend && python bench/local_tasks.py --model qwen3:4b` (50 everyday requests, each checked against the database).
 * **History.** Every conversation is full text searchable, by you and by the assistant (`search_history`).
@@ -108,12 +154,38 @@ Native Ollama uses the Mac GPU; the `local-models` add-on would run on CPU insid
 
 **Tasks.** Due dates, priorities, projects, grouping by Overdue / Today / Upcoming, and "break down a goal" which turns one sentence into a task list.
 
+**Connect your mail & calendar.** Settings (and Home, until something is connected) has one card: **Connect Google** or **Connect Microsoft** opens the provider's own sign-in page in your browser and sets up both the inbox and the calendar in one go (OAuth with PKCE and a loopback redirect; tokens stay on your machine, encrypted or in the OS keychain). **Other provider** detects iCloud, Yahoo, Fastmail, AOL, Zoho and your own domain from the address and walks you through creating an app password, adding the CalDAV calendars at the same time. The one-click buttons need the build's OAuth client IDs; builds without them explain the app-password path instead. Maintainers: [docs/connect-google-microsoft.md](docs/connect-google-microsoft.md).
+
 **Calendar.** Month view plus day agenda. Sources:
+- **Google Calendar / Outlook Calendar** (read and create, with invitations) through Connect Google / Connect Microsoft.
 - **ICS subscription** (read only): Google Calendar "Secret address in iCal format", Outlook published ICS, any `.ics`/`webcal://` link. Refreshes every 15 minutes.
 - **CalDAV** (read and create): Nextcloud, Fastmail, iCloud (`https://caldav.icloud.com` with an app specific password), Radicale, Baïkal. Use *Find calendars* to pick one.
 - **Local** calendar stored in Workbench.
 
-**Mail.** IMAP/SMTP with app passwords: Fastmail, iCloud, Gmail (needs 2 step verification and an app password), and most self hosted servers. Read, search, reply, compose, and "Draft with AI" with your intent. AI drafts use `[placeholders]` instead of inventing facts; every send asks for confirmation. Outlook.com and Microsoft 365 are **not** supported because Microsoft requires OAuth for IMAP.
+**Mail.** Gmail and Outlook.com / Microsoft 365 through Connect Google / Connect Microsoft (Gmail API and Microsoft Graph), or IMAP/SMTP with app passwords: Fastmail, iCloud, Yahoo, Gmail (needs 2 step verification and an app password), and most self hosted servers. Read, search, reply, compose, and "Draft with AI" with your intent. AI drafts use `[placeholders]` instead of inventing facts; every send asks for confirmation.
+
+## Terminal coding agent (Rooks Code)
+
+`rooks` is a coding agent for your terminal, like Claude Code or Codex CLI, that works with any model: OpenAI, Anthropic,
+OpenRouter, any OpenAI-compatible server, or local Ollama and LM Studio with no internet at all. It reads and searches
+code, edits with diffs, runs your tests and loops until done. Every edit and command is approved first (or trusted per
+folder), `--dry-run` changes nothing, `/undo` reverts the last prompt's edits, a per-session token and dollar cap is
+enforced, and every action is written to a receipt you can import into Workbench's run log. It needs neither Workbench
+nor Docker.
+
+```sh
+uv tool install "git+https://github.com/Inclined88888/ai-workspace#subdirectory=rooks-code"
+cd your-project && rooks -P ollama -m qwen2.5:7b
+```
+
+Install on macOS, Windows and Linux, configuration, MCP servers and limits: [rooks-code/README.md](rooks-code/README.md).
+
+### Your Claude plan, through Claude Code
+
+Have a Claude Pro or Max plan? Install Anthropic's Claude Code (`npm i -g @anthropic-ai/claude-code`), run `claude` once to
+sign in, and hand it coding jobs from the app's **Coding agent** page or with `rooks -P claude-code "..."`. You approve
+each edit and command, and see the diff. The app never sees your sign-in. Codex with a ChatGPT plan works the same way.
+Details and Anthropic's terms: [docs/CLAUDE-CODE.md](docs/CLAUDE-CODE.md).
 
 ## Add-ons in detail
 
@@ -195,7 +267,52 @@ Model choice: the browser agent uses the models you connected in Workbench. It c
 
 **Safety.** The service refuses IP address URLs and the stack's own hostnames, and its one-off page reads refuse any host that resolves to a private address. That keeps it off your containers and LAN. A public hostname that resolves to a private address could still be reached during an agent run; don't rely on this as your only network boundary on a sensitive LAN. The agent can fill forms and click buttons on public sites, so be specific about what it must not do (buy, post, delete).
 
+### Rooks Browser (no add-on needed)
+
+[Rooks Browser](rooks-browser/README.md) is a lighter, local-first browser agent. It drives your own Chrome or Edge
+through Playwright (≈ 150 MB instead of a 2.5 GB image) and works with OpenAI, Anthropic, OpenRouter, Ollama or your
+Workbench models. Vision models get screenshots, and text-only models work from the page's element list.
+
+* **What it asks first.** It shows every action, and asks before it submits a form, buys, sends a message or logs in.
+* **What it stores.** It keeps per-site allow and deny lists, and logs every visited URL in Workbench's run-log format.
+  It never stores or types passwords.
+* **How you reach it:**
+  * a CLI: `rooks-browser "task"`
+  * a local HTTP API with the same job API as the `browser` add-on: point `BROWSER_URL` at it and Workbench's Browser
+    page uses it
+  * an MCP server for Rooks Code, Claude Code and Codex: `rooks-browser mcp`
+
+```
+uv tool install ./rooks-browser && rooks-browser doctor
+rooks-browser -P ollama -m qwen2.5:7b "find the opening hours of the State Library of Queensland"
+```
+
+### Rooks Desk: computer use (no add-on needed)
+
+[Rooks Desk](rooks-desk/README.md) uses your computer the way you would, on macOS, Windows and Linux (X11). It works
+in five steps:
+
+1. It takes a screenshot of every monitor.
+2. It reads the accessibility tree (AX, UI Automation or AT-SPI).
+3. It decides the next step with your model. Screenshots go to a model that can see, and the smart router picks one.
+4. It clicks, types, presses hotkeys, opens apps, runs terminal commands with streaming output, and reads and writes
+   files in allowed folders and the clipboard.
+5. It checks the result.
+
+* **What it asks first.** Shell commands, files outside the allowed folders, deleting, email and messages, purchases
+  and logins. Folder and app allow-lists; password managers are denied by default.
+* **What you see.** A red frame and an on-screen bar while it works. The kill switch is Ctrl+Alt+Esc or the top-left
+  corner. There's a receipt with a screenshot for every step, and a dry-run mode.
+* **How you reach it:**
+  * the app's **Computer** page;
+  * the assistant's `use_computer` tool;
+  * `rooks-desk "task"`;
+  * `rooks-desk mcp` (Rooks Code adds it automatically).
+  * It can use other MCP servers too, such as an AutoCAD one ([recipe](rooks-desk/docs/AUTOCAD.md)).
+
 ## Models and providers
+
+**Cloud by default.** The first-run screen, "Choose how to think", recommends **Free cloud**: a free Gemini or Groq key in about two minutes, checked before it's saved. You can instead sign in with ChatGPT, paste API keys (OpenAI, Anthropic, xAI, Google, Groq, OpenRouter, Mistral, DeepSeek or any OpenAI-compatible URL) or use local Ollama (advanced). With any cloud provider connected, the default model is **Auto**: a smart router that sends quick jobs to a fast model and real work to a strong one, moves to the next provider on a rate limit, a spent free day or an outage, and shows under each answer who replied and how many free requests are left. The **Models** page (sidebar foot) sets the order and models. Rooks Code and Rooks Browser use it with `-P workbench -m auto`. See `docs/models-and-router.md`.
 
 **Local.** With native Ollama: `ollama pull qwen3:8b`. Workbench talks to Ollama on its native API with a 16K token window (`OLLAMA_NUM_CTX`). Through Ollama's OpenAI endpoint the window is fixed at Ollama's default of 4096 tokens and longer prompts are cut from the start without an error, which removed the system prompt and tool rules from long chats and research. If a prompt still fills the window you get an error instead of an answer built on half a prompt. Models that print a tool call as text (`<tool_call>{...}</tool_call>`) instead of returning a structured call still get the tool run, but only for well formed calls to tools that were offered; the chat marks those steps. With the `local-models` add-on: Workbench → Settings → Local models, or `docker compose exec ollama ollama pull qwen3:8b`. Rough memory needs: 4B ≈ 4 GB, 8B ≈ 8 GB, 14B ≈ 12 GB.
 
@@ -211,7 +328,7 @@ Model choice: the browser agent uses the models you connected in Workbench. It c
 
 **Claude.** Use a Claude API key (console.anthropic.com) with the Anthropic preset. A Claude Pro or Max subscription cannot be connected: Anthropic's terms say "Anthropic does not permit third-party developers to offer Claude.ai login into their own applications, or to route requests through Free, Pro, or Max plan credentials on behalf of their users … developers may not collect, store, or intermediate Claude.ai credentials or session tokens" ([source](https://code.claude.com/docs/en/legal-and-compliance)). The same page allows a user to sign in to the unmodified Claude Code program with their own subscription; a planned add-on will start your own installed Claude Code for agent tasks, with you signing in through Anthropic, and Workbench never touching the token. It is not built yet.
 
-**ChatGPT plans.** OpenAI's official "Sign in with ChatGPT" lets a ChatGPT Plus or Pro plan cover an app's Responses API requests, up to a weekly limit you set per app. Support is being built and needs an approved client id; until then use an OpenAI API key.
+**ChatGPT plans.** Sign in with ChatGPT on the welcome screen or under Models: OpenAI's official open-source flow lets your ChatGPT plan pay for the app's requests, with no API key. Claude, SuperGrok and Google AI subscriptions can't be connected (their terms don't allow it or there's no public sign-in yet); the screen says why and offers a key instead. Details and sources: `docs/models-and-router.md`.
 
 For Chat, keys entered during `setup.sh` are passed as `OPENAI_API_BASE_URLS`/`OPENAI_API_KEYS`. You can also add connections later in Chat → Admin Settings → Connections. Open WebUI stores settings in its database after first start, so later changes to these env vars are ignored unless you set `ENABLE_PERSISTENT_CONFIG=false`; changing them in the Admin UI is the simplest route.
 
@@ -257,16 +374,24 @@ cd workbench/frontend && npm install && npm run dev   # http://localhost:5173, p
 
 Backend: FastAPI + SQLite. Frontend: React + Vite + TypeScript. The tool server spec is at `/tools/openapi.json`.
 
+Desktop app: Tauri v2 shell in `desktop/` that runs the backend as a frozen sidecar. Build and dev instructions:
+[desktop/README.md](desktop/README.md); signing and releases: [docs/desktop-release.md](docs/desktop-release.md).
+
 ## Known limits
 
 - Single user Workbench (the `openwebui` add-on supports multiple users).
-- Telegram is the only built in messaging channel. Discord, Slack, WhatsApp and Signal need the `hermes` add-on.
+- Built in messaging channels (Channels page): Slack, Discord, Telegram, Matrix (unencrypted rooms and DMs), Signal (through a self-hosted signal-cli-rest-api linked to your account), WhatsApp (Business Cloud API; needs a public HTTPS webhook) and email (tagged mail from addresses you list). The `hermes` add-on adds more.
 - Memory extraction and skill saving cost one extra small model call after a conversation. Turn learning off if that matters.
 - Calendar: ICS feeds are read only; CalDAV supports reading and creating, not editing or deleting remote events.
-- Mail: password/app password IMAP only, no OAuth providers, plain text sending, no attachments.
+- Mail: plain text sending. Attachments only through Rooks Desk's send-email step. One-click Google needs a published OAuth client, and Google's restricted-scope verification before more than 100 people can use it (see [docs/connect-google-microsoft.md](docs/connect-google-microsoft.md)).
+- Computer use (Rooks Desk) is tested end to end on Linux/X11; on real macOS and Windows CI machines it typed into TextEdit/Notepad and read it back. Wayland isn't supported.
 - Web search needs the `search` add-on or a Brave or Tavily key. Research quality depends on the model and the search results. Verify claims against the sources.
 - The Paperclip add-on runs in its own login. Workbench links to it but does not share a sign in.
 - Browser agent results are the agent's own report. Small local models are unreliable at browsing.
 
 
 API clients: [authenticated OpenAPI discovery](docs/API.md). Releases: [signature verification](docs/RELEASES.md).
+
+## License
+
+Proprietary, all rights reserved; see [LICENSE](LICENSE). Third-party components keep their own licences.

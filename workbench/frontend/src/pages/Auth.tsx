@@ -1,4 +1,4 @@
-import { ArrowRight, Check, Cpu, Download, KeyRound, Loader2, Sparkles } from "lucide-react";
+import { ArrowRight, Check, Cpu, Download, KeyRound, Loader2, Lock } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { api, stream } from "../api";
 import type { Status } from "../App";
@@ -29,14 +29,17 @@ function Login({ onDone }: { onDone: () => void }) {
   };
   return (
     <form className="col gap-lg" onSubmit={submit}>
-      <div>
-        <h1>Welcome back</h1>
-        <p className="muted">Sign in to your workspace.</p>
+      <div className="auth-brand">
+        <div className="wordmark lg" aria-hidden="true">AI Workspace</div>
+        <div>
+          <h1>Welcome back</h1>
+          <p className="muted">Sign in to your workspace.</p>
+        </div>
       </div>
       {error && <div className="alert err">{error}</div>}
       <label className="field">
         Password
-        <input className="input" type="password" autoFocus value={password} onChange={(e) => setPassword(e.target.value)} />
+        <input className="input" type="password" autoFocus autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
       </label>
       <button className="btn primary" disabled={busy || !password}>{busy ? <Loader2 size={16} className="spin" /> : "Sign in"}</button>
     </form>
@@ -136,7 +139,7 @@ function ModelsStep({ onNext }: { onNext: () => void }) {
           <button className="btn" onClick={saveKeys} disabled={!Object.values(keys).some((k) => k.trim())}>Save keys</button>
           {saved && <span className="badge ok"><Check size={12} /> Saved</span>}
         </div>
-        <div className="muted small">Keys are encrypted at rest with your APP_SECRET. They apply to Workbench. For the Chat app, add them in its Admin Settings → Connections, or set them in .env before running setup.sh.</div>
+        <div className="muted small">Keys are stored encrypted on this computer and never shown again. You can change them any time in AI models.</div>
       </div>
       <button className="btn primary" onClick={onNext} disabled={!!pulling}>Continue <ArrowRight size={16} /></button>
     </div>
@@ -151,7 +154,7 @@ export default function Auth({ status, onDone }: { status: Status; onDone: () =>
 
   if (status.setup_complete && step === 0) {
     return (
-      <div className="auth"><div className="card auth-card"><Login onDone={onDone} /></div></div>
+      <div className="auth"><div><div className="card auth-card"><Login onDone={onDone} /></div><div className="auth-foot"><Lock size={12} /> Self-hosted. Your data stays on your server.</div></div></div>
     );
   }
 
@@ -161,8 +164,8 @@ export default function Auth({ status, onDone }: { status: Status; onDone: () =>
     setBusy(true);
     setError("");
     try {
-      await api("/setup", { body: { password: form.password, setup_code: form.setup_code, workspace_name: form.workspace_name } });
-      setStep(1);
+      await api("/setup", { body: { password: form.password, setup_code: form.setup_code, workspace_name: form.workspace_name, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "" } });
+      onDone();  // straight to the first-run welcome: look, then how to think (plans, free keys, keys, local)
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -176,8 +179,13 @@ export default function Auth({ status, onDone }: { status: Status; onDone: () =>
         <div className="steps">{[0, 1, 2].map((i) => <span key={i} className={i <= step ? "on" : ""} />)}</div>
         {step === 0 && (
           <form className="col gap-lg" onSubmit={createAccount}>
-            <div className="row"><div className="brand-mark"><Sparkles size={16} /></div><h1>Set up your workspace</h1></div>
-            <p className="muted" style={{ margin: 0 }}>Create the password that protects Workbench. This is a single owner app.</p>
+            <div className="auth-brand">
+              <div className="wordmark lg" aria-hidden="true">AI Workspace</div>
+              <div>
+                <h1>Set up your workspace</h1>
+                <p className="muted">Create the password that protects your workspace. Only you use it.</p>
+              </div>
+            </div>
             {error && <div className="alert err">{error}</div>}
             {status.setup_code_required && (
               <label className="field">
@@ -198,9 +206,9 @@ export default function Auth({ status, onDone }: { status: Status; onDone: () =>
           <div className="col gap-lg">
             <h1>You're set</h1>
             <div className="col">
-              <div className="row"><Check size={16} className="prio-1" /> Workbench: notes, documents, tasks, calendar, mail, research and model compare.</div>
+              <div className="row"><Check size={16} className="prio-1" /> Your workspace: chat, mail, calendar, tasks, notes, files and research.</div>
               <div className="row"><Check size={16} className="prio-1" /> Chat at <a href={status.chat_url} target="_blank" rel="noreferrer">{status.chat_url}</a>. The first account you create there becomes its admin.</div>
-              <div className="row"><Check size={16} className="prio-1" /> In Chat, turn on the Workbench tools (the + menu in the message box) so agents can use your notes, tasks and calendar.</div>
+              <div className="row"><Check size={16} className="prio-1" /> In Chat, turn on the workspace tools (the + menu in the message box) so it can use your notes, tasks and calendar.</div>
             </div>
             <div className="muted small">Connect mail and calendars any time under Settings.</div>
             <button className="btn primary" onClick={onDone}>Open workspace <ArrowRight size={16} /></button>

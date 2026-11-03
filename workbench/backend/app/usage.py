@@ -1,7 +1,8 @@
 """Token and cost accounting, and the budget checks that pause agents before they overspend.
 
-Prices are per million tokens in USD, set by you in Settings (models change too often to ship a price list).
-OpenRouter returns the actual cost of every call, so OpenRouter models need no price entry.
+Prices are per million tokens in USD. A price set in Settings wins; otherwise the model catalog's list price is used
+(catalog.py, refreshed daily), so most calls are priced without typing anything. OpenRouter returns the actual cost of
+every call, which beats both. Plan sign-ins (ChatGPT) are covered by the plan, and local models cost nothing.
 """
 
 import json
@@ -17,16 +18,40 @@ def prices() -> dict[str, dict]:
         return {}
 
 
-def price_usd(model_ref: str, prompt_tokens: int, completion_tokens: int) -> float | None:
+def price_usd(model_ref: str, prompt_tokens: int, completion_tokens: int, cache_read: int = 0, cache_write: int = 0) -> float | None:
     """USD for one call from Settings prices (per million tokens), or None when no price is set.
 
     Prices may be keyed by the model ref ("3/openai/gpt-x") or by the bare model name ("openai/gpt-x").
     """
     table = prices()
     p = table.get(model_ref) or table.get(model_ref.partition("/")[2])
-    if not p:
+    if p:
+        return (prompt_tokens * float(p.get("in", 0)) + completion_tokens * float(p.get("out", 0))) / 1_000_000
+    listed = _catalog_price(model_ref)
+    if listed is None:
         return None
-    return (prompt_tokens * float(p.get("in", 0)) + completion_tokens * float(p.get("out", 0))) / 1_000_000
+    usd = (prompt_tokens * listed[0] + completion_tokens * listed[1]) / 1_000_000
+    if cache_read or cache_write:  # prompt_tokens counted them at the full input price; charge the cache prices instead
+        read_p, write_p = _catalog_cache_prices(model_ref)
+        if read_p is not None:
+            usd += cache_read * (read_p - listed[0]) / 1_000_000
+        if write_p is not None:
+            usd += cache_write * (write_p - listed[0]) / 1_000_000
+    return max(0.0, usd)
+
+
+def _catalog_cache_prices(model_ref: str) -> tuple[float | None, float | None]:
+    from . import catalog
+
+    cid, _, model = model_ref.partition("/")
+    conn = db.one("SELECT base_url FROM connections WHERE id = ?", int(cid)) if cid.isdigit() else None
+    return catalog.cache_prices(conn["base_url"], model) if conn else (None, None)
+
+
+def _catalog_price(model_ref: str) -> tuple[float, float] | None:
+    from .llm import list_price
+
+    return list_price(model_ref)
 
 
 def month_start() -> str:
@@ -71,3 +96,48 @@ def summary() -> dict:
                         f"{_CALLS} AND ts >= ? GROUP BY channel", start)
     return {"month_cents": round(total["c"], 2), "month_tokens": total["t"], "by_model": by_model, "by_channel": by_channel,
             "prices": prices()}
+
+
+def daily(days: int = 30) -> dict:
+    """Per-day model call trends for the Insights page: calls, failures, tokens, cost, latency, and who answered.
+
+    Days are UTC dates with no gaps (a quiet day is a zero row), oldest first. p95 latency is computed per day from the
+    successful calls only, so a provider timing out doesn't hide behind its own error. Cost is None for a day whose
+    calls were all unpriced (local models, unknown prices), never a misleading $0.
+    """
+    from datetime import timedelta
+
+    days = max(1, min(int(days), 90))
+    today = datetime.now(timezone.utc).date()
+    first = today - timedelta(days=days - 1)
+    rows = db.all(
+        "SELECT substr(ts, 1, 10) AS day, COUNT(*) AS calls, SUM(outcome != 'ok') AS failures, "
+        "COALESCE(SUM(tokens_in), 0) AS tokens_in, COALESCE(SUM(tokens_out), 0) AS tokens_out, "
+        "SUM(usd_cost) AS usd, SUM(usd_cost IS NULL) AS unpriced, "
+        "CAST(AVG(CASE WHEN outcome = 'ok' THEN latency_ms END) AS INTEGER) AS avg_ms "
+        f"{_CALLS} AND ts >= ? GROUP BY day", first.isoformat())
+    lat: dict[str, list[int]] = {}
+    for r in db.all(f"SELECT substr(ts, 1, 10) AS day, latency_ms {_CALLS} AND ts >= ? AND outcome = 'ok' ORDER BY day, latency_ms",
+                    first.isoformat()):
+        lat.setdefault(r["day"], []).append(r["latency_ms"])
+    by_day = {r["day"]: r for r in rows}
+    out = []
+    for i in range(days):
+        d = (first + timedelta(days=i)).isoformat()
+        r = by_day.get(d) or {}
+        ms = lat.get(d) or []
+        out.append({"day": d, "calls": r.get("calls") or 0, "failures": r.get("failures") or 0,
+                    "tokens_in": r.get("tokens_in") or 0, "tokens_out": r.get("tokens_out") or 0,
+                    "usd": round(r["usd"], 6) if r.get("usd") is not None else None, "unpriced": r.get("unpriced") or 0,
+                    "avg_ms": r.get("avg_ms") or 0, "p95_ms": ms[min(len(ms) - 1, int(len(ms) * 0.95))] if ms else 0})
+    providers = db.all(
+        f"SELECT provider, COUNT(*) AS calls, SUM(outcome != 'ok') AS failures, "
+        f"CAST(AVG(CASE WHEN outcome = 'ok' THEN latency_ms END) AS INTEGER) AS avg_ms {_CALLS} AND ts >= ? "
+        "GROUP BY provider ORDER BY calls DESC", first.isoformat())
+    channels = db.all(f"SELECT channel, COUNT(*) AS calls {_CALLS} AND ts >= ? GROUP BY channel ORDER BY calls DESC LIMIT 12",
+                      first.isoformat())
+    tot = {k: sum(x[k] for x in out) for k in ("calls", "failures", "tokens_in", "tokens_out", "unpriced")}
+    priced = [x["usd"] for x in out if x["usd"] is not None]
+    tot["usd"] = round(sum(priced), 6) if priced else None
+    return {"days": out, "providers": providers, "channels": channels, "totals": tot}
+

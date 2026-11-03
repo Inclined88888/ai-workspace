@@ -1,0 +1,35 @@
+$ rooks-browser doctor
+Rooks Browser 0.1.0 on Linux x86_64, Python 3.12.16
+playwright 1.64.1 (143 MB installed, includes its driver)
+chrome   /opt/google/chrome/chrome
+msedge   not found
+chromium not downloaded (only needed without Chrome/Edge: python -m playwright install chromium)
+display  yes (headed by default)
+model    openai             not set up  (OPENAI_API_KEY)
+model    anthropic          not set up  (ANTHROPIC_API_KEY)
+model    openrouter         not set up  (OPENROUTER_API_KEY)
+model    ollama             ready
+model    openai-compatible  not set up  (OPENAI_COMPATIBLE_BASE_URL)
+model    workbench          ready
+search   browser search page (https://html.duckduckgo.com/html/); set SEARXNG_URL to use SearXNG
+sites    allow any · deny none
+data     /home/tester/.local/share/ai-workspace/rooks-browser
+
+$ rooks-browser --headed --start-url http://127.0.0.1:8099/index.html --screenshots ~/rb-shots "Find the price of the Red Gadget in this shop"
+Rooks Browser 0.1.0 · auto · headed
+Task: Find the price of the Red Gadget in this shop
+   1. Opening http://127.0.0.1:8099/products.html
+      thinking: The user wants to find the price of the Red Gadget in the shop. The shop has a 'Browse all products' link, which is likely to contain the product information.
+      ✓ opened http://127.0.0.1:8099/products.html
+   2. Reading the page
+      thinking: The price of the Red Gadget is listed on the page.
+      ✓ Full page text of http://127.0.0.1:8099/products.html:
+   3. Finished
+      thinking: The price of the Red Gadget is clearly stated on the page.
+
+Answer (the agent's own claim; check it against the pages visited):
+The price of the Red Gadget is $30.00.
+
+3 steps · 28.0s · 2 pages · tokens 2520+154
+receipt: /home/tester/.local/share/ai-workspace/rooks-browser/runs/20261030T072251Z-e56933.jsonl
+exit=0

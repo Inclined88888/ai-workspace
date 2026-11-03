@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-ask-shortcut"
+description = "Enables the set_ask_shortcut command without any pre-configured scope."
+commands.allow = ["set_ask_shortcut"]
+
+[[permission]]
+identifier = "deny-set-ask-shortcut"
+description = "Denies the set_ask_shortcut command without any pre-configured scope."
+commands.deny = ["set_ask_shortcut"]

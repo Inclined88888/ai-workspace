@@ -9,7 +9,8 @@ SHA256SUMS. Every file is attested and verified before upload/publication.
 
 Manual workflow dispatch produces a signed **candidate** Actions artifact without
 publishing a release. A valid version-tag push publishes the same artifact format
-as a GitHub release. Do not publish a version until Exit Gate 0's evidence is checked.
+as a GitHub release. For v0.1.0 the owner explicitly waived the two unverified external checks in Exit Gate 0.
+This is an exception, not a passing result; see PHASE0-GATE.md. Future releases must reassess those checks.
 The source includes Dockerfiles; this workflow does not sign container images or
 claim reproducible dependency resolution of upstream Docker/npm/pip packages.
 
@@ -32,3 +33,17 @@ commit and signer identity. Reject altered artifacts or an unexpected signer.
 Rollback means deploying a previously verified source/image and restoring its
 compatible data backup. Do not delete existing volumes. No database migration is
 introduced by this Phase 0 work.
+
+## Update channels
+
+`ai-workspace --update` re-runs the official installer at the newest release for this install's channel; the data
+folder is never touched. `ai-workspace --update --check` only reports.
+
+* `stable` (default): the newest GitHub release whose tag is exactly `vX.Y.Z`. Pre releases and `desktop-v*` tags
+  are never offered.
+* `edge`: every commit on `main`. Switch with `ai-workspace --update --channel edge` (and back with `stable`).
+
+The channel is saved per install in `~/.ai-workspace/install.json` and survives updates. `ai-workspace --status`
+checks GitHub for a newer stable release; a plain `ai-workspace` launch makes no network request and only repeats
+the result of the last check ("Update available"). The desktop app has its own signed updater
+(docs/desktop-release.md).

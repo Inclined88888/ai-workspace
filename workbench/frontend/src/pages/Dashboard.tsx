@@ -1,8 +1,10 @@
-import { ArrowRight, CalendarDays, CheckSquare, FileText, NotebookPen, Plus, Search, Sparkles } from "lucide-react";
+import { ArrowRight, CalendarDays, CheckSquare, FileText, NotebookPen, Plus, Search } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, CalEvent, Doc, Task } from "../api";
-import { Empty, fmtTime, relTime, todayISO, useToast } from "../util";
+import { Empty, fmtTime, relTime, SkeletonList, todayISO, useToast } from "../util";
+import ConnectMailCalendar from "./ConnectMailCalendar";
+import { ImprovedCard } from "../memory/Improved"; // feat/memory-core
 
 type Dash = {
   events: CalEvent[];
@@ -26,6 +28,14 @@ function dayLabel(iso: string, allDay: boolean) {
   if (d.toDateString() === today.toDateString()) return "Today";
   if (d.toDateString() === tomorrow.toDateString()) return "Tomorrow";
   return d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+}
+
+/** One calm sentence instead of three stat tiles. */
+function summary(open: number, overdue: number, events: number) {
+  const tasks = open === 0 ? "No open tasks" : `${open} open task${open === 1 ? "" : "s"}`;
+  const late = open === 0 ? "" : overdue === 0 ? ", none overdue" : `, ${overdue} overdue`;
+  const cal = events === 0 ? "a clear calendar this week" : `${events} event${events === 1 ? "" : "s"} this week`;
+  return `${tasks}${late}, and ${cal}.`;
 }
 
 export default function Dashboard(_: { chatUrl?: string }) {
@@ -69,14 +79,17 @@ export default function Dashboard(_: { chatUrl?: string }) {
     <div className="page">
       <div className="page-head">
         <div>
+          <p className="kicker">{new Date().toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })}</p>
           <h1>{greeting()}</h1>
-          <p className="muted">{new Date().toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })}</p>
+          <p className="muted home-summary">{data ? summary(data.open_tasks, data.overdue, data.events.length) : "\u00a0"}</p>
         </div>
         <div className="spacer" />
-        <Link className="btn primary" to="/assistant"><Sparkles size={16} /> Ask your assistant</Link>
+        <Link className="btn primary" to="/assistant">Ask your assistant <ArrowRight size={14} /></Link>
       </div>
 
-      <form className="card col" onSubmit={submit} style={{ marginBottom: 16 }}>
+      <ImprovedCard />{/* feat/memory-core: what I improved overnight */}
+
+      <form className="card col home-capture" onSubmit={submit} style={{ marginBottom: 24 }} aria-label="Quick capture">
         <div className="row">
           <div className="tabs">
             {(["task", "note", "research"] as const).map((m) => (
@@ -85,7 +98,6 @@ export default function Dashboard(_: { chatUrl?: string }) {
               </button>
             ))}
           </div>
-          <span className="muted small">Quick capture</span>
         </div>
         <div className="row">
           <input
@@ -98,18 +110,15 @@ export default function Dashboard(_: { chatUrl?: string }) {
         </div>
       </form>
 
-      <div className="grid three stats" style={{ marginBottom: 16 }}>
-        <div className="card stat"><span className="muted small">Open tasks</span><span className="num">{data?.open_tasks ?? "–"}</span></div>
-        <div className="card stat"><span className="muted small">Overdue</span><span className="num" style={{ color: data?.overdue ? "var(--danger)" : undefined }}>{data?.overdue ?? "–"}</span></div>
-        <div className="card stat"><span className="muted small">Events this week</span><span className="num">{data?.events.length ?? "–"}</span></div>
-      </div>
+      <ConnectMailCalendar compact onlyWhenEmpty onChange={load} />
 
-      <div className="grid two">
+      <div className="grid two home-grid">
         <div className="card flush">
           <div className="card-head" style={{ padding: "14px 14px 0" }}>
             <CalendarDays size={16} /><h2>Coming up</h2><div className="spacer" /><Link to="/calendar" className="small">Calendar <ArrowRight size={12} /></Link>
           </div>
-          {data && data.events.length === 0 && <Empty icon={<CalendarDays size={22} />} title="Nothing scheduled" hint="Add a calendar from the Calendar page." />}
+          {!data && <SkeletonList rows={3} />}
+          {data && data.events.length === 0 && <Empty icon={<CalendarDays size={22} />} title="Nothing scheduled" hint="Connect Google or Microsoft above, or add a calendar from the Calendar page." />}
           {data?.events.slice(0, 8).map((ev) => (
             <div key={ev.id} className="list-item" style={{ cursor: "default" }}>
               <span className="dot" style={{ background: ev.color }} />
@@ -125,6 +134,7 @@ export default function Dashboard(_: { chatUrl?: string }) {
           <div className="card-head" style={{ padding: "14px 14px 0" }}>
             <CheckSquare size={16} /><h2>Due soon</h2><div className="spacer" /><Link to="/tasks" className="small">Tasks <ArrowRight size={12} /></Link>
           </div>
+          {!data && <SkeletonList rows={3} />}
           {data && data.tasks_due.length === 0 && <Empty icon={<CheckSquare size={22} />} title="Nothing due this week" />}
           {data?.tasks_due.slice(0, 8).map((t) => (
             <Link key={t.id} to="/tasks" className="list-item">
@@ -136,6 +146,7 @@ export default function Dashboard(_: { chatUrl?: string }) {
 
         <div className="card flush">
           <div className="card-head" style={{ padding: "14px 14px 0" }}><FileText size={16} /><h2>Recent writing</h2></div>
+          {!data && <SkeletonList rows={3} />}
           {data && data.recent_docs.length === 0 && <Empty icon={<NotebookPen size={22} />} title="No notes yet" />}
           {data?.recent_docs.map((d) => (
             <Link key={d.id} to={`/${d.kind === "note" ? "notes" : "documents"}/${d.id}`} className="list-item">
@@ -148,6 +159,7 @@ export default function Dashboard(_: { chatUrl?: string }) {
 
         <div className="card flush">
           <div className="card-head" style={{ padding: "14px 14px 0" }}><Search size={16} /><h2>Research</h2><div className="spacer" /><Link to="/research" className="small">All <ArrowRight size={12} /></Link></div>
+          {!data && <SkeletonList rows={3} />}
           {data && data.research.length === 0 && <Empty icon={<Search size={22} />} title="No research yet" hint="Use quick capture above." />}
           {data?.research.map((r) => (
             <Link key={r.id} to={`/research/${r.id}`} className="list-item">

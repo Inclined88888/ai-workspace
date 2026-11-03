@@ -1,0 +1,44 @@
+/* "What I know about you" and "Show me how": theme tokens only, so every theme (Neon too) just works. */
+.learn-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: var(--space-6, 32px); align-items: start; }
+@media (max-width: 900px) { .learn-grid { grid-template-columns: 1fr; } }
+.learn-section { margin-bottom: var(--space-6, 32px); }
+.learn-section > h2 { font-family: var(--serif); font-weight: 500; font-size: var(--text-xl, 22px); margin: 0 0 var(--space-3, 12px); }
+.learn-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--rule); }
+.learn-item { display: flex; gap: var(--space-3, 12px); align-items: flex-start; padding: var(--space-3, 12px) 0; border-bottom: 1px solid var(--border); }
+.learn-item .grow p { margin: 0; line-height: 1.5; color: var(--text); }
+.learn-meta { font-size: var(--text-2xs, 11px); color: var(--muted); margin-top: 4px; letter-spacing: 0.02em; }
+.learn-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.learn-pin { color: var(--accent-text); }
+.learn-switches { display: flex; flex-direction: column; gap: var(--space-3, 12px); }
+.learn-switch { display: flex; gap: var(--space-2, 8px); align-items: flex-start; cursor: pointer; }
+.learn-switch input { margin-top: 3px; accent-color: var(--accent); }
+.learn-switch small { display: block; color: var(--muted); }
+.learn-aside { border-left: 1px solid var(--rule); padding-left: var(--space-5, 24px); }
+@media (max-width: 900px) { .learn-aside { border-left: 0; padding-left: 0; } }
+.learn-aside h3 { font-family: var(--serif); font-weight: 500; font-size: var(--text-lg, 18px); margin: 0 0 var(--space-2, 8px); }
+.learn-work { display: flex; justify-content: space-between; font-size: var(--text-sm, 14px); padding: 6px 0; border-bottom: 1px solid var(--border); }
+.learn-work span:last-child { color: var(--muted); font-variant-numeric: tabular-nums; }
+.learn-note { background: var(--ok-soft); color: var(--ok-text); border: 1px solid var(--ok-soft); padding: var(--space-2, 8px) var(--space-3, 12px); border-radius: var(--radius, 2px); font-size: var(--text-sm, 14px); }
+.learn-suggest { border: 1px solid var(--border-strong); background: var(--panel); padding: var(--space-4, 16px); border-radius: var(--radius, 2px); margin-bottom: var(--space-3, 12px); }
+.learn-suggest p { margin: 0 0 var(--space-2, 8px); }
+.learn-suggest .title { font-family: var(--serif); font-size: var(--text-lg, 18px); color: var(--text); }
+.learn-hero { border: 1px solid var(--rule); background: var(--panel); padding: var(--space-5, 24px); border-radius: var(--radius, 2px); margin-bottom: var(--space-5, 24px); }
+.learn-hero h2 { font-family: var(--serif); font-weight: 500; margin: 0 0 var(--space-2, 8px); }
+.learn-choice { display: flex; gap: var(--space-2, 8px); flex-wrap: wrap; margin: var(--space-3, 12px) 0; }
+.learn-choice button[aria-pressed="true"] { border-color: var(--text); background: var(--panel-2); }
+.learn-live { font-family: var(--mono); font-size: var(--text-xs, 12px); color: var(--muted); max-height: 180px; overflow: auto; border: 1px solid var(--border); background: var(--panel-2); padding: var(--space-2, 8px); margin: var(--space-3, 12px) 0; }
+.learn-live div { padding: 2px 0; }
+.learn-rec-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--danger); margin-right: 6px; animation: learn-pulse 1.4s ease-in-out infinite; }
+@keyframes learn-pulse { 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) { .learn-rec-dot { animation: none; } }
+.learn-steps { counter-reset: step; list-style: none; padding: 0; margin: 0; }
+.learn-steps li { display: flex; gap: var(--space-3, 12px); align-items: flex-start; padding: var(--space-2, 8px) 0; border-bottom: 1px solid var(--border); }
+.learn-steps li::before { counter-increment: step; content: counter(step); font-family: var(--serif); color: var(--muted); min-width: 20px; text-align: right; }
+.learn-steps .param { background: var(--accent-soft); color: var(--accent-text); padding: 0 4px; border-radius: var(--radius, 2px); }
+.learn-flag { font-size: var(--text-2xs, 11px); color: var(--warn-text); background: var(--warn-soft); padding: 1px 6px; margin-left: 6px; white-space: nowrap; }
+.learn-pb { display: flex; gap: var(--space-3, 12px); align-items: center; padding: var(--space-3, 12px) 0; border-bottom: 1px solid var(--border); cursor: pointer; background: none; border-left: 0; border-right: 0; border-top: 0; width: 100%; text-align: left; color: inherit; font: inherit; }
+.learn-pb:hover .name { text-decoration: underline; }
+.learn-pb .name { font-family: var(--serif); font-size: var(--text-lg, 18px); }
+.learn-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--space-3, 12px); margin: var(--space-3, 12px) 0; }
+.learn-fields label { display: flex; flex-direction: column; gap: 4px; font-size: var(--text-sm, 14px); color: var(--muted); }
+.learn-run { border: 1px solid var(--border); padding: var(--space-3, 12px); margin-top: var(--space-3, 12px); background: var(--panel); }

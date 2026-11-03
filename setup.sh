@@ -13,11 +13,14 @@
 #       hermes        Hermes Agent                                     (~4.3 GB download)
 #   ./setup.sh --with none              back to the core only (stops add-ons, keeps their data)
 #   ./setup.sh --yes                    accept defaults, no prompts
+#   ./setup.sh --prebuilt[=TAG]         pull the published Workbench image (ghcr.io) instead of building it here;
+#                                       TAG defaults to this checkout's VERSION, e.g. --prebuilt=edge for main
 # Works with the bash 3.2 that ships with macOS.
 set -euo pipefail
 cd "$(dirname "$0")"
 
 YES=false
+PREBUILT=""
 WITH=""
 WITH_GIVEN=false
 while [[ $# -gt 0 ]]; do
@@ -25,7 +28,9 @@ while [[ $# -gt 0 ]]; do
     --yes|-y) YES=true ;;
     --with) WITH=${2:-}; WITH_GIVEN=true; shift ;;
     --with=*) WITH=${1#--with=}; WITH_GIVEN=true ;;
-    -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
+    --prebuilt) PREBUILT="$(tr -d ' \n' < VERSION 2>/dev/null || echo edge)" ;;
+    --prebuilt=*) PREBUILT=${1#--prebuilt=} ;;
+    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
     *) echo "Unknown option $1 (see ./setup.sh --help)" >&2; exit 1 ;;
   esac
   shift
@@ -135,7 +140,13 @@ fi
 if has search; then set_env SEARXNG_URL "http://searxng:8080"; set_env WEBUI_ENABLE_WEB_SEARCH true; else set_env SEARXNG_URL ""; set_env WEBUI_ENABLE_WEB_SEARCH false; fi
 if has codex; then set_env CODEX_URL "http://codex:8110"; else set_env CODEX_URL ""; fi
 if has claude-code; then set_env CLAUDE_CODE_URL "http://claude-code:8110"; else set_env CLAUDE_CODE_URL ""; fi
-if has browser; then set_env BROWSER_URL "http://browser:8100"; else set_env BROWSER_URL ""; fi
+if has browser; then
+  set_env BROWSER_URL "http://browser:8100"
+  # Open WebUI's entry for the browser tool server, appended to TOOL_SERVER_CONNECTIONS in docker-compose.yml
+  set_env WEBUI_BROWSER_TOOL ',{"type":"openapi","url":"http://browser:8100/tools","spec_type":"url","spec":"","path":"openapi.json","auth_type":"bearer","key":"'"$(get_env BROWSER_API_KEY)"'","config":{"enable":true},"info":{"id":"browser","name":"Browser","description":"A browser agent that can navigate websites to reach a goal"}}'
+else
+  set_env BROWSER_URL ""; set_env WEBUI_BROWSER_TOOL ""
+fi
 if has openwebui; then set_env CHAT_URL "http://${HOST}:$(get_env WEBUI_PORT)"; set_env WEBUI_PUBLIC_URL "$(get_env CHAT_URL)"; else set_env CHAT_URL ""; fi
 if has paperclip; then
   set_env PAPERCLIP_URL "http://${HOST}:$(get_env PAPERCLIP_PORT)"; set_env PAPERCLIP_PUBLIC_URL "$(get_env PAPERCLIP_URL)"
@@ -154,8 +165,21 @@ set_env WEBUI_ENABLE_OPENAI_API "$([[ -n "$URLS" ]] && echo true || echo false)"
 
 # NVIDIA GPU for the Ollama add-on (Linux only)
 if has local-models && command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1 && docker info 2>/dev/null | grep -qi nvidia; then
-  set_env COMPOSE_FILE "docker-compose.yml:docker-compose.gpu.yml"; info "NVIDIA GPU detected: Ollama will use it."
+  COMPOSE_FILES="docker-compose.yml:docker-compose.gpu.yml"; info "NVIDIA GPU detected: Ollama will use it."
 fi
+# Published Workbench image: only when it exists for that tag, else build here as before
+if [[ -n "$PREBUILT" ]]; then
+  IMAGE="ghcr.io/inclined88888/ai-workspace-workbench:${PREBUILT}"
+  if docker manifest inspect "$IMAGE" >/dev/null 2>&1; then
+    set_env WORKBENCH_IMAGE "$IMAGE"; COMPOSE_FILES="${COMPOSE_FILES:-docker-compose.yml}:docker-compose.prebuilt.yml"
+    info "Using the published Workbench image $IMAGE (no local build)."
+  else
+    info "No published image $IMAGE yet: building Workbench here instead."
+  fi
+elif [[ "$(get_env COMPOSE_FILE)" == *prebuilt* ]]; then
+  COMPOSE_FILES="${COMPOSE_FILES:-docker-compose.yml}:docker-compose.prebuilt.yml"  # chosen on an earlier run: kept
+fi
+set_env COMPOSE_FILE "${COMPOSE_FILES:-docker-compose.yml}"
 
 echo; bold "Starting${ADDONS:+ (add-ons: $ADDONS)}"
 docker compose up -d --build

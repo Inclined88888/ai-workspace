@@ -1,6 +1,7 @@
 """Item 21: the run log as a trace. Every turn lists with its totals and opens as a tree of model calls, tool calls
 and approval decisions, read from the one actions table (R2) and never exposing encrypted raw arguments (R7)."""
 
+import memfacts
 import json
 
 from conftest import SCRIPT, events, tool_call
@@ -49,7 +50,7 @@ def test_an_approval_nests_under_the_held_call(client, monkeypatch):
     body = json.dumps(tree) + json.dumps(client.get("/api/runs", params={"limit": 200}).json())
     assert "payload_enc" not in body and "TRACEabcdef" not in body
     from app import db
-    db.run("DELETE FROM memories WHERE content LIKE 'Trace secret%'")
+    memfacts.drop('Trace secret')
 
 
 def test_filters_and_paging(client):

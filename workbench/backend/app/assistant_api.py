@@ -9,11 +9,12 @@ import json
 import re
 import secrets
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from . import actions, assistant, company, db, egress, health, learn, receipts, scheduler, search, telegram, usage
+from . import attachments as attachments_mod
 from .api import sse
 from .security import COOKIE, check_session, encrypt
 
@@ -34,13 +35,36 @@ router = APIRouter(prefix="/api", dependencies=[Depends(require_user_or_cli)])
 
 # Chat
 class ChatIn(BaseModel):
-    message: str = Field(..., min_length=1, max_length=50_000)
+    message: str = Field("", max_length=50_000)  # may be empty when files are attached
     conversation_id: int | None = None
     model: str | None = None
-    channel: str = Field("web", pattern="^(web|cli)$")
+    channel: str = Field("web", pattern="^(web|cli|mobile)$")
+    effort: str = Field("", pattern="^(|low|medium|high)$")  # how hard a plan's model thinks; "" = the plan's default
+    resend: bool = False      # this turn's user message is already stored (edit-and-resend); don't save it again
+    attachments: list[str] = Field(default_factory=list, max_length=attachments_mod.MAX_PER_MESSAGE)  # ids from /assistant/attachments
 
 
 IDEMPOTENCY_KEY = re.compile(r"^[A-Za-z0-9._:-]{8,200}$")
+
+
+@router.post("/assistant/attachments")
+def upload_attachment(data: attachments_mod.UploadIn):
+    """One file for the next chat turn (base64 JSON). Images: PNG, JPEG, WebP, GIF. Documents are read now."""
+    m = attachments_mod.save_b64(data)
+    return {**attachments_mod.public(m), **({"chars": m["chars"], "notes": m["notes"]} if m["kind"] == "document" else {})}
+
+
+@router.get("/assistant/attachments/{aid}")
+def get_attachment(aid: str):
+    """The stored file, for previews in the chat history. Images inline; documents download. Never sniffed as HTML."""
+    from fastapi.responses import FileResponse
+
+    m = attachments_mod.meta(aid)
+    image = m["kind"] == "image"
+    return FileResponse(attachments_mod.file_path(m), media_type=m["mime"] if image else "application/octet-stream",
+                        filename=m["name"], content_disposition_type="inline" if image else "attachment",
+                        headers={"X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'",
+                                 "Cache-Control": "private, max-age=86400"})
 
 
 @router.post("/assistant/chat")
@@ -56,6 +80,9 @@ def chat(data: ChatIn, idempotency_key: str | None = Header(None)):
             return JSONResponse(status_code=409, content={
                 "detail": "This request was already received (same Idempotency-Key); it was not run again",
                 "conversation_id": prior["conversation_id"], "turn_id": prior["id"], "outcome": prior["outcome"]})
+    files = attachments_mod.resolve(data.attachments) if data.attachments else []
+    if not data.message.strip() and not files:
+        raise HTTPException(422, "Say something or attach a file")
     cid = data.conversation_id
     if cid:
         if not db.one("SELECT id FROM conversations WHERE id = ?", cid):
@@ -66,12 +93,62 @@ def chat(data: ChatIn, idempotency_key: str | None = Header(None)):
         db.run("UPDATE conversations SET model = ? WHERE id = ?", data.model, cid)
 
     async def events():
+        import asyncio
+
+        from .adapters import EFFORT
+
+        EFFORT.set(data.effort)  # this turn only: the stream runs in its own task
         yield {"type": "start", "conversation_id": cid}
-        ctx = assistant.Ctx(channel=data.channel, conversation_id=cid, request_key=key)
-        async for e in assistant.run_turn(ctx, data.message, data.model):
-            yield e
+        ctx = assistant.Ctx(channel=data.channel, conversation_id=cid, request_key=key, skip_save=data.resend, attachments=files)
+        task = asyncio.current_task()
+        if task is not None:
+            assistant.TURNS[cid] = task  # the Stop button cancels this task; finally() hands the slot back
+        try:
+            async for e in assistant.run_turn(ctx, data.message, data.model):
+                yield e
+        except asyncio.CancelledError:
+            return  # the stopped turn already saved and yielded its partial state
+        finally:
+            if assistant.TURNS.get(cid) is task:
+                del assistant.TURNS[cid]
 
     return sse(events())
+
+
+# Chat controls (feat/chat-controls): stop an in-flight turn, regenerate the last reply, edit and resend
+class StopIn(BaseModel):
+    conversation_id: int
+
+
+@router.post("/assistant/stop")
+def stop(data: StopIn):
+    """Cancel the conversation's in-flight turn. What was already written is kept and marked stopped."""
+    if not db.one("SELECT id FROM conversations WHERE id = ?", data.conversation_id):
+        raise HTTPException(404, "Conversation not found")
+    return {"stopped": assistant.stop_turn(data.conversation_id)}
+
+
+class MessageEditIn(BaseModel):
+    content: str = Field(..., min_length=1, max_length=50_000)
+
+
+@router.patch("/conversations/{cid}/messages/{mid}")
+def edit_message(cid: int, mid: int, data: MessageEditIn):
+    """Edit a sent user message and drop everything after it (edit and resend). The client then re-runs the turn."""
+    if not db.one("SELECT id FROM conversations WHERE id = ?", cid):
+        raise HTTPException(404, "Conversation not found")
+    if not data.content.strip():
+        raise HTTPException(400, "The message cannot be empty")
+    assistant.edit_user_message(cid, mid, data.content.strip())
+    return {"ok": True}
+
+
+@router.post("/conversations/{cid}/regenerate")
+def regenerate(cid: int):
+    """Drop the last assistant reply and everything after its question; the client re-runs the returned question."""
+    if not db.one("SELECT id FROM conversations WHERE id = ?", cid):
+        raise HTTPException(404, "Conversation not found")
+    return {"message": assistant.drop_last_reply(cid)}
 
 
 @router.get("/conversations")
@@ -82,7 +159,7 @@ def conversations(channel: str | None = None, q: str = ""):
         return [db.one("SELECT * FROM conversations WHERE id = ?", i) for i in ids]
     if channel:
         return db.all("SELECT * FROM conversations WHERE channel = ? ORDER BY updated_at DESC LIMIT 200", channel)
-    return db.all("SELECT * FROM conversations WHERE channel IN ('web', 'cli', 'telegram', 'schedule') ORDER BY updated_at DESC LIMIT 200")
+    return db.all("SELECT * FROM conversations WHERE channel IN ('web', 'cli', 'mobile', 'telegram', 'schedule') ORDER BY updated_at DESC LIMIT 200")
 
 
 @router.get("/conversations/{cid}")
@@ -90,8 +167,9 @@ def conversation(cid: int):
     c = db.one("SELECT * FROM conversations WHERE id = ?", cid)
     if not c:
         raise HTTPException(404, "Not found")
-    rows = db.all("SELECT id, role, content, tool_calls, name, created_at FROM messages WHERE conversation_id = ? ORDER BY id", cid)
+    rows = db.all("SELECT id, role, content, tool_calls, name, attachments, created_at FROM messages WHERE conversation_id = ? ORDER BY id", cid)
     for r in rows:
+        r["attachments"] = [attachments_mod.public(a) for a in json.loads(r["attachments"])] if r["attachments"] else []
         r["tool_calls"] = [tc["function"]["name"] for tc in json.loads(r["tool_calls"])] if r["tool_calls"] else []
         if r["role"] == "tool":
             r["content"] = r["content"][:400]
@@ -114,8 +192,74 @@ def rename(cid: int, data: ConvPatch):
 
 @router.delete("/conversations/{cid}")
 def delete_conversation(cid: int):
+    # Detach dependents: actions is an audit log, so null conversation_id and keep rows.
+    # memories and agent_tasks also reference conversations but have no FK constraint.
+    db.run("UPDATE actions SET conversation_id = NULL WHERE conversation_id = ?", cid)
+    db.run("UPDATE memories SET conversation_id = NULL WHERE conversation_id = ?", cid)
+    db.run("UPDATE agent_tasks SET conversation_id = NULL WHERE conversation_id = ?", cid)
+    # messages has ON DELETE CASCADE, so it will be deleted automatically
     db.run("DELETE FROM conversations WHERE id = ?", cid)
     return {"ok": True}
+
+
+# Goals
+from .goals import GoalIn, GoalPatch
+
+
+@router.post("/goals")
+def create_goal(data: GoalIn):
+    """Create a new goal for a conversation."""
+    from . import goals
+
+    return goals.create(data)
+
+
+@router.get("/goals")
+def list_goals(conversation_id: int | None = None):
+    """List all goals, optionally filtered by conversation."""
+    from . import goals
+
+    return goals.listing(conversation_id)
+
+
+@router.get("/goals/{goal_id}")
+def get_goal(goal_id: int):
+    """Get a specific goal by ID."""
+    from . import goals
+
+    return goals.get(goal_id)
+
+
+@router.patch("/goals/{goal_id}")
+def update_goal(goal_id: int, data: GoalPatch):
+    """Update a goal's objective, max_rounds, or resume_on_restart."""
+    from . import goals
+
+    return goals.update(goal_id, data)
+
+
+@router.post("/goals/{goal_id}/cancel")
+def cancel_goal(goal_id: int):
+    """Cancel an active goal."""
+    from . import goals
+
+    return goals.cancel(goal_id)
+
+
+@router.post("/goals/{goal_id}/pause")
+def pause_goal(goal_id: int):
+    """Pause an active goal."""
+    from . import goals
+
+    return goals.pause(goal_id)
+
+
+@router.post("/goals/{goal_id}/resume")
+def resume_goal(goal_id: int):
+    """Resume a paused or blocked goal."""
+    from . import goals
+
+    return goals.resume(goal_id)
 
 
 # Approvals: actions held by assistant.needs_approval
@@ -173,29 +317,44 @@ class MemoryIn(BaseModel):
     kind: str = Field("fact", pattern="^(profile|fact|preference)$")
 
 
+def _legacy_shape(f: dict) -> dict:
+    kind = "profile" if f["category"] == "about" else ("preference" if f["category"] in ("preference", "format") else "fact")
+    return {"id": f["id"], "content": f["content"], "kind": kind, "source": f["source"], "created_at": f["created_at"],
+            "updated_at": f["updated_at"]}
+
+
+# The Memory tab now reads and writes the encrypted learn store (the same facts as "What I know about you").
 @router.get("/memories")
 def memories(q: str = ""):
+    from .adapt import knowledge
+
+    knowledge.migrate_legacy()
     if q:
         return assistant.search_memories(q, 50)
-    return db.all("SELECT * FROM memories ORDER BY kind = 'profile' DESC, updated_at DESC LIMIT 500")
+    return [_legacy_shape(f) for f in knowledge.all_facts()][:500]
 
 
 @router.post("/memories")
 def add_memory(data: MemoryIn):
-    mid = db.run("INSERT INTO memories(content, kind, source, created_at, updated_at) VALUES (?, ?, 'user', ?, ?)",
-                 data.content.strip(), data.kind, db.now(), db.now())
-    return db.one("SELECT * FROM memories WHERE id = ?", mid)
+    from .adapt import knowledge
+
+    knowledge.migrate_legacy()
+    f = knowledge.add(data.content.strip(), data.kind, "user", confidence=1.0, pinned=data.kind == "profile", dedupe=False)
+    return _legacy_shape(f)
 
 
 @router.put("/memories/{mid}")
 def edit_memory(mid: int, data: MemoryIn):
-    db.run("UPDATE memories SET content = ?, kind = ?, updated_at = ? WHERE id = ?", data.content.strip(), data.kind, db.now(), mid)
-    return db.one("SELECT * FROM memories WHERE id = ?", mid)
+    from .adapt import knowledge
+
+    return _legacy_shape(knowledge.update(mid, data.content.strip(), data.kind))
 
 
 @router.delete("/memories/{mid}")
 def delete_memory(mid: int):
-    db.run("DELETE FROM memories WHERE id = ?", mid)
+    from .adapt import knowledge
+
+    knowledge.delete(mid)
     return {"ok": True}
 
 
@@ -219,6 +378,13 @@ def add_skill(data: SkillIn):
 
 @router.put("/skills/{sid}")
 def edit_skill(sid: int, data: SkillIn):
+    cur = db.one("SELECT source FROM skills WHERE id = ?", sid)
+    if cur and cur["source"] == "github":  # only enable/disable; text changes go through a new reviewed install
+        row = db.one("SELECT id FROM hub_skills WHERE name = (SELECT name FROM skills WHERE id = ?) AND status IN ('installed','disabled')", sid)
+        if row:
+            from . import skills_hub
+            skills_hub.set_enabled(row["id"], data.enabled)
+        return db.one("SELECT * FROM skills WHERE id = ?", sid)
     db.run("UPDATE skills SET description = ?, steps = ?, enabled = ?, updated_at = ? WHERE id = ?",
            data.description, data.steps, int(data.enabled), db.now(), sid)
     return db.one("SELECT * FROM skills WHERE id = ?", sid)
@@ -342,6 +508,27 @@ def put_assistant_settings(data: AssistantSettings):
     return get_assistant_settings()
 
 
+class SearchKeyIn(BaseModel):
+    provider: str = Field(..., pattern="^(tavily|brave)$")
+    key: str = Field(..., min_length=8, max_length=200)
+
+
+@router.post("/assistant/search-key")
+async def set_search_key(data: SearchKeyIn):
+    """Test the key with one real search; save it only when that works."""
+    problem = await search.test_key(data.provider, data.key)
+    if problem:
+        raise HTTPException(400, problem)
+    db.set_setting(f"secret:{data.provider.upper()}_API_KEY", encrypt(data.key.strip()))
+    return {"ok": True, "provider": search.provider(), "name": search.NAMES[data.provider]}
+
+
+@router.get("/assistant/search")
+def search_status():
+    p = search.provider()
+    return {"provider": p, "name": search.NAMES.get(p, ""), "signup": search.SIGNUP}
+
+
 @router.post("/cli-token")
 def new_cli_token():
     token = "wb_" + secrets.token_urlsafe(32)
@@ -356,6 +543,11 @@ def usage_summary():
 
 class PricesIn(BaseModel):
     prices: dict[str, dict[str, float]]
+
+
+@router.get("/usage/daily")
+def usage_daily(days: int = Query(30, ge=1, le=90)):
+    return usage.daily(days)
 
 
 @router.put("/usage/prices")

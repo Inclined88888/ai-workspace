@@ -127,6 +127,147 @@ def test_a_failed_model_call_is_a_row_with_its_reason(client):
     client.delete(f"/api/providers/{pid}")
 
 
+def test_conversation_id_autoincrement_prevents_reuse(client):
+    """Conversation IDs must not be reused after deletion (AUTOINCREMENT)."""
+    from app import db
+
+    # Create conversation A with an action
+    cid_a = db.run("INSERT INTO conversations(title, channel, created_at, updated_at) VALUES (?, ?, ?, ?)",
+                   "Conv A", "web", db.now(), db.now())
+    db.run("INSERT INTO actions(ts, kind, conversation_id, outcome, request_id) VALUES (?, ?, ?, ?, ?)",
+           db.now(), "turn", cid_a, "backed", "req-a")
+
+    # Delete conversation A
+    r = client.delete(f"/api/conversations/{cid_a}")
+    assert r.status_code == 200
+
+    # Verify action was detached (conversation_id nulled)
+    action = db.one("SELECT conversation_id FROM actions WHERE request_id = 'req-a'")
+    assert action["conversation_id"] is None
+
+    # Create conversation B
+    cid_b = db.run("INSERT INTO conversations(title, channel, created_at, updated_at) VALUES (?, ?, ?, ?)",
+                   "Conv B", "web", db.now(), db.now())
+
+    # B's ID must be different from A's (AUTOINCREMENT prevents reuse)
+    assert cid_b != cid_a
+
+    # B's trace must not contain A's action
+    b_actions = db.all("SELECT * FROM actions WHERE conversation_id = ?", cid_b)
+    assert len(b_actions) == 0
+
+    # A's action should still exist but with NULL conversation_id
+    a_action = db.one("SELECT * FROM actions WHERE request_id = 'req-a'")
+    assert a_action is not None
+    assert a_action["conversation_id"] is None
+    assert a_action["outcome"] == "backed"
+
+
+def test_migration_v3_adds_autoincrement_to_old_schema(tmp_path, monkeypatch):
+    """Migration v3 rebuilds conversations with AUTOINCREMENT on an old schema DB."""
+    import sqlite3
+    import os
+
+    # Set up required env vars for config module
+    monkeypatch.setenv("APP_SECRET", "a" * 40)
+    monkeypatch.setenv("TOOLS_API_KEY", "k" * 30)
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+
+    from app import db
+
+    # Create old schema DB without AUTOINCREMENT
+    path = tmp_path / "old.db"
+    c = sqlite3.connect(path, isolation_level=None)
+    c.row_factory = sqlite3.Row
+    c.execute("PRAGMA user_version = 2")  # simulate pre-v3
+    c.executescript("""
+        CREATE TABLE conversations (
+            id INTEGER PRIMARY KEY,
+            title TEXT NOT NULL DEFAULT 'New chat',
+            channel TEXT NOT NULL DEFAULT 'web',
+            external_id TEXT NOT NULL DEFAULT '',
+            agent_id INTEGER,
+            model TEXT NOT NULL DEFAULT '',
+            memory_cursor INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX conversations_channel ON conversations(channel, external_id);
+        INSERT INTO conversations(id, title, channel, created_at, updated_at) VALUES (1, 'Old chat', 'web', 't', 't');
+        INSERT INTO conversations(id, title, channel, created_at, updated_at) VALUES (5, 'Another', 'web', 't', 't');
+    """)
+
+    # Run migration
+    db.migrate(c, path)
+
+    # Check AUTOINCREMENT is present
+    table_sql = c.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='conversations'").fetchone()[0]
+    assert "AUTOINCREMENT" in table_sql.upper()
+
+    # Data preserved
+    rows = c.execute("SELECT id, title FROM conversations ORDER BY id").fetchall()
+    assert [(r["id"], r["title"]) for r in rows] == [(1, "Old chat"), (5, "Another")]
+
+    # sqlite_sequence seeded with max id (5)
+    seq = c.execute("SELECT seq FROM sqlite_sequence WHERE name = 'conversations'").fetchone()
+    assert seq is not None and seq["seq"] == 5
+
+    # Next insert gets id 6 (not reusing 1 or 5)
+    cur = c.cursor()
+    cur.execute("INSERT INTO conversations(title, channel, created_at, updated_at) VALUES (?, ?, ?, ?)",
+              ("New", "web", "t", "t"))
+    next_id = cur.lastrowid
+    assert next_id == 6
+
+    # Migration is idempotent: running again doesn't change anything
+    db.migrate(c, path)
+    table_sql2 = c.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='conversations'").fetchone()[0]
+    assert "AUTOINCREMENT" in table_sql2.upper()
+    rows2 = c.execute("SELECT id, title FROM conversations ORDER BY id").fetchall()
+    assert [(r["id"], r["title"]) for r in rows2] == [(1, "Old chat"), (5, "Another"), (6, "New")]
+
+
+def test_migration_v3_keeps_messages_on_a_real_install_with_foreign_keys_on(tmp_path, monkeypatch):
+    """A real v2 database opened like db.conn() (foreign keys ON): the rebuild must not cascade-delete messages.
+
+    SQLite ignores PRAGMA foreign_keys inside a transaction, so DROP TABLE conversations used to run as an implicit
+    DELETE with cascades; on a real install it failed with 'database table is locked' and the app would not start.
+    """
+    import sqlite3
+
+    monkeypatch.setenv("APP_SECRET", "a" * 40)
+    monkeypatch.setenv("TOOLS_API_KEY", "k" * 30)
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    from app import db
+
+    path = tmp_path / "v2.db"
+    c = sqlite3.connect(path, isolation_level=None)
+    c.row_factory = sqlite3.Row
+    c.executescript("""
+        CREATE TABLE conversations (
+            id INTEGER PRIMARY KEY, title TEXT NOT NULL DEFAULT 'New chat', channel TEXT NOT NULL DEFAULT 'web',
+            external_id TEXT NOT NULL DEFAULT '', agent_id INTEGER, model TEXT NOT NULL DEFAULT '',
+            memory_cursor INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+    """)
+    c.executescript(db.SCHEMA)  # every other table as a v2 install has it, messages included
+    c.execute("PRAGMA user_version = 2")
+    c.execute("PRAGMA journal_mode=WAL")
+    c.execute("PRAGMA foreign_keys=ON")
+    c.execute("INSERT INTO conversations(id, title, created_at, updated_at) VALUES (3, 'Kept', 't', 't')")
+    for i in range(5):
+        c.execute("INSERT INTO messages(conversation_id, role, content, created_at) VALUES (3, 'user', ?, 't')", (f"m{i}",))
+
+    db.migrate(c, path)
+
+    assert "AUTOINCREMENT" in c.execute("SELECT sql FROM sqlite_master WHERE name='conversations'").fetchone()[0].upper()
+    assert c.execute("SELECT COUNT(*) FROM messages WHERE conversation_id = 3").fetchone()[0] == 5
+    assert c.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION
+    assert c.execute("PRAGMA foreign_keys").fetchone()[0] == 1  # restored for the app
+    assert c.execute("PRAGMA foreign_key_check").fetchall() == []
+    c.execute("DELETE FROM conversations WHERE id = 3")  # cascades still work after the rebuild
+    assert c.execute("SELECT COUNT(*) FROM messages").fetchone()[0] == 0
+
+
 def test_trace_columns_are_redacted_but_held_actions_keep_runnable_arguments(client):
     from app import actions, db
 

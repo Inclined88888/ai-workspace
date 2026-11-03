@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="light" />
+  <title>AI Workspace</title>
+  <style>
+    /* Same tokens as workbench/frontend/src/styles.css (editorial, light). No network: the serif ships in ./fonts (OFL 1.1). */
+    @font-face { font-family: "Bodoni Moda Variable"; font-style: normal; font-weight: 400 900; font-display: block; src: url(fonts/bodoni-moda-latin-opsz-normal.woff2) format("woff2-variations"); }
+    @font-face { font-family: "Bodoni Moda Variable"; font-style: italic; font-weight: 400 900; font-display: block; src: url(fonts/bodoni-moda-latin-opsz-italic.woff2) format("woff2-variations"); }
+    :root { --paper: #f5f1e8; --ink: #141311; --muted: #5a554c; --rule: #dcd5c6; --red: #d21f3c; --red-text: #a61c1c; --serif: "Bodoni Moda Variable", "Bodoni 72", Didot, "Times New Roman", serif; --sans: "Helvetica Neue", Helvetica, Arial, sans-serif; }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; background: var(--paper); color: var(--ink); font: 14px/1.5 var(--sans);
+      -webkit-font-smoothing: antialiased; -webkit-user-select: none; user-select: none; }
+    main { height: 100%; display: grid; place-items: center; text-align: center; padding: 32px; }
+    .stack { display: flex; flex-direction: column; align-items: center; animation: fade 240ms cubic-bezier(.25,.1,.25,1) both; }
+    .kicker { font-size: 10.5px; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; color: var(--red-text); margin: 0 0 22px; }
+    h1 { margin: 0; font-family: var(--serif); font-weight: 450; font-size: 52px; line-height: 1; letter-spacing: .05em; text-transform: uppercase; white-space: nowrap; font-variation-settings: "opsz" 96; }
+    .rule { width: 280px; height: 1px; margin: 26px 0 18px; background: var(--rule); position: relative; overflow: hidden; }
+    .rule::after { content: ""; position: absolute; top: 0; left: 0; height: 1px; width: 30%; background: var(--red); animation: run 1.6s cubic-bezier(.45,0,.55,1) infinite; }
+    p { margin: 0; color: var(--muted); max-width: 440px; min-height: 24px; font-family: var(--serif); font-style: italic; font-size: 17px; }
+    p.err { color: var(--red-text); font-family: var(--sans); font-style: normal; font-size: 13px; border-left: 2px solid var(--red); padding: 4px 0 4px 12px; text-align: left; -webkit-user-select: text; user-select: text; }
+    .failed .rule::after { animation: none; width: 100%; }
+    @keyframes fade { from { opacity: 0; } }
+    @keyframes run { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+    @media (prefers-reduced-motion: reduce) { .stack, .rule::after { animation: none; } .rule::after { width: 100%; opacity: .35; } }
+  </style>
+</head>
+<body>
+  <main id="root">
+    <div class="stack">
+      <div class="kicker">Desktop edition</div>
+      <h1>AI Workspace</h1>
+      <div class="rule" aria-hidden="true"></div>
+      <p id="status" role="status" aria-live="polite">Starting your workspace…</p>
+    </div>
+  </main>
+  <script>
+    // Called by the Rust shell (src-tauri/src/sidecars.rs) while the local backend starts.
+    window.bootStatus = function (text, isError) {
+      var el = document.getElementById("status");
+      el.textContent = text;
+      el.className = isError ? "err" : "";
+      document.getElementById("root").classList.toggle("failed", !!isError);
+    };
+  </script>
+</body>
+</html>

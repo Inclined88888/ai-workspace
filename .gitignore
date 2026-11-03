@@ -8,3 +8,9 @@ __pycache__/
 .pytest_cache/
 out/
 *.tsbuildinfo
+
+# Rooks Browser headed-run captures
+/screenshots/
+
+# SwiftPM build output
+companion/macos/.build/

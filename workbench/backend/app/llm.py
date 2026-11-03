@@ -5,6 +5,7 @@ which one is active. Model references are "<connection_id>/<model>", e.g. "1/qwe
 """
 
 import json
+import re
 import time
 from typing import AsyncIterator
 
@@ -14,13 +15,13 @@ from . import config, db
 from .adapters import (  # noqa: F401 - re-exported for callers and tests
     OLLAMA_NUM_CTX, THINK_RE, Adapter, keep_model, parse_text_tool_calls, validate,
 )
-from .security import encrypt
+from .security import encrypt, store_connection_secret  # noqa: F401 - encrypt kept for callers
 
 # Presets offered in Settings. Each names the auth kind and protocol it uses; the base URL is editable.
 PRESETS = {
     # Native Ollama app on the host (fast on Mac: uses the GPU) unless the ollama add-on container is configured
     "ollama": {"name": "Ollama (local)", "auth_kind": "local_ollama", "protocol": "ollama_native",
-               "base_url": config.OLLAMA_URL or "http://host.docker.internal:11434"},
+               "base_url": config.OLLAMA_URL or ("http://127.0.0.1:11434" if config.DESKTOP else "http://host.docker.internal:11434")},
     "openai": {"name": "OpenAI", "auth_kind": "api_key", "protocol": "responses", "base_url": "https://api.openai.com/v1"},
     "anthropic": {"name": "Anthropic", "auth_kind": "api_key", "protocol": "anthropic_messages", "base_url": "https://api.anthropic.com/v1",
                   "note": "Claude API key from console.anthropic.com. Claude Pro and Max subscriptions cannot be used by "
@@ -32,27 +33,106 @@ PRESETS = {
                "note": "Free tier with a key from aistudio.google.com (Flash and Flash-Lite models). Google may use free tier prompts to improve its products."},
     # OpenCode's own free models are refused outside the OpenCode app ("Free models work in OpenCode"),
     # so only the paid Zen and the Go subscription are offered here. Free OpenCode models: the paperclip add-on.
+    "groq": {"name": "Groq", "auth_kind": "api_key", "protocol": "chat_completions", "base_url": "https://api.groq.com/openai/v1",
+             "note": "Free key from console.groq.com, no card. gpt-oss-120b and -20b: 30 requests/min, 1,000 a day."},
+    "xai": {"name": "xAI Grok", "auth_kind": "api_key", "protocol": "chat_completions", "base_url": "https://api.x.ai/v1",
+            "note": "API key from console.x.ai. SuperGrok sign-in is only offered to xAI's partner apps for now."},
+    "mistral": {"name": "Mistral", "auth_kind": "api_key", "protocol": "chat_completions", "base_url": "https://api.mistral.ai/v1",
+                "note": "Key from console.mistral.ai (the free Experiment plan works, with low limits)."},
+    "deepseek": {"name": "DeepSeek", "auth_kind": "api_key", "protocol": "chat_completions", "base_url": "https://api.deepseek.com",
+                 "note": "Pay as you go key from platform.deepseek.com."},
+    "nvidia": {"name": "NVIDIA NIM", "auth_kind": "api_key", "protocol": "chat_completions", "base_url": "https://integrate.api.nvidia.com/v1",
+               "note": "Key from build.nvidia.com (starts nvapi-). Free development access to Nemotron, Kimi, GLM, DeepSeek and more, with per minute limits."},
+    "cerebras": {"name": "Cerebras", "auth_kind": "api_key", "protocol": "chat_completions", "base_url": "https://api.cerebras.ai/v1",
+                 "note": "Key from cloud.cerebras.ai. Very fast inference of open models."},
+    "together": {"name": "Together AI", "auth_kind": "api_key", "protocol": "chat_completions", "base_url": "https://api.together.xyz/v1",
+                 "note": "Key from api.together.ai. Pay as you go open models."},
+    "fireworks": {"name": "Fireworks AI", "auth_kind": "api_key", "protocol": "chat_completions", "base_url": "https://api.fireworks.ai/inference/v1",
+                  "note": "Key from fireworks.ai (starts fw_). Pay as you go open models."},
+    # Your own signed-in CLI and its plan (no key: sign in with `claude` or `codex login` in a terminal first)
+    "claude-plan": {"name": "Claude plan (Claude Code)", "auth_kind": "cli_subscription", "protocol": "cli_plan", "base_url": "cli://claude",
+                    "note": "Uses the Claude Code CLI you installed and signed in to yourself, on this computer. Answers count "
+                            "against your Claude plan's limits. Each answer starts the CLI, so it is slower than an API key. "
+                            "Check Anthropic's terms for your plan: https://code.claude.com/docs/en/legal-and-compliance"},
+    "codex-plan": {"name": "ChatGPT plan (Codex)", "auth_kind": "cli_subscription", "protocol": "cli_plan", "base_url": "cli://codex",
+                   "note": "Uses the Codex CLI you installed and signed in to with ChatGPT, on this computer, in its read-only "
+                           "sandbox. Answers count against your ChatGPT plan's Codex limits."},
+    "copilot-plan": {"name": "Copilot plan (GitHub Copilot)", "auth_kind": "cli_subscription", "protocol": "cli_plan",
+                     "base_url": "cli://copilot",
+                     "note": "Uses the GitHub Copilot CLI signed in to your GitHub account, with no tools. Each answer uses "
+                             "your plan's monthly premium requests."},
     "opencode-go": {"name": "OpenCode Go", "auth_kind": "api_key", "protocol": "chat_completions",
                     "base_url": "https://opencode.ai/inference/go/openai/v1", "note": "OpenCode Go subscription ($10/month flat). Key from opencode.ai/console."},
     "opencode-zen": {"name": "OpenCode Zen", "auth_kind": "api_key", "protocol": "chat_completions",
                      "base_url": "https://opencode.ai/inference/openai/v1", "note": "Pay as you go. Key from opencode.ai/console."},
     "compatible": {"name": "OpenAI compatible server", "auth_kind": "openai_compatible", "protocol": "chat_completions",
-                   "base_url": "http://host.docker.internal:1234/v1", "note": "LM Studio, vLLM, llama.cpp server, LiteLLM, Groq, Together. Key optional."},
+                   "base_url": "http://127.0.0.1:1234/v1" if config.DESKTOP else "http://host.docker.internal:1234/v1", "note": "LM Studio, vLLM, llama.cpp server, LiteLLM, Groq, Together. Key optional."},
 }
-SEED = {"openai": "openai", "anthropic": "anthropic", "openrouter": "openrouter", "gemini": "gemini"}  # .env key -> preset
+SEED = {"openai": "openai", "anthropic": "anthropic", "openrouter": "openrouter", "gemini": "gemini", "groq": "groq", "xai": "xai",
+        "nvidia": "nvidia", "cerebras": "cerebras", "together": "together", "fireworks": "fireworks"}  # .env key -> preset
+
+# Shown by the first-run screen and Models: where to get a key, what the free tier gives, and how a key looks.
+KEY_INFO = {
+    "gemini": {"url": "https://aistudio.google.com/app/apikey", "prefix": "AIza", "free": True,
+               "limits": "Free: Flash-Lite and Flash, daily limits per project (see AI Studio). Resets midnight Pacific."},
+    "groq": {"url": "https://console.groq.com/keys", "prefix": "gsk_", "free": True,
+             "limits": "Free: 30 requests/min and 1,000 a day on gpt-oss-120b. Resets daily."},
+    "openrouter": {"url": "https://openrouter.ai/settings/keys", "prefix": "sk-or-", "free": True,
+                   "limits": "Free models: 20/min and 50 a day (1,000 a day after $10 of credits)."},
+    "openai": {"url": "https://platform.openai.com/api-keys", "prefix": "sk-"},
+    "anthropic": {"url": "https://console.anthropic.com/settings/keys", "prefix": "sk-ant-"},
+    "xai": {"url": "https://console.x.ai", "prefix": "xai-"},
+    "mistral": {"url": "https://console.mistral.ai/api-keys", "prefix": ""},
+    "deepseek": {"url": "https://platform.deepseek.com/api_keys", "prefix": "sk-"},
+    "nvidia": {"url": "https://build.nvidia.com/settings/api-keys", "prefix": "nvapi-", "free": True,
+               "limits": "Free development access with per minute rate limits."},
+    "cerebras": {"url": "https://cloud.cerebras.ai", "prefix": ""},
+    "together": {"url": "https://api.together.ai/settings/api-keys", "prefix": ""},
+    "fireworks": {"url": "https://fireworks.ai/account/api-keys", "prefix": "fw_"},
+}
+
+
+def detect_key(key: str) -> str | None:
+    """Which preset a pasted key belongs to, from its prefix. Ambiguous "sk-" keys (OpenAI, DeepSeek) are guessed as
+    OpenAI; a wrong guess shows up as "key rejected" on the first check and the user picks the provider by hand."""
+    k = key.strip()
+    for preset in ("openrouter", "anthropic", "gemini", "groq", "xai", "nvidia", "fireworks"):
+        if k.startswith(KEY_INFO[preset]["prefix"]):
+            return preset
+    return "openai" if k.startswith("sk-") else None
 
 
 def seed_connections() -> None:
-    """First start only: connections for a host Ollama and for provider keys given in .env."""
-    if db.one("SELECT id FROM connections LIMIT 1"):
-        return
-    seeds = [("ollama", "")] if config.OLLAMA_URL else []
+    """Connections for a host Ollama (first start only) and for provider keys given in .env, on every start.
+
+    A key in .env that is new, or that changed since the last start, is applied: a new connection, or the new key on
+    the existing one. A key the user changed in the app is left alone while .env still holds the value seeded before
+    (a fingerprint of each seeded value is kept, never the value itself), so the app and .env never fight.
+    """
+    import hashlib
+
+    first = not db.one("SELECT id FROM connections LIMIT 1")
+    # The desktop app always knows where a native Ollama would be; its welcome flow adds it only when the user picks it.
+    seeds = [("ollama", "")] if first and config.OLLAMA_URL and not config.DESKTOP else []
     seeds += [(SEED[k], key) for k, key in config.SEED_KEYS.items() if key]
     for preset, key in seeds:
         p = PRESETS[preset]
-        db.run("INSERT INTO connections(name, auth_kind, protocol, base_url, secret_enc, residency, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-               p["name"], p["auth_kind"], p["protocol"], p["base_url"], encrypt(key), "local" if p["auth_kind"] == "local_ollama" else "cloud",
-               db.now())
+        mark = f"seeded_env:{preset}"
+        fingerprint = hashlib.sha256(f"{config.APP_SECRET}:{key}".encode()).hexdigest() if key else ""
+        if key and db.get_setting(mark) == fingerprint:
+            continue  # unchanged in .env since it was applied
+        existing = db.one("SELECT id FROM connections WHERE base_url = ? AND auth_kind = ? ORDER BY id LIMIT 1",
+                          p["base_url"], p["auth_kind"])
+        if existing and not key:
+            continue
+        cid = existing["id"] if existing else db.run(
+            "INSERT INTO connections(name, auth_kind, protocol, base_url, secret_enc, residency, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            p["name"], p["auth_kind"], p["protocol"], p["base_url"], "", "local" if p["auth_kind"] == "local_ollama" else "cloud", db.now())
+        if key:
+            store_connection_secret(cid, key)
+            db.run("UPDATE connections SET state = 'connected', last_error = '' WHERE id = ?", cid)
+            db.set_setting(mark, fingerprint)
+            _model_cache.pop(cid, None)
 
 
 def _connection(cid: int) -> dict:
@@ -63,6 +143,10 @@ def _connection(cid: int) -> dict:
 
 
 def split_ref(ref: str) -> tuple[dict, str]:
+    from . import router
+
+    if router.is_auto(ref):
+        raise HTTPException(400, "The smart router picks a model per call; resolve it with router.candidates")
     cid, _, model = ref.partition("/")
     if not cid.isdigit() or not model:
         raise HTTPException(400, f"Invalid model reference '{ref}'")
@@ -76,13 +160,23 @@ def adapter(ref: str | None) -> tuple[Adapter, dict, str, str]:
     return Adapter(conn), conn, model, ref
 
 
+def check_ref(ref: str) -> None:
+    """Raises unless ref names a usable model: "<connection>/<model>", or "auto" (the smart router)."""
+    from . import router
+
+    if not router.is_auto(ref):
+        split_ref(ref)
+
+
 def default_model_ref() -> str:
     saved = db.get_setting("default_model")
     if saved:
         return saved
+    if db.one("SELECT id FROM connections WHERE enabled = 1 AND auth_kind NOT IN ('local_ollama', 'session_scraping_forbidden') LIMIT 1"):
+        return "auto"  # cloud first: the smart router uses whatever is connected and falls back on limits
     local = db.one("SELECT id FROM connections WHERE auth_kind = 'local_ollama' AND enabled = 1 ORDER BY id LIMIT 1")
     if local:
-        return f"{local['id']}/{config.DEFAULT_MODEL}"
+        return f"{local['id']}/{_local_default(local['id'])}"
     conns = db.all("SELECT id, base_url FROM connections WHERE enabled = 1 ORDER BY id")
     if not conns:
         raise HTTPException(400, "No model provider configured. Add an API key in Settings.")
@@ -100,6 +194,32 @@ def default_model_ref() -> str:
     raise HTTPException(400, "No models available. Pick a default model in Settings.")
 
 
+def _local_default(cid: int) -> str:
+    """config.DEFAULT_MODEL when Ollama has it, else the first installed chat model (never a 404 on first chat)."""
+    try:
+        names = [m["model"] for m in list_models_for(cid)]
+    except Exception:  # Ollama not reachable yet: keep the configured name
+        return config.DEFAULT_MODEL
+    if not names or config.DEFAULT_MODEL in names:
+        return config.DEFAULT_MODEL
+    chat = [n for n in names if not re.search(r"embed|bge|minilm|nomic", n, re.I)]
+    return (chat or names)[0]
+
+
+def local_coder_ref() -> str | None:
+    """Ollama only (no cloud, so no smart router) and a coding model is installed: the coding agent gets that one, since
+    small general models often describe edits instead of making them. Otherwise None (the user's default)."""
+    try:
+        ref = default_model_ref()
+        cid, _, model = ref.partition("/")
+        if not cid.isdigit() or "coder" in model or _connection(int(cid))["auth_kind"] != "local_ollama":
+            return None
+        coders = [m["ref"] for m in list_models_for(int(cid)) if "coder" in m["model"]]
+        return coders[0] if coders else None
+    except Exception:
+        return None
+
+
 _model_cache: dict[int, tuple[float, list[dict]]] = {}
 
 
@@ -109,15 +229,72 @@ def list_models_for(cid: int, fresh: bool = False) -> list[dict]:
     if cached and not fresh and cached[0] > time.time() - 120:
         return cached[1]
     a = Adapter(conn)
-    out = [{"ref": f"{cid}/{n}", "model": n, "provider": conn["name"], "provider_id": cid, "free": a.is_free(n)}
-           for n in a.list_models()]
+    out = [{"ref": f"{cid}/{n}", "model": n, "provider": conn["name"], "provider_id": cid, "free": a.is_free(n),
+            "label": _label(n), **_pickable(conn["base_url"], n)} for n in a.list_models()]
+    _keep_newest(out)
     _model_cache[cid] = (time.time(), out)
+    if a.list_error:  # shown on Models instead of a silent "no models"
+        db.run("UPDATE connections SET last_error = ? WHERE id = ?", a.list_error, cid)
     return out
 
 
+PICK_PER_PROVIDER = 12  # pickers show the newest chat models per provider; Models > Show all lists everything
+
+
+def _label(model: str) -> str:
+    """A short name for pickers: no organisation prefix, no models/ or :latest."""
+    if model == "default":
+        return "Plan's default"  # a plan CLI's own choice (Claude Code, Codex, Copilot)
+    return model.removeprefix("models/").rsplit("/", 1)[-1].removesuffix(":latest")
+
+
+def _pickable(base_url: str, model: str) -> dict:
+    """Whether a model belongs in a chat picker. Providers the catalog covers list images, speech, embeddings, guards
+    and retired models too (NVIDIA alone lists 100+); only catalog chat models with tool use stay. Servers the catalog
+    doesn't cover (Ollama, your own server, plan CLIs) keep everything."""
+    from . import catalog
+
+    if not catalog.provider_for(base_url):
+        return {"chat": True, "released": ""}
+    from .router import NON_CHAT
+
+    m = catalog.lookup(base_url, model)
+    ok = bool(m and m.get("tools") and (m.get("ctx") or 0) >= 16_000) and not NON_CHAT.search(model)
+    return {"chat": ok, "released": (m or {}).get("released", "")}
+
+
+def _keep_newest(models: list[dict]) -> None:
+    chat = sorted((m for m in models if m["chat"]), key=lambda m: m["released"] or "", reverse=True)
+    for m in chat[PICK_PER_PROVIDER:]:
+        m["chat"] = False
+
+
+def prefetch_models(cids: list[int]) -> None:
+    """Fill the model list cache for several connections at once, so a slow provider costs one timeout, not one each."""
+    stale = [c for c in cids if not (_model_cache.get(c) and _model_cache[c][0] > time.time() - 120)]
+    if len(stale) < 2:
+        return
+    from concurrent.futures import ThreadPoolExecutor
+
+    def one(cid: int) -> None:
+        try:
+            list_models_for(cid)
+        except Exception:  # noqa: BLE001 - the caller lists it again and handles the error there
+            pass
+
+    with ThreadPoolExecutor(max_workers=min(8, len(stale))) as pool:
+        list(pool.map(one, stale))
+
+
 def list_models(fresh: bool = False) -> list[dict]:
-    """Every usable model. A connection that cannot be used (refused, needs sign-in) is skipped, never fatal (R4)."""
+    """Every usable model, the smart router's "auto" refs first. A connection that cannot be used (refused, needs
+    sign-in) is skipped, never fatal (R4)."""
+    from . import router
+
     out: list[dict] = []
+    if router.any_routable():
+        out = [{"ref": r, "model": label, "provider": "Smart router", "provider_id": 0, "free": None, "virtual": True}
+               for r, label in router.AUTO_LABELS.items()]
     for c in db.all("SELECT id FROM connections WHERE enabled = 1 ORDER BY id"):
         try:
             out.extend(list_models_for(c["id"], fresh))
@@ -132,10 +309,31 @@ def is_free(conn: dict, model: str) -> bool:
 
 def context_chars(ref: str | None) -> int:
     """Characters of prompt this model can take, keeping a quarter of the window for the reply."""
+    from . import router
+
     try:
-        return adapter(ref)[0].context_chars()
+        if router.is_auto(ref or default_model_ref()):
+            first = router.candidates("strong")
+            return Adapter(first[0][0]).context_chars(first[0][1]) if first else 300_000
+        a, _, model, _ = adapter(ref)
+        return a.context_chars(model)
     except HTTPException:
         return 300_000
+
+
+def list_price(ref: str) -> tuple[float, float] | None:
+    """Catalog list price (USD per million input, output tokens) for a model ref, or None when there is none to use."""
+    from . import catalog
+
+    cid, _, model = ref.partition("/")
+    if not cid.isdigit() or not model:
+        return None
+    conn = db.one("SELECT base_url, auth_kind FROM connections WHERE id = ?", int(cid))
+    if not conn or conn["auth_kind"] == "oauth_subscription":
+        return None  # a plan's usage has no per token price
+    if conn["auth_kind"] == "local_ollama":
+        return 0.0, 0.0
+    return catalog.price(conn["base_url"], model)
 
 
 def _reported_cost(usage: dict) -> float | None:
@@ -149,7 +347,8 @@ def _record(conn: dict, ref: str, trace: dict | None, started: float, usage: dic
 
     pt, ct = int(usage.get("prompt_tokens") or 0), int(usage.get("completion_tokens") or 0)
     reported = _reported_cost(usage)
-    usd = reported if reported is not None else price_usd(ref, pt, ct)
+    usd = reported if reported is not None else price_usd(ref, pt, ct, int(usage.get("cache_read_tokens") or 0),
+                                                          int(usage.get("cache_write_tokens") or 0))
     aid = actions.add("model_call", outcome, trace=trace, provider=conn["name"], model=ref, auth_kind=conn["auth_kind"],
                       protocol=conn["protocol"], latency_ms=int((time.monotonic() - started) * 1000), tokens_in=pt, tokens_out=ct,
                       usd_cost=usd, failure_reason=error)
@@ -158,10 +357,21 @@ def _record(conn: dict, ref: str, trace: dict | None, started: float, usage: dic
 
 async def chat(ref: str | None, messages: list[dict], tools: list[dict] | None = None, trace: dict | None = None,
                schema: dict | None = None) -> dict:
-    """One non-streaming turn with optional tool calling, recorded as one model_call action.
+    """One non-streaming turn with optional tool calling, recorded as one model_call action per provider tried.
 
-    Returns {"message": {...}, "usage": {...}, "ref": str, "model": str, "usd": float | None, "action_id": int}.
+    Returns {"message": {...}, "usage": {...}, "ref": str, "model": str, "usd": float | None, "action_id": int}, plus
+    "router" (who answered, fallbacks, quota) when ref is "auto".
     """
+    from . import router
+
+    ref = ref or default_model_ref()
+    if router.is_auto(ref):
+        return await router.chat(ref, messages, tools, trace, schema)
+    return await chat_one(ref, messages, tools, trace, schema)
+
+
+async def chat_one(ref: str | None, messages: list[dict], tools: list[dict] | None = None, trace: dict | None = None,
+                   schema: dict | None = None) -> dict:
     a, conn, model, ref = adapter(ref)
     started = time.monotonic()
     try:
@@ -179,7 +389,20 @@ async def complete(ref: str | None, messages: list[dict], trace: dict | None = N
 
 
 async def stream(ref: str | None, messages: list[dict], trace: dict | None = None) -> AsyncIterator[dict]:
-    """Yields {"reasoning"} and {"delta"} chunks, then {"done": True, "usage", "ms", "first_token_ms"} or {"error"}."""
+    """Yields {"reasoning"} and {"delta"} chunks, then {"done": True, "usage", "ms", "first_token_ms"} or {"error"}.
+    With "auto", also {"router": {...}} before the first token and on the done event."""
+    from . import router
+
+    ref = ref or default_model_ref()
+    if router.is_auto(ref):
+        async for e in router.stream(ref, messages, trace):
+            yield e
+        return
+    async for e in stream_one(ref, messages, trace):
+        yield e
+
+
+async def stream_one(ref: str | None, messages: list[dict], trace: dict | None = None) -> AsyncIterator[dict]:
     a, conn, model, ref = adapter(ref)
     started = time.monotonic()
     first_token_ms = None
@@ -211,3 +434,38 @@ def parse_json(text: str):
             except ValueError:
                 continue
     return None
+
+
+def plan_connection(preset: str, create: bool) -> dict | None:
+    """The connection for a signed-in plan CLI (claude-plan, codex-plan): found by its preset, created and switched on
+    when asked. One per plan; signing in again reuses it."""
+    p = PRESETS[preset]
+    row = db.one("SELECT * FROM connections WHERE auth_kind = ? AND base_url = ?", p["auth_kind"], p["base_url"])
+    if not create:
+        return row
+    cid = row["id"] if row else db.run(
+        "INSERT INTO connections(name, auth_kind, protocol, base_url, secret_enc, residency, created_at) VALUES (?, ?, ?, ?, '', 'cloud', ?)",
+        p["name"], p["auth_kind"], p["protocol"], p["base_url"], db.now())
+    db.run("UPDATE connections SET enabled = 1, state = 'connected', last_error = '' WHERE id = ?", cid)
+    _model_cache.pop(cid, None)
+    return db.one("SELECT * FROM connections WHERE id = ?", cid)
+
+
+def managed_connection(name: str, base_url: str, secret: str, enabled: bool, models: str = "") -> int | None:
+    """A connection the app manages itself (the AI Workspace Cloud hosted models): OpenAI compatible chat completions,
+    found by name. Disabling keeps the row so no history or default model reference is lost."""
+    row = db.one("SELECT id FROM connections WHERE name = ? AND auth_kind = 'api_key' AND protocol = 'chat_completions'", name)
+    if not enabled:
+        if row:
+            db.run("UPDATE connections SET enabled = 0 WHERE id = ?", row["id"])
+            _model_cache.pop(row["id"], None)
+        return row["id"] if row else None
+    if row is None:
+        cid = db.run("INSERT INTO connections(name, auth_kind, protocol, base_url, secret_enc, models, enabled, residency, created_at) "
+                     "VALUES (?, 'api_key', 'chat_completions', ?, '', ?, 1, 'cloud', ?)", name, base_url, models, db.now())
+    else:
+        cid = row["id"]
+        db.run("UPDATE connections SET enabled = 1, base_url = ? WHERE id = ?", base_url, cid)
+    store_connection_secret(cid, secret)
+    _model_cache.pop(cid, None)
+    return cid

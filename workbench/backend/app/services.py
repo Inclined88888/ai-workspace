@@ -189,6 +189,8 @@ class EventIn(BaseModel):
     location: str = Field("", max_length=300)
     description: str = Field("", max_length=5000)
     calendar_id: int | None = Field(None, description="Target calendar. Defaults to the local calendar")
+    attendees: list[str] = Field(default_factory=list, max_length=50,
+                                 description="Email addresses to invite. Google and Microsoft calendars email them an invitation")
 
 
 def _norm_time(v: str, all_day: bool) -> str:
@@ -228,14 +230,22 @@ def create_event(data: EventIn) -> dict:
         raise HTTPException(400, f"Invalid date: {e}") from e
     if end < start:
         raise HTTPException(400, "End is before start")
-    cid = data.calendar_id or local_calendar_id()
+    cid = data.calendar_id
+    if not cid and data.attendees:  # an invitation goes out from a real account, never the local calendar
+        pick = db.one("SELECT id FROM calendars WHERE enabled = 1 AND kind IN ('google', 'microsoft', 'caldav') "
+                      "ORDER BY CASE kind WHEN 'caldav' THEN 1 ELSE 0 END, id LIMIT 1")
+        cid = pick["id"] if pick else None
+    cid = cid or local_calendar_id()
     cal = db.one("SELECT * FROM calendars WHERE id = ?", cid)
     if not cal:
         raise HTTPException(404, "Calendar not found")
     if cal["kind"] == "ics":
-        raise HTTPException(400, "ICS subscriptions are read only. Pick a local or CalDAV calendar.")
-    if cal["kind"] == "caldav":
-        uid = calendar_sync.create_remote(cal, data.title, start, end, data.all_day, data.location, data.description)
+        raise HTTPException(400, "ICS subscriptions are read only. Pick a local, CalDAV, Google or Microsoft calendar.")
+    if data.attendees and cal["kind"] == "local":
+        raise HTTPException(400, "The local calendar can't send invitations. Connect Google or Microsoft, or pick a CalDAV calendar.")
+    if cal["kind"] in ("caldav", "google", "microsoft"):
+        uid = calendar_sync.create_remote(cal, data.title, start, end, data.all_day, data.location, data.description,
+                                          data.attendees)
         uid = f"{uid}|{start}"
     else:
         uid = f"{uuid.uuid4()}@local"

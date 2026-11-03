@@ -2,3 +2,5 @@
 pytest==9.2.0
 # OpenAI's own SDK drives the /v1 bridge in tests, proving OpenAI compatibility. Never in the image.
 openai==3.41.0
+# OS keychain storage for provider keys (desktop app sidecar only; see desktop/sidecar/requirements.txt)
+keyring==25.6.0

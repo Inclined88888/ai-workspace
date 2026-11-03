@@ -37,16 +37,23 @@ for npm/pip installation; the CA is not committed or baked into the image.
 
 ## Exit Gate 0 decision
 
-**Not yet passed: external acceptance remains.** The local backend/CLI suite passed
+**Not yet passed: external acceptance remains.** In the earlier Phase 0 check, the local backend/CLI suite passed
 **161 tests**. PR #15's integrated CI and main CI passed. The signed candidate run
 linked above succeeded for main commit `1cdc570559e5f94bb091cfed9c3f167cade85c3f`:
 GitHub issued provenance and verified source, CLI and checksum subjects. Its
 `signed-release` artifact contains the candidate archive and verification bundle;
-retain a copy before GitHub's artifact retention expires. No production release
-tag was created. A clean real 1 GB VPS deployment and live owner subscription/
+retain a copy before GitHub's artifact retention expires. At that time no production release
+tag existed. A clean real 1 GB VPS deployment and live owner subscription/
 add-on telemetry acceptance remain unverified: this task has no such VPS or
 owner-authenticated subscription volume. Documentation and container limits do
 not substitute for those checks.
 
 The missing original checklist is no longer a blocker. Remaining external evidence
 is explicit above; no item should be labelled complete based on an unrun check.
+
+## v0.1.0 release decision, 2026-11-03
+
+The owner explicitly authorized publishing v0.1.0 without the two remaining external checks: a clean real 1 GB VPS
+deployment and live owner subscription/add-on telemetry acceptance. This waives the release gate for this version only.
+It does not mark either check passed. The published release notes must disclose both gaps, and later releases must
+reassess them.

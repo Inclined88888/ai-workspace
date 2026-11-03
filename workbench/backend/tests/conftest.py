@@ -48,7 +48,7 @@ async def completions(req: Request):
     CALLS.append(body)
     if body.get("model") == "fail-model":
         return JSONResponse({"error": {"message": "upstream exploded"}}, status_code=500)
-    if body.get("stream"):
+    if body.get("stream") and not body.get("tools"):
         return _sse([{"choices": [{"delta": {"content": "streamed"}}]},
                      {"choices": [], "usage": {"prompt_tokens": 600, "completion_tokens": 20}}])
     rf = body.get("response_format")
@@ -70,6 +70,16 @@ async def completions(req: Request):
         msg = nxt(body["messages"]) if callable(nxt) else nxt
     else:
         msg = {"role": "assistant", "content": "ok"}
+    if body.get("stream"):  # a tool-using turn read as a stream: the same reply, in OpenAI's chunk format
+        text = msg.get("content") or ""
+        chunks = [{"choices": [{"index": 0, "delta": {"content": p}}]} for p in (text[: len(text) // 2], text[len(text) // 2:]) if p]
+        for i, tc in enumerate(msg.get("tool_calls") or []):
+            args = tc["function"].get("arguments") or ""
+            chunks.append({"choices": [{"index": 0, "delta": {"tool_calls": [{"index": i, "id": tc.get("id"), "type": "function",
+                           "function": {"name": tc["function"]["name"], "arguments": args[:5]}}]}}]})
+            chunks.append({"choices": [{"index": 0, "delta": {"tool_calls": [{"index": i, "function": {"arguments": args[5:]}}]}}]})
+        chunks.append({"choices": [], "usage": {"prompt_tokens": 1000, "completion_tokens": 500}})
+        return _sse(chunks)
     return {"choices": [{"message": msg}], "usage": {"prompt_tokens": 1000, "completion_tokens": 500}}
 
 
@@ -168,10 +178,19 @@ async def responses(req: Request):
                 problems.append("input_image needs an image_url")
     if problems:
         return JSONResponse({"error": {"message": "; ".join(problems)}}, status_code=400)
+    scripted = bool(SCRIPT)
     reply = _next_reply(body)
     if reply.get("_fail"):
         return JSONResponse({"error": {"message": "upstream exploded"}}, status_code=500)
     usage = {"input_tokens": 700, "output_tokens": 30, "total_tokens": 730}
+    if body.get("stream") and scripted:  # a scripted turn, streamed the way Sign in with ChatGPT requires (stream: true)
+        out = [{"type": "function_call", "call_id": tc["id"], "name": tc["function"]["name"], "arguments": tc["function"]["arguments"]}
+               for tc in reply.get("tool_calls") or []]
+        if reply.get("content"):
+            out.insert(0, {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": reply["content"]}]})
+        evs = [{"type": "response.output_text.delta", "delta": reply["content"], "item_id": "m", "output_index": 0, "content_index": 0}] if reply.get("content") else []
+        evs += [{"type": "response.output_item.done", "output_index": i, "item": it} for i, it in enumerate(out)]
+        return _sse(evs + [{"type": "response.completed", "response": {"status": "completed", "output": out, "usage": usage}}], named=True)
     if body.get("stream"):
         return _sse([{"type": "response.output_text.delta", "delta": "streamed", "item_id": "m", "output_index": 0, "content_index": 0},
                      {"type": "response.completed", "response": {"status": "completed", "output": [], "usage": usage}}], named=True)
@@ -287,7 +306,13 @@ def fake_url():
 
 @pytest.fixture(scope="session")
 def client(fake_url, tmp_path_factory):
-    os.environ.update(APP_SECRET="a" * 40, TOOLS_API_KEY="k" * 30, DATA_DIR=str(tmp_path_factory.mktemp("data")))
+    # Direct pytest runs must be as isolated as scripts/test-all.sh: never seed a real provider from the shell.
+    for name in tuple(os.environ):
+        if name.endswith(("_API_KEY", "_TOKEN")):
+            os.environ.pop(name, None)
+    os.environ.update(APP_SECRET="a" * 40, TOOLS_API_KEY="k" * 30, DATA_DIR=str(tmp_path_factory.mktemp("data")),
+                      ROOKS_COMPANION_FILE=str(tmp_path_factory.mktemp("companion") / "companion.json"),
+                      MODEL_CATALOG_REFRESH="0")  # tests never download the model catalog
     from fastapi.testclient import TestClient
 
     from app import db, main
@@ -301,6 +326,7 @@ def client(fake_url, tmp_path_factory):
         c.headers.update(h)
         c.pid = pid
         db.set_setting("learning_enabled", "1")
+        db.set_setting("compress_history", "0")  # tests that want rolling summaries turn them on (test_compression.py)
         yield c
 
 

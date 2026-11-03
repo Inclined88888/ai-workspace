@@ -1,0 +1,8 @@
+{
+  "name": "notes-mcp",
+  "version": "1.0.0",
+  "description": "A tiny MCP server that lists Markdown notes in a folder you choose.",
+  "keywords": ["mcp"],
+  "main": "server.js",
+  "dependencies": { "@modelcontextprotocol/sdk": "1.12.0" }
+}

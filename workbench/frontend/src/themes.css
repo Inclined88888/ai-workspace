@@ -1,0 +1,106 @@
+/* ==========================================================================
+   The curated themes added with the first-run picker: Paper (its own accent), Cherry & Ink, Neon and High contrast.
+   Sunshine lives in sunshine.css, Dark (Night) in styles.css. Every text pair here is checked for WCAG AA by
+   scripts/check-theme-contrast.py. data-accent="theme" means "the theme's own accent"; Neon and High contrast always
+   use theme (appearance.tsx), because a light-paper accent would fail contrast on them.
+   ========================================================================== */
+
+/* ---- Paper: soft newsprint with a quiet ink accent ---- */
+:root[data-theme="paper"][data-accent="theme"] {
+  --accent: #141311; --accent-hover: #34312b; --accent-text: #141311; --accent-soft: #e6e0d2; --accent-ring: #141311; --on-accent: #f5f1e8;
+}
+
+/* ---- Cherry & Ink: the brand palette. Crisp warm white, black ink, one cherry red. ---- */
+:root[data-theme="cherry"] {
+  --paper: #fbf8f3; --chrome: #fbf8f3; --bg: #fbf8f3;
+  --panel: #ffffff; --panel-2: #f3eee6; --panel-3: #ebe4d8;
+  --border: #e2dace; --border-strong: #8a8274; --rule: #141311;
+  --text: #141311; --muted: #57524a; --faint: #635d53;
+  --blue-soft: #e4ecf5;
+  --ink-btn: #141311; --ink-btn-hover: #34312b; --on-ink: #fbf8f3;
+  --danger: #a50d26; --danger-text: #a50d26; --danger-soft: #fbe3e3;
+  --code-bg: #f3eee6;
+  --radius-sm: 2px;
+  color-scheme: light;
+}
+:root[data-theme="cherry"][data-accent="theme"] {
+  --accent: #c8102e; --accent-hover: #a50d26; --accent-text: #a50d26; --accent-soft: #fbe3e3; --accent-ring: #c8102e; --on-accent: #ffffff;
+}
+:root[data-theme="cherry"] .page-head { border-bottom-width: 2px; }
+:root[data-theme="cherry"] .kicker { color: var(--accent-text); }
+
+/* ---- Neon: ink black, bone type, one electric lime. Opt-in; glow only on the accent, never on text. ---- */
+:root[data-theme="neon"] {
+  --paper: #0b0d10; --chrome: #0b0d10; --bg: #0b0d10;
+  --panel: #12151a; --panel-2: #181c22; --panel-3: #20252c;
+  --border: #262b33; --border-strong: #5d6672; --rule: #e9eef2;
+  --text: #e9eef2; --muted: #a3adb8; --faint: #8f99a4;
+  --accent: #d4ff3a; --accent-hover: #e2ff70; --accent-text: #d4ff3a; --accent-soft: #1d2410; --accent-ring: #d4ff3a; --on-accent: #0b0d10;
+  --blue-soft: #10202a;
+  --ink-btn: #e9eef2; --ink-btn-hover: #ffffff; --on-ink: #0b0d10;
+  --danger: #ff5c6c; --danger-text: #ff7a86; --danger-soft: #2e1418;
+  --ok: #5ef0a0; --ok-text: #5ef0a0; --ok-soft: #0f2419;
+  --warn: #ffc94d; --warn-text: #ffc94d; --warn-soft: #2a2210;
+  --code-bg: #07080a;
+  --scrim: rgba(0, 0, 0, 0.6);
+  --radius-xs: 4px; --radius-sm: 6px; --radius: 10px; --radius-lg: 14px;
+  --shadow-4: 0 24px 64px -24px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(212, 255, 58, 0.08);
+  --glow: 0 0 0 1px rgba(212, 255, 58, 0.35), 0 0 18px -4px rgba(212, 255, 58, 0.45);
+  color-scheme: dark;
+}
+:root[data-theme="neon"] .tracer-dash { filter: drop-shadow(0 0 3px rgba(212, 255, 58, 0.75)); }
+:root[data-theme="neon"] .tracer-tip { stroke: #ffffff; }
+:root[data-theme="neon"] .btn.primary:hover:not(:disabled) { box-shadow: var(--glow); }
+:root[data-theme="neon"] :focus-visible { box-shadow: var(--glow); }
+:root[data-theme="neon"] ::selection { background: #d4ff3a; color: #0b0d10; }
+
+/* ---- High contrast: pure black on white, bold edges, underlined links, a thick focus ring ---- */
+:root[data-theme="contrast"] {
+  --paper: #ffffff; --chrome: #ffffff; --bg: #ffffff;
+  --panel: #ffffff; --panel-2: #f2f2f2; --panel-3: #e6e6e6;
+  --border: #000000; --border-strong: #000000; --rule: #000000;
+  --text: #000000; --muted: #1f1f1f; --faint: #333333;
+  --accent: #0033aa; --accent-hover: #002080; --accent-text: #0033aa; --accent-soft: #e0e8ff; --accent-ring: #000000; --on-accent: #ffffff;
+  --blue-soft: #e0e8ff;
+  --ink-btn: #000000; --ink-btn-hover: #1f1f1f; --on-ink: #ffffff;
+  --danger: #a00000; --danger-text: #a00000; --danger-soft: #ffe5e5;
+  --ok: #005c1f; --ok-text: #005c1f; --ok-soft: #e1f5e7;
+  --warn: #6b4000; --warn-text: #6b4000; --warn-soft: #fff1d6;
+  --code-bg: #f2f2f2;
+  --scrim: rgba(0, 0, 0, 0.45);
+  color-scheme: light;
+}
+:root[data-theme="contrast"] a { text-decoration: underline; text-underline-offset: 2px; }
+:root[data-theme="contrast"] :focus-visible { outline: 3px solid #000000 !important; outline-offset: 2px; }
+:root[data-theme="contrast"] .tracer-dash { stroke-width: 3; }
+:root[data-theme="contrast"] .tracer-base { opacity: 0.4; }
+
+/* ---- First-run look picker ---- */
+.look-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.look-card { display: flex; flex-direction: column; gap: 8px; padding: 8px; text-align: left; cursor: pointer; background: var(--panel);
+  color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-sm); font: inherit; transition: border-color var(--dur) var(--ease-out), transform var(--dur) var(--ease-out); }
+.look-card:hover { border-color: var(--border-strong); }
+:root[data-motion="full"] .look-card:hover { transform: translateY(-2px); }
+.look-card[aria-checked="true"] { border-color: var(--accent-ring); box-shadow: 0 0 0 2px var(--accent-ring); }
+.look-card .name { font-weight: 600; font-size: var(--text-sm); display: flex; align-items: center; gap: 6px; }
+.look-card .note { font-size: var(--text-xs); color: var(--muted); line-height: 1.35; }
+.look-mini { height: 74px; border-radius: max(var(--radius-xs), 2px); overflow: hidden; display: grid; grid-template-columns: 28% 1fr; border: 1px solid rgba(0, 0, 0, 0.08); }
+.look-mini .side { display: flex; flex-direction: column; gap: 5px; padding: 8px 6px; }
+.look-mini .side i { display: block; height: 3px; border-radius: 2px; opacity: 0.55; }
+.look-mini .main { display: flex; flex-direction: column; gap: 6px; padding: 9px 9px; }
+.look-mini .h { font-size: 11px; font-weight: 700; line-height: 1; letter-spacing: -0.01em; }
+.look-mini .l { height: 3px; border-radius: 2px; opacity: 0.6; }
+.look-mini .b { align-self: flex-start; font-size: 8px; font-weight: 700; padding: 3px 7px; border-radius: 3px; margin-top: auto; }
+.look-mini.split { grid-template-columns: 1fr 1fr; }
+.look-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.look-actions { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.welcome-card.wide { width: min(720px, 100%); }
+.look-sample { min-height: 44px; }
+
+/* Neon borrows Sunshine's calm type and soft shapes (sunshine.css); these are the few light-only touches it swaps out. */
+:root[data-theme="neon"] .input:hover:not(:focus) { border-color: var(--border-strong); }
+:root[data-theme="neon"] .welcome-option.recommended { background: var(--accent-soft); }
+:root[data-theme="neon"] .phone-qr { background: #ffffff; }
+:root[data-theme="neon"] .btn.primary { box-shadow: none; }
+:root[data-theme="neon"] { --shadow-1: none; --shadow-2: 0 0 0 1px var(--border); --shadow-3: 0 0 0 1px var(--border), 0 12px 32px -12px rgba(0, 0, 0, 0.6); --shadow: var(--shadow-2); }
+.welcome-card .look-sample { align-self: stretch; max-width: none; margin: 0; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); }

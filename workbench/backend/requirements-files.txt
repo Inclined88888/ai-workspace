@@ -1,0 +1,23 @@
+# Files and data add-on: reading, analysing and producing any kind of file, and the local Python sandbox.
+# Installed by the one-command installer and the desktop app (desktop/launcher/install_helper.py, desktop/sidecar).
+# Not in the Docker image by default (it would pass the 400 MB image budget); without it, Workbench still reads plain
+# text, CSV, JSON, XML, notebooks, LaTeX, code, email (.eml) and zip, and explains in plain English what it cannot read.
+# Every package ships wheels for macOS (arm64 and x64) and Windows x64, so `uv pip install` needs no compiler or Docker.
+openpyxl==3.1.5
+xlrd==2.0.2
+python-docx==1.2.0
+python-pptx==1.0.2
+pypdf==6.21.4
+pdfplumber==0.11.10
+pypdfium2==5.14.0
+extract-msg==0.58.0
+ezdxf==1.4.5
+pandas==3.1.0
+numpy==2.5.4
+matplotlib==3.11.2
+sympy==1.14.0
+pyarrow==26.0.0
+h5py==3.16.0
+fpdf2==2.9.0
+pillow==13.0.0
+mutagen==1.48.1

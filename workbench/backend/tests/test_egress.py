@@ -51,20 +51,29 @@ def test_failures_are_recorded_and_the_request_still_fails_normally(client):
 def test_external_rows_break_local_only_and_carry_no_secrets(client):
     from app import db, egress
 
-    assert client.get("/api/egress").json()["local_only"] is True  # the test session only talks to 127.0.0.1
-    egress.record("POST", "https://api.telegram.org/bot123456:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw/getUpdates?offset=5&key=zzz",
-                  "ok", 3, component="telegram")
+    # The session may already contain legitimate external rows from earlier provider tests.
+    egress.record("GET", "https://prior.example.test/health", "ok", 1, component="prior")
+    prior = _last_egress(provider="prior.example.test")
+    row = None
     try:
+        before = client.get("/api/egress").json()
+        assert before["local_only"] is False
+        previous_telegram = next((h["requests"] for h in before["hosts"] if h["host"] == "api.telegram.org"), 0)
+        egress.record("POST", "https://api.telegram.org/bot123456:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw/getUpdates?offset=5&key=zzz",
+                      "ok", 3, component="telegram")
         row = _last_egress(provider="api.telegram.org")
         assert row["effect"] == "external" and "AAHdq" not in row["args"] and "/bot<redacted>/" in row["args"]
         assert "offset" not in row["args"] and "zzz" not in row["args"]  # no query strings in the log
         s = client.get("/api/egress").json()
-        assert s["local_only"] is False and s["external_requests"] == 1
+        assert s["local_only"] is False and s["external_requests"] >= before["external_requests"] + 1
         host = next(h for h in s["hosts"] if h["host"] == "api.telegram.org")
-        assert host["effect"] == "external" and host["components"] == "telegram" and host["requests"] == 1
+        assert host["effect"] == "external" and "telegram" in host["components"].split(",")
+        assert host["requests"] >= previous_telegram + 1
         assert "AAHdq" not in str(s)
     finally:
-        db.run("DELETE FROM actions WHERE id = ?", row["id"])
+        if row:
+            db.run("DELETE FROM actions WHERE id = ?", row["id"])
+        db.run("DELETE FROM actions WHERE id = ?", prior["id"])
 
 
 def test_caldav_through_requests_and_mail_through_imap_are_recorded(client, fake_url, monkeypatch):
@@ -109,7 +118,8 @@ def test_a_broken_audit_write_never_breaks_the_call(client, monkeypatch):
 def test_no_unaudited_network_library_in_the_app():
     """Coverage of the audit log, checked in the source: only wrapped libraries may reach the network."""
     allowed = {"httpx": None, "imaplib": {"mail.py"}, "smtplib": {"mail.py"}, "caldav": {"calendar_sync.py"},
-               "socket": {"research.py"}}  # research: DNS lookups only, to refuse private addresses
+               "socket": {"research.py", "mobile.py"}}  # research: DNS lookups only, to refuse private addresses;
+    # mobile: this machine's own LAN address for the pairing QR (a UDP connect sends no packet)
     forbidden = re.compile(r"^\s*(?:import|from)\s+(requests|urllib3|urllib\.request|http\.client|aiohttp|ftplib|telnetlib|"
                            r"websockets?|paramiko|pycurl|grpc)\b", re.M)
     app = pathlib.Path(__file__).resolve().parent.parent / "app"
@@ -123,6 +133,8 @@ def test_no_unaudited_network_library_in_the_app():
                 offenders.append(f"{f.name}: {lib} outside {sorted(files)}")
     research = (app / "research.py").read_text()
     assert set(re.findall(r"socket\.(\w+)", research)) <= {"getaddrinfo", "gaierror", "AF_INET", "AF_INET6"}
+    mobile = (app / "mobile.py").read_text()
+    assert set(re.findall(r"\bsocket\.(\w+)", mobile)) <= {"getaddrinfo", "gethostname", "socket", "AF_INET", "SOCK_DGRAM"}
     assert not offenders, offenders
 
 

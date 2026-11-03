@@ -104,3 +104,38 @@ mcp_app = mcp.streamable_http_app(
     streamable_http_path="/", stateless_http=True,
     transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
 )
+
+
+# Skills (user-written, learned, and installed from GitHub after the security check). Rooks Code and other MCP clients
+# discover and use them here; GitHub skills run only inside the sandbox with the permissions the user granted.
+@mcp.tool(description="List the user's enabled skills: name, description and source (user, auto, agent or github).")
+def list_skills() -> list[dict]:
+    from . import db
+
+    return db.all("SELECT name, description, source FROM skills WHERE enabled = 1 ORDER BY uses DESC, updated_at DESC")
+
+
+@mcp.tool(description="Load a skill's instructions by name before doing that kind of task.")
+def load_skill(name: str) -> dict:
+    from . import db
+
+    s = db.one("SELECT name, steps, source FROM skills WHERE name = ? AND enabled = 1", name)
+    if not s:
+        raise ToolError(f"No enabled skill named {name}")
+    db.run("UPDATE skills SET uses = uses + 1 WHERE name = ?", name)
+    return s
+
+
+@mcp.tool(description="Read a helper file from a skill installed from GitHub.")
+def read_skill_file(skill: str, path: str) -> dict:
+    from . import skills_hub
+
+    return _call(skills_hub.read_file, skill, path)
+
+
+@mcp.tool(description="Run a helper script from a skill installed from GitHub, sandboxed with the user's grants. args: list of strings.")
+def run_skill_script(skill: str, script: str, args: list[str] | None = None) -> dict:
+    from . import skills_hub
+
+    return _call(skills_hub.run_script, skill, script, args or [])
+

@@ -1,15 +1,19 @@
-import { CheckCircle2, CircleStop, Globe, Loader2, Play, Trash2, XCircle } from "lucide-react";
+import { CircleStop, Globe, Loader2, Play, Trash2, XCircle } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
+import { Tracer } from "../Tracer";
+import { DoneTick, LiveShot } from "../motion";
 import { Empty, Markdown, ModelSelect, useModels, useToast } from "../util";
 
 type JobSummary = { id: string; goal: string; provider: string; model: string; status: string; source: string; created_at: number };
-type Step = { step: number; url: string; title: string; evaluation: string; next_goal: string; actions: Record<string, unknown>[] };
+type Step = { step: number; url: string; title: string; evaluation: string; next_goal: string; actions: Record<string, unknown>[]; result?: string; status?: string; has_screenshot?: boolean };
+type Approval = { id: string; category: string; label: string; action: string; description: string; url: string; answer: string | null };
 type Job = JobSummary & {
   steps: Step[];
   error: string | null;
   has_screenshot: boolean;
+  pending_approvals?: Approval[];
   allowed_domains: string[];
   result: { final: string | null; success: boolean | null; done: boolean; steps: number; urls: string[]; duration_s: number; model: string } | null;
 };
@@ -35,6 +39,7 @@ export default function Browser() {
   const [jobs, setJobs] = useState<JobSummary[]>([]);
   const [job, setJob] = useState<Job | null>(null);
   const [shotKey, setShotKey] = useState(0);
+  const [openStep, setOpenStep] = useState<number | null>(null);
   const [form, setForm] = useState({ goal: "", provider: "", model: "", max_steps: 25, domains: "" });
   const toast = useToast();
 
@@ -54,7 +59,7 @@ export default function Browser() {
         if (stop) return;
         setJob(j);
         setShotKey((k) => k + 1);
-        if (active(j.status)) timer = setTimeout(poll, 2000);
+        if (active(j.status)) timer = setTimeout(poll, 1200);
         else loadJobs();
       } catch (e) {
         toast.err(e);
@@ -63,6 +68,15 @@ export default function Browser() {
     poll();
     return () => { stop = true; clearTimeout(timer); };
   }, [id]);
+
+  const answer = async (a: Approval, approve: boolean) => {
+    if (!job) return;
+    try {
+      await api(`/browser/jobs/${job.id}/approvals/${a.id}`, { method: "POST", body: { approve } });
+    } catch (e) {
+      toast.err(e);
+    }
+  };
 
   const start = async (e: FormEvent) => {
     e.preventDefault();
@@ -94,9 +108,12 @@ export default function Browser() {
 
       <form className="card col" onSubmit={start} style={{ marginBottom: 16 }}>
         <textarea className="input" rows={3} value={form.goal} onChange={(e) => setForm({ ...form, goal: e.target.value })} placeholder="e.g. Find three remote software engineer roles on weworkremotely.com" />
-        <div className="row wrap">
-          {EXAMPLES.map((ex) => <button type="button" key={ex} className="btn sm ghost" onClick={() => setForm({ ...form, goal: ex })}>{ex.slice(0, 48)}…</button>)}
-        </div>
+        {!form.goal && (
+          <div className="row wrap example-chips">
+            <span className="small faint">Try</span>
+            {EXAMPLES.map((ex) => <button type="button" key={ex} className="example-chip" title={ex} onClick={() => setForm({ ...form, goal: ex })}>{ex.length > 44 ? ex.slice(0, 42) + "…" : ex}</button>)}
+          </div>
+        )}
         <div className="row wrap">
           <div style={{ width: 260 }}><ModelSelect value={form.model} onChange={(model) => setForm({ ...form, model })} models={models} /></div>
           <label className="row small muted">Max steps
@@ -105,42 +122,57 @@ export default function Browser() {
           <input className="input grow" style={{ minWidth: 200 }} value={form.domains} onChange={(e) => setForm({ ...form, domains: e.target.value })} placeholder="Only these sites (optional): *.pcpartpicker.com, …" />
           <button className="btn primary" disabled={form.goal.trim().length < 3}><Play size={15} /> Run</button>
         </div>
-        <div className="muted small">Runs on any model connected in Settings, through Workbench, so its spend shows in Usage. Vision models read screenshots; small local models are unreliable at browsing. Max steps caps the cost of a run.</div>
-        {usage && <div className="muted small">This month: {usage.used} of {usage.limit || "unlimited"} browser steps used (all callers, including Chat and Paperclip).</div>}
+        <div className="faint small" title="Max steps caps how long one run can go on. Small local models are unreliable at browsing.">
+          Uses the model you pick, or Auto. Models that can see pictures work best.
+          {usage && usage.limit ? <> {usage.used} of {usage.limit} browser steps used this month.</> : null}
+        </div>
       </form>
 
-      <div style={{ display: "grid", gridTemplateColumns: "300px minmax(0,1fr)", gap: 16 }} className="research-layout">
+      {jobs.length === 0 && !job && <div className="card"><Empty icon={<Globe size={26} />} title="No runs yet" hint="Start one above. Chat can use this browser too." /></div>}
+      <div style={{ display: jobs.length === 0 && !job ? "none" : "grid", gridTemplateColumns: "300px minmax(0,1fr)", gap: 16 }} className="research-layout">
         <div className="card flush" style={{ alignSelf: "start" }}>
-          {jobs.length === 0 && <Empty icon={<Globe size={22} />} title="No runs yet" />}
           {jobs.map((j) => (
-            <div key={j.id} className={`list-item ${job?.id === j.id ? "active" : ""}`} onClick={() => navigate(`/browser/${j.id}`)}>
+            <div key={j.id} className={`list-item has-tracer ${job?.id === j.id ? "active" : ""}`} onClick={() => navigate(`/browser/${j.id}`)}>
+              <Tracer active={active(j.status)} />
               <div className="grow">
                 <div className="truncate">{j.goal}</div>
-                <div className="row small faint">{active(j.status) && <Loader2 size={11} className="spin" />}{j.status} · {j.source} · {ago(j.created_at)}</div>
+                <div className="row small faint">{active(j.status) && <Loader2 size={11} className="spin" />}{j.status}{j.source && j.source !== "api" ? ` · from ${j.source}` : ""} · {ago(j.created_at)}</div>
               </div>
               <button className="btn ghost sm icon" onClick={(e) => { e.stopPropagation(); remove(j.id); }}><Trash2 size={13} /></button>
             </div>
           ))}
         </div>
         <div>
-          {!job && <div className="card"><Empty icon={<Globe size={26} />} title="Pick a run or start one" hint="Agents in Chat and Paperclip can use this browser too." /></div>}
+          {!job && <div className="card"><Empty icon={<Globe size={26} />} title="Pick a run or start one" hint="Chat can use this browser too." /></div>}
           {job && (
             <div className="col gap-lg">
-              <div className="card col">
+              <div className="card col has-tracer">
+                <Tracer active={active(job.status)} label="Browser agent is working" />
                 <div className="row" style={{ alignItems: "flex-start" }}>
                   <h2 className="grow">{job.goal}</h2>
                   {active(job.status) && <button className="btn sm" onClick={cancel}><CircleStop size={14} /> Stop</button>}
                 </div>
                 <div className="row small muted wrap">
                   <span className={`badge ${job.status === "done" ? (job.result?.success ? "ok" : "warn") : job.status === "error" ? "danger" : "accent"}`}>{job.status}</span>
-                  <span className="mono">{job.provider}{job.result?.model ? `/${job.result.model}` : job.model ? `/${job.model}` : ""}</span>
+                  <span>{(() => { const m = job.result?.model || job.model || ""; return !m || m === "default" || m.startsWith("auto") ? "Auto" : m.split("/").pop(); })()}</span>
                   {job.result && <span>{job.result.steps} steps · {job.result.duration_s}s</span>}
                   {job.allowed_domains.length > 0 && <span>only {job.allowed_domains.join(", ")}</span>}
                 </div>
                 {job.error && <div className="alert err">{job.error}</div>}
+                {(job.pending_approvals || []).map((a) => (
+                  <div key={a.id} className="alert col" style={{ gap: 6 }}>
+                    <strong>The agent is waiting for you: {a.label}</strong>
+                    <div className="small">{a.description}</div>
+                    <div className="faint small mono truncate">{a.url}</div>
+                    <div className="row">
+                      <button className="btn sm primary" onClick={() => answer(a, true)}>Allow this once</button>
+                      <button className="btn sm" onClick={() => answer(a, false)}>Deny</button>
+                    </div>
+                  </div>
+                ))}
                 {job.result && (
                   <>
-                    <div className="row">{job.result.success ? <CheckCircle2 size={16} className="prio-1" /> : <XCircle size={16} className="prio-2" />}<strong>{job.result.success ? "Agent reports success" : job.result.done ? "Agent finished but did not report success" : "Stopped at the step limit"}</strong></div>
+                    <div className="row">{job.result.success ? <DoneTick size={18} label="Finished" /> : <XCircle size={16} className="prio-2" />}<strong>{job.result.success ? "Agent reports success" : job.result.done ? "Agent finished but did not report success" : "Stopped at the step limit"}</strong></div>
                     <div className="muted small">This is the agent's own claim. Check it against the last screen and the steps; small models can invent answers.</div>
                     {job.result.final ? <Markdown text={job.result.final} /> : <div className="muted">No final answer.</div>}
                   </>
@@ -149,19 +181,29 @@ export default function Browser() {
               <div className="grid two">
                 <div className="card col">
                   <h3>{active(job.status) ? "Live view" : "Last screen"}</h3>
-                  {job.has_screenshot ? <img key={shotKey} src={`/api/browser/jobs/${job.id}/screenshot?k=${shotKey}`} alt="Browser screenshot" style={{ width: "100%", borderRadius: 8, border: "1px solid var(--border)" }} />
+                  {job.has_screenshot ? <LiveShot src={`/api/browser/jobs/${job.id}/screenshot?k=${shotKey}`} alt="Browser screenshot" scanning={active(job.status)} />
                     : <div className="muted small">{active(job.status) ? "Starting browser…" : "No screenshot."}</div>}
                 </div>
-                <div className="card col">
+                <div className="card col step-list timeline">
                   <h3>Steps</h3>
                   {job.steps.length === 0 && <div className="muted small">{active(job.status) ? <span className="row"><Loader2 size={13} className="spin" /> Waiting for the first step</span> : "No steps recorded."}</div>}
                   {job.steps.map((s) => (
-                    <div key={s.step} className="col" style={{ gap: 2, borderBottom: "1px solid var(--border)", paddingBottom: 8 }}>
-                      <div className="row small"><span className="badge">{s.step}</span><strong className="grow">{s.next_goal || "…"}</strong></div>
-                      {s.evaluation && <div className="muted small">{s.evaluation}</div>}
-                      <div className="faint small mono truncate">{s.actions.map((a) => Object.keys(a)[0]).join(" → ")} · {s.url}</div>
+                    <div key={s.step} className="col" style={{ gap: 4, borderBottom: "1px solid var(--border)", paddingBottom: 8 }}>
+                      <div className="row small"><span className="badge">{s.step}</span><strong className="grow">{s.next_goal || "…"}</strong>
+                        {s.status && s.status !== "ok" && <span className="badge warn">{s.status}</span>}</div>
+                      {s.evaluation && <div className="small"><span className="faint">Thinking: </span>{s.evaluation}</div>}
+                      {s.actions.map((a, i) => {
+                        const [name, args] = Object.entries(a)[0] || ["", {}];
+                        return <div key={i} className="faint small mono" style={{ wordBreak: "break-word" }}>{name}{args && Object.keys(args as object).length ? ` ${JSON.stringify(args)}` : ""}</div>;
+                      })}
+                      {s.result && <div className="muted small">{s.result}</div>}
+                      <div className="faint small truncate">{s.title ? `${s.title} · ` : ""}{s.url}</div>
+                      {s.has_screenshot && (openStep === s.step
+                        ? <img src={`/api/browser/jobs/${job.id}/screenshot/${s.step}`} alt={`Step ${s.step}`} onClick={() => setOpenStep(null)} style={{ width: "100%", borderRadius: 6, border: "1px solid var(--border)", cursor: "zoom-out" }} />
+                        : <img src={`/api/browser/jobs/${job.id}/screenshot/${s.step}`} alt={`Step ${s.step}`} loading="lazy" onClick={() => setOpenStep(s.step)} style={{ width: 160, borderRadius: 6, border: "1px solid var(--border)", cursor: "zoom-in" }} />)}
                     </div>
                   ))}
+                  {active(job.status) && job.steps.length > 0 && <div className="muted small row"><Loader2 size={13} className="spin" /> Thinking about step {job.steps.length + 1}…</div>}
                 </div>
               </div>
             </div>

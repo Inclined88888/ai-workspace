@@ -1,0 +1,5 @@
+{
+  "friendly": {"subject": "Invoice {number} from {business}", "body": "Hi {customer},\n\nJust a friendly reminder that invoice {number} for {total} was due on {due}. If you've already paid, thank you and please ignore this note.\n\n{payment}\n\nThanks,\n{business}"},
+  "firm": {"subject": "Overdue: invoice {number} from {business}", "body": "Hi {customer},\n\nInvoice {number} for {total} is now {days} days overdue (due {due}). Could you please arrange payment this week, or let me know if there's a problem with the invoice?\n\n{payment}\n\nRegards,\n{business}"},
+  "final": {"subject": "Final notice: invoice {number}", "body": "Hi {customer},\n\nThis is a final reminder that invoice {number} for {total} is {days} days overdue (due {due}). Please pay within 7 days. If payment isn't received, I may need to take further steps to recover the amount.\n\n{payment}\n\nRegards,\n{business}"}
+}

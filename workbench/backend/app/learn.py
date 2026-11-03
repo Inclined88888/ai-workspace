@@ -36,7 +36,9 @@ def upsert_skill(name: str, description: str, steps: str, source: str = "auto") 
         raise HTTPException(400, "Skill name must be short-kebab-case (letters, digits, dashes).")
     if not steps.strip() or not description.strip():
         raise HTTPException(400, "A skill needs a description and steps.")
-    existing = db.one("SELECT id FROM skills WHERE name = ?", name)
+    existing = db.one("SELECT id, source FROM skills WHERE name = ?", name)
+    if existing and existing["source"] == "github":  # reviewed third-party text: only a new reviewed install may change it
+        raise HTTPException(409, f"{name} was installed from GitHub after a security check and cannot be edited here. Save under another name.")
     if existing:
         db.run("UPDATE skills SET description = ?, steps = ?, updated_at = ? WHERE id = ?",
                description.strip()[:300], steps.strip()[:20000], db.now(), existing["id"])
@@ -137,10 +139,15 @@ async def mine_skill(conv_id: int) -> str:
     return ""
 
 
-async def _after(conv_id: int, tool_calls: int) -> None:
+async def _after(conv_id: int, tool_calls: int, channel: str = "web") -> None:
+    from .adapt import hooks as adapt_hooks
+
     async with _lock:  # one learning job at a time keeps it light
         try:
-            await mine_memories(conv_id)
+            if adapt_hooks.memory_replaces_legacy():  # encrypted "What I know about you" store, plus job patterns
+                await adapt_hooks.after_turn(conv_id, channel)
+            else:
+                await mine_memories(conv_id)
             if tool_calls >= SKILL_MIN_TOOL_CALLS:
                 await mine_skill(conv_id)
         except Exception as e:  # noqa: BLE001 - learning is best effort and must never break chat
@@ -151,7 +158,7 @@ def after_turn(ctx) -> None:
     if not enabled():
         return
     try:
-        task = asyncio.get_running_loop().create_task(_after(ctx.conversation_id, ctx.tool_calls))
+        task = asyncio.get_running_loop().create_task(_after(ctx.conversation_id, ctx.tool_calls, ctx.channel))
     except RuntimeError:
         return
     _tasks.add(task)

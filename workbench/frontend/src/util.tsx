@@ -1,13 +1,151 @@
 import DOMPurify from "dompurify";
-import { marked } from "marked";
-import { useEffect, useState } from "react";
+import "katex/dist/katex.min.css";
+import { Check, X } from "lucide-react";
+import { MouseEvent, useEffect, useRef, useState } from "react";
 import { api, Model } from "./api";
+import { motionOff } from "./appearance";
+import { MERMAID_RE, renderMarkdownHtml, unesc } from "./markdown";
 
-marked.setOptions({ gfm: true, breaks: true });
+// In non-browser contexts (tests) dompurify's default export is a factory whose product needs a real
+// DOM window; without one it stays a bare function with no sanitize/addHook. Treat that as "no purifier".
+const _dp: unknown = DOMPurify;
+const _made = typeof _dp === "function" ? (_dp as (w?: unknown) => Partial<typeof DOMPurify>)() : _dp;
+const purify: typeof DOMPurify | null = typeof (_made as Partial<typeof DOMPurify>)?.sanitize === "function" ? (_made as typeof DOMPurify) : null;
+
+// highlight.js CSS classes are token classes, not raw styles — keep them through sanitization.
+purify?.addHook("uponSanitizeAttribute", (_node, data) => {
+  if (data.attrName === "class" && data.attrValue.includes("hljs")) data.forceKeepAttr = true;
+});
+
+// Mermaid is ~500 kB min: load it only when a mermaid block actually appears, and only once.
+type MermaidApi = typeof import("mermaid")["default"];
+let mermaidP: Promise<MermaidApi> | null = null;
+const loadMermaid = () => (mermaidP ??= import("mermaid").then((m) => m.default));
+
+const MERMAID_THEME_VARS = {
+  fontFamily: "var(--font)",
+  primaryColor: "var(--panel-2)",
+  primaryBorderColor: "var(--border-strong)",
+  primaryTextColor: "var(--text)",
+  lineColor: "var(--muted)",
+  textColor: "var(--text)",
+  mainBkg: "var(--panel-2)",
+  nodeBorder: "var(--border-strong)",
+  clusterBkg: "var(--code-bg)",
+  titleColor: "var(--text)",
+  edgeLabelBackground: "var(--panel)",
+};
+
+// Rendered once per app run; theme switching happens via mermaid's own CSS variables (themeCSS below).
+let mermaidReady: Promise<MermaidApi> | null = null;
+function initMermaid(): Promise<MermaidApi> {
+  return (mermaidReady ??= loadMermaid().then((m) => {
+    m.initialize({
+      startOnLoad: false,
+      securityLevel: "strict",
+      theme: "base",
+      themeVariables: MERMAID_THEME_VARS,
+    });
+    return m;
+  }));
+}
+
+/** A ```mermaid fence rendered as an SVG diagram. Falls back to the escaped source when the source is
+ *  incomplete (still streaming) or invalid. SVG is sanitized before insertion (mermaid emits raw markup). */
+export function MermaidBlock({ code }: { code: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let live = true;
+    const el = ref.current;
+    if (!el) return;
+    setFailed(false);
+    initMermaid()
+      .then((m) => m.parse(code, { suppressErrors: true }).then((ok) => {
+        if (ok === false) throw new Error("invalid mermaid source");
+        return m.render(`mmd-${Math.random().toString(36).slice(2)}`, code);
+      }))
+      .then(({ svg }) => {
+        if (live && ref.current) ref.current.innerHTML = purify ? purify.sanitize(svg, { USE_PROFILES: { svg: true, svgFilters: true } }) : svg;
+      })
+      .catch(() => { if (live) setFailed(true); });
+    return () => { live = false; };
+  }, [code]);
+  if (failed) return <div className="mermaid-fallback"><pre>{code}</pre></div>;
+  return <div className="mermaid-diagram" ref={ref} aria-label="Diagram" />;
+}
+
+// Maths support ($$...$$ and $...$ via KaTeX) is registered in ./markdown alongside the code renderer.
+
+function onCopyClick(e: MouseEvent<HTMLDivElement>) {
+  const btn = (e.target as HTMLElement).closest(".code-copy");
+  if (!btn) return;
+  const code = btn.closest(".code-block")?.querySelector("pre")?.textContent ?? "";
+  navigator.clipboard?.writeText(code).then(() => {
+    btn.textContent = "Copied";
+    btn.classList.add("copied");
+    setTimeout(() => { btn.textContent = "Copy"; btn.classList.remove("copied"); }, 1600);
+  }).catch(() => undefined);
+}
+
+// Splits sanitized HTML on the mermaid placeholders so those blocks become live <MermaidBlock/> components.
+// Marked keeps the raw text of an unclosed trailing fence out of the output until the fence closes, so a
+// half-typed ```mermaid block mid-stream renders nothing until it is complete — then the diagram appears.
+// (MERMAID_RE and unesc come from ./markdown.)
 
 export function Markdown({ text, className = "" }: { text: string; className?: string }) {
-  const html = DOMPurify.sanitize(marked.parse(text || "", { async: false }) as string);
-  return <div className={`prose ${className}`} dangerouslySetInnerHTML={{ __html: html }} />;
+  const raw = renderMarkdownHtml(text);
+  const html = purify ? purify.sanitize(raw) : raw; // purify is only null in DOM-less tests
+  const parts = html.split(MERMAID_RE);
+  if (parts.length === 1) return <div className={`prose ${className}`} onClick={onCopyClick} dangerouslySetInnerHTML={{ __html: html }} />;
+  return (
+    <div className={`prose ${className}`} onClick={onCopyClick}>
+      {parts.map((part, i) =>
+        i % 2 === 1
+          ? <MermaidBlock key={i} code={unesc(part)} />
+          : <div key={i} dangerouslySetInnerHTML={{ __html: part }} />)}
+    </div>
+  );
+}
+
+const reducedMotion = motionOff;
+
+/** Reveals a freshly arrived answer progressively with a caret, like a live stream. Instant when motion is off or the OS asks for reduced motion. */
+export function StreamingMarkdown({ text, onDone }: { text: string; onDone?: () => void }) {
+  const [n, setN] = useState(() => (reducedMotion() ? text.length : 0));
+  const done = useRef(false);
+  useEffect(() => {
+    if (n >= text.length) {
+      if (!done.current) { done.current = true; onDone?.(); }
+      return;
+    }
+    // Finish in ~0.9s whatever the length, at least 3 chars a frame
+    const step = Math.max(3, Math.ceil(text.length / 54));
+    const raf = requestAnimationFrame(() => setN((x) => Math.min(text.length, x + step)));
+    return () => cancelAnimationFrame(raf);
+  }, [n, text]);
+  return <Markdown text={text.slice(0, n)} className={n < text.length ? "streaming" : ""} />;
+}
+
+export function Skeleton({ w = "100%", h = 12, style }: { w?: number | string; h?: number; style?: React.CSSProperties }) {
+  return <span className="skeleton" aria-hidden="true" style={{ width: w, height: h, ...style }} />;
+}
+
+/** Placeholder rows while a list loads. */
+export function SkeletonList({ rows = 4, avatar = false }: { rows?: number; avatar?: boolean }) {
+  return (
+    <div role="status" aria-label="Loading">
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} className="skeleton-row">
+          {avatar && <Skeleton w={18} h={18} style={{ borderRadius: 6, flex: "none" }} />}
+          <div className="grow col" style={{ gap: 7 }}>
+            <Skeleton w={`${62 - ((i * 13) % 30)}%`} h={11} />
+            <Skeleton w={`${34 - ((i * 7) % 14)}%`} h={9} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export function useModels() {
@@ -48,11 +186,28 @@ export function ModelSelect({
         <optgroup key={provider} label={provider}>
           {list.map((m) => (
             <option key={m.ref} value={m.ref}>
-              {m.model}{m.free ? "  (free)" : ""}{reliabilityLabel(m)}
+              {m.label || (m.model === "default" ? "Recommended (the plan's default)" : m.model)}{m.free ? "  (free)" : ""}{reliabilityLabel(m)}
             </option>
           ))}
         </optgroup>
       ))}
+    </select>
+  );
+}
+
+/** How hard a plan's model thinks (Claude, ChatGPT and Copilot plans). The same four levels as the rooks terminal's
+ *  /effort, remembered on this device. Shown only when the chosen model is a plan. */
+export const EFFORT_LEVELS: [string, string][] = [["", "Thinking: auto"], ["low", "Thinking: low (quick)"], ["medium", "Thinking: medium"], ["high", "Thinking: high (hard problems)"]];
+
+export function useEffort(): [string, (v: string) => void] {
+  const [effort, setEffort] = useState(() => localStorage.getItem("aiw.effort") || "");
+  return [effort, (v: string) => { localStorage.setItem("aiw.effort", v); setEffort(v); }];
+}
+
+export function EffortSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <select className="input effort-select" value={value} onChange={(e) => onChange(e.target.value)} aria-label="How hard the plan's model thinks" title="How hard the plan's model thinks">
+      {EFFORT_LEVELS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
     </select>
   );
 }
@@ -88,26 +243,82 @@ export function fmtTime(iso: string): string {
 }
 
 export function useToast() {
-  const [msg, setMsg] = useState<{ text: string; kind: "ok" | "err" } | null>(null);
+  const [msg, setMsg] = useState<{ text: string; kind: "ok" | "err"; key: number } | null>(null);
+  const [leaving, setLeaving] = useState(false);
   useEffect(() => {
     if (!msg) return;
+    setLeaving(false);
+    const a = setTimeout(() => setLeaving(true), 3800);
     const t = setTimeout(() => setMsg(null), 4000);
-    return () => clearTimeout(t);
+    return () => { clearTimeout(a); clearTimeout(t); };
   }, [msg]);
-  const node = msg ? <div className={`toast ${msg.kind}`}>{msg.text}</div> : null;
+  const node = msg ? (
+    <div key={msg.key} className={`toast ${msg.kind} ${leaving ? "leaving" : ""}`} role={msg.kind === "err" ? "alert" : "status"}>
+      <span className="toast-icon" aria-hidden="true">{msg.kind === "err" ? <X size={12} strokeWidth={3} /> : <Check size={12} strokeWidth={3} />}</span>
+      <span>{msg.text}</span>
+    </div>
+  ) : null;
   return {
     node,
-    ok: (text: string) => setMsg({ text, kind: "ok" }),
-    err: (e: unknown) => setMsg({ text: e instanceof Error ? e.message : String(e), kind: "err" }),
+    ok: (text: string) => setMsg({ text, kind: "ok", key: Date.now() }),
+    err: (e: unknown) => setMsg({ text: e instanceof Error ? e.message : String(e), kind: "err", key: Date.now() }),
   };
 }
 
-export function Empty({ icon, title, hint }: { icon: React.ReactNode; title: string; hint?: string }) {
+export function Empty({ icon, title, hint, hero = false, children }: { icon?: React.ReactNode; title: string; hint?: string; hero?: boolean; children?: React.ReactNode }) {
   return (
-    <div className="empty">
-      <div className="empty-icon">{icon}</div>
+    <div className={`empty ${hero ? "hero" : ""}`}>
+      {icon && <div className="empty-icon" aria-hidden="true">{icon}</div>}
       <div className="empty-title">{title}</div>
       {hint && <div className="muted">{hint}</div>}
+      {children}
+    </div>
+  );
+}
+
+/** What the smart router reports with each answer (router.py). */
+export type RouterQuota = {
+  used_today: number; free: boolean; resets_at: string; note?: string; limit?: number; remaining?: number | null;
+  window?: "day" | "minute"; estimated?: boolean; cooling_until?: string; cooling_reason?: string;
+};
+export type RouterInfo = {
+  provider: string; label?: string; model: string; tier: "fast" | "strong"; subscription?: boolean;
+  fallbacks: { provider: string; model: string; reason: string }[]; quota?: RouterQuota;
+  resting?: { provider: string; reason: string; until: string }[];
+};
+
+const n = (x: number) => x.toLocaleString();
+
+export function resetTime(iso?: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+/** "812 of 1,000 free requests left today", or the honest fallback when the provider doesn't say. */
+export function quotaText(q?: RouterQuota, subscription?: boolean): string {
+  if (!q) return "";
+  if (subscription) return "on your plan";
+  if (q.limit != null && q.remaining != null && q.window === "day")
+    return `${q.estimated ? "about " : ""}${n(q.remaining)} of ${n(q.limit)}${q.free ? " free" : ""} requests left today`;
+  if (q.limit != null && q.remaining != null) return `${n(q.used_today)} used today · ${n(q.remaining)} of ${n(q.limit)} left this minute`;
+  return `${n(q.used_today)} used today${q.free ? " · free tier" : ""}`;
+}
+
+/** The "via" line under an answer: who answered, how much free quota is left, and what was skipped. */
+export function RouterVia({ r }: { r: RouterInfo }) {
+  const short = r.model.split("/").pop();
+  return (
+    <div className="via" title={r.quota?.note || undefined}>
+      <span className="via-who">via <b>{r.provider}</b> · {short}</span>
+      <span className="via-tier">{r.tier}</span>
+      {r.quota && <span className="via-quota">{quotaText(r.quota, r.subscription)}</span>}
+      {r.fallbacks.map((f, i) => (
+        <span key={i} className="via-skip">{f.provider} {f.reason}{f.reason === "daily limit reached" ? ", switched" : ", skipped"}</span>
+      ))}
+      {(r.resting || []).map((x, i) => (
+        <span key={`r${i}`} className="via-skip">{x.provider} resting until {resetTime(x.until)} ({x.reason})</span>
+      ))}
     </div>
   );
 }

@@ -1,0 +1,11 @@
+/* feat/attachments: composer chips and sent attachments. Theme variables only, so every theme restyles them. */
+.att-row { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px 0; }
+.att-row.sent { padding: 0 0 6px; justify-content: flex-end; }
+.att-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 240px; height: 32px; padding: 0 4px 0 8px; border: 1px solid var(--border-strong); background: var(--panel-2); color: var(--text); font-size: var(--text-2xs); text-decoration: none; }
+.att-row.sent .att-chip { padding-right: 8px; }
+.att-chip img { width: 24px; height: 24px; object-fit: cover; }
+.att-chip.loading { opacity: 0.6; }
+.att-chip.bad { border-color: var(--danger); color: var(--danger-text); }
+.att-thumb { display: block; border: 1px solid var(--border-strong); }
+.att-thumb img { display: block; max-width: 220px; max-height: 160px; object-fit: contain; background: var(--panel-2); }
+.composer.drop-target { border-color: var(--text); box-shadow: inset 0 0 0 2px var(--text); }

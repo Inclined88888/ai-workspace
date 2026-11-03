@@ -11,7 +11,7 @@ name: ai-workspace
 services:
   ollama:
     profiles: ["local-models"]
-    image: ollama/ollama:${OLLAMA_TAG:-latest}
+    image: ollama/ollama:${OLLAMA_TAG:-0.40.13}
     restart: unless-stopped
     volumes:
       - ollama:/root/.ollama
@@ -28,7 +28,7 @@ services:
 
   searxng:
     profiles: ["search"]
-    image: searxng/searxng:${SEARXNG_TAG:-latest}
+    image: searxng/searxng:${SEARXNG_TAG:-2026.11.1-10db664f1}
     restart: unless-stopped
     volumes:
       - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
@@ -41,7 +41,7 @@ services:
 
   open-webui:
     profiles: ["openwebui"]
-    image: ghcr.io/open-webui/open-webui:${OPEN_WEBUI_TAG:-main}
+    image: ghcr.io/open-webui/open-webui:${OPEN_WEBUI_TAG:-0.12.0}
     restart: unless-stopped
     depends_on:
       - workbench
@@ -74,13 +74,12 @@ services:
       ENABLE_MEMORIES: "true"
       ENABLE_NOTES: "true"
       # Workbench tools (notes, tasks, calendar, mail drafts) callable from chat
+      # The browser tool server is listed only when the browser add-on is on: setup.sh writes WEBUI_BROWSER_TOOL (a
+      # leading comma and the JSON entry) when it is, and leaves it empty otherwise.
       TOOL_SERVER_CONNECTIONS: >-
         [{"type":"openapi","url":"http://workbench:8000/tools","spec_type":"url","spec":"","path":"openapi.json",
         "auth_type":"bearer","key":"${TOOLS_API_KEY}","config":{"enable":true},
-        "info":{"id":"workbench","name":"Workbench","description":"Notes, documents, tasks, calendar and email drafts"}},
-        {"type":"openapi","url":"http://browser:8100/tools","spec_type":"url","spec":"","path":"openapi.json",
-        "auth_type":"bearer","key":"${BROWSER_API_KEY}","config":{"enable":true},
-        "info":{"id":"browser","name":"Browser","description":"A browser agent that can navigate websites to reach a goal"}}]
+        "info":{"id":"workbench","name":"Workbench","description":"Notes, documents, tasks, calendar and email drafts"}}${WEBUI_BROWSER_TOOL:-}]
 
   workbench:
     build: ./workbench
@@ -94,8 +93,8 @@ services:
     volumes:
       - workbench:/data
     environment:
-      APP_SECRET: ${APP_SECRET:?run ./setup.sh or set APP_SECRET in .env}
-      TOOLS_API_KEY: ${TOOLS_API_KEY:?run ./setup.sh or set TOOLS_API_KEY in .env}
+      APP_SECRET: ${APP_SECRET:-}
+      TOOLS_API_KEY: ${TOOLS_API_KEY:-}
       WORKSPACE_NAME: ${WORKSPACE_NAME:-AI Workspace}
       WORKSPACE_TIMEZONE: ${WORKSPACE_TIMEZONE:-UTC}
       DEFAULT_MODEL: ${DEFAULT_MODEL:-qwen3:4b}
@@ -107,11 +106,17 @@ services:
       OLLAMA_URL: ${OLLAMA_URL:-}
       # Set to true when Workbench is served over HTTPS (reverse proxy)
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
-      # Seed external providers on first start (also editable in Settings)
+      # Provider keys: applied on start and whenever changed here (a key changed in Settings is kept until then)
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      XAI_API_KEY: ${XAI_API_KEY:-}
+      NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
+      CEREBRAS_API_KEY: ${CEREBRAS_API_KEY:-}
+      TOGETHER_API_KEY: ${TOGETHER_API_KEY:-}
+      FIREWORKS_API_KEY: ${FIREWORKS_API_KEY:-}
       CODEX_URL: ${CODEX_URL:-}
       CODEX_API_KEY: ${CODEX_API_KEY:-}
       CLAUDE_CODE_URL: ${CLAUDE_CODE_URL:-}
@@ -213,7 +218,7 @@ services:
   # Upstream image, unmodified: upgrade with `docker compose pull paperclip && docker compose up -d paperclip`.
   paperclip:
     profiles: ["paperclip"]
-    image: ghcr.io/paperclipai/paperclip:${PAPERCLIP_TAG:-latest}
+    image: ghcr.io/paperclipai/paperclip:${PAPERCLIP_TAG:-2026.1023.0}
     restart: unless-stopped
     pids_limit: 2048
     stop_grace_period: 90s
@@ -250,7 +255,7 @@ services:
   # messaging (Telegram, Discord, Slack, ...). Upstream image, unmodified. All state lives in the volume.
   hermes:
     profiles: ["hermes"]
-    image: nousresearch/hermes-agent:${HERMES_TAG:-latest}
+    image: nousresearch/hermes-agent:${HERMES_TAG:-v0.22.5}
     restart: unless-stopped
     command: ["gateway", "run"]
     shm_size: 1gb

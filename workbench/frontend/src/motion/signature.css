@@ -1,0 +1,181 @@
+/* ==========================================================================
+   Signature moments. Each one is a named, reusable class; tokens come from tokens.css. Transform and opacity
+   only (the two tiny exceptions, the shimmer label and drawn strokes, repaint a few dozen pixels).
+   ========================================================================== */
+
+/* ---- 1. Thinking: the assistant's name and status shimmer, a slow light sweep through the letters ---- */
+.shimmer-text, .msg-byline.is-thinking {
+  background: linear-gradient(100deg, var(--m-shimmer-base) 0%, var(--m-shimmer-base) 38%, var(--m-shimmer-hi) 50%, var(--m-shimmer-base) 62%, var(--m-shimmer-base) 100%);
+  background-size: 260% 100%; background-position: 100% 0;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: shimmer var(--m-loop) linear infinite;
+}
+@keyframes shimmer { to { background-position: -160% 0; } }
+.thinking { display: inline-flex; align-items: baseline; gap: 10px; min-height: 24px; font-size: var(--text-md); font-weight: 550; }
+.thinking-time { font-size: var(--text-xs); color: var(--faint); font-variant-numeric: tabular-nums; animation: fade-in var(--m-2) var(--ease-standard) both; }
+.msg-thinking .msg-byline { margin-bottom: 4px; }
+:root:is([data-theme="sunshine"], [data-theme="neon"]) .msg-byline.is-thinking::before { animation: think-dot var(--m-loop) var(--ease-in-out) infinite; }
+@keyframes think-dot { 50% { transform: scale(0.55); opacity: 0.6; } }
+
+/* ---- 2. Streaming: newest words fade in (opacity only, so lines never reflow), one blinking caret ---- */
+.w-in { animation: w-in 220ms var(--ease-standard) both; }
+@keyframes w-in { from { opacity: 0; } to { opacity: 1; } }
+:root[data-motion="subtle"] .w-in { animation-duration: 320ms; }
+
+/* ---- 3. Agent activity timeline: each step draws its own segment of the line, then its node settles ---- */
+.steps-list.timeline { border-left: none !important; padding: 6px 0 6px 2px; gap: 0; }
+.timeline .step { position: relative; padding: 3px 0 5px 22px; animation: step-in var(--m-3) var(--ease-standard) both; }
+.timeline .step > svg:first-child { display: none; }
+.timeline .step::before { /* line segment from this node down to the next */
+  content: ""; position: absolute; left: 6px; top: 10px; bottom: -10px; width: 1px; background: var(--border-strong);
+  transform-origin: top; animation: draw-y var(--m-4) var(--ease-expo) both;
+}
+.timeline .step:last-child::before { display: none; }
+.timeline .step::after { /* node */
+  content: ""; position: absolute; left: 3px; top: 7px; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--panel); box-shadow: inset 0 0 0 1.5px var(--muted);
+  animation: node-in var(--spring-settle-dur) var(--spring-settle) both;
+}
+.timeline .step.ok::after { background: var(--ok-text); box-shadow: none; }
+.timeline .step.bad::after { background: var(--danger-text); box-shadow: none; }
+.timeline .step.live::after { background: var(--accent); box-shadow: 0 0 0 0 var(--accent); animation: node-in var(--spring-settle-dur) var(--spring-settle) both, node-live 1.6s var(--ease-in-out) infinite var(--spring-settle-dur); }
+:root[data-theme="neon"] .timeline .step.live::after { box-shadow: var(--glow); }
+@keyframes step-in { from { opacity: 0; transform: translateX(calc(var(--m-travel) * -0.5)); } to { opacity: 1; transform: none; } }
+@keyframes draw-y { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+@keyframes node-in { from { transform: scale(0); } to { transform: scale(1); } }
+@keyframes node-live { 50% { transform: scale(0.6); opacity: 0.55; } }
+/* the same timeline on the Computer and Browser step lists */
+.step-list.timeline > .col { position: relative; padding-left: 22px; border-bottom: none !important; animation: step-in var(--m-3) var(--ease-standard) both; }
+.step-list.timeline > .col::before { content: ""; position: absolute; left: 6px; top: 16px; bottom: -6px; width: 1px; background: var(--border-strong); transform-origin: top; animation: draw-y var(--m-4) var(--ease-expo) both; }
+.step-list.timeline > .col:last-of-type::before { display: none; }
+.step-list.timeline > .col::after { content: ""; position: absolute; left: 3px; top: 9px; width: 7px; height: 7px; border-radius: 50%; background: var(--ok-text); animation: node-in var(--spring-settle-dur) var(--spring-settle) both; }
+.step-list.timeline > .col.failed::after { background: var(--danger-text); }
+
+/* ---- 4. Edge glow: the window's edge lights up while Rooks Desk drives the computer ---- */
+.edge-glow { position: fixed; inset: 0; z-index: 80; pointer-events: none; animation: fade-in var(--m-5) var(--ease-standard) both; contain: strict; }
+.edge-glow.leaving, .edge-pill.leaving { animation: fade-out var(--m-5) var(--ease-exit) forwards; }
+.edge-glow-soft { position: absolute; inset: 0; box-shadow: inset 0 0 56px 6px var(--m-glow-soft), inset 0 0 14px 0 var(--m-glow-soft); animation: glow-breathe 3.4s var(--ease-in-out) infinite; will-change: opacity; }
+.edge-glow-band {
+  position: absolute; inset: 0; padding: var(--m-glow-band); overflow: hidden;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+}
+.edge-glow-spin {
+  position: absolute; left: 50%; top: 50%; width: 150vmax; height: 150vmax; margin: -75vmax 0 0 -75vmax;
+  background: conic-gradient(from 0deg, var(--m-glow-a), var(--m-glow-b), var(--m-glow-c), var(--m-glow-d), var(--m-glow-a));
+  animation: spin var(--m-glow-loop) linear infinite; will-change: transform;
+}
+@keyframes glow-breathe { 50% { opacity: 0.55; } }
+:root[data-theme="neon"] .edge-glow-soft { box-shadow: inset 0 0 64px 10px var(--m-glow-soft), inset 0 0 18px 2px rgba(212, 255, 58, 0.45); }
+:root[data-theme="contrast"] .edge-glow-spin, :root[data-theme="contrast"] .edge-glow-soft { animation: none; }
+:root[data-motion="subtle"] .edge-glow-soft { animation: none; }
+.edge-pill {
+  position: fixed; top: 12px; left: 50%; z-index: 81; display: inline-flex; white-space: nowrap; max-width: calc(100vw - 32px); align-items: center; gap: 10px;
+  padding: 6px 8px 6px 14px; border-radius: 999px; background: var(--ink-btn); color: var(--on-ink); font-size: var(--text-sm); font-weight: 550;
+  box-shadow: var(--shadow-3, 0 8px 24px rgba(0,0,0,.18)); transform: translateX(-50%);
+  animation: pill-in var(--spring-settle-dur) var(--spring-settle) both;
+}
+.edge-pill .kbd { background: transparent; color: inherit; opacity: 0.7; border-color: currentColor; }
+.edge-pill .btn { height: 26px; border-radius: 999px; }
+.edge-pill-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--m-glow-a); animation: think-dot 1.6s var(--ease-in-out) infinite; }
+:root[data-theme="neon"] .edge-pill { background: #12151a; color: var(--text); box-shadow: var(--glow); }
+@keyframes pill-in { from { opacity: 0; transform: translate(-50%, -14px); } to { opacity: 1; transform: translate(-50%, 0); } }
+
+/* ---- 5. Live screen: frames cross-fade, a reading line sweeps while the agent looks, its cursor glides ---- */
+.live-shot { position: relative; overflow: hidden; border-radius: 8px; border: 1px solid var(--border); background: var(--panel-2); line-height: 0; }
+.live-shot img { display: block; width: 100%; opacity: 0; transition: opacity var(--m-3) var(--ease-standard); }
+.live-shot img + img { position: absolute; inset: 0; }
+.live-shot img.ready { opacity: 1; }
+.scan-line { position: absolute; inset: 0; pointer-events: none; animation: scan 2.6s var(--ease-in-out) infinite alternate; }
+.scan-line::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px; background: linear-gradient(90deg, transparent, var(--accent), transparent); opacity: 0.55; }
+@keyframes scan { from { transform: translateY(0); } to { transform: translateY(100%); } }
+.cursor-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.cursor-track { position: absolute; inset: 0; transition: transform var(--spring-gentle-dur) var(--spring-gentle); will-change: transform; }
+.cursor-arrow { position: absolute; left: -2px; top: -1px; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.35)); }
+.cursor-arrow path { fill: var(--m-cursor-fill); stroke: var(--m-cursor-stroke); stroke-width: 1.4; stroke-linejoin: round; }
+:root[data-theme="neon"] .cursor-arrow { filter: drop-shadow(0 0 6px rgba(212, 255, 58, 0.8)); }
+.cursor-ripple { position: absolute; left: -16px; top: -16px; width: 32px; height: 32px; border-radius: 50%; border: 2px solid var(--m-cursor-ring); opacity: 0;
+  animation: ripple 700ms var(--ease-standard) var(--spring-gentle-dur) both; }
+@keyframes ripple { from { opacity: 0.9; transform: scale(0.25); } to { opacity: 0; transform: scale(1.5); } }
+.cursor-trail { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.cursor-trail polyline { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 3 5; opacity: 0.55; animation: trail-fade 2.4s var(--ease-standard) both; }
+@keyframes trail-fade { 0% { opacity: 0; } 15% { opacity: 0.6; } 100% { opacity: 0.12; } }
+
+/* ---- 6. Approval cards slide up and settle on a spring; on answer they lift away ---- */
+.spring-in { animation: spring-in var(--spring-settle-dur) var(--spring-settle) both; transform-origin: 50% 100%; }
+@keyframes spring-in { from { opacity: 0; transform: translateY(calc(var(--m-travel) * 3)) scale(0.97); } to { opacity: 1; transform: none; } }
+.leaving-out { animation: card-out 200ms var(--ease-exit) forwards !important; pointer-events: none; }
+@keyframes card-out { to { opacity: 0; transform: translateY(calc(var(--m-travel) * -1)) scale(0.98); } }
+
+/* ---- 7. Completion: ring draws, tick strokes in, badge settles ---- */
+.done-tick { flex: none; overflow: visible; animation: tick-pop var(--spring-settle-dur) var(--spring-settle) 380ms both; }
+.done-ring, .done-check { fill: none; stroke: var(--ok-text); stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 100; }
+.done-ring { stroke-width: 1.6; animation: stroke-draw 420ms var(--ease-expo) both; transform: rotate(-90deg); transform-origin: center; }
+.done-check { stroke-width: 2.2; animation: stroke-draw 280ms var(--ease-standard) 260ms both; }
+@keyframes stroke-draw { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
+@keyframes tick-pop { from { transform: scale(0.9); } to { transform: scale(1); } }
+:root[data-theme="neon"] .done-tick { filter: drop-shadow(0 0 4px rgba(94, 240, 160, 0.7)); }
+.done-row { display: flex; align-items: center; gap: 8px; }
+
+/* ---- 8. Voice orb: breathes while listening, swells with your voice (--lvl from the mic, 0..1) ---- */
+.voice-orb { position: relative; width: 34px; height: 34px; flex: none; border: none; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; display: grid; place-items: center; --lvl: 0; }
+.voice-orb:hover { color: var(--text); }
+.voice-orb:disabled { opacity: 0.4; cursor: default; }
+.orb-halo, .orb-core { position: absolute; border-radius: 50%; pointer-events: none; }
+.orb-halo { inset: 0; background: var(--accent); opacity: 0; transform: scale(0.6); transition: opacity var(--m-2) var(--ease-standard); }
+.orb-core { inset: 5px; background: var(--panel-2); transition: background-color var(--m-2) var(--ease-standard); }
+.orb-mic { position: relative; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.voice-orb.on { color: var(--on-accent); }
+.voice-orb.on .orb-core { background: var(--accent); transform: scale(calc(1 + var(--lvl) * 0.28)); }
+.voice-orb.on .orb-halo { opacity: calc(0.16 + var(--lvl) * 0.4); transform: scale(calc(1.05 + var(--lvl) * 0.7)); animation: orb-breathe 2.4s var(--ease-in-out) infinite; }
+@keyframes orb-breathe { 50% { scale: 1.12; } }
+:root[data-theme="neon"] .voice-orb.on .orb-core { box-shadow: var(--glow); }
+
+/* ---- 9. Skeletons: a soft light sheen travels across instead of the whole block blinking ---- */
+.skeleton { position: relative; overflow: hidden; animation: none; }
+.skeleton::after { content: ""; position: absolute; inset: 0; transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, var(--m-sheen, rgba(255, 255, 255, 0.6)), transparent);
+  animation: sheen 1.5s var(--ease-in-out) infinite; }
+:root[data-mode="dark"] { --m-sheen: rgba(255, 255, 255, 0.06); }
+:root[data-theme="neon"] { --m-sheen: rgba(212, 255, 58, 0.07); }
+@keyframes sheen { to { transform: translateX(100%); } }
+.skeleton-row:nth-child(2) .skeleton::after { animation-delay: 80ms; }
+.skeleton-row:nth-child(3) .skeleton::after { animation-delay: 160ms; }
+.skeleton-row:nth-child(n + 4) .skeleton::after { animation-delay: 240ms; }
+
+/* ---- 10. Shared-element page turns (View Transitions API, Full motion only) ---- */
+.nav-link { isolation: isolate; }
+.nav-ind { position: absolute; z-index: -1; pointer-events: none; view-transition-name: nav-ind; left: 4px; top: 50%; width: 5px; height: 5px; margin-top: -2.5px; background: var(--accent); }
+.nav-link.active::before { opacity: 0 !important; }
+:root:is([data-theme="sunshine"], [data-theme="neon"]) .nav-ind { inset: 0; width: auto; height: auto; margin: 0; background: var(--accent-soft); border-radius: var(--radius-sm); }
+:root:is([data-theme="sunshine"], [data-theme="neon"]) .nav-link.active { background: transparent; }
+.page-head h1 { view-transition-name: page-title; }
+.composer { view-transition-name: composer; }
+.vt-running .route, .vt-running .route .card { animation: none !important; }
+::view-transition-group(*) { animation-duration: var(--m-3); animation-timing-function: var(--ease-standard); }
+::view-transition-group(nav-ind) { animation-duration: var(--spring-gentle-dur); animation-timing-function: var(--spring-gentle); }
+::view-transition-old(root) { animation: vt-out 140ms var(--ease-exit) both; }
+::view-transition-new(root) { animation: vt-in var(--m-3) var(--ease-standard) both; }
+@keyframes vt-out { to { opacity: 0; } }
+@keyframes vt-in { from { opacity: 0; transform: translateY(var(--m-travel)); } }
+
+/* ---- Off and the OS "reduce motion" setting: every moment keeps its meaning, nothing moves ---- */
+:root[data-motion="off"] :is(.shimmer-text, .msg-byline.is-thinking) { animation: none; background: none; color: var(--muted); }
+:root[data-motion="off"] .skeleton::after, :root[data-motion="off"] .scan-line, :root[data-motion="off"] .cursor-trail, :root[data-motion="off"] .cursor-ripple { display: none; }
+:root[data-motion="off"] :is(.edge-glow-spin, .edge-glow-soft, .edge-pill-dot, .orb-halo) { animation: none !important; }
+:root[data-motion="off"] .cursor-track { transition: none; }
+@media (prefers-reduced-motion: reduce) {
+  .shimmer-text, .msg-byline.is-thinking { animation: none; background: none; color: var(--muted); }
+  .skeleton::after, .scan-line, .cursor-trail, .cursor-ripple { display: none; }
+  .edge-glow-spin, .edge-glow-soft, .edge-pill-dot, .orb-halo, .w-in, .timeline .step, .timeline .step::before, .timeline .step::after,
+  .spring-in, .done-tick, .done-ring, .done-check, .edge-pill, .edge-glow { animation: none !important; }
+  .cursor-track, .live-shot img { transition: none; }
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
+}
+
+/* ---------- Motion page (preview of every moment) ---------- */
+.motion-grid { align-items: start; }
+.motion-demo h3 { margin: 0; }
+.motion-stage { min-height: 64px; display: flex; flex-direction: column; justify-content: center; }
+.motion-stage .msg { margin: 0; }
+.done-row { display: flex; align-items: center; gap: 10px; }

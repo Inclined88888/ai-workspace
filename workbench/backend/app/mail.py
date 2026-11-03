@@ -1,7 +1,12 @@
-"""IMAP read and SMTP send. Works with any standard provider (Fastmail, iCloud, Gmail/Outlook app passwords, self hosted)."""
+"""IMAP read and SMTP send. Works with any standard provider (Fastmail, iCloud, Yahoo, Gmail app passwords, self hosted).
+
+Accounts connected with "Connect Google" or "Connect Microsoft" (kind google | microsoft) go through cloud_mail.py
+instead, which speaks the Gmail API and Microsoft Graph and returns the same shapes.
+"""
 
 import email
 import imaplib
+import re
 import smtplib
 import ssl
 from email.header import decode_header, make_header
@@ -32,7 +37,36 @@ def _imap(acct: dict) -> imaplib.IMAP4_SSL:
             m.login(acct["username"], decrypt(acct["password_enc"]))
         return m
     except (imaplib.IMAP4.error, OSError) as e:
-        raise HTTPException(502, f"IMAP connection failed: {e}") from e
+        raise HTTPException(502, _explain_login(acct, e)) from e
+
+
+_APP_PASSWORD_PAGES = {
+    "gmail.com": ("Gmail", "myaccount.google.com/apppasswords (needs 2-Step Verification)"),
+    "mail.me.com": ("iCloud", "account.apple.com > Sign-In and Security > App-Specific Passwords"),
+    "yahoo.com": ("Yahoo", "login.yahoo.com/account/security > Generate app password"),
+    "aol.com": ("AOL", "login.aol.com/account/security"),
+    "fastmail.com": ("Fastmail", "Settings > Privacy & Security > App passwords"),
+    "zoho.com": ("Zoho", "Zoho Accounts > Security > App passwords"),
+    "office365.com": ("Outlook", "nowhere: Microsoft turned off app passwords for Outlook IMAP, so use Connect Microsoft"),
+    "outlook.com": ("Outlook", "nowhere: Microsoft turned off app passwords for Outlook IMAP, so use Connect Microsoft"),
+}
+
+
+def _explain_login(acct: dict, e: Exception) -> str:
+    """Turn raw IMAP errors into what the person should do next."""
+    raw = e.args[0] if e.args else e
+    text = raw.decode(errors="replace") if isinstance(raw, bytes) else str(raw)
+    host = (acct.get("imap_host") or "").lower()
+    who = next((v for k, v in _APP_PASSWORD_PAGES.items() if host.endswith(k)), None)
+    if isinstance(e, imaplib.IMAP4.error) and re.search(r"AUTHENTICATIONFAILED|invalid credentials|authentication failed|"
+                                                         r"application-specific|LOGIN failed|BasicAuthBlocked", text, re.I):
+        if who:
+            return (f"{who[0]} didn't accept that password. It needs an app password, not your normal one: make one at "
+                    f"{who[1]} and paste it here.")
+        return f"The mail server refused that username or password. Check both, or use an app password. (Server said: {text.strip()[:160]})"
+    if isinstance(e, OSError):
+        return f"Couldn't reach {host}:{acct.get('imap_port')}. Check the IMAP server name and port, and your connection. ({e})"
+    return f"IMAP connection failed: {text.strip()[:300]}"
 
 
 def _body_text(msg: email.message.Message) -> str:
@@ -64,7 +98,21 @@ def _body_text(msg: email.message.Message) -> str:
     return text
 
 
+def _cloud(acct: dict):
+    if acct.get("kind") in ("google", "microsoft"):
+        from . import cloud_mail
+
+        return cloud_mail
+    if acct.get("kind") == "mac":  # the account signed in on this Mac, through Apple Mail
+        from . import mac_mail
+
+        return mac_mail
+    return None
+
+
 def list_messages(acct: dict, folder: str = "INBOX", limit: int = 40, query: str = "") -> list[dict]:
+    if cloud := _cloud(acct):
+        return cloud.list_messages(acct, folder, limit, query)
     m = _imap(acct)
     try:
         status, _ = m.select(f'"{folder}"', readonly=True)
@@ -108,6 +156,8 @@ def list_messages(acct: dict, folder: str = "INBOX", limit: int = 40, query: str
 
 
 def get_message(acct: dict, uid: str, folder: str = "INBOX") -> dict:
+    if cloud := _cloud(acct):
+        return cloud.get_message(acct, uid)
     if not uid.isdigit():
         raise HTTPException(400, "Invalid message id")
     m = _imap(acct)
@@ -135,16 +185,25 @@ def get_message(acct: dict, uid: str, folder: str = "INBOX") -> dict:
             pass
 
 
-def send(acct: dict, to: str, subject: str, body: str, in_reply_to: str = "") -> str:
+def send(acct: dict, to: str, subject: str, body: str, in_reply_to: str = "", *, cc: str = "",
+         attachments: list[tuple[str, str, bytes]] | None = None) -> str:
+    """Send one message. attachments: (filename, content type, bytes)."""
+    if cloud := _cloud(acct):
+        return cloud.send(acct, to, subject, body, in_reply_to, cc=cc, attachments=attachments)
     msg = EmailMessage()
     msg["From"] = f'{acct["name"]} <{acct["email"]}>'
     msg["To"] = to
+    if cc:
+        msg["Cc"] = cc
     msg["Subject"] = subject
     msg["Message-ID"] = make_msgid(domain=acct["email"].split("@")[-1])
     if in_reply_to:
         msg["In-Reply-To"] = in_reply_to
         msg["References"] = in_reply_to
     msg.set_content(body)
+    for filename, ctype, data in attachments or []:
+        main, _, sub = (ctype or "application/octet-stream").partition("/")
+        msg.add_attachment(data, maintype=main or "application", subtype=sub or "octet-stream", filename=filename)
     password = decrypt(acct["password_enc"])
     try:
         with egress.track("SEND", f"smtp://{acct['smtp_host']}:{acct['smtp_port']}"):
@@ -163,5 +222,7 @@ def send(acct: dict, to: str, subject: str, body: str, in_reply_to: str = "") ->
 
 
 def test(acct: dict) -> None:
+    if cloud := _cloud(acct):
+        return cloud.test(acct)
     m = _imap(acct)
     m.logout()

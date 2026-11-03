@@ -1,0 +1,485 @@
+"""The agent loop: send the conversation to the model, run the tools it asks for (after approval), feed the results
+back, and repeat until it answers without asking for a tool, hits the step limit, or the budget's hard cap."""
+
+from __future__ import annotations
+
+import json
+import platform
+import re
+import time
+from pathlib import Path
+
+from . import images, providers
+from .extras import READ_ONLY, Extras, project_instructions
+from .extras import NAMES as EXTRA_NAMES
+from .extras import SPECS as EXTRA_SPECS
+from .learning import Learning
+from .mcp import MCPError, MCPManager
+from .receipts import RunLog
+from .tools import SPECS, Plan, Toolbox, ToolError
+from .undo import ChangeSets
+
+SYSTEM = """You are Rooks Code, a careful coding agent working in the user's project through tools.
+Project root: {root}
+Operating system: {os}
+{runtimes}
+Files and folders at the project root: {listing}
+
+How to work:
+- Investigate first: list_files, search and read_file before changing anything. Never guess file contents.
+- Change files with edit_file (exact text replacement) or write_file. Keep changes minimal and in the project's style.
+- Use run_command to run tests, builds and other CLIs, and to check your work. Commands run in the project root.
+- The user approves edits and commands; if one is denied, do not retry it, ask or take another approach.
+- When you decide to do something, call the tool in that same reply; do not just describe it.
+- For work of 3+ steps keep a todo checklist and update it as you go. Look things up with web_search / web_fetch
+  instead of guessing APIs. Start servers and watchers with start_background, not run_command. Hand broad research
+  to a task sub-agent so your own context stays small.
+- When the user states a lasting fact or preference (their name, tools they use, how they like things done), save it
+  with remember. If a saved skill fits the task, load_skill it first and follow it.
+- When the task is done, stop calling tools and reply with a short summary of what changed and how you checked it.
+  Only claim what the tool results show."""
+
+
+# Smaller local models often announce a step ("Now I'll run the tests.") and stop without calling a tool. When a reply
+# ends like that, Rooks asks once more (at most NUDGES times per prompt) instead of ending the turn. Off with nudge = false.
+_ANNOUNCES = re.compile(r"\b(I'll|I will|I am going to|I'm going to|Let's|Let me|Next,? I|Now,? I|First,? I|This will|"
+                        r"We'll|We will)\b",
+                        re.I)
+NUDGE = ("You described a next step but did not call a tool. Call the tool now. If the task is already finished, reply "
+         "with your final summary instead.")
+NUDGES = 2
+RETRIES = 3          # transient provider errors (429, 5xx) per model call
+RETRY_BASE_S = 2.0   # 2, 6, 18 seconds unless the provider says how long
+RETRY_MAX_S = 30.0
+
+# Long sessions: when the conversation would fill COMPACT_AT of the model's window, everything before the last few turns
+# is replaced by a summary the model writes, so a session can run for hours without the provider rejecting it.
+COMPACT_AT = 0.7
+KEEP_TURNS = 2  # the newest user prompts (with their tool calls and results) always stay word for word
+SUMMARY_SYSTEM = ("You compress a coding session so it can continue. Write a dense summary of the conversation below for "
+                  "the agent that continues it: the user's goals and preferences, files read or changed (exact paths), "
+                  "commands run and their results, decisions made, and what is still open. Facts only, no advice.")
+
+
+def announces_step(text: str) -> bool:
+    """True when a reply's last lines promise an action ("Next, I'll run the tests:") rather than finish or ask."""
+    tail = re.sub(r"(?i)let me know", "", text.strip())[-400:]
+    if not tail or tail.endswith("?") or re.search(r"(?i)\b(summary|summari[sz]e|in short|all done)\b", tail):
+        return False
+    lines = [x for x in tail.splitlines() if x.strip()]
+    return tail.endswith(":") or any(_ANNOUNCES.search(x) for x in lines[-2:])
+
+
+class Budget:
+    def __init__(self, max_tokens: int | None, max_usd: float | None, model: str, prices: dict, local: bool):
+        self.max_tokens, self.max_usd = max_tokens, max_usd
+        self.price = providers.price(model, prices, local)
+
+    def check(self, totals: dict, next_input_estimate: int) -> str:
+        """'' when the next call fits, else the reason it would cross a hard cap."""
+        used = totals["tokens_in"] + totals["tokens_out"]
+        if self.max_tokens and used + next_input_estimate > self.max_tokens:
+            return f"token cap reached: {used:,} used, next call needs about {next_input_estimate:,}, cap {self.max_tokens:,}"
+        if self.max_usd and self.price is not None:
+            nxt = next_input_estimate * self.price[0] / 1_000_000
+            if totals["usd"] + nxt > self.max_usd:
+                return f"cost cap reached: ${totals['usd']:.4f} spent, next call about ${nxt:.4f}, cap ${self.max_usd:.2f}"
+        return ""
+
+
+class Agent:
+    def __init__(self, settings, ui, model=None, log: RunLog | None = None, messages: list[dict] | None = None,
+                 sub: bool = False):
+        self.s, self.ui = settings, ui
+        self.root: Path = settings.root.resolve()
+        self.log = log or RunLog(self.root, provider=settings.provider, model=settings.model)
+        self.model = model or providers.make(settings, on_egress=self._egress)
+        self.tools = Toolbox(self.root, settings.command_timeout)
+        self.changes = ChangeSets(self.root)
+        self.sub = sub  # a sub-agent (the task tool): read-only tools, no MCP servers, no learning
+        self.mcp = MCPManager(settings.mcp_servers, str(self.root), warn=ui.warn) if settings.mcp_servers and not sub else None
+        self.messages: list[dict] = list(messages or [])
+        self.always: set[str] = set()  # effects approved for the rest of the session ("a" at the prompt)
+        self.budget = Budget(settings.max_tokens, settings.max_usd, settings.model, settings.prices, settings.local)
+        self.system = SYSTEM.format(root=self.root, os=f"{platform.system()} {platform.release()}", listing=_listing(self.root),
+                                    runtimes=_runtimes(self.root))
+        self._turn: int | None = None
+        self.learning = Learning(settings, session_id=self.log.session) if getattr(settings, "learn", True) and not sub else None
+        self.extras = Extras(self)
+        self.instructions, self.instruction_files = project_instructions(self.root)
+        if self.instructions:
+            self.system += "\n\n" + self.instructions
+        self._extra = ""  # this request's memory and skills context (learning.py)
+        # Through the app (provider workbench) the model is picked per task and the app keeps the spend, so a
+        # per-model price is neither known nor needed here: only warn when the user picked a model directly.
+        if settings.max_usd and self.budget.price is None and settings.provider != "workbench":
+            ui.warn(f"price of {settings.model} is unknown, so the ${settings.max_usd} cap cannot be enforced; the token cap "
+                    f"({settings.max_tokens or 'none'}) still is. Add it under [prices] to enforce a dollar cap.")
+
+    # receipts --------------------------------------------------------------------------------------------------
+    def _egress(self, method: str, url: str, outcome: str, ms: int, error: str) -> None:
+        from urllib.parse import urlsplit
+        u = urlsplit(url)
+        host = u.hostname or ""
+        self.log.add("egress", outcome, parent=self._turn, provider=host, tool="model", effect="local" if _is_local(host) else "external",
+                     args=f"{method} {u.scheme}://{host}{f':{u.port}' if u.port else ''}{u.path}", latency_ms=ms,
+                     failure_reason=error)
+
+    def tool_specs(self) -> list[dict]:
+        if self.sub:
+            return [t for t in SPECS + EXTRA_SPECS if t["name"] in READ_ONLY]
+        return SPECS + EXTRA_SPECS + (self.learning.specs() if self.learning else []) + (self.mcp.tool_specs() if self.mcp else [])
+
+    def trusted_effect(self, effect: str, mcp_server: str | None = None) -> str:
+        """Why this action needs no prompt, or '' when the user must approve it."""
+        if effect == "read":
+            return "read-only"
+        if self.s.auto_approve:
+            return "auto-approved (--yes)"
+        if mcp_server and self.mcp and mcp_server in self.mcp.trusted:
+            return f"trusted MCP server {mcp_server}"
+        if not mcp_server and self.s.trusted():
+            return "trusted folder"
+        if effect in self.always:
+            return "approved for this session"
+        return ""
+
+    # sessions ----------------------------------------------------------------------------------------------------
+    @property
+    def transcript_path(self) -> Path:
+        return self.log.path.with_suffix(".messages.json")
+
+    def save(self) -> None:
+        """The conversation next to its receipt, so `rooks -c` (or --resume ID) can pick it up later."""
+        if self.sub:
+            return  # a sub-agent shares the parent's receipt; its scratch conversation is not a session
+        try:
+            self.transcript_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.transcript_path.with_suffix(".tmp")
+            tmp.write_text(json.dumps({"provider": self.s.provider, "model": self.s.model, "messages": images.without_pixels(self.messages)},
+                                      ensure_ascii=False), encoding="utf-8")
+            tmp.replace(self.transcript_path)
+        except OSError as e:
+            self.ui.warn(f"could not save the session for later: {e}")
+
+    def switch(self, settings, model=None) -> None:
+        """Another model or provider for the rest of the session; the conversation carries over."""
+        self.s = settings
+        self.model = model or providers.make(settings, on_egress=self._egress)
+        self.log.provider, self.log.model = settings.provider, settings.model
+        self.budget = Budget(settings.max_tokens, settings.max_usd, settings.model, settings.prices, settings.local)
+        if self.learning:
+            self.learning.s = settings
+
+    # compaction --------------------------------------------------------------------------------------------------
+    def _estimate(self) -> int:
+        pics = sum(1 for m in self.messages if isinstance(m.get("content"), list) for p in m["content"] if p.get("type") == "image_url")
+        return len(self.system + json.dumps(images.without_pixels(self.messages)) + json.dumps(self.tool_specs())) // 4 + pics * 1000
+
+    def _split(self) -> int:
+        """Index where the kept tail starts: at a real user prompt, so no tool result loses its call."""
+        prompts = [i for i, m in enumerate(self.messages) if m["role"] == "user" and m.get("content") != NUDGE]
+        return prompts[-KEEP_TURNS] if len(prompts) >= KEEP_TURNS else 0
+
+    def compact(self, reason: str = "") -> bool:
+        """Summarise everything before the last KEEP_TURNS prompts. Returns whether anything was compacted."""
+        cut = self._split()
+        if cut <= 0:  # one long prompt: nothing whole to summarise, so shorten its older tool outputs instead
+            return self._shrink_tool_results()
+        old, before = self.messages[:cut], self._estimate()
+        lines = []
+        for m in old:
+            body = images.text_of(m.get("content"))
+            if m.get("tool_calls"):
+                body += " " + " ".join(f"[calls {c['function']['name']} {c['function']['arguments'][:300]}]" for c in m["tool_calls"])
+            lines.append(f"{m['role'].upper()}: {body[:4000]}")
+        t0 = time.monotonic()
+        try:
+            reply = self.model.complete(SUMMARY_SYSTEM, [{"role": "user", "content": "\n\n".join(lines)[-200_000:]}], [])
+            summary = providers.THINK_RE.sub("", reply.text or "").strip()
+            usd = providers.cost(self.s.model, reply.tokens_in, reply.tokens_out, self.s.prices, self.s.local)
+            self.log.add("model_call", "ok", parent=self._turn, latency_ms=int((time.monotonic() - t0) * 1000),
+                         tokens_in=reply.tokens_in, tokens_out=reply.tokens_out, usd_cost=usd, detail="compaction summary")
+        except providers.ProviderError as e:
+            summary = ""
+            self.log.add("model_call", "error", parent=self._turn, failure_reason=str(e), detail="compaction summary")
+        if not summary:  # no summary: the oldest turns are dropped rather than the whole session failing
+            summary = f"(The first {len(old)} messages were dropped to fit the model's window; no summary was available.)"
+        self.messages = [{"role": "user", "content": f"[Summary of the earlier part of this session]\n{summary}"},
+                         {"role": "assistant", "content": "Understood. Continuing from that summary."}, *self.messages[cut:]]
+        after = self._estimate()
+        self.log.add("compaction", "ok", parent=self._turn, detail=f"{len(old)} messages summarised, ~{before:,} to ~{after:,} tokens"
+                     + (f" ({reason})" if reason else ""))
+        self.ui.tool_note(f"compacted the conversation: ~{before:,} to ~{after:,} tokens")
+        return True
+
+    def _shrink_tool_results(self, keep_last: int = 6, limit: int = 2000) -> bool:
+        changed = 0
+        for m in self.messages[:-keep_last]:
+            if m["role"] == "tool" and len(m.get("content") or "") > limit:
+                m["content"] = m["content"][:limit - 500] + "\n[... output shortened to fit the model's context window ...]"
+                changed += 1
+        if changed:
+            self.log.add("compaction", "ok", parent=self._turn, detail=f"shortened {changed} old tool output(s)")
+            self.ui.tool_note(f"shortened {changed} old tool output(s) to fit the context window")
+        return bool(changed)
+
+    # one prompt --------------------------------------------------------------------------------------------------
+    def run(self, prompt: str) -> str:
+        first = len(self.messages)
+        self._extra = self.learning.context(prompt) if self.learning else ""
+        self.messages.append({"role": "user", "content": images.content(prompt, self.root)})  # @shot.png sends the picture
+        self._turn = turn = self.log.add("turn", "running", args=prompt)
+        self.changes.begin(prompt)
+        started, outcome, answer, writes, failed_checks, nudges = time.monotonic(), "no_claim", "", 0, 0, 0
+        try:
+            for step in range(self.s.max_steps):
+                estimate = self._estimate()
+                if self.s.context_tokens and estimate > self.s.context_tokens * COMPACT_AT and self.compact("context window"):
+                    estimate = self._estimate()
+                reason = self.budget.check(self.log.totals(), estimate)
+                if reason:
+                    outcome, answer = "budget_paused", f"Stopped: {reason}. Raise the cap with --max-tokens/--max-usd."
+                    self.ui.warn(answer)
+                    break
+                self.ui.thinking(True)
+                t0 = time.monotonic()
+                streamed: list[str] = []
+                try:
+                    reply = self._complete(streamed)
+                except providers.ProviderError as e:
+                    self.log.add("model_call", "error", parent=turn, latency_ms=int((time.monotonic() - t0) * 1000),
+                                 failure_reason=str(e))
+                    outcome, answer = "model_error", f"Model error: {e}"
+                    self.ui.error(answer)
+                    break
+                finally:
+                    self.ui.thinking(False)
+                    if streamed:
+                        self.ui.stream_end()
+                reply.text = providers.THINK_RE.sub("", reply.text or "").strip()
+                if reply.text:
+                    # Small local models may print some calls as text and return others as real calls in the same
+                    # reply (edit as text, then "run the check" as a real call): keep both, text ones first.
+                    names = {t["name"] for t in self.tool_specs()}
+                    text_calls, text = providers.parse_text_tool_calls(reply.text, names)
+                    if text_calls:
+                        seen = {(c.name, json.dumps(c.arguments, sort_keys=True)) for c in reply.tool_calls}
+                        extra = [c for c in text_calls if (c.name, json.dumps(c.arguments, sort_keys=True)) not in seen]
+                        for n, c in enumerate(extra):
+                            c.id = f"text_{n}"
+                        reply.tool_calls, reply.text = extra + reply.tool_calls, text
+                usd = providers.cost(self.s.model, reply.tokens_in, reply.tokens_out, self.s.prices, self.s.local)
+                self.log.add("model_call", "ok", parent=turn, latency_ms=int((time.monotonic() - t0) * 1000),
+                             tokens_in=reply.tokens_in, tokens_out=reply.tokens_out, usd_cost=usd,
+                             detail=f"step {step + 1}, {len(reply.tool_calls)} tool calls")
+                msg: dict = {"role": "assistant", "content": reply.text or ""}
+                if reply.tool_calls:
+                    msg["tool_calls"] = [{"id": c.id, "type": "function", "function": {
+                        "name": c.name, "arguments": json.dumps(c.arguments)}} for c in reply.tool_calls]
+                self.messages.append(msg)
+                nudge = (not reply.tool_calls and self.s.nudge and nudges < NUDGES and announces_step(reply.text))
+                if reply.text and not streamed:
+                    self.ui.assistant(reply.text, final=not reply.tool_calls and not nudge)
+                if nudge:
+                    nudges += 1
+                    self.messages.append({"role": "user", "content": NUDGE})
+                    continue
+                if not reply.tool_calls:
+                    answer = reply.text
+                    break
+                for call in reply.tool_calls:
+                    result, kind = self._call(call, turn)
+                    writes += kind in ("verified", "check_failed")
+                    failed_checks += kind == "check_failed"
+                    self.messages.append({"role": "tool", "tool_call_id": call.id, "content": result})
+            else:
+                outcome, answer = "step_limit", f"Stopped after {self.s.max_steps} model calls without finishing (--max-steps)."
+                self.ui.warn(answer)
+        except KeyboardInterrupt:
+            outcome, answer = "interrupted", "Interrupted."
+            self.ui.warn(answer)
+            # keep the transcript valid: every tool call needs a result before the next prompt
+            last = self.messages[-1] if self.messages else {}
+            if last.get("role") == "assistant" and last.get("tool_calls"):
+                for c in last["tool_calls"]:
+                    self.messages.append({"role": "tool", "tool_call_id": c["id"], "content": "interrupted by the user"})
+        finally:
+            saved = self.changes.commit()
+            if outcome == "no_claim" and writes:
+                outcome = "unbacked" if failed_checks else "backed"
+            t = self.log.totals()
+            self.log.finish(turn, outcome, latency_ms=int((time.monotonic() - started) * 1000),
+                            tokens_in=t["tokens_in"], tokens_out=t["tokens_out"],
+                            usd_cost=None if t["cost_unknown"] else t["usd"],
+                            evidence=f"{writes} file change(s) checked, {failed_checks} failed" if writes else "",
+                            detail="; ".join(x for x in (f"undo: {saved.name}" if saved else "",
+                                                         f"nudged {nudges}x to call the tool it announced" if nudges else "") if x))
+            self.ui.footer(t, self.s, saved is not None)
+            self.save()
+            if self.learning and outcome not in ("interrupted", "model_error"):
+                self.learning.after(prompt, answer, self.messages[first:])
+        return answer
+
+    def _complete(self, streamed: list[str]):
+        """One model call. A rate limit or an overloaded provider is tried again after a pause (its Retry-After when
+        it sends one), up to RETRIES times, but never once text has been shown: a half answer is not restarted."""
+        on_text = None
+        if self._streaming():
+            def on_text(delta: str) -> None:
+                if not streamed:
+                    self.ui.thinking(False)
+                streamed.append(delta)
+                self.ui.stream(delta)
+        for attempt in range(RETRIES + 1):
+            try:
+                system = self.system + (f"\n\n{self._extra}" if self._extra else "")
+                if on_text:
+                    return self.model.complete(system, self.messages, self.tool_specs(), on_text=on_text)
+                return self.model.complete(system, self.messages, self.tool_specs())
+            except providers.ProviderError as e:
+                if attempt == RETRIES or streamed or not getattr(e, "transient", False):
+                    raise
+                wait = min(e.retry_after if e.retry_after is not None else RETRY_BASE_S * 3 ** attempt, RETRY_MAX_S)
+                self.ui.thinking(False)
+                self.ui.warn(f"{self.s.provider} is busy (HTTP {e.status}); trying again in {wait:.0f} s")
+                self.log.add("model_call", "retry", parent=self._turn, failure_reason=str(e)[:500])
+                time.sleep(wait)
+                self.ui.thinking(True)
+        raise AssertionError("unreachable")
+
+    def _streaming(self) -> bool:
+        return bool(getattr(self.s, "stream", False)) and getattr(self.ui, "can_stream", lambda: False)()
+
+    def _call(self, call: providers.ToolCall, turn: int) -> tuple[str, str]:
+        """Run one tool call through prepare -> approve -> apply -> verify. Returns (result for the model, outcome)."""
+        args_text = json.dumps(call.arguments, ensure_ascii=False)
+        if call.bad_json:
+            self.log.add("tool_call", "bad_args", parent=turn, tool=call.name, args=call.bad_json[:2000],
+                         failure_reason="arguments were not valid JSON")
+            return "Error: your arguments were not valid JSON. Send them again as a JSON object.", "bad_args"
+        target = self.mcp.resolve(call.name) if self.mcp else None
+        if target:
+            server, tool = target
+            summary = f"MCP {server.name}: {tool} {args_text[:300]}"
+            plan = Plan("external", summary, summary, lambda: self._mcp(server, tool, call.arguments))
+            mcp_server = server.name
+        else:
+            mcp_server = None
+            try:
+                if self.sub and call.name not in READ_ONLY:
+                    raise ToolError(f"{call.name} is not available to a sub-agent (read-only)")
+                if call.name in EXTRA_NAMES:
+                    plan = self.extras.prepare(call.name, call.arguments)
+                elif self.learning and call.name in self.learning.names():
+                    plan = self.learning.prepare(call.name, call.arguments)
+                else:
+                    plan = self.tools.prepare(call.name, call.arguments)
+            except ToolError as e:
+                kind = "unknown_tool" if str(e).startswith("unknown tool") else "bad_args"
+                self.log.add("tool_call", kind, parent=turn, tool=call.name, args=args_text, failure_reason=str(e))
+                self.ui.tool_note(f"{call.name}: {e}")
+                return f"Error: {e}", kind
+            except (ValueError, TypeError) as e:
+                self.log.add("tool_call", "bad_args", parent=turn, tool=call.name, args=args_text, failure_reason=str(e))
+                return f"Error: bad arguments: {e}", "bad_args"
+        effect = {"command": "external"}.get(plan.effect, plan.effect)
+        action = self.log.add("tool_call", "running", parent=turn, tool=call.name, effect=effect, args=args_text,
+                              from_text=int(call.from_text))
+        if plan.effect != "read":
+            self.ui.show_plan(plan)
+            if self.s.dry_run:
+                self.log.finish(action, "dry_run", detail="dry run: not applied")
+                self.ui.tool_note("dry run: not applied")
+                return (f"[dry run] Not applied: {plan.summary}. The user is previewing; continue as if it succeeded but "
+                        f"say in your summary that nothing was changed."), "dry_run"
+            why = self.trusted_effect(plan.effect, mcp_server)
+            if why:
+                self.ui.tool_note(why)
+            else:
+                answer = self.ui.ask(plan)
+                decision = "approved" if answer in ("y", "a") else "denied"
+                self.log.add("decision", decision, parent=action, tool=call.name,
+                             detail="approved for the rest of the session" if answer == "a" else "")
+                if answer == "a":
+                    self.always.add(plan.effect)
+                if decision == "denied":
+                    self.log.finish(action, "denied")
+                    return f"The user denied this ({plan.summary}). Do not retry it; ask or try another approach.", "denied"
+        else:
+            self.ui.tool_note(plan.summary, read=True)
+        if plan.path is not None:
+            self.changes.snapshot(plan.path)
+        t0 = time.monotonic()
+        try:
+            result, verified, evidence = plan.apply()
+        except (ToolError, MCPError, OSError) as e:
+            self.log.finish(action, "tool_error", failure_reason=str(e)[:2000], latency_ms=int((time.monotonic() - t0) * 1000))
+            self.ui.tool_note(f"failed: {str(e)[:300]}")
+            return f"Error: {e}", "tool_error"
+        ms = int((time.monotonic() - t0) * 1000)
+        if verified is True:
+            outcome = "verified"
+        elif verified is False:
+            outcome = "check_failed"
+        elif plan.effect == "command" and evidence != "exit code 0":
+            outcome = "tool_error"
+        elif evidence == "mcp error":
+            outcome = "tool_error"
+        else:
+            outcome = "ok"
+        self.log.finish(action, outcome, verified=verified, evidence=evidence, latency_ms=ms,
+                        failure_reason=evidence if outcome == "tool_error" else "")
+        self.ui.tool_result(plan, result, outcome)
+        return result, outcome
+
+    def _mcp(self, server, tool: str, arguments: dict):
+        ok, text = server.call(tool, arguments)
+        return (text or "(no content)") if ok else f"Error from {server.name}: {text}", None, "" if ok else "mcp error"
+
+    def close(self) -> None:
+        self.extras.close()
+        if self.mcp:
+            self.mcp.close()
+
+
+def _listing(root: Path, limit: int = 60) -> str:
+    """The project's top level, so the model starts from real paths instead of guessing (small models invent src/)."""
+    from .tools import SKIP_DIRS
+    try:
+        names = sorted(p.name + ("/" if p.is_dir() else "") for p in root.iterdir() if p.name not in SKIP_DIRS)
+    except OSError:
+        return "(unreadable)"
+    return ", ".join(names[:limit]) + (f", ... ({len(names) - limit} more)" if len(names) > limit else "") or "(empty)"
+
+
+def _is_local(host: str) -> bool:
+    import ipaddress
+    h = (host or "").lower().strip("[]")
+    if h == "localhost" or h.endswith((".local", ".internal", ".localhost")):
+        return True
+    try:
+        ip = ipaddress.ip_address(h)
+        return ip.is_private or ip.is_loopback or ip.is_link_local
+    except ValueError:
+        return "." not in h
+
+
+def _runtimes(root) -> str:
+    """Which interpreters this machine really has, so the model's first command works (no `python: not found`)."""
+    import shutil
+
+    root = Path(root)
+    found = []
+    for venv in (".venv", "venv", "env"):
+        py = root / venv / "bin" / "python"
+        if py.exists():
+            found.append(f"project virtualenv: {venv}/bin/python (use it for this project's tests and scripts)")
+            break
+    names = [n for n in ("python3", "python", "node", "npm", "pnpm", "uv", "cargo", "go") if shutil.which(n)]
+    if "python3" in names and "python" not in names:
+        found.append("`python` is not installed here: use python3")
+    if names:
+        found.append("on PATH: " + ", ".join(names))
+    return "Runtimes: " + "; ".join(found) if found else ""
+

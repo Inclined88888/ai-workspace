@@ -11,14 +11,13 @@ Out of scope for the current branch, dropped, or blocked. Nothing is dropped sil
 
 ## Blocked on someone else
 
-### 101: Sign in with ChatGPT client ID (decision D4)
-* Plan usage needs an OpenAI-approved client ID, which the repo owner registers.
-* Until then, the flow ships behind a feature flag in a "request access" state, with a localhost callback and a manual code paste.
-* Whether OpenAI accepts a localhost callback for self-hosted apps is not stated in the docs (checked 2026-10-28).
+### 101: Sign in with ChatGPT: live check against OpenAI
+* Built on feat/cloud-models (`workbench/backend/app/siwc.py`). OpenAI's open-source token-sharing guide (https://developers.openai.com/siwc/token-sharing-open-source, read 2026-10-30) uses dynamic registration (`client_id=dynamic_agent_client` issues an `oaiapp_…` id per install) with a 127.0.0.1 loopback callback, so no pre-approved client id is needed for this MIT open-source app. Commercial distribution would need OpenAI's approval.
+* Still open: it is tested end to end only against a fake OAuth server. A maintainer has to sign in with a real ChatGPT account and confirm a reply, the usage-limit errors, and refresh.
 
 ## Scheduled later
 
-* **Claude Code launcher add-on (Item 116, decision D2).** Implemented as an optional official CLI hand-off in `cli-launcher/` (Compose profile `claude-code`); awaiting owner review before merge. Live subscription login and a real prompt still need maintainer validation. Node stays in the add-on (R6). Item 117 will reuse the same transport for Codex after 116 is merged.
+* **Claude Code launcher add-on (Item 116, decision D2).** Merged to `main` as an optional official CLI hand-off in `cli-launcher/` (Compose profile `claude-code`). Item 117 (Codex) is merged on the same transport. Still open: a maintainer has to validate live subscription login and a real prompt. Node stays in the add-on (R6).
 * **Idempotency across interleaved writes (item 28 follow up).** A model loop of the form A, B, A runs A twice, because a repeat is only recognised when no other change ran in between (so toggles keep working). Closing it needs per tool semantics (which writes are naturally idempotent). Design record 0001, "Idempotency keys".
 * **The web chat does not send an Idempotency-Key yet.** It never retries a request, so there is nothing to deduplicate; the CLI (item 84) should send one.
 
@@ -28,6 +27,7 @@ Out of scope for the current branch, dropped, or blocked. Nothing is dropped sil
 
 ## Found during work, not yet scheduled
 
+* **Windows skill sandbox (AppContainer/Job objects).** macOS Seatbelt and Linux bubblewrap are implemented; Windows isolation is planned but not wired. `isolation_layers()` reports "Windows isolation not implemented (AppContainer/Job objects planned)". See docs/skills-security.md for the design.
 * **Bridge tokens for other local tools (item 103, Phase 1).** `/v1` accepts only `BROWSER_API_KEY` today. Other OpenAI-only tools (editors, scripts) need user-created, revocable bridge tokens and streaming (`stream: true` is refused with 400 for now).
 * **Browser runs are not linked to the chat turn that started them.** Their `model_call` rows carry channel `browser` but no `parent_action_id`. Passing the turn id through the job would put them in the turn's trace (item 21 UI).
 * **Standalone browser-agent CLI keeps its own providers.** Outside the stack (no `BROWSER_REQUIRE_WORKBENCH`), `browser-agent run` can call Anthropic, Gemini, Ollama and the like directly. That is a separate distribution, not core, but it is a second provider layer. Retire it if the CLI gains a `--workbench` default.
@@ -44,4 +44,12 @@ Out of scope for the current branch, dropped, or blocked. Nothing is dropped sil
 * **Remote branch `ci-demo/reintroduce-pr1-bug` still exists.** It belongs to closed PR #6 (the CI regression demonstration). This session cannot delete remote branches (HTTP 403); delete it in the GitHub UI.
 * **Migrated legacy cost rows** keep the bare model name in `model`; new rows store the model ref. Reports group the two separately for the month of the upgrade.
 * **`browse_web` results cannot be verified** by receipts, and say so.
+
+* **Other tables with INTEGER PRIMARY KEY (no AUTOINCREMENT) that may reuse IDs on delete:**
+  - `actions` — audit log with `parent_action_id` self-reference; if decision rows are deleted, new decisions could reuse IDs and appear under wrong parent
+  - `messages` — has `ON DELETE CASCADE` from conversations, but individual message deletion could reuse IDs; `messages_fts` uses `content_rowid='id'`
+  - `memories` — has nullable `conversation_id`; if memories are deleted individually, new memories could get reused IDs
+  - `agent_tasks` — has nullable `conversation_id` and `parent_id` self-reference; similar reuse risk
+  - `connections`, `calendars`, `mail_accounts`, `linked_accounts`, `agents` — referenced by other tables; if deleted and IDs reused, dependent rows could attach to wrong parent
+  Consider migrating these to `AUTOINCREMENT` in a follow-up (schema v4+), or adding `ON DELETE SET NULL` FK constraints where missing.
 
