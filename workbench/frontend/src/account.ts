@@ -29,7 +29,7 @@ const listeners = new Set<(a: Account) => void>();
 
 function publish(a: Account) {
   cached = a;
-  listeners.forEach((l) => l(a));
+  for (const l of listeners) l(a);
   return a;
 }
 
@@ -65,7 +65,7 @@ export function openExternal(url: string) {
   window.open(url, "_blank", "noopener,noreferrer");
 }
 
-export function useAccount(): [Account | null, () => Promise<Account | void>] {
+export function useAccount(): [Account | null, () => Promise<Account | undefined>] {
   const [a, setA] = useState<Account | null>(cached);
   useEffect(() => {
     listeners.add(setA);
