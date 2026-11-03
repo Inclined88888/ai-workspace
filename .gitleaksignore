@@ -1,0 +1,25 @@
+# Reviewed 2026-11-03: test fixtures, placeholders and a pinned action SHA. Fingerprints only, no secret values.
+851dd48e173b13bc4ff6d4a3a4e486d8715db68c:workbench/backend/tests/test_search_key.py:generic-api-key:24
+53f05191ceb74c0a9437b4c83840ebd65eb820c2:workbench/backend/tests/test_route_auth.py:generic-api-key:61
+fb4d763ebcbff03550a25298f12c9e390717e375:workbench/backend/tests/test_discord.py:generic-api-key:8
+4e54555696e5700ad835815f7df15e8be1b7a480:workbench/backend/tests/test_route_auth.py:generic-api-key:67
+b6c78307f88a4afc8dda4ff693e295a4ba5bbd06:mobile/src/lib/__tests__/link.test.ts:generic-api-key:10
+45c56d6f386367d6adaa000213ba84341898bc94:workbench/backend/app/voice.py:generic-api-key:133
+323706cd50761984858e43c1e82efebbd067565c:workbench/backend/tests/test_sites.py:generic-api-key:188
+c3fda7782d2245f8f1d5836b4c71954cb76b3c76:.github/workflows/ci.yml:generic-api-key:93
+c3fda7782d2245f8f1d5836b4c71954cb76b3c76:.github/workflows/ci.yml:generic-api-key:94
+c3fda7782d2245f8f1d5836b4c71954cb76b3c76:cli-launcher/test/server.test.mjs:generic-api-key:7
+c3fda7782d2245f8f1d5836b4c71954cb76b3c76:cli-launcher/README.md:generic-api-key:94
+c3fda7782d2245f8f1d5836b4c71954cb76b3c76:cli-launcher/README.md:generic-api-key:94
+c655cb9d4efe90978e072f43fda38afcc744d0ad:workbench/backend/tests/test_redact.py:jwt:89
+c655cb9d4efe90978e072f43fda38afcc744d0ad:workbench/backend/tests/test_redact.py:gcp-api-key:85
+c655cb9d4efe90978e072f43fda38afcc744d0ad:workbench/backend/tests/test_redact.py:generic-api-key:84
+c655cb9d4efe90978e072f43fda38afcc744d0ad:workbench/backend/tests/test_redact.py:generic-api-key:91
+c655cb9d4efe90978e072f43fda38afcc744d0ad:workbench/backend/tests/test_redact.py:generic-api-key:92
+c655cb9d4efe90978e072f43fda38afcc744d0ad:workbench/backend/tests/test_redact.py:generic-api-key:94
+44eadd1160eb311950d95edb3240a4c417985099:workbench/backend/tests/test_models.py:generic-api-key:309
+44eadd1160eb311950d95edb3240a4c417985099:workbench/backend/tests/test_hardening.py:aws-access-token:104
+44eadd1160eb311950d95edb3240a4c417985099:workbench/backend/tests/test_workspace.py:generic-api-key:256
+2c0646049cf648a64d8c632579db7d46c5ed653b:workbench/backend/tests/test_workspace.py:generic-api-key:256
+17784a13148e54e9ea2fa23a2ac533fedff021ca:workbench/backend/tests/test_hardening.py:aws-access-token:104
+17784a13148e54e9ea2fa23a2ac533fedff021ca:workbench/backend/tests/test_models.py:generic-api-key:306
