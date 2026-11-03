@@ -15,6 +15,8 @@ binaries = []
 hiddenimports = collect_submodules("app") + collect_submodules("uvicorn")
 # mcp.cli needs the optional typer extra and exits on import; the server side is all Workbench uses.
 hiddenimports += collect_submodules("mcp", filter=lambda n: not n.startswith("mcp.cli"))
+# Explicitly add caldav and its dependencies
+hiddenimports += ["caldav", "davlib", "davlib.css_parser", "davlib.error", "davlib.resource", "davlib.webdav", "eval_type_backport", "segno"]
 datas += collect_data_files("mcp")
 datas += [(str(BACKEND / "app" / "packs" / "bundles"), "app/packs/bundles")]  # feat/v02-packs: pack skills and templates
 for pkg in ("trafilatura", "justext", "htmldate", "courlan", "tzdata", "keyring", "icalendar",

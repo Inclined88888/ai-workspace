@@ -8,6 +8,7 @@ whenever it changes (PUT /api/appearance). From here it reaches:
 Only known values are kept, so nothing a page sends can become anything but a theme name and a few numbers.
 """
 
+from __future__ import annotations
 import json
 import os
 from pathlib import Path

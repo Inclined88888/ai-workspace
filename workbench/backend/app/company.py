@@ -1,4 +1,5 @@
 """Company: you are the board. Agents sit in an org chart, work on tasks with the assistant's tools, delegate to
+from __future__ import annotations
 their reports, and stop when their monthly budget runs out.
 
 A single worker runs one queued task at a time (keeps the box light and spend predictable). Delegation is limited

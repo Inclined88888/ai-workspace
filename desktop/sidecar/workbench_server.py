@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Workbench backend as a desktop sidecar.
 
 The Tauri shell (desktop/src-tauri) starts this program, frozen by PyInstaller into one executable, with:
@@ -11,7 +13,7 @@ and WORKBENCH_DESKTOP_TOKEN in the environment. It then:
   3. serves on 127.0.0.1 only.
 
 It also links the app to the two command-line agents installed next to it:
-  * writes app.json (url + bridge key, 0600) to ~/.config/ai-workspace/ (Windows: %APPDATA%\\ai-workspace\\), so
+  * writes app.json (url + bridge key, 0600) to ~/.config/ai-workspace/ (Windows: %APPDATA%\ai-workspace\), so
     `rooks` (Rooks Code) and `rooks-browser` find the running app and use its default model (the smart router, "auto", unless changed) with no keys of
     their own; the file is removed when the app quits,
   * starts `rooks-browser serve` (when installed) on a free loopback port and points BROWSER_URL at it, so the
@@ -32,6 +34,7 @@ import subprocess
 import sys
 import threading
 from pathlib import Path
+from typing import Optional
 
 SERVICE = "ai-workspace"
 HERE = Path(__file__).resolve().parent
@@ -101,7 +104,10 @@ def load_master_secrets(data_dir: Path) -> tuple[dict, str]:
     """APP_SECRET and TOOLS_API_KEY: (values, where they live: "os-keychain" or "file")."""
     wanted = {"APP_SECRET": 48, "TOOLS_API_KEY": 32, "BRIDGE_API_KEY": 32}
     path = data_dir / ".desktop-secrets.json"
-    if keychain_unstable():
+    # Frozen builds (PyInstaller) are ad hoc signed on macOS and cannot reliably use the keychain.
+    # The Tauri shell sets WORKBENCH_DESKTOP=1 when launching the sidecar.
+    # Always use the file fallback for frozen/Tauri builds to avoid "Keychain Access Denied" errors.
+    if getattr(sys, "frozen", False) or keychain_unstable() or os.environ.get("WORKBENCH_DESKTOP") == "1":
         values = json.loads(path.read_text()) if path.exists() else {}
         if any(name not in values for name in wanted):
             # One last keychain read moves secrets an older build saved there (macOS asks once), so the app keeps its
@@ -155,7 +161,7 @@ def app_link_path() -> Path:
     return Path(base) / "ai-workspace" / "app.json"
 
 
-def write_app_link(url: str, key: str) -> Path | None:
+def write_app_link(url: str, key: str) -> Optional[Path]:
     path = app_link_path()
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -185,7 +191,7 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
-def find_rooks_browser() -> str | None:
+def find_rooks_browser() -> Optional[str]:
     """The rooks-browser command: $ROOKS_BROWSER_BIN, PATH, or where the installer puts it (an app started from Finder or
     the Start menu does not see the shell's PATH)."""
     if os.environ.get("ROOKS_BROWSER_BIN"):
@@ -200,7 +206,7 @@ def find_rooks_browser() -> str | None:
     return None
 
 
-def start_rooks_browser(app_url: str, key: str, log_dir: Path) -> str | None:
+def start_rooks_browser(app_url: str, key: str, log_dir: Path) -> Optional[str]:
     """Run `rooks-browser serve` for the Browser agent page. Returns its URL, or None when it is not installed or off."""
     if os.environ.get("BROWSER_URL") or os.environ.get("WORKBENCH_ROOKS_BROWSER", "1") == "0":
         return None
@@ -236,7 +242,7 @@ def start_rooks_browser(app_url: str, key: str, log_dir: Path) -> str | None:
     return f"http://127.0.0.1:{port}"
 
 
-def find_rooks_desk() -> str | None:
+def find_rooks_desk() -> Optional[str]:
     """The rooks-desk command (computer use): $ROOKS_DESK_BIN, PATH, or where the installer puts it."""
     if os.environ.get("ROOKS_DESK_BIN"):
         return os.environ["ROOKS_DESK_BIN"] if Path(os.environ["ROOKS_DESK_BIN"]).exists() else None
@@ -250,7 +256,7 @@ def find_rooks_desk() -> str | None:
     return None
 
 
-def start_rooks_desk(app_url: str, key: str, log_dir: Path) -> str | None:
+def start_rooks_desk(app_url: str, key: str, log_dir: Path) -> Optional[str]:
     """Run `rooks-desk serve` for the Computer page and the assistant's use_computer tool. Loopback only, with the
     bridge key as its token. It does nothing until a task is started, and asks the user before every sensitive step.
     Off with WORKBENCH_ROOKS_DESK=0. Returns its URL, or None when it is not installed or off."""

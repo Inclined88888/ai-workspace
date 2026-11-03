@@ -22,6 +22,7 @@ Transport
 The device token is scoped: it reaches only the routes in `device` below, never Settings, keys or the password.
 """
 
+from __future__ import annotations
 import base64
 import hashlib
 import hmac

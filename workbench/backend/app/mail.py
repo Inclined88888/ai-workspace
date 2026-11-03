@@ -1,5 +1,6 @@
-"""IMAP read and SMTP send. Works with any standard provider (Fastmail, iCloud, Yahoo, Gmail app passwords, self hosted).
+from __future__ import annotations
 
+"""IMAP read and SMTP send. Works with any standard provider (Fastmail, iCloud, Yahoo, Gmail app passwords, self hosted).
 Accounts connected with "Connect Google" or "Connect Microsoft" (kind google | microsoft) go through cloud_mail.py
 instead, which speaks the Gmail API and Microsoft Graph and returns the same shapes.
 """
@@ -9,6 +10,7 @@ import imaplib
 import re
 import smtplib
 import ssl
+from datetime import datetime, timedelta, timezone
 from email.header import decode_header, make_header
 from email.message import EmailMessage
 from email.utils import make_msgid, parseaddr, parsedate_to_datetime

@@ -4,6 +4,7 @@ Each turn sees: who you are (profile memories), memories relevant to the message
 and the workspace tools. After a turn, learn.py mines the conversation for new memories and reusable skills.
 """
 
+from __future__ import annotations
 import asyncio
 import hashlib
 import inspect

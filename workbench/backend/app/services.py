@@ -1,5 +1,6 @@
 """Data operations shared by the web API and the chat tool server."""
 
+from __future__ import annotations
 import re
 import uuid
 from datetime import date, datetime, timedelta, timezone

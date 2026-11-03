@@ -1,5 +1,6 @@
-"""The run log: every agent action is one row in `actions` (R2). There is no other ledger.
+from __future__ import annotations
 
+"""The run log: every agent action is one row in `actions` (R2). There is no other ledger.
 Kinds and their outcomes:
   turn        running | no_claim | backed | fixed | unbacked | model_error | step_limit | empty_answer | budget_paused | interrupted
   model_call  ok | error

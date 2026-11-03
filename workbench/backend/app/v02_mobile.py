@@ -1,5 +1,6 @@
 """feat/v02-core on the phone: projects, history with undo, and checked answers over the device-token API (/api/mobile/*).
 
+from __future__ import annotations
 Thin wrappers around the desktop routes in projects.py, history.py and checked.py, so the phone gets the same rules:
 the free-plan limit, Pro gates (402), and the extra confirmation before undoing anything outside the app (409).
 """

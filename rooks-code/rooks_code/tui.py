@@ -98,6 +98,11 @@ class RichUI(UI):
                                             "markdown.block_quote": "italic #9a9a9a"}))
         self._started = 0.0
         self.activity = "Thinking"  # what the agent is doing now, shown on the Working line
+        self._cancel_event = threading.Event()
+        self._agent_thread: threading.Thread | None = None
+        self._paused = False
+        self._pause_start = 0.0
+        self._inc_md = IncrementalMarkdown()
 
     def code_theme(self) -> str:
         return "ansi_light" if self.theme.background == "light" else "ansi_dark"
@@ -120,14 +125,22 @@ class RichUI(UI):
         return bool(self.color)
 
     def stream(self, delta: str) -> None:
-        """Live, formatted answer: the Markdown is re-rendered as text arrives (like the app's chat)."""
+        """Live, formatted answer: incremental markdown rendering (like Hermes)."""
         if getattr(self, "_live", None) is None:
             self._buf = ""
             self.console.print()
             self._live = Live(console=self.console, refresh_per_second=12, vertical_overflow="visible", transient=False)
             self._live.start()
         self._buf += delta
-        self._live.update(self._dotted(Markdown(_hide_markup(self._buf), code_theme=self.code_theme())))
+        blocks, tail = self._inc_md.advance(self._buf)
+        from rich.markdown import Markdown
+        from rich.console import Group
+        parts = []
+        for block in blocks:
+            parts.append(Markdown(_hide_markup(block), code_theme=self.code_theme()))
+        if tail:
+            parts.append(Markdown(_hide_markup(tail), code_theme=self.code_theme()))
+        self._live.update(self._dotted(Group(*parts)))
 
     def _dotted(self, renderable, role: str = "ok"):
         g = Table.grid()
@@ -141,6 +154,107 @@ class RichUI(UI):
         if live is not None:
             live.stop()
             self._live = None
+        if hasattr(self, "_inc_md"):
+            self._inc_md.reset()
+
+    def pause_thinking(self) -> None:
+        """Pause the thinking timer (e.g., during approval prompt)."""
+        if hasattr(self, "_spin") and self._spin and not getattr(self, "_paused", False):
+            self._paused = True
+            self._pause_start = time.monotonic()
+
+    def resume_thinking(self) -> None:
+        """Resume the thinking timer after pause."""
+        if hasattr(self, "_spin") and self._spin and getattr(self, "_paused", False):
+            paused_duration = time.monotonic() - self._pause_start
+            self._started += paused_duration
+            self._paused = False
+
+    def request_cancel(self) -> None:
+        """Signal the running agent to stop. Called from key binding."""
+        self._cancel_event.set()
+        if self._agent_thread and self._agent_thread.is_alive():
+            import _thread
+            _thread.interrupt_main()
+
+    def clear_cancel(self) -> None:
+        """Clear the cancel flag for the next turn."""
+        self._cancel_event.clear()
+
+    def is_cancelled(self) -> bool:
+        return self._cancel_event.is_set()
+
+    def _show_compact_diff(self, lines: list[str]) -> None:
+        """Show a compact file-level diff summary like Codex."""
+        from collections import Counter
+        if Syntax is None or Padding is None or Panel is None or Table is None:
+            return
+        files = Counter()
+        for line in lines:
+            if line.startswith("--- ") or line.startswith("+++ "):
+                parts = line.split(" ", 2)
+                if len(parts) >= 3:
+                    path = parts[2]
+                    if path.startswith("a/") or path.startswith("b/"):
+                        path = path[2:]
+                    files[path] += 1
+        if files:
+            t = Table.grid(padding=(0, 1))
+            t.add_column(style=self.hexcolour("accent"), no_wrap=True)
+            t.add_column(style=self.hexcolour("dim"))
+            for path, count in sorted(files.items()):
+                change_type = "M"
+                for line in lines:
+                    if path in line and line.startswith(("---", "+++")):
+                        if line.startswith("--- /dev/null"):
+                            change_type = "A"
+                        elif line.startswith("+++ /dev/null"):
+                            change_type = "D"
+                        break
+                t.add_row(f" {change_type} {path}", f"{count} hunks")
+            self.console.print(Padding(Panel(t, title="Changes", title_align="left", border_style=self.hexcolour("dim"), padding=(0, 1)), (0, 0, 0, 2)))
+        else:
+            body = "\n".join(l for l in lines[:30] if not l.startswith(("---", "+++")))
+            if body:
+                self.console.print(Padding(Panel(Syntax(body, "diff", theme=self.code_theme(), background_color="default", word_wrap=True),
+                                                 border_style=self.hexcolour("dim"), padding=(0, 1), expand=True), (0, 0, 0, 2)))
+
+class IncrementalMarkdown:
+    def __init__(self):
+        self.blocks: list[str] = []
+        self.code_open = False
+        self.scanned = ""
+        self.settled_len = 0
+    def reset(self):
+        self.blocks = []
+        self.code_open = False
+        self.scanned = ""
+        self.settled_len = 0
+    def advance(self, text: str) -> tuple[list[str], str]:
+        """Returns (settled_blocks, tail). Call with full accumulated text each delta."""
+        if not text.startswith(self.scanned):
+            self.reset()
+        start = len(self.scanned)
+        i = start
+        while i < len(text):
+            nl = text.find("\n", i)
+            if nl < 0:
+                break
+            if nl == i:
+                if i > 0 and not self.code_open:
+                    block = text[self.settled_len:nl + 1]
+                    if block.strip():
+                        self.blocks.append(block)
+                        self.settled_len = nl + 1
+            else:
+                line = text[i:nl].strip()
+                if line.startswith("```") or line.startswith("~~~"):
+                    self.code_open = not self.code_open
+            i = nl + 1
+        if i > start:
+            self.scanned = text[:i]
+        tail = text[self.settled_len:]
+        return self.blocks, tail
 
     def thinking(self, on: bool) -> None:
         if not self.color:
@@ -153,7 +267,11 @@ class RichUI(UI):
             def spin():
                 frames, i = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏", 0
                 while not stop.wait(0.1):
-                    secs = int(time.monotonic() - started)
+                    if self._paused:
+                        elapsed = int(self._pause_start - started)
+                    else:
+                        now = time.monotonic()
+                        elapsed = int(now - started)
                     what = self.activity[:70]
                     agent = getattr(self, "agent", None)
                     tok = ""
@@ -162,7 +280,7 @@ class RichUI(UI):
                         tok = f" · ↓ {_k(t['tokens_in'] + t['tokens_out'])} tokens"
                     star = "✻✳✶✷✸✹"[(i // 3) % 6]
                     line = (f"\r\033[2K{self.c('accent', star)} {self.c('accent', what + '…')} "
-                            f"{self.c('dim', f'({secs}s{tok} · Ctrl+C to stop)')}")
+                            f"{self.c('dim', f'({elapsed}s{tok} · Ctrl+C to stop)')}")
                     self.out.write(line); self.out.flush(); i += 1
                 self.out.write("\r\033[2K"); self.out.flush()
             threading.Thread(target=spin, daemon=True).start()
@@ -257,6 +375,18 @@ class RichUI(UI):
             elif not out:
                 self._sub(code or "done")
             return
+        if plan.effect == "write":
+            if len(lines) > 30:
+                self._show_compact_diff(lines)
+            else:
+                body = "\n".join(l for l in lines[:120] if not l.startswith(("---", "+++")))
+                if body:
+                    self.console.print(Padding(Panel(Syntax(body, "diff", theme=self.code_theme(), background_color="default", word_wrap=True),
+                                                     border_style=self.hexcolour("dim"), padding=(0, 1), expand=True), (0, 0, 0, 2)))
+                    if len(lines) > 120:
+                        self._sub(f"… {len(lines) - 120} more lines")
+                else:
+                    self._sub("(empty diff)")
         self._sub(("✓ " + (lines[0] if lines else "done")) if outcome in ("verified", "ok") else outcome, "ok")
 
     def todos(self, items: list[dict]) -> None:
@@ -275,18 +405,23 @@ class RichUI(UI):
         label = {"write": "Make this change", "command": "Run this command", "external": "Use this tool"}[plan.effect]
         self.p("")
         self.p("  " + self.c("bold", f"{label}?") + "  " + self.c("ok", "y") + " yes   " + self.c("error", "n") + " no   "
-               + self.c("accent", "a") + " yes, and don't ask again this session")
-        while True:
-            try:
-                a = input("  › ").strip().lower()[:1]
-            except EOFError:
-                return "n"
-            except KeyboardInterrupt:
-                self.p("")
-                return "n"
-            if a in ("y", "n", "a"):
-                return a
-            self.p(self.c("dim", "  Type y, n or a, then Enter."))
+               + self.c("accent", "a") + " yes, and don't ask again this session   " + self.c("warn", "d") + " no, and explain   "
+               + self.c("accent", "s") + " skip this and similar   " + self.c("warn", "v") + " never ask again")
+        self.pause_thinking()
+        try:
+            while True:
+                try:
+                    a = input("  › ").strip().lower()[:1]
+                except EOFError:
+                    return "n"
+                except KeyboardInterrupt:
+                    self.p("")
+                    return "n"
+                if a in ("y", "n", "a", "d", "s", "v"):
+                    return a
+                self.p(self.c("dim", "  Type y, n, a, d, s, or v, then Enter."))
+        finally:
+            self.resume_thinking()
 
     def footer(self, totals: dict, s, undo: bool) -> None:
         self._started = 0.0
@@ -588,83 +723,24 @@ def run(agent, ui: RichUI) -> int:
         pct = min(100, used * 100 // window) if window else 0
         bar = "█" * (pct // 10) + "░" * (10 - pct // 10)
         sep = ("class:sep", " · ")
+        elapsed = ""
+        if ui._started:
+            elapsed_secs = int(time.monotonic() - ui._started)
+            elapsed = f" · {elapsed_secs}s"
+        cost = ""
+        if not t["cost_unknown"]:
+            cost = f" · ${t['usd']:.4f}"
         parts = [("class:model", f" {short_model(s)}"), sep,
                  ("class:dim", f"{Path(agent.root).name or agent.root}"), *([("class:branch", f" ⎇ {branch}")] if branch else []), sep,
                  ("class:dim", f"context [{bar}] {pct}%"), sep,
-                 ("class:dim", f"{_k(t['tokens_in'] + t['tokens_out'])} tokens")]
+                 ("class:dim", f"{_k(t['tokens_in'] + t['tokens_out'])} tokens{elapsed}{cost}")]
         if todos:
             parts += [sep, ("class:dim", f"plan {sum(i['status'] == 'done' for i in todos)}/{len(todos)}")]
         style = {"asks first": "class:dim", "auto-accept": "class:warn", "plan only": "class:plan"}[mode]
         parts += [sep, (style, f"⏵⏵ {mode}"), ("class:hint", " ⇧Tab")]
         return FormattedText(parts)
 
-    accent = ui.hexcolour("accent") if ui.color else ""
-    dark = ui.theme.background != "light"
-    style = Style.from_dict({
-        "prompt": f"bold {accent}" if accent else "bold",
-        "bottom-toolbar": "noreverse bg:default",
-        "bottom-toolbar.text": "bg:default",
-        "model": f"bold {accent}" if accent else "bold",
-        "branch": accent or "",
-        "dim": "#9a9a9a" if dark else "#666666",
-        "sep": "#555555" if dark else "#aaaaaa",
-        "hint": "#6f6f6f" if dark else "#999999",
-        "warn": "bold #e5a50a",
-        "plan": "bold #5fafff",
-        "placeholder": "#6f6f6f italic" if dark else "#999999 italic",
-        "completion-menu.completion": "bg:#333333 #e6e6e6",
-        "completion-menu.completion.current": f"bg:{accent or '#555555'} #000000",
-        "completion-menu.meta.completion": "bg:#262626 #a0a0a0",
-        "completion-menu.meta.completion.current": "bg:#3a3a3a #ffffff",
-    })
-    history_path().parent.mkdir(parents=True, exist_ok=True)
-    session = PromptSession(history=FileHistory(str(history_path())), completer=RooksCompleter(agent),
-                            complete_while_typing=True, key_bindings=keys, bottom_toolbar=toolbar, style=style,
-                            complete_style="column", reserve_space_for_menu=8,
-                            placeholder=FormattedText([("class:placeholder", "Ask anything, or describe a job. / for commands, @ to add a file")]))
-    ui.agent = agent  # the Working line shows live token use
-    warned = False
-    while True:
-        try:
-            line = session.prompt(message)
-        except KeyboardInterrupt:
-            if not warned:
-                ui.p(ui.c("dim", "  (Ctrl+D or /exit to quit)"))
-                warned = True
-            continue
-        except EOFError:
-            ui.p(ui.c("dim", "Bye."))
-            return 0
-        line = line.strip()
-        if not line:
-            continue
-        if not line.startswith("/") and ("/" + line.lower() in COMMANDS or line.lower() in ("exit", "quit", "bye")):
-            # "model" or "exit" typed without the slash: do what was meant, not send it to the model as a request
-            line = "/exit" if line.lower() in ("exit", "quit", "bye") else "/" + line.lower()
-        if line == "?":
-            t = Table.grid(padding=(0, 3))
-            t.add_column(style=f"bold {ui.hexcolour('accent')}", no_wrap=True)
-            t.add_column()
-            for k, v in SHORTCUTS:
-                t.add_row(k, v)
-            ui.console.print(Padding(t, (0, 2, 1, 2)))
-            continue
-        if line.startswith("/"):
-            cmd, _, rest = line.partition(" ")
-            cmd = ALIASES.get(cmd.lower(), cmd.lower())
-            if cmd == "/exit":
-                ui.p(ui.c("dim", "Bye."))
-                return 0
-            command(agent, ui, cmd, rest.strip())
-            continue
-        agent.run(line)
 
-
-INIT_PROMPT = ("Write AGENTS.md at the project root for coding agents working here: what the project is (2-3 lines), how "
-               "it is laid out (main folders and what lives where), the exact commands to install, run, test, lint and "
-               "build (check each one exists: read package.json, pyproject.toml, Makefile, scripts and CI files), code "
-               "style rules you can see in the code, and pitfalls. Under 120 lines, facts only. If AGENTS.md exists, "
-               "improve it instead of replacing what is right.")
 
 
 def git_branch(root) -> str:

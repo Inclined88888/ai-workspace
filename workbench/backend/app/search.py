@@ -1,10 +1,10 @@
-"""Web search without extra containers: Brave Search API, Tavily API, or a SearXNG instance if you run one.
+from __future__ import annotations
 
+"""Web search without extra containers: Brave Search API, Tavily API, or a SearXNG instance if you run one.
 Keys are set in Settings (stored encrypted) or by environment variable. The first configured one is used.
 """
 
 import os
-
 import httpx
 from fastapi import HTTPException
 

@@ -6,6 +6,7 @@ sent when no verified change backs it is caught, retried once, and flagged if it
 Both are recorded per model, so how reliable each model is with your tools is measured, not assumed.
 """
 
+from __future__ import annotations
 import re
 import time
 from typing import Any, Callable

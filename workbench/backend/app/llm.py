@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Model calls for the rest of Workbench: connections, model lists, and chat/complete/stream recorded in the run log.
 
 Every call goes through the adapter layer (adapters.py, R1), which knows the backends; this module never branches on

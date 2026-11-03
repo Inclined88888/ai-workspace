@@ -10,6 +10,7 @@ GMAIL_API_BASE, GCAL_API_BASE, GOOGLE_USERINFO_URL and GRAPH_API_BASE.
 """
 
 from __future__ import annotations
+from __future__ import annotations
 
 import base64
 import email

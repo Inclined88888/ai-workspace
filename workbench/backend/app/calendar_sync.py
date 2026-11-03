@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Calendar sync: ICS subscriptions (read only), CalDAV (read and create), and Google / Microsoft calendars connected
 with one click (read and create, through cloud_mail.py)."""
 

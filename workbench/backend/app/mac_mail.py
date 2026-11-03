@@ -15,6 +15,7 @@ Scripts take the user's values as arguments (osascript `run(argv)`), never paste
 """
 
 from __future__ import annotations
+from __future__ import annotations
 
 import json
 import os

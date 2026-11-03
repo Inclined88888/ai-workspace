@@ -1,5 +1,6 @@
 """Outbound audit log (item 75, R8): every connection Workbench opens to another host is a row in the run log.
 
+from __future__ import annotations
 Rows are `actions` of kind `egress` (R2: no second ledger): host in `provider`, the Workbench module that made the call
 in `tool`, `local` or `external` in `effect`, "METHOD scheme://host/path" in `args` (no query string; redacted like every
 text column, so a token in a URL path is masked), the outcome and the latency. Local-only mode is verifiable from these
@@ -17,6 +18,7 @@ A failure to write a row is logged and never breaks the request (R4).
 import ipaddress
 import logging
 import sys
+from typing import Optional
 import time
 from contextlib import contextmanager
 from urllib.parse import urlsplit
@@ -51,7 +53,7 @@ def _component() -> str:
     return "unknown"
 
 
-def record(method: str, url: str, outcome: str, ms: int, error: str = "", component: str | None = None) -> None:
+def record(method: str, url: str, outcome: str, ms: int, error: str = "", component: Optional[str] = None) -> None:
     from . import actions
 
     try:
@@ -70,7 +72,7 @@ def _outcome(status: int) -> str:
 
 
 @contextmanager
-def track(method: str, url: str, component: str | None = None):
+def track(method: str, url: str, component: Optional[str] = None):
     """Record a connection made by a library that is not wrapped globally (imaplib, smtplib)."""
     started, error = time.monotonic(), ""
     comp = component or _component()
