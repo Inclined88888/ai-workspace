@@ -87,7 +87,7 @@ def test_editor_write_and_save(work):
     text = "Hello from Rooks Desk.\nTyped by a real X11 keyboard: déjà vu, 100% ✓"
 
     def type_in_editor(prompt):
-        assert "Mousepad" in prompt
+        assert "WINDOW IN FRONT: Mousepad" in prompt, prompt[-1500:]
         return editor_type_action(prompt, text)
 
     def save_name(prompt):
@@ -101,7 +101,8 @@ def test_editor_write_and_save(work):
         assert "Save As" in prompt, prompt[-1500:]
         return {"thought": "no Save button listed; Enter saves", "action": "hotkey", "args": {"keys": "enter"}}
 
-    script = [{"action": "open_app", "args": {"name": "mousepad", "wait": 2.5}}, type_in_editor,
+    script = [{"action": "open_app", "args": {"name": "mousepad", "wait": 2.5}},
+              {"action": "focus_window", "args": {"title": "Mousepad"}}, type_in_editor,
               {"action": "hotkey", "args": {"keys": "ctrl+s"}}, save_name, click_save, {"action": "wait", "args": {"seconds": 1}},
               {"action": "done", "args": {"answer": f"saved {target}", "success": True}}]
     m = real_model() or Steps(script)
