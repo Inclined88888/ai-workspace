@@ -93,7 +93,7 @@ class UI:
 
     def ask(self, plan) -> str:
         label = {"write": "Apply this change", "command": "Run this command", "external": "Call this tool"}[plan.effect]
-        prompt = f"  {label}? [y]es / [n]o / [a]lways this session: "
+        prompt = f"  {label}? [y]es / [n]o / [a]lways / [s]kip / [v]never: "
         while True:
             self.out.write(self.c("36", prompt))
             self.out.flush()
@@ -104,7 +104,7 @@ class UI:
             if not sys.stdin.isatty():
                 self.p(line.strip())  # piped answers are echoed so transcripts read naturally
             a = line.strip().lower()[:1]
-            if a in ("y", "n", "a"):
+            if a in ("y", "n", "a", "s", "v"):
                 return a
 
     def tool_result(self, plan, result: str, outcome: str) -> None:
@@ -256,7 +256,8 @@ HELP = """/undo        put back the files changed by the last prompt
 /compact     summarise the conversation so far to free the context window
 /receipt     path of this session's receipt
 /image P [Q] ask about a picture (or mention @shot.png in a prompt)
-/clear       forget the conversation /exit  quit (or Ctrl-D)"""
+/clear       forget the conversation /exit  quit (or Ctrl-D)
+Approval keys: y=yes  n=no  a=always  s=skip  v=never"""
 
 
 def load_session(root: Path, session: str | None) -> tuple[list[dict], str]:
