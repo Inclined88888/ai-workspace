@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Blocks commits that stage a secret. Enable once per clone: git config core.hooksPath scripts/hooks
+exec "$(git rev-parse --show-toplevel)/scripts/security-scan.sh" staged

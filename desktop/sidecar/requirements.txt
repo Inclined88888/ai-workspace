@@ -3,3 +3,5 @@
 -r ../../workbench/backend/requirements-files.txt
 keyring==25.6.0
 pyinstaller==6.16.0
+# CA bundle floor: older certifi trusts compromised emSign intermediates (GHSA-6q48-6c7w-9gw2)
+certifi>=2026.10.18
