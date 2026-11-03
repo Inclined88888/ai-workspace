@@ -151,6 +151,26 @@ def _conversation(data: TurnIn) -> int:
                   title, CHANNEL, data.session, data.model if data.model not in ("", "default") else "", db.now(), db.now())
 
 
+class ConversationIn(BaseModel):
+    session: str = Field(..., min_length=1, max_length=120)
+    model: str = Field("", max_length=300)
+
+
+@router.post("/conversation")
+def conversation(data: ConversationIn):
+    """Create or get a conversation for the given terminal session.
+    Returns the conversation_id so the terminal can track approvals in real time."""
+    row = db.one("SELECT id FROM conversations WHERE channel = ? AND external_id = ?", CHANNEL, data.session)
+    if row:
+        db.run("UPDATE conversations SET updated_at = ?, model = ? WHERE id = ?",
+               db.now(), data.model if data.model not in ("", "default") else "", row["id"])
+        return {"conversation_id": row["id"], "existing": True}
+    title = "Terminal session"
+    cid = db.run("INSERT INTO conversations(title, channel, external_id, model, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                 title, CHANNEL, data.session, data.model if data.model not in ("", "default") else "", db.now(), db.now())
+    return {"conversation_id": cid, "existing": False}
+
+
 @router.post("/turn")
 async def turn(data: TurnIn):
     cid = _conversation(data)

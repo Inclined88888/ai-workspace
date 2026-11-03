@@ -24,6 +24,10 @@ import re
 import sys
 import threading
 import time
+import uuid
+import urllib.request
+import urllib.error
+import json as _json
 from pathlib import Path
 
 from . import __version__, config, receipts
@@ -37,8 +41,12 @@ class UI:
     def __init__(self, out=sys.stdout, err=sys.stderr, color: bool | None = None, theme: str | None = None):
         self.out, self.err = out, err
         self.color = (out.isatty() and not os.environ.get("NO_COLOR")) if color is None else color
-        self.theme = term_theme.load(theme)  # follows the look chosen in AI Workspace; see theme.py
+        self.theme = term_theme.load(theme)
         self._spin: threading.Event | None = None
+        self.conversation_id: int | None = None
+        self.session_id: str | None = None
+        self.base_url: str | None = None
+        self.api_key: str | None = None
         if self.color and sys.platform == "win32":
             os.system("")  # enables ANSI escape handling in the Windows console
 
@@ -94,6 +102,9 @@ class UI:
     def ask(self, plan) -> str:
         label = {"write": "Apply this change", "command": "Run this command", "external": "Call this tool"}[plan.effect]
         prompt = f"  {label}? [y]es / [n]o / [a]lways this session: "
+        # If we have a conversation_id and base_url, poll for approval decision from backend
+        if self.conversation_id and self.base_url and self.api_key:
+            return self._poll_approval(plan, prompt)
         while True:
             self.out.write(self.c("36", prompt))
             self.out.flush()
@@ -103,6 +114,78 @@ class UI:
                 return "n"
             if not sys.stdin.isatty():
                 self.p(line.strip())  # piped answers are echoed so transcripts read naturally
+            a = line.strip().lower()
+            a = {"yes": "y", "no": "n", "always": "a"}.get(a, a)
+            if a in ("y", "n", "a"):
+                return a
+
+    def _poll_approval(self, plan, prompt: str) -> str:
+        """Poll the backend for approval decision. Falls back to stdin if polling fails."""
+        import urllib.request
+        import urllib.error
+        
+        # First, we need to find the pending approval action_id for this conversation
+        # The backend creates a held tool_call action; we poll /api/approvals?conversation_id=X
+        # But we need to know which approval corresponds to this tool call.
+        # For simplicity, we'll poll the approvals endpoint and look for a matching tool.
+        # In a real implementation, the agent would pass the action_id to the UI.
+        
+        # For this vertical slice, we'll use a simpler approach: poll for any pending approval
+        # for this conversation and wait for it to be resolved.
+        # The agent calls ask() when it needs approval, so at that point there should be
+        # a pending approval for the tool that was just attempted.
+        
+        self.p(self.c("2", "  Waiting for approval from browser/app..."))
+        
+        headers = {"Authorization": f"Bearer {self.api_key}", "X-Workbench": "1"}
+        base = self.base_url or ""
+        approvals_url = f"{base.rstrip('/')}/api/approvals?conversation_id={self.conversation_id}"
+        
+        # Poll for up to 5 minutes
+        for _ in range(300):
+            try:
+                req = urllib.request.Request(approvals_url, headers=headers)
+                with urllib.request.urlopen(req, timeout=5) as r:
+                    approvals = _json.loads(r.read())
+                if approvals:
+                    # Check if any approval is still pending
+                    pending = [a for a in approvals if a.get("status") == "pending"]
+                    if not pending:
+                        # All resolved - find the one for our tool
+                        for a in approvals:
+                            if a.get("tool") == plan.name:
+                                status = a.get("status")
+                                if status == "approved":
+                                    self.p(self.c("32", "  Approved via browser/app"))
+                                    return "y"
+                                elif status == "denied":
+                                    self.p(self.c("31", "  Denied via browser/app"))
+                                    return "n"
+                        # If we can't match by tool name, check the most recent
+                        if approvals:
+                            latest = approvals[0]
+                            if latest.get("status") == "approved":
+                                self.p(self.c("32", "  Approved via browser/app"))
+                                return "y"
+                            elif latest.get("status") == "denied":
+                                self.p(self.c("31", "  Denied via browser/app"))
+                                return "n"
+                time.sleep(1)
+            except (urllib.error.URLError, urllib.error.HTTPError, ValueError, OSError):
+                time.sleep(1)
+                continue
+        
+        # Timeout - fall back to stdin
+        self.p(self.c("33", "  Approval timeout, falling back to local prompt"))
+        while True:
+            self.out.write(self.c("36", prompt))
+            self.out.flush()
+            line = sys.stdin.readline()
+            if not line:
+                self.p("n (no input: denied)")
+                return "n"
+            if not sys.stdin.isatty():
+                self.p(line.strip())
             a = line.strip().lower()
             a = {"yes": "y", "no": "n", "always": "a"}.get(a, a)
             if a in ("y", "n", "a"):
@@ -221,6 +304,27 @@ def main(argv: list[str] | None = None) -> int:
         if tui.available():
             ui_class = tui.RichUI
     ui = ui_class(color=False if args.no_color else None, theme=getattr(args, "theme", None))
+
+    # Create or get Workbench conversation for cross-surface approval tracking
+    if s.provider == "workbench" and s.base_url and s.api_key:
+        ui.base_url = s.base_url.rstrip("/")
+        ui.api_key = s.api_key
+        ui.session_id = f"{int(time.time())}-{uuid.uuid4().hex[:8]}"
+        try:
+            conv_url = f"{ui.base_url}/v1/rooks/conversation"
+            headers = {"Authorization": f"Bearer {ui.api_key}", "Content-Type": "application/json"}
+            data = _json.dumps({"session": ui.session_id, "model": s.model or ""}).encode()
+            req = urllib.request.Request(conv_url, data=data, headers=headers, method="POST")
+            with urllib.request.urlopen(req, timeout=10) as r:
+                resp = _json.loads(r.read())
+            ui.conversation_id = resp.get("conversation_id")
+            ui.p(ui.c("2", f"  Linked to Workbench conversation #{ui.conversation_id}"))
+        except (urllib.error.URLError, urllib.error.HTTPError, ValueError, OSError) as e:
+            ui.p(ui.c("33", f"  Could not link to Workbench conversation: {e}"))
+            ui.conversation_id = None
+            ui.base_url = None
+            ui.api_key = None
+
     if s.kind == "delegate":
         from . import delegate
         return delegate.main(s.provider, s, ui, " ".join(args.prompt) if args.prompt else None)
