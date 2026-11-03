@@ -380,7 +380,7 @@ export default function Welcome({ onDone }: { onDone: () => void }) {
                 <Cloud size={20} />
                 <span className="grow">
                   <span className="row" style={{ gap: 10 }}><strong>Free cloud</strong><span className="tag-rec">Recommended</span></span>
-                  <span className="muted small">A free Gemini or Groq key. Two minutes, no card. The app falls back between them.</span>
+                  <span className="muted small">A free Gemini or Groq key. Two minutes, no card.</span>
                 </span>
                 <ArrowRight size={16} />
               </button>

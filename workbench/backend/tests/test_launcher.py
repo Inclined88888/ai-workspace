@@ -76,7 +76,10 @@ def test_the_installer_shortcut_is_not_taken_for_the_native_app(tmp_path, monkey
     shortcut = tmp_path / "Applications" / "AI Workspace.app" / "Contents" / "MacOS"
     shortcut.mkdir(parents=True)
     (shortcut / "ai-workspace").write_text("#!/bin/sh\n")
-    if not Path("/Applications/AI Workspace.app").exists():
-        assert launcher.native_app() is None
+    real = Path("/Applications/AI Workspace.app")
+    if real.exists():  # this Mac has the real app installed: it is found first, and the shortcut must never be
+        assert launcher.native_app() == ["open", "-a", str(real)]
+        return
+    assert launcher.native_app() is None
     (shortcut / "ai-workspace-desktop").write_text("")
     assert launcher.native_app() == ["open", "-a", str(tmp_path / "Applications" / "AI Workspace.app")]

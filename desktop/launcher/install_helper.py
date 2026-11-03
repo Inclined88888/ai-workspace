@@ -43,18 +43,19 @@ def step(msg: str) -> None:
 
 
 def run(cmd: list[str], log_file: Path | None = None, **kw) -> None:
-    """Run a command, capturing output to log_file. On failure, print the log path and last lines."""
-    if log_file:
-        log_file.parent.mkdir(parents=True, exist_ok=True)
-        with log_file.open("a", encoding="utf-8") as f:
-            f.write(f"$ {' '.join(cmd)}\n")
-            try:
-                subprocess.run(cmd, check=True, stdout=f, stderr=subprocess.STDOUT, **kw)
-            except subprocess.CalledProcessError as e:
-                f.write(f"\n--- Command failed with exit code {e.returncode} ---\n")
-                raise
-    else:
+    """Run a command. With log_file its output goes there, and only a failure shows the last lines and the log path."""
+    if not log_file:
         subprocess.run(cmd, check=True, **kw)
+        return
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    with log_file.open("a", encoding="utf-8") as f:
+        f.write(f"$ {' '.join(cmd)}\n")
+        f.flush()
+        code = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, **kw).returncode
+    if code:
+        tail = log_file.read_text(encoding="utf-8", errors="replace").splitlines()[-25:]
+        print("\n".join(tail), file=sys.stderr)
+        sys.exit(f"That step failed (exit code {code}). Full log: {log_file}")
 
 
 def uv() -> str:
@@ -409,11 +410,11 @@ def main() -> int:
     print("\nDone. The app is ready.")
     print("\nWhat happens next:")
     print("  1. Run 'ai-workspace' (or click the AI Workspace shortcut) to open the app.")
-    print("  2. On first launch, you'll pick a theme and choose how to think:")
-    print("     - Free cloud (recommended): paste a free Gemini or Groq key (2 minutes, no card)")
-    print("     - Your subscription: sign in with ChatGPT, Claude Code, or GitHub Copilot")
-    print("     - Paste API keys: OpenAI, Anthropic, xAI, Google, Groq, OpenRouter, etc.")
-    print("     - Local Ollama: private and offline (needs a strong computer)")
+    print("  2. On first launch, choose where the AI runs:")
+    print("     • Free cloud (recommended): paste a free Gemini or Groq key, two minutes, no card")
+    print("     • Your subscription: sign in with ChatGPT, Claude or GitHub Copilot")
+    print("     • Your own API key: OpenAI, Anthropic, NVIDIA, Groq, OpenRouter and more")
+    print("     • Local Ollama: private and offline, needs a strong computer")
     print("  3. After connecting a model, you land in Chat. Ask anything.")
     print("\nAlso installed:")
     print("  rooks (coding agent)   rooks-browser (browser agent)" + ("   rooks-desk (computer use)" if not a.no_desk else ""))

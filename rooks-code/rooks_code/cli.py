@@ -186,34 +186,22 @@ def main(argv: list[str] | None = None) -> int:
     if not root.is_dir():
         sys.exit(f"rooks: {root} is not a folder")
     interactive = not args.prompt and sys.stdin.isatty() and sys.stdout.isatty()
-    # Sensible behavior in $HOME or non-git folder: ask what to do instead of exploring
-    if interactive and not args.prompt:
-        home = Path.home()
-        if root == home or (not (root / ".git").exists() and not any((root / p).exists() for p in (".rooks", "AGENTS.md", "pyproject.toml", "package.json", "Cargo.toml", "go.mod"))):
-            print(f"  {root} is not a project folder (no git repo, no project markers).")
-            print("  Choose an option:")
-            print("  1  Open a project folder (type path)")
-            print("  2  Initialize here (creates AGENTS.md)")
-            print("  3  Continue anyway")
-            try:
-                choice = input("  › ").strip()
-            except (EOFError, KeyboardInterrupt):
-                return 0
+    # Started in the home folder (or /): a request would crawl everything there, so ask for the project first.
+    if interactive and root in (Path.home().resolve(), Path(root.anchor)):
+        print(f"  You are in {root}, not a project folder.")
+        print("  1  Open a project folder")
+        print("  2  Stay here anyway")
+        try:
+            choice = input("  › ").strip()
             if choice == "1":
-                try:
-                    new_path = input("  Path to project folder: ").strip()
-                except (EOFError, KeyboardInterrupt):
-                    return 0
-                if new_path:
-                    root = Path(new_path).expanduser().resolve()
-                    if not root.is_dir():
-                        sys.exit(f"rooks: {root} is not a folder")
-            elif choice == "2":
-                pass  # continue in current folder, /init will create AGENTS.md
-            elif choice == "3":
-                pass  # continue anyway
-            else:
+                new_path = input("  Folder: ").strip()
+                root = Path(new_path).expanduser().resolve() if new_path else root
+                if not root.is_dir():
+                    sys.exit(f"rooks: {root} is not a folder")
+            elif choice != "2":
                 return 0
+        except (EOFError, KeyboardInterrupt):
+            return 0
     overrides = {"provider": args.provider, "model": args.model, "base_url": args.base_url, "yes": args.yes,
                  "dry_run": args.dry_run, "max_usd": args.max_usd, "max_tokens": args.max_tokens, "max_steps": args.max_steps}
     try:
@@ -622,7 +610,6 @@ def diagnose(problem: str) -> int:
     """No usable model: show the problem and the one thing to do."""
     msg = problem.removeprefix("rooks: ").splitlines()[0]
     print(f"rooks: {msg}")
-    link = config.app_link()
     docker = config.docker_workbench()
     has_wb_key = bool(os.environ.get("WORKBENCH_API_KEY") or config.stored_keys().get("workbench"))
     if docker and not has_wb_key:

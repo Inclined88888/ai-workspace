@@ -149,3 +149,17 @@ def test_rooks_code_opens_the_session_instead_of_running_the_task_code(monkeypat
     with pytest.raises(SystemExit):
         cli.main(["code", "--cwd", str(tmp_path)])
     assert seen["args"].prompt == []
+
+
+def test_help_never_hides_a_command(monkeypatch):
+    import io
+
+    from rich.console import Console
+
+    from rooks_code import tui
+
+    ui = tui.RichUI(color=False)
+    ui.console = Console(file=io.StringIO(), width=200)
+    tui.help_table(ui)
+    out = ui.console.file.getvalue()
+    assert all(cmd in out for cmd in tui.COMMANDS)

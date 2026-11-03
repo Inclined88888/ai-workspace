@@ -508,6 +508,10 @@ def help_table(ui: RichUI) -> None:
         "Context": ["/memory", "/skills", "/init", "/context", "/sessions", "/resume"],
         "Behavior": ["/auto", "/dry-run", "/doctor", "/copy", "/image", "/jobs"],
     }
+    listed = {c for cmds in categories.values() for c in cmds}
+    other = [c for c in COMMANDS if c not in listed]
+    if other:
+        categories["Other"] = other  # a command added later is never hidden from /help
     for cat, cmds in categories.items():
         t = Table.grid(padding=(0, 3))
         t.add_column(style=f"bold {ui.hexcolour('accent')}", no_wrap=True)
@@ -569,10 +573,6 @@ def run(agent, ui: RichUI) -> int:
         m = MODES[(MODES.index(mode_of(agent.s)) + 1) % len(MODES)]
         set_mode(agent.s, m)
         event.app.invalidate()
-
-    @keys.add("escape")
-    def _interrupt(event):  # Esc: interrupt current task like Ctrl+C
-        raise KeyboardInterrupt()
 
     def message():
         return FormattedText([("class:prompt", "❯ ")])
