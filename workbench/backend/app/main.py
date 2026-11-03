@@ -49,7 +49,9 @@ async def lifespan(_: FastAPI):
     compression.init_compression_table()  # AIW-Phase1
     compression.init_summary_table()  # rolling summary of messages that fall out of the window
     finetune.ensure()  # phase 4
-    _migrate_keychain()
+    # Keychain migration on a thread: never block startup, never lose the key if denied
+    import threading
+    threading.Thread(target=_migrate_keychain, daemon=True).start()
     llm.seed_connections()
     catalog.refresh_in_background()  # newer model facts (context, price, vision) at most once a day
     api.recover_interrupted()
