@@ -106,6 +106,7 @@ const NAV: NavGroup[] = [
     { to: "/team", label: "Team", icon: UsersRound }, // feat/team-lead
   ] },
   { section: "Your stuff", items: [
+    { to: "/notes", label: "Notes", icon: NotebookPen },
     { to: "/files", label: "Files", icon: FolderOpen },
     { to: "/research", label: "Research", icon: Search },
   ] },
