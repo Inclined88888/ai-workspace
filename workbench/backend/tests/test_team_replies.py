@@ -153,3 +153,33 @@ def test_people_and_tasks_land_on_the_knowledge_graph(team):  # noqa: F811
     assert db.all("SELECT dst FROM kn_edges WHERE src = ? AND rel = 'assigned_to'", e["id"]) == [{"dst": pj}]
     c.delete(f"/api/team/tasks/{t['id']}")
     assert not db.one("SELECT 1 FROM kn_entities WHERE ref_table = 'team_tasks' AND ref_id = ?", str(t["id"]))
+
+
+def test_suggestions_stay_tidy_and_replies_find_the_task_by_name(team):  # noqa: F811
+    from app.team import replies
+
+    c, sam, jo = team
+    a = c.post("/api/team/tasks", json={"title": "Smith St quote", "assignee_id": sam["id"], "notify": False}).json()
+    assert "suggestion" not in a  # already has someone: no "give it to …" card
+    c.post("/api/team/tasks", json={"title": "Kitchen lighting plan", "assignee_id": sam["id"], "notify": False})
+    free = c.post("/api/team/tasks", json={"title": "Book skip bin"}).json()
+    assert free["suggestion"]
+    assert c.post("/api/team/tasks", json={"title": "x"}).json()["suggestion"]
+    # someone sorts it out by hand: the old idea quietly goes away and can't be approved any more
+    c.patch(f"/api/team/tasks/{free['task']['id']}", json={"assignee_id": jo["id"]})
+    ids = [s["id"] for s in c.get("/api/team").json()["suggestions"]]
+    assert free["suggestion"]["id"] not in ids
+    assert c.post(f"/api/team/suggestions/{free['suggestion']['id']}/approve").json()["status"] == "stale"
+    assert c.get(f"/api/team/tasks/{free['task']['id']}").json()["assignee_id"] == jo["id"]
+    # Sam has two tasks; the reply names one of them
+    replies.receive("sam@example.com", "Smith St quote is about 80% done", "email", "r1")
+    replies.receive("sam@example.com", "80% done", "email", "r2")
+    got = {p["ref"]: p["task_id"] for p in c.get("/api/team/replies").json()}
+    assert got == {"r1": a["task"]["id"], "r2": None}
+
+
+def test_lead_can_say_why_a_task_is_stuck(team):  # noqa: F811
+    c, sam, jo = team
+    t = c.post("/api/team/tasks", json={"title": "Test and tag", "assignee_id": jo["id"], "notify": False}).json()["task"]
+    got = c.patch(f"/api/team/tasks/{t['id']}", json={"status": "blocked", "blocked_reason": "Tagger battery"}).json()["task"]
+    assert got["blocked_reason"] == "Tagger battery"

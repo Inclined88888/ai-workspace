@@ -83,7 +83,7 @@ def receive(sender: str, text: str, source: str, ref: str) -> dict:
     if not review_on():
         return connect.inbound(sender, text, source, ref)
     p = parse.reply(text)
-    t = connect.place(m, p)
+    t = connect.place(m, p, text)
     pid = db.run("INSERT INTO team_pending(member_id, task_id, source, ref, text, parsed, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
                  m["id"], t["id"] if t else None, source, ref, text[:4000], json.dumps(p), store.now())
     what = f"“{t['title']}”: {describe(p)}" if t else "a message (not sure which task)"

@@ -4,6 +4,7 @@ import { ApiError } from "../api";
 
 export const UPGRADE_TEXT: Record<string, string> = {
   projects_unlimited: "The free plan keeps one project going at a time. Archive one, or upgrade to Pro for unlimited projects.",
+  team_tasks: "Giving work to your team and tracking it is part of the Team and Business plans. Your own task list stays free.", // feat/team-lead
   checked_answers: "Checked answers is part of Pro: every claim gets a source and a second check.",
 };
 

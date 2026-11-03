@@ -45,6 +45,7 @@ class TaskIn(BaseModel):
     project: str | None = None
     status: str | None = None
     percent: int | None = None
+    blocked_reason: str | None = Field(None, max_length=500)
     priority: int | None = None
     start: str | None = None
     due: str | None = None
@@ -222,7 +223,7 @@ def add_task(body: TaskIn):
     out: dict = {"task": t}
     if t["assignee_id"] and notify:
         out["message"] = outbox.assignment(t["id"])
-    elif not t["mine"] and store.members():
+    elif not t["assignee_id"] and not t["mine"] and store.members():
         s = engine.suggest_assignee(t)
         if s:
             out["suggestion"] = engine.add_suggestion("assign", t["id"], s["member"]["id"], s["reason"])
@@ -266,7 +267,8 @@ def patch_task(tid: int, body: TaskIn):
     if t["assignee_id"] and t["assignee_id"] != old["assignee_id"] and notify:
         out["message"] = outbox.assignment(tid)
     if any(k in data for k in ("status", "percent")):
-        store.add_update(tid, "leader", status=data.get("status", ""), percent=data.get("percent"))
+        store.add_update(tid, "leader", status=data.get("status", ""), percent=data.get("percent"),
+                         note=data.get("blocked_reason", "") if data.get("status") == "blocked" else "")
         if t["status"] == "done" and old["status"] != "done" and t["assignee_id"]:
             out["next"] = engine.next_for(t["assignee_id"])
     return out

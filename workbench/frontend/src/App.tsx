@@ -4,6 +4,7 @@ import {
   Layers, // feat/v02-automations
   AudioLines, Users, // feat/v02-anywhere-voice
   Package, // feat/v02-packs
+  UsersRound, // feat/team-lead
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CommandPalette } from "./Palette";
@@ -65,6 +66,7 @@ import PackTrade from "./pages/PackTrade"; // feat/v02-packs
 import PackLegal from "./pages/PackLegal"; // feat/v02-packs
 import PackStudy from "./pages/PackStudy"; // feat/v02-packs
 import Knowledge from "./memory/Knowledge"; // feat/memory-core
+import Team from "./team/Team"; // feat/team-lead
 
 export type Status = {
   setup_complete: boolean;
@@ -101,9 +103,9 @@ const NAV: NavGroup[] = [
     { to: "/mail", label: "Mail", icon: Mail },
     { to: "/calendar", label: "Calendar", icon: CalendarDays },
     { to: "/tasks", label: "Tasks", icon: CheckSquare },
+    { to: "/team", label: "Team", icon: UsersRound }, // feat/team-lead
   ] },
   { section: "Your stuff", items: [
-    { to: "/notes", label: "Notes", icon: NotebookPen },
     { to: "/files", label: "Files", icon: FolderOpen },
     { to: "/research", label: "Research", icon: Search },
   ] },
@@ -356,6 +358,8 @@ export default function App() {
           <Route path="/documents" element={<Docs kind="document" />} />
           <Route path="/documents/:id" element={<Docs kind="document" />} />
           <Route path="/tasks" element={<Tasks />} />
+          <Route path="/team" element={<Team />} />{/* feat/team-lead */}
+          <Route path="/team/people/:id" element={<Team />} />
           <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/mail" element={<MailPage />} />
           <Route path="/settings" element={<Settings onChanged={refresh} />} />
