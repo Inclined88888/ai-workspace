@@ -11,6 +11,7 @@ import { CheckThis, CheckToggle, ProjectSwitcher } from "../v02/ChatExtras"; // 
 import { WebSearchSetup } from "./ModelSignIn";
 import { askNotifyPermission, inBackground, notify } from "../desktop"; // feat/tauri-native
 import { Att, AttachButton, filesFrom, MessageAttachments, PendingChips, useAttachments } from "../Attachments"; // feat/attachments
+import { DiffView, extractDiffFromArgs } from "../components/DiffView";
 
 type Conv = { id: number; title: string; channel: string; updated_at: string; model: string };
 type Msg = { id: number; role: string; content: string; tool_calls: string[]; name: string; via?: RouterInfo; attachments?: Att[] };
@@ -286,26 +287,38 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
                 </div>)}
             {steps.length > 0 && (
               <div className="steps-list timeline" aria-label="Tool activity">
-                {steps.map((s, i) => (
-                  <div key={i} className={`step ${s.kind === "result" ? (s.ok ? "ok" : "bad") : s.kind === "check" ? "bad" : busy && i === steps.length - 1 ? "live" : ""}`}>
-                    {s.kind === "call" ? <Wrench size={12} /> : s.kind === "check" ? <ShieldAlert size={12} />
-                      : s.ok ? <Check size={12} /> : <X size={12} />}
-                    <span className="truncate">{s.kind === "call" ? `${s.name} ${s.text}` : s.text}</span>
-                  </div>
-                ))}
+                {steps.map((s, i) => {
+                  const diff = (s.kind === "call" && (s.name === "edit_file" || s.name === "write_file"))
+                    ? extractDiffFromArgs(s.text)
+                    : null;
+                  return (
+                    <div key={i} className={`step ${s.kind === "result" ? (s.ok ? "ok" : "bad") : s.kind === "check" ? "bad" : busy && i === steps.length - 1 ? "live" : ""}`}>
+                      {s.kind === "call" ? <Wrench size={12} /> : s.kind === "check" ? <ShieldAlert size={12} />
+                        : s.ok ? <Check size={12} /> : <X size={12} />}
+                      <span className="truncate">{s.kind === "call" ? `${s.name} ${s.text}` : s.text}</span>
+                      {diff && <DiffView diff={diff} compact />}
+                    </div>
+                  );
+                })}
               </div>
             )}
-            {approvals.map((a) => (
-              <div key={a.id} className={`card col approval-card spring-in${exit.leaving(a.id) ? " leaving-out" : ""}`} style={{ gap: 10 }} role="alertdialog" aria-label={`Approve ${a.tool}?`}>
-                <div className="row"><ShieldAlert size={16} style={{ color: "var(--warn-text)" }} /> <b>Approve {a.tool}?</b></div>
-                <div className="small muted">{a.reason} {a.effect === "persistent" ? "This would change how the assistant behaves from now on." : "This acts outside the workspace."}</div>
-                <pre className="small mono" style={{ whiteSpace: "pre-wrap", margin: 0 }}>{a.args}</pre>
-                <div className="row">
-                  <button className="btn primary sm" onClick={() => decide(a, true)}>Approve</button>
-                  <button className="btn sm" onClick={() => decide(a, false)}>Deny</button>
+            {approvals.map((a) => {
+              const diff = (a.tool === "edit_file" || a.tool === "write_file")
+                ? extractDiffFromArgs(a.args)
+                : null;
+              return (
+                <div key={a.id} className={`card col approval-card spring-in${exit.leaving(a.id) ? " leaving-out" : ""}`} style={{ gap: 10 }} role="alertdialog" aria-label={`Approve ${a.tool}?`}>
+                  <div className="row"><ShieldAlert size={16} style={{ color: "var(--warn-text)" }} /> <b>Approve {a.tool}?</b></div>
+                  <div className="small muted">{a.reason} {a.effect === "persistent" ? "This would change how the assistant behaves from now on." : "This acts outside the workspace."}</div>
+                  <pre className="small mono" style={{ whiteSpace: "pre-wrap", margin: 0 }}>{a.args}</pre>
+                  {diff && <DiffView diff={diff} compact />}
+                  <div className="row">
+                    <button className="btn primary sm" onClick={() => decide(a, true)}>Approve</button>
+                    <button className="btn sm" onClick={() => decide(a, false)}>Deny</button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
             {busy && (
               <div className="msg msg-thinking" aria-label="Assistant is working">
                 <div className="msg-body">
