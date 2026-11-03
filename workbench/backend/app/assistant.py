@@ -24,6 +24,7 @@ from . import actions, compression, config, db, llm, receipts, research, router,
 MAX_STEPS = 12
 HISTORY_MESSAGES = 40
 _BACKGROUND: set[asyncio.Task] = set()  # strong refs so background jobs (history summaries) are not garbage collected
+TURNS: dict[int, asyncio.Task] = {}     # in-flight turn task per conversation; the Stop button cancels it
 
 
 def _spawn(coro) -> asyncio.Task:
@@ -49,6 +50,7 @@ class Ctx:
     turn_action_id: int | None = None  # this turn's row in `actions`; its model and tool calls point at it
     request_key: str = ""              # caller's idempotency key: a retried request with the same key is refused (item 28)
     started: float = 0.0
+    skip_save: bool = False            # the caller already stored this turn's user message (edit-and-resend)
 
     def trace(self) -> dict:
         return {"channel": self.channel, "conversation_id": self.conversation_id,
@@ -733,7 +735,8 @@ async def _run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> Async
     ctx.started = time.monotonic()
     ctx.turn_action_id = actions.add("turn", "running", trace=ctx.trace(), model=ctx.model,
                                      request_id=("turn:" + ctx.request_key) if ctx.request_key else None)
-    _save(ctx.conversation_id, "user", user_text)
+    if not ctx.skip_save:
+        _save(ctx.conversation_id, "user", user_text)
     specs = [t.spec() for t in available_tools(ctx)]
     ctx.tainted = ctx.tainted or bool(db.one(
         f"SELECT 1 FROM (SELECT name FROM messages WHERE conversation_id = ? ORDER BY id DESC LIMIT ?) "
@@ -780,6 +783,16 @@ async def _run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> Async
             res = task.result()
             if res.get("router"):  # the smart router answered: say who, what it skipped, and what is left
                 yield {"type": "router", **res["router"]}
+        except asyncio.CancelledError:
+            # Stop button: end the turn where it stands and keep what was already written or done
+            note = "Stopped."
+            done_so_far = receipts.summary(ctx.receipts)
+            if done_so_far:
+                note = done_so_far + "\n\n" + note
+            _save(ctx.conversation_id, "assistant", note, name="stopped")
+            receipts.record_turn(ctx, "stopped", "stopped by the user")
+            yield {"type": "stopped", "content": note}
+            raise
         except HTTPException as e:
             receipts.record_turn(ctx, "model_error", str(e.detail))
             yield {"type": "error", "error": str(e.detail)}
@@ -856,6 +869,50 @@ async def _run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> Async
         # Run another turn automatically for the goal
         async for e in run_turn(ctx, next_prompt, model):
             yield e
+
+
+# Chat controls (feat/chat-controls): stop an in-flight turn, regenerate the last reply, edit and resend
+def stop_turn(conversation_id: int) -> bool:
+    task = TURNS.get(conversation_id)
+    if task and not task.done():
+        task.cancel()
+        return True
+    return False
+
+
+def _tail_message(conversation_id: int, role: str) -> dict | None:
+    return db.one("SELECT * FROM messages WHERE conversation_id = ? AND role = ? AND name = '' ORDER BY id DESC LIMIT 1",
+                  conversation_id, role)
+
+
+def truncate_after(conversation_id: int, mid: int) -> None:
+    db.run("DELETE FROM messages WHERE conversation_id = ? AND id > ?", conversation_id, mid)
+    db.run("UPDATE conversations SET updated_at = ? WHERE id = ?", db.now(), conversation_id)
+
+
+def edit_user_message(conversation_id: int, mid: int, content: str) -> None:
+    """Rewrite a sent user message and drop everything after it, so the turn can be re-run from that point."""
+    m = db.one("SELECT * FROM messages WHERE id = ? AND conversation_id = ?", mid, conversation_id)
+    if not m or m["role"] != "user" or m["name"]:
+        raise HTTPException(400, "That message cannot be edited")
+    stop_turn(conversation_id)  # an in-flight turn below this point would answer the old text
+    db.run("UPDATE messages SET content = ? WHERE id = ?", content, mid)
+    db.run("DELETE FROM messages WHERE conversation_id = ? AND id > ?", conversation_id, mid)
+    db.run("UPDATE conversations SET updated_at = ? WHERE id = ?", db.now(), conversation_id)
+
+
+def drop_last_reply(conversation_id: int) -> str:
+    """Delete the last assistant message and everything after the user message it answered; return that message's text."""
+    a = _tail_message(conversation_id, "assistant")
+    if not a:
+        raise HTTPException(400, "No reply to regenerate")
+    u = db.one("SELECT * FROM messages WHERE conversation_id = ? AND role = 'user' AND name = '' AND id < ? ORDER BY id DESC LIMIT 1",
+               conversation_id, a["id"])
+    if not u:
+        raise HTTPException(400, "The question that produced this reply is missing")
+    stop_turn(conversation_id)
+    truncate_after(conversation_id, u["id"])
+    return u["content"]
 
 
 async def decide(action_id: int, approve: bool, channel: str = "web") -> dict:

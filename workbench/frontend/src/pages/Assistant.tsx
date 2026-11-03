@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowUp, BookOpen, Brain, Check, Copy, KeyRound, Loader2, MessageSquare, Pencil, Plus, Search, ShieldAlert, ThumbsDown, ThumbsUp, Trash2, Wrench, X } from "lucide-react";
+import { ArrowLeft, ArrowUp, BookOpen, Brain, Check, Copy, KeyRound, MessageSquare, Pencil, Plus, RotateCcw, Search, ShieldAlert, Square, ThumbsDown, ThumbsUp, Trash2, Wrench, X } from "lucide-react";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, stream } from "../api";
@@ -46,6 +46,9 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   const cid = id ? Number(id) : null;
   // Who answered each reply this session (the smart router's "via" line); kept across the reload after a new chat
   const viaByReply = useRef(new Map<string, RouterInfo>());
+  const abortRef = useRef<AbortController | null>(null); // the in-flight turn; Stop aborts it
+  const [editing, setEditing] = useState<number | null>(null); // user message being edited inline
+  const [editText, setEditText] = useState("");
 
   const loadConvs = () => api<Conv[]>(`/conversations${q ? `?q=${encodeURIComponent(q)}` : ""}`).then(setConvs).catch(toast.err);
   useEffect(() => { const t = setTimeout(loadConvs, 200); return () => clearTimeout(t); }, [q]);
@@ -59,9 +62,12 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   useEffect(() => {
     setSteps([]);
     setApprovals([]);
+    setEditing(null);
     if (!cid) return setMessages([]);
     loadConv(cid);
   }, [cid]);
+  // Leaving the page (or closing it) stops the streamed turn on this end; the server notices the closed stream
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   const decide = async (a: Approval, approve: boolean) => {
     try {
@@ -73,46 +79,94 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   };
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, steps]);
 
+  /** One streamed turn. echo: show the user's text as a fresh bubble (not on resend, where it's already on screen
+   *  and stored). resend: the server skips saving the user message again. */
+  const run = async (msg: string, opts: { echo?: boolean; resend?: boolean } = {}) => {
+    setBusy(true);
+    setBusySince(Date.now());
+    setSteps([]);
+    setEditing(null);
+    if (opts.echo) setMessages((m) => [...m, { id: Date.now(), role: "user", content: msg, tool_calls: [], name: "" }]);
+    let newId = cid;
+    let via: RouterInfo | undefined;
+    let stopped = false;
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    try {
+      await stream("/assistant/chat", { message: msg, conversation_id: cid, model: model || null, effort: isPlan ? effort : "", resend: !!opts.resend }, (ev) => {
+        const t = ev.type as string | undefined;
+        if (t === "writing") { setDraft((d) => d + String(ev.text)); return; }
+        if (t !== "router") setDraft("");
+        if (t === "start") newId = Number(ev.conversation_id);
+        if (t === "router") via = ev as unknown as RouterInfo;
+        if (t === "tool_call") setSteps((s) => [...s, { kind: "call", name: String(ev.name), text: String(ev.args) }]);
+        if (t === "tool_result") {
+          const r = (ev.receipt ?? {}) as { verified?: boolean | null; evidence?: string };
+          // Show what was confirmed in the database when there is a check; otherwise the raw result
+          const text = r.verified === true ? `verified: ${r.evidence}` : r.verified === false ? `check failed: ${r.evidence}` : String(ev.preview);
+          setSteps((s) => [...s, { kind: "result", name: String(ev.name), text, ok: Boolean(ev.ok) }]);
+        }
+        if (t === "claim_check") setSteps((s) => [...s, { kind: "check", name: "", ok: false,
+          text: ev.retrying ? `Answer said "${ev.claim}" but nothing confirms it. Asking the model to act or correct it.` : `Still unconfirmed: "${ev.claim}"` }]);
+        if (t === "approval_required") setApprovals((a) => [...a, { id: Number(ev.id), tool: String(ev.tool), args: String(ev.args), effect: String(ev.effect), reason: String(ev.reason) }]);
+        if (t === "message") {
+          const mid = Date.now() + 1;
+          if (via) viaByReply.current.set(String(ev.content), via);
+          setFreshId(mid);
+          setMessages((m) => [...m, { id: mid, role: "assistant", content: String(ev.content), tool_calls: [], name: "", via }]);
+        }
+        if (t === "stopped") stopped = true;
+        if (t === "error" || (!t && ev.error)) toast.err(String(ev.error));
+      }, ctrl.signal);
+    } catch {
+      stopped = stopped || ctrl.signal.aborted; // the abort drops the fetch before the server's "stopped" line arrives
+    }
+    abortRef.current = null;
+    setBusy(false);
+    setDraft("");
+    loadConvs();
+    const doneCid = newId || cid;
+    if (stopped && doneCid) loadConv(doneCid); // pick up what the turn kept before it stopped
+    else if (newId && newId !== cid) navigate(`/assistant/${newId}`, { replace: true });
+  };
+
   const send = async (e?: FormEvent) => {
     e?.preventDefault();
     const msg = text.trim();
     if (!msg || busy) return;
     setText("");
     if (composerRef.current) composerRef.current.style.height = "auto";
-    setBusy(true);
-    setBusySince(Date.now());
-    setSteps([]);
-    setMessages((m) => [...m, { id: Date.now(), role: "user", content: msg, tool_calls: [], name: "" }]);
-    let newId = cid;
-    let via: RouterInfo | undefined;
-    await stream("/assistant/chat", { message: msg, conversation_id: cid, model: model || null, effort: isPlan ? effort : "" }, (ev) => {
-      const t = ev.type as string | undefined;
-      if (t === "writing") { setDraft((d) => d + String(ev.text)); return; }
-      if (t !== "router") setDraft("");
-      if (t === "start") newId = Number(ev.conversation_id);
-      if (t === "router") via = ev as unknown as RouterInfo;
-      if (t === "tool_call") setSteps((s) => [...s, { kind: "call", name: String(ev.name), text: String(ev.args) }]);
-      if (t === "tool_result") {
-        const r = (ev.receipt ?? {}) as { verified?: boolean | null; evidence?: string };
-        // Show what was confirmed in the database when there is a check; otherwise the raw result
-        const text = r.verified === true ? `verified: ${r.evidence}` : r.verified === false ? `check failed: ${r.evidence}` : String(ev.preview);
-        setSteps((s) => [...s, { kind: "result", name: String(ev.name), text, ok: Boolean(ev.ok) }]);
-      }
-      if (t === "claim_check") setSteps((s) => [...s, { kind: "check", name: "", ok: false,
-        text: ev.retrying ? `Answer said "${ev.claim}" but nothing confirms it. Asking the model to act or correct it.` : `Still unconfirmed: "${ev.claim}"` }]);
-      if (t === "approval_required") setApprovals((a) => [...a, { id: Number(ev.id), tool: String(ev.tool), args: String(ev.args), effect: String(ev.effect), reason: String(ev.reason) }]);
-      if (t === "message") {
-        const mid = Date.now() + 1;
-        if (via) viaByReply.current.set(String(ev.content), via);
-        setFreshId(mid);
-        setMessages((m) => [...m, { id: mid, role: "assistant", content: String(ev.content), tool_calls: [], name: "", via }]);
-      }
-      if (t === "error" || (!t && ev.error)) toast.err(String(ev.error));
-    });
-    setBusy(false);
-    setDraft("");
-    loadConvs();
-    if (newId && newId !== cid) navigate(`/assistant/${newId}`, { replace: true });
+    await run(msg, { echo: true });
+  };
+
+  /** Stop: abort the fetch here and tell the server to cancel the turn, so tools stop too; partial text is kept. */
+  const stopTurn = async () => {
+    abortRef.current?.abort();
+    try {
+      if (cid) await api("/assistant/stop", { body: { conversation_id: cid } });
+    } catch { /* the abort already ended our side */ }
+  };
+
+  const regenerate = async () => {
+    if (busy || !cid) return;
+    try {
+      const r = await api<{ message: string }>(`/conversations/${cid}/regenerate`, { method: "POST", body: {} });
+      setMessages((m) => { const i = m.map((x) => x.role).lastIndexOf("user"); return i >= 0 ? m.slice(0, i) : m; });
+      await run(r.message, { resend: true });
+    } catch (e) { toast.err(e); if (cid) loadConv(cid); }
+  };
+
+  const saveEdit = async (m: Msg) => {
+    const content = editText.trim();
+    if (!content || busy || !cid) return;
+    try {
+      await api(`/conversations/${cid}/messages/${m.id}`, { method: "PATCH", body: { content } });
+      setMessages((ms) => {
+        const i = ms.findIndex((x) => x.id === m.id);
+        return i < 0 ? ms : [...ms.slice(0, i), { ...ms[i], content }];
+      });
+      await run(content, { resend: true });
+    } catch (e) { toast.err(e); if (cid) loadConv(cid); }
   };
 
   const remove = async (c: Conv) => {
@@ -123,6 +177,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   };
 
   const visible = messages.filter((m) => (m.role === "user" && m.name !== "claim_check") || (m.role === "assistant" && (m.content || m.tool_calls.length)));
+  const lastReply = [...visible].reverse().find((m) => m.role === "assistant" && m.content);
   const suggestions = [
     { title: "Plan my week", hint: "from my tasks and calendar", text: "Plan my week from my tasks and calendar" },
     { title: "Research a topic", hint: "with sources I can check", text: "Research the best free local AI models for a laptop, with sources" },
@@ -177,7 +232,25 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
               </Empty>
             )}
             {visible.map((m) => m.role === "user"
-              ? <div key={m.id} className="msg user"><div className="bubble-user">{m.content}</div></div>
+              ? <div key={m.id} className="msg user">
+                  {editing === m.id ? (
+                    <div className="col" style={{ gap: 6, alignItems: "flex-end" }}>
+                      <textarea className="input" rows={3} value={editText} aria-label="Edit message" autoFocus
+                        onChange={(e) => setEditText(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); saveEdit(m); } if (e.key === "Escape") setEditing(null); }} />
+                      <div className="row" style={{ gap: 6 }}>
+                        <button className="btn sm primary" disabled={busy || !editText.trim()} onClick={() => saveEdit(m)}>Send</button>
+                        <button className="btn sm ghost" onClick={() => setEditing(null)}>Cancel</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="msg-user-row">
+                      <div className="bubble-user">{m.content}</div>
+                      <button className="btn ghost sm icon msg-edit" aria-label="Edit and resend" title="Edit and resend" disabled={busy}
+                        onClick={() => { setEditing(m.id); setEditText(m.content); }}><Pencil size={12} /></button>
+                    </div>
+                  )}
+                </div>
               : <div key={m.id} className="msg">
                   <div className="msg-body">
                     <div className="msg-byline" aria-hidden="true">Workspace</div>
@@ -188,6 +261,11 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
                     {m.via && <RouterVia r={m.via} />}
                     {m.content && m.id !== freshId && <MessageFeedback msg={m} />}
                     {m.content && m.id !== freshId && <CheckThis cid={cid} content={m.content} fresh={m.id > 1e12} />}{/* feat/v02-core */}
+                    {m.content && m.id !== freshId && lastReply?.id === m.id && !busy && (
+                      <div className="row" style={{ gap: 4, marginTop: 4 }}>
+                        <button className="btn ghost sm" aria-label="Regenerate reply" title="Drop this reply and answer again" onClick={regenerate}><RotateCcw size={13} /> Regenerate</button>
+                      </div>
+                    )}
                   </div>
                 </div>)}
             {steps.length > 0 && (
@@ -238,7 +316,9 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
               <span className="composer-hint">Shift + Enter for a new line</span>
               {/* feat/v02-anywhere-voice + motion: one mic. Local/cloud speech-to-text with browser fallback, drawn as the voice orb */}
               <DictateButton orb disabled={busy} onText={(t) => { setText((v) => (v ? v + " " : "") + t); composerRef.current?.focus(); }} />
-              <button className="btn primary send" disabled={busy || !text.trim()} aria-label="Send">{busy ? <Loader2 size={15} className="spin" /> : <ArrowUp size={16} />}</button>
+              {busy
+                ? <button type="button" className="btn send" onClick={stopTurn} aria-label="Stop" title="Stop; what was written so far is kept"><Square size={15} /></button>
+                : <button className="btn primary send" disabled={!text.trim()} aria-label="Send"><ArrowUp size={16} /></button>}
             </div>
           </div>
         </form>

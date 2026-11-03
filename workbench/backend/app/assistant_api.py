@@ -39,6 +39,7 @@ class ChatIn(BaseModel):
     model: str | None = None
     channel: str = Field("web", pattern="^(web|cli|mobile)$")
     effort: str = Field("", pattern="^(|low|medium|high)$")  # how hard a plan's model thinks; "" = the plan's default
+    resend: bool = False      # this turn's user message is already stored (edit-and-resend); don't save it again
 
 
 IDEMPOTENCY_KEY = re.compile(r"^[A-Za-z0-9._:-]{8,200}$")
@@ -67,15 +68,62 @@ def chat(data: ChatIn, idempotency_key: str | None = Header(None)):
         db.run("UPDATE conversations SET model = ? WHERE id = ?", data.model, cid)
 
     async def events():
+        import asyncio
+
         from .adapters import EFFORT
 
         EFFORT.set(data.effort)  # this turn only: the stream runs in its own task
         yield {"type": "start", "conversation_id": cid}
-        ctx = assistant.Ctx(channel=data.channel, conversation_id=cid, request_key=key)
-        async for e in assistant.run_turn(ctx, data.message, data.model):
-            yield e
+        ctx = assistant.Ctx(channel=data.channel, conversation_id=cid, request_key=key, skip_save=data.resend)
+        task = asyncio.current_task()
+        if task is not None:
+            assistant.TURNS[cid] = task  # the Stop button cancels this task; finally() hands the slot back
+        try:
+            async for e in assistant.run_turn(ctx, data.message, data.model):
+                yield e
+        except asyncio.CancelledError:
+            return  # the stopped turn already saved and yielded its partial state
+        finally:
+            if assistant.TURNS.get(cid) is task:
+                del assistant.TURNS[cid]
 
     return sse(events())
+
+
+# Chat controls (feat/chat-controls): stop an in-flight turn, regenerate the last reply, edit and resend
+class StopIn(BaseModel):
+    conversation_id: int
+
+
+@router.post("/assistant/stop")
+def stop(data: StopIn):
+    """Cancel the conversation's in-flight turn. What was already written is kept and marked stopped."""
+    if not db.one("SELECT id FROM conversations WHERE id = ?", data.conversation_id):
+        raise HTTPException(404, "Conversation not found")
+    return {"stopped": assistant.stop_turn(data.conversation_id)}
+
+
+class MessageEditIn(BaseModel):
+    content: str = Field(..., min_length=1, max_length=50_000)
+
+
+@router.patch("/conversations/{cid}/messages/{mid}")
+def edit_message(cid: int, mid: int, data: MessageEditIn):
+    """Edit a sent user message and drop everything after it (edit and resend). The client then re-runs the turn."""
+    if not db.one("SELECT id FROM conversations WHERE id = ?", cid):
+        raise HTTPException(404, "Conversation not found")
+    if not data.content.strip():
+        raise HTTPException(400, "The message cannot be empty")
+    assistant.edit_user_message(cid, mid, data.content.strip())
+    return {"ok": True}
+
+
+@router.post("/conversations/{cid}/regenerate")
+def regenerate(cid: int):
+    """Drop the last assistant reply and everything after its question; the client re-runs the returned question."""
+    if not db.one("SELECT id FROM conversations WHERE id = ?", cid):
+        raise HTTPException(404, "Conversation not found")
+    return {"message": assistant.drop_last_reply(cid)}
 
 
 @router.get("/conversations")
