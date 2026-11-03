@@ -7,7 +7,7 @@ import { useSession } from '@/lib/session';
 import { hairline, space, type } from '@/lib/theme';
 import { tap } from '@/lib/haptics';
 import { confirmWithBiometrics } from '@/lib/guard';
-import { enqueue, flush, Queued, send } from '@/lib/link';
+import { enqueue, flush, linkKeys, OfflineError, Queued, send, upsertComputer } from '@/lib/link';
 import { loadComputers, loadQueue, saveComputers, saveQueue } from '@/lib/storage';
 import { newKey } from '@/lib/api';
 import { Btn, Empty, Label, Notice, Screen, Section, T, Tag } from '@/components/ui';
@@ -18,16 +18,16 @@ type Listing = { teammates: Mate[]; groups: { id: number; name: string }[]; draf
 type Folder = { path: string; folders: { name: string; path: string }[]; files: { name: string; path: string; size: number }[] };
 
 export default function Teammates() {
-  const { client, colors: c } = useSession();
+  const { client, colors: c, pairing } = useSession();
   const data = useRemote<Listing>((cl) => cl.req('GET', '/teammates'), 8000);
   const [path, setPath] = useState('');
   const [folder, setFolder] = useState<Folder | null>(null);
   const [handoff, setHandoff] = useState('');
   const [msg, setMsg] = useState('');
   const [queue, setQueue] = useState<Queued[]>([]);
-  const [computers, setComputers] = useState<{ id: string; name: string }[]>([]);
+  const [computers, setComputers] = useState<{ id: string; name: string; token: string }[]>([]);
 
-  useEffect(() => { loadQueue().then(setQueue); loadComputers().then((l) => setComputers(l.map((x) => ({ id: x.id, name: x.name })))); }, []);
+  useEffect(() => { loadQueue().then(setQueue); loadComputers().then((l) => setComputers(l.map((x) => ({ id: x.id, name: x.name, token: x.token })))); }, []);
   useEffect(() => {
     if (!client) return;
     client.req<Folder>('GET', `/files/browse?path=${encodeURIComponent(path)}`).then(setFolder).catch((e) => setMsg(e.message));
@@ -44,7 +44,17 @@ export default function Teammates() {
       const status = (e as { status?: number }).status;
       if (status !== 0) { setMsg(e instanceof Error ? e.message : String(e)); return; }
       const list = await loadComputers();
-      const q = enqueue(queue, list[0]?.id ?? 'local', { method, path: `/api/mobile${p}`, body, idempotency_key: newKey() }, label);
+      const comp = list.find((x) => x.token === pairing?.token) ?? list[0];
+      if (comp) {
+        // Not on the same Wi-Fi: try the encrypted link through the relay before queueing
+        try {
+          const r = await send(comp, { method, path: `/api/mobile${p}`, body, idempotency_key: newKey() }, (u, i) => fetch(u, i),
+            async (nc) => { await saveComputers(list.map((x) => (x.id === nc.id ? nc : x))); });
+          setMsg(r.status < 400 ? `${label}: done (encrypted link)` : String(r.body?.detail ?? `HTTP ${r.status}`));
+          return;
+        } catch (err) { if (!(err instanceof OfflineError)) { setMsg((err as Error).message); return; } }
+      }
+      const q = enqueue(queue, comp?.id ?? 'local', { method, path: `/api/mobile${p}`, body, idempotency_key: newKey() }, label);
       setQueue(q); await saveQueue(q);
       setMsg(`${label}: queued until your computer is reachable`);
     }
@@ -103,7 +113,17 @@ export default function Teammates() {
         {folder && !folder.folders.length && !folder.files.length ? <Empty title="No shared folders" body="Choose folders to share in Channels & phone on your computer." /> : null}
 
         <Section title="Linked computers" />
-        {computers.length ? computers.map((x) => <T key={x.id}>💻 {x.name}</T>) : <T style={{ color: c.muted }}>This computer only. Pair another from its Phone page.</T>}
+        {computers.map((x) => <T key={x.id}>🔒 {x.name} <Text style={{ color: c.muted }}>end-to-end encrypted</Text></T>)}
+        {pairing && !computers.some((x) => x.token === pairing.token) ? (
+          <Btn small label="Link this computer securely" onPress={async () => {
+            try {
+              const comp = await linkKeys(pairing.active, pairing.token, pairing.name, (u, i) => fetch(u, i));
+              const l = upsertComputer(await loadComputers(), comp);
+              await saveComputers(l); setComputers(l.map((x) => ({ id: x.id, name: x.name, token: x.token })));
+              setMsg('Encrypted link ready');
+            } catch (e) { setMsg((e as Error).message); }
+          }} />
+        ) : null}
       </ScrollView>
     </Screen>
   );

@@ -15,11 +15,15 @@ import { HankenGrotesk_500Medium } from '@expo-google-fonts/hanken-grotesk/500Me
 import { HankenGrotesk_600SemiBold } from '@expo-google-fonts/hanken-grotesk/600SemiBold';
 import { SessionProvider, useSession } from '@/lib/session';
 import { routeFor } from '@/lib/push';
+import { handleLockAction } from '@/lib/lockActions'; // feat/grok-style
+import { confirmWithBiometrics } from '@/lib/guard'; // feat/grok-style
 
 SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
 function Shell() {
-  const { colors, dark, status } = useSession();
+  const { colors, dark, status, client } = useSession();
+  const clientRef = React.useRef(client); // feat/grok-style: the lock-screen handler needs the current client
+  useEffect(() => { clientRef.current = client; }, [client]);
 
   useEffect(() => {
     SystemUI.setBackgroundColorAsync(colors.paper).catch(() => undefined);
@@ -33,6 +37,17 @@ function Shell() {
   useEffect(() => {
     if (Platform.OS === 'web') return;
     const open = (r: Notifications.NotificationResponse | null) => {
+      // feat/grok-style: Approve / Decline straight from the lock screen, with Face ID first
+      const data = r?.notification.request.content.data as Record<string, unknown> | undefined;
+      if (r && (r.actionIdentifier === 'approve' || r.actionIdentifier === 'decline')) {
+        handleLockAction(r.actionIdentifier, data, {
+          confirm: confirmWithBiometrics,
+          decide: async (id, approve) => { if (!clientRef.current) throw new Error('not paired'); return clientRef.current.decide(id, approve); },
+          open: (p) => router.push(p as never),
+          notify: (title, body) => Notifications.scheduleNotificationAsync({ content: { title, body }, trigger: null }),
+        }).catch(() => undefined);
+        return;
+      }
       const to = routeFor(r?.notification.request.content.data as Record<string, unknown> | undefined);
       if (to) router.push(to as never);
     };

@@ -100,6 +100,27 @@ def _save_page(title: str, body: str, ctx=None) -> dict:
     return {"page_id": p["id"], "title": p["title"], "open": f"/pages/{p['id']}"}
 
 
+def _offer_choices(question: str, options: str, ctx=None) -> dict:
+    opts = parse_choices(options)
+    if len(opts) < 2:
+        return {"shown": False, "error": "Give 2 to 6 options separated by ' | '."}
+    return {"shown": True, "question": question[:300], "options": opts,
+            "note": "The user sees these as buttons under your message. Wait for their pick."}
+
+
+def parse_choices(options) -> list[str]:
+    if isinstance(options, list):
+        raw = [str(o) for o in options]
+    else:
+        raw = str(options or "").split("|")
+    out: list[str] = []
+    for o in raw:
+        o = " ".join(o.split())[:80]
+        if o and o not in out:
+            out.append(o)
+    return out[:6]
+
+
 def register_tools() -> None:
     from .. import assistant
 
@@ -116,6 +137,10 @@ def register_tools() -> None:
         T("vault_list", "List what is in the user's Vault (labels, sites and masked hints only).", {}, _vault_list),
         T("remember_for_me", "Save something to this teammate's own memory (not shared with the user's other teammates).",
           {"content": S("what to remember")}, _remember_for_me, ("content",), effect="write"),
+        T("offer_choices", "Show the user 2-6 quick-reply buttons when you need them to pick one option. Use this instead of "
+          "listing options in text when a choice is needed.",
+          {"question": S("the question, short"), "options": S("2 to 6 short options separated by ' | '")},
+          _offer_choices, ("question", "options")),
         T("save_page", "Save a report, plan or dashboard as a Page the user can keep, edit, export and share.",
           {"title": S("page title"), "body": S("Markdown content")}, _save_page, ("title", "body"), effect="write"),
     ]

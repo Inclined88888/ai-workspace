@@ -17,3 +17,12 @@ Backend: `workbench/backend/app/teammates/`. Shared files get one tagged hook li
 | Channels | `GET /api/channels`, `PUT /api/channels/slack`, `PUT /api/channels/discord` (+ `/test`), `PUT /api/channels/telegram` | Slack Socket Mode with a manifest and steps; Discord Gateway (DMs and @mentions only, no privileged intents, invite link generated after Test); allowlist; idempotent per message. Inbound messages never send: anything outbound waits for approval in the app. |
 | More channels | `PUT /api/channels/matrix`, `/signal` (+ `/test`), `/whatsapp`, `/email`; public `GET/POST /hooks/whatsapp` | `more_channels.py`. Matrix /sync long poll (joins only on an allowed user's invite; no E2EE rooms). Signal via signal-cli-rest-api (native/normal mode) /v1/receive and /v2/send, Note to Self works. WhatsApp Cloud API webhook: verify token on GET, X-Hub-Signature-256 checked on POST. Email: subject tag + sender allowlist on the connected mail account, only mail after it is turned on, a reply per message. All allowlisted and idempotent per message. |
 | Phone link | `/api/link`, `/api/mobile/link/keys`, `/api/mobile/link/sealed`, `/api/mobile/files/*`, handoffs | X25519 + HKDF-SHA256 + ChaCha20-Poly1305. The device token travels inside the ciphertext. Replay-protected, `/api/mobile/*` only. LAN first, relay (`link_relay_url`, https only) as fallback. |
+
+## Chat history and quick replies
+
+The chat pane is rebuilt from the server (`GET /api/teammates/{id}/conversations/{cid}`), so a reload, or opening the
+same teammate on another computer, shows the same conversation with its drafts and secure forms. The latest
+conversation opens by default; **New chat** starts another and the picker switches between earlier ones (`?c=` in the URL).
+
+Quick-reply buttons only appear when the teammate calls its `offer_choices` tool (`question`, 2–6 `options`). A numbered
+list in plain text is never turned into buttons. The choices are stored with the conversation and come back after a reload.

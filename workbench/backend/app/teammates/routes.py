@@ -97,14 +97,26 @@ def teammate_chat(tid: int, body: ChatIn, idempotency_key: str | None = Header(N
     async def events():
         yield {"type": "start", "conversation_id": cid, "teammate_id": tid}
         ctx = assistant.Ctx(channel="web", conversation_id=cid, request_key=idempotency_key or "")
+        before = (db.one("SELECT MAX(id) AS m FROM messages WHERE conversation_id = ?", cid) or {}).get("m") or 0
         async for e in assistant.run_turn(ctx, body.message, t["model"] or None):
             yield e
+        last = store.history(tid, cid)["messages"]
+        if last and last[-1]["role"] == "assistant" and last[-1].get("choices") and last[-1]["id"] > before:
+            yield {"type": "choices", **last[-1]["choices"]}
         for f in vault.forms(cid):
             yield {"type": "secure_form", **f}
         for d in outbox.listing("draft", cid):
             yield {"type": "draft", **d}
 
     return sse(events())
+
+
+@router.get("/teammates/{tid}/conversations/{cid}")
+def teammate_history(tid: int, cid: int):
+    h = store.history(tid, cid)
+    h["drafts"] = outbox.listing("draft", cid)
+    h["forms"] = vault.forms(cid)
+    return h
 
 
 @router.post("/teammates/{tid}/notes")

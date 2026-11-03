@@ -394,3 +394,38 @@ def import_template(data: dict) -> dict:
     # Routines arrive switched off and written out in words, so nothing runs until the new owner looks at it.
     pending = [r.get("request") for r in (data.get("routines") or []) if isinstance(r, dict) and r.get("request")][:20]
     return {**t, "routines_to_review": pending}
+
+
+def history(tid: int, cid: int) -> dict:
+    """A teammate conversation as the chat pane shows it: user and assistant turns, with the choice buttons the
+    teammate offered (offer_choices tool calls), its drafts and secure forms attached to the turn that made them."""
+    import json as _json
+
+    from . import hooks
+
+    owner, gid = teammate_for(cid)
+    if not owner or owner["id"] != tid or gid:
+        raise HTTPException(404, "Conversation not found for this teammate")
+    out: list[dict] = []
+    for r in db.all("SELECT id, role, content, tool_calls, created_at FROM messages WHERE conversation_id = ? ORDER BY id", cid):
+        if r["role"] == "user":
+            out.append({"role": "user", "text": r["content"], "id": r["id"], "at": r["created_at"]})
+            continue
+        if r["role"] != "assistant":
+            continue
+        if not out or out[-1]["role"] != "assistant":
+            out.append({"role": "assistant", "text": "", "id": r["id"], "at": r["created_at"]})
+        a = out[-1]
+        if r["content"]:
+            a["text"] = f"{a['text']}\n\n{r['content']}" if a["text"] else r["content"]
+        for tc in _json.loads(r["tool_calls"] or "[]"):
+            f = tc.get("function", {})
+            if f.get("name") == "offer_choices":
+                try:
+                    args = _json.loads(f.get("arguments") or "{}")
+                except ValueError:
+                    args = {}
+                opts = hooks.parse_choices(args.get("options"))
+                if len(opts) >= 2:
+                    a["choices"] = {"question": str(args.get("question", ""))[:300], "options": opts}
+    return {"conversation_id": cid, "messages": out}
