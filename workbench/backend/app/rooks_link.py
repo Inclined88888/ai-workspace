@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 
 from . import db, learn
 from .bridge import require_bridge_key
+from . import assistant  # for run_turn
 
 router = APIRouter(prefix="/v1/rooks", dependencies=[Depends(require_bridge_key)])
 CHANNEL = "cli"  # listed in the app's chat history next to web, phone and Telegram chats
@@ -169,6 +170,57 @@ def conversation(data: ConversationIn):
     cid = db.run("INSERT INTO conversations(title, channel, external_id, model, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
                  title, CHANNEL, data.session, data.model if data.model not in ("", "default") else "", db.now(), db.now())
     return {"conversation_id": cid, "existing": False}
+
+
+class RunTurnIn(BaseModel):
+    conversation_id: int
+    prompt: str = Field(..., min_length=1, max_length=50000)
+    model: str | None = None
+    effort: str = Field("", pattern="^(|low|medium|high)$")
+
+
+@router.post("/run_turn")
+async def run_turn(data: RunTurnIn):
+    """Run one turn via the backend's shared agent loop.
+    Returns SSE stream of events: tool_call, tool_result, message, error, done, writing."""
+    from .api import sse
+    from .assistant import Ctx
+
+    conv = db.one("SELECT * FROM conversations WHERE id = ? AND channel = ?", data.conversation_id, CHANNEL)
+    if not conv:
+        raise HTTPException(404, "Conversation not found")
+    if data.model:
+        db.run("UPDATE conversations SET model = ? WHERE id = ?", data.model, data.conversation_id)
+
+    async def events():
+        ctx = assistant.Ctx(channel=CHANNEL, conversation_id=data.conversation_id, request_key="", skip_save=False, attachments=[])
+        try:
+            async for e in assistant.run_turn(ctx, data.prompt, data.model):
+                yield e
+        except Exception as e:
+            yield {"type": "error", "error": f"{e.__class__.__name__}: {e}"}
+            raise
+
+    return sse(events())
+
+
+class ToolResultIn(BaseModel):
+    delegation_id: int
+    ok: bool
+    result: str = ""
+
+
+@router.post("/tool_result")
+async def tool_result(data: ToolResultIn):
+    """Receive a tool execution result from the terminal for a delegated tool.
+    Resolves the future waiting in _run_turn so the turn can continue."""
+    fut = assistant._PENDING_DELEGATIONS.pop(data.delegation_id, None)
+    if fut is None:
+        raise HTTPException(404, "No pending delegation for this ID (already resolved or expired)")
+    if fut.done():
+        raise HTTPException(409, "Delegation already resolved")
+    fut.set_result((data.ok, data.result))
+    return {"ok": True}
 
 
 @router.post("/turn")

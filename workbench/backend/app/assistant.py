@@ -28,6 +28,27 @@ REPEAT_LIMIT = 3        # identical failing calls in a row before that exact cal
 REPEAT_FAULTS = ("tool_error", "bad_args", "rejected", "check_failed", "unknown_tool")
 HISTORY_MESSAGES = 40
 _BACKGROUND: set[asyncio.Task] = set()  # strong refs so background jobs (history summaries) are not garbage collected
+
+# Tool delegation: pending delegations waiting for terminal to execute
+# Key: delegation_id (action_id), Value: asyncio.Future that gets resolved with the tool result
+_PENDING_DELEGATIONS: dict[int, asyncio.Future] = {}
+
+
+class DelegationRequired(Exception):
+    """Raised by a tool handler to delegate execution to the terminal."""
+    def __init__(self, action_id: int, tool: str, tool_args: dict, effect: str):
+        self.action_id = action_id
+        self.tool = tool
+        self.tool_args = tool_args
+        self.effect = effect
+        super().__init__(f"Delegation required for {tool}")
+
+
+def _delegate_terminal_tool(name: str, **kwargs) -> None:
+    """Handler for terminal tools: raises DelegationRequired.
+    The _run_turn loop catches this, yields a tool_delegation event, and awaits the result."""
+    raise DelegationRequired(0, name, kwargs, "read")
+
 TURNS: dict[int, asyncio.Task] = {}     # in-flight turn task per conversation; the Stop button cancels it
 
 
@@ -464,6 +485,25 @@ TOOLS: list[Tool] = [
          {"result_id": S(), "offset": I("character offset to start at, default 0"), "find": S("phrase to search for")},
          lambda result_id, offset=0, find="", ctx=None: _read_tool_result(result_id, offset, find, ctx), ("result_id",),
          when=lambda ctx: _has_tool_results(ctx)),
+    # Terminal tools (cli channel only): executed by the terminal via delegation
+    Tool("read_file", "Read a text file in the project. Returns numbered lines.",
+         {"path": S(), "offset": I("first line, 1-based, default 1"), "limit": I("number of lines, default 400")},
+         _delegate_terminal_tool, ("path",), when=lambda ctx: ctx.channel == "cli", effect="read"),
+    Tool("list_files", "List files under a folder, optionally filtered by a glob such as '*.py'.",
+         {"path": S("folder, default '."), "pattern": S("glob on file name or relative path")},
+         _delegate_terminal_tool, (), when=lambda ctx: ctx.channel == "cli", effect="read"),
+    Tool("search", "Search file contents with a regular expression. Returns file:line: text.",
+         {"pattern": S(), "path": S("folder or file, default '."), "glob": S("only files matching this glob"), "ignore_case": B()},
+         _delegate_terminal_tool, ("pattern",), when=lambda ctx: ctx.channel == "cli", effect="read"),
+    Tool("edit_file", "Replace exact text in a file. old_text must appear exactly once unless replace_all is true. Read the file first so old_text matches exactly.",
+         {"path": S(), "old_text": S(), "new_text": S(), "replace_all": B()},
+         _delegate_terminal_tool, ("path", "old_text", "new_text"), when=lambda ctx: ctx.channel == "cli", effect="write"),
+    Tool("write_file", "Create a file or overwrite it with the given content.",
+         {"path": S(), "content": S()},
+         _delegate_terminal_tool, ("path", "content"), when=lambda ctx: ctx.channel == "cli", effect="write"),
+    Tool("run_command", "Run a shell command in the project root and return its exit code and output. Use it to run tests, builds, git and other CLIs.",
+         {"command": S(), "timeout": I("seconds, default 120")},
+         _delegate_terminal_tool, ("command",), when=lambda ctx: ctx.channel == "cli", effect="command"),
 ]
 from . import work_tools  # noqa: E402 - files, analysis and work sites
 
@@ -666,6 +706,14 @@ async def _run_tool(name: str, raw_args: str, ctx: Ctx, approved: bool = False) 
         if untrusted:
             ctx.tainted = True
             out = UNTRUSTED_NOTE.format(name=name) + out
+    except DelegationRequired as e:
+        # Terminal tool delegation: create action, store future, re-raise with action_id
+        aid = actions.add("tool_call", "delegated", trace=ctx.trace(), tool=e.tool, effect=e.effect,
+                          args=json.dumps(e.tool_args), detail=f"Delegated to terminal: {e.tool}")
+        fut = asyncio.get_running_loop().create_future()
+        _PENDING_DELEGATIONS[aid] = fut
+        # Re-raise with the action_id so _run_turn can yield delegation event
+        raise DelegationRequired(aid, e.tool, e.tool_args, e.effect) from None
     except HTTPException as e:
         detail = str(e.detail)
         fault = "tool_error" if e.status_code >= 500 or _ENVIRONMENT.search(detail) else "rejected"
@@ -970,11 +1018,29 @@ async def _run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> Async
             ctx.tool_calls += 1
             ctx.from_text = bool(msg.get("parsed_from_text"))
             yield {"type": "tool_call", "name": fn["name"], "args": fn["arguments"][:500], "from_text": bool(msg.get("parsed_from_text"))}
-            ok, out = await run_tool(fn["name"], fn["arguments"], ctx)
+            try:
+                ok, out = await run_tool(fn["name"], fn["arguments"], ctx)
+            except DelegationRequired as e:
+                # Terminal tool delegation: yield event and wait for terminal to execute
+                yield {"type": "tool_delegation", "id": e.action_id, "tool": e.tool, "args": e.tool_args, "effect": e.effect}
+                fut = _PENDING_DELEGATIONS.pop(e.action_id, None)
+                if fut is None:
+                    out = "Error: delegation future not found"
+                    ok = False
+                else:
+                    try:
+                        ok, out = await asyncio.wait_for(fut, timeout=300)
+                    except asyncio.TimeoutError:
+                        out = "Error: delegation timed out waiting for terminal"
+                        ok = False
+                _save(ctx.conversation_id, "tool", out, tool_call_id=call["id"], name=fn["name"])
+                r = ctx.receipts[-1] if ctx.receipts else {}
+                yield {"type": "tool_result", "name": fn["name"], "ok": ok, "preview": out[:300],
+                       "receipt": {"verified": r.get("verified"), "evidence": r.get("evidence", "")}}
+                if not ok:
+                    pass
+                continue
             _save(ctx.conversation_id, "tool", out, tool_call_id=call["id"], name=fn["name"])
-            r = ctx.receipts[-1] if ctx.receipts else {}
-            yield {"type": "tool_result", "name": fn["name"], "ok": ok, "preview": out[:300],
-                   "receipt": {"verified": r.get("verified"), "evidence": r.get("evidence", "")}}
             if r.get("outcome") in ("held", "denied"):
                 yield {"type": "approval_required" if r["outcome"] == "held" else "approval_denied", "id": r["action_id"],
                        "tool": fn["name"], "args": fn["arguments"][:500], "effect": r["effect"], "reason": r.get("reason") or HOLD_REASON}
