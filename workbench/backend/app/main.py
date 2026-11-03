@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, HTTPException
@@ -32,12 +33,22 @@ from .security import check_bearer
 from .tools import tools
 
 
+def _migrate_keychain() -> None:
+    from .security import migrate_keychain_refs
+
+    try:
+        migrate_keychain_refs()
+    except Exception:  # noqa: BLE001 - never block startup on this; the refs still read through the keychain
+        logging.getLogger("workbench").warning("Keychain migration failed", exc_info=True)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     db.init()
     compression.init_compression_table()  # AIW-Phase1
     compression.init_summary_table()  # rolling summary of messages that fall out of the window
     finetune.ensure()  # phase 4
+    _migrate_keychain()
     llm.seed_connections()
     catalog.refresh_in_background()  # newer model facts (context, price, vision) at most once a day
     api.recover_interrupted()

@@ -78,6 +78,34 @@ def seal(name: str, value: str) -> str:
     return encrypt(value)
 
 
+_REF_COLUMNS = (("connections", "secret_enc"), ("linked_accounts", "secret_enc"), ("sites", "secret_enc"),
+                ("vault_items", "secret_ref"))
+
+
+def migrate_keychain_refs() -> int:
+    """With the keychain switched off (an ad hoc signed desktop build, see desktop/sidecar), move every secret still
+    kept as a keychain reference into the encrypted database, so macOS asks at most once and never again. A secret
+    the keychain will not give back (denied, deleted) is left as it was. Returns how many were moved."""
+    from . import keychain
+
+    if keychain.enabled():
+        return 0
+    moved = 0
+    for table, col in _REF_COLUMNS:
+        try:
+            rows = db.all(f"SELECT id, {col} AS ref FROM {table} WHERE {col} LIKE 'keychain:%'")
+        except Exception:  # noqa: BLE001 - the table is not there in this install
+            continue
+        for r in rows:
+            value = keychain.get(r["ref"])
+            if value:
+                db.run(f"UPDATE {table} SET {col} = ? WHERE id = ?", encrypt(value), r["id"])
+                moved += 1
+    if moved:
+        log.info("Moved %d secrets from the keychain into the encrypted database", moved)
+    return moved
+
+
 def store_connection_secret(cid: int, value: str) -> None:
     """Save a model connection's key: in the OS keychain when the desktop app enabled it, else encrypted in SQLite."""
     from . import keychain

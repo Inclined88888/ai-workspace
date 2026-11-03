@@ -78,9 +78,45 @@ def _keyring():
     return keyring
 
 
+def keychain_unstable() -> bool:
+    """True for a macOS build signed ad hoc (no Apple Team ID). macOS ties keychain access to the app's code identity,
+    and an ad hoc build gets a new identity on every build, so each update would ask for the login password once per
+    stored key. Such builds keep secrets in the 0600 file instead. WORKBENCH_FORCE_KEYCHAIN=1 overrides."""
+    if sys.platform != "darwin" or not getattr(sys, "frozen", False) or os.environ.get("WORKBENCH_FORCE_KEYCHAIN"):
+        return False
+    try:
+        info = subprocess.run(["codesign", "-dv", sys.executable], capture_output=True, text=True, timeout=10).stderr
+    except Exception:  # noqa: BLE001 - no codesign: assume a normal, stable signature
+        return False
+    return "Signature=adhoc" in info or "TeamIdentifier=not set" in info
+
+
+def _write_secret_file(path: Path, values: dict) -> None:
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(values, f)
+
+
 def load_master_secrets(data_dir: Path) -> tuple[dict, str]:
     """APP_SECRET and TOOLS_API_KEY: (values, where they live: "os-keychain" or "file")."""
     wanted = {"APP_SECRET": 48, "TOOLS_API_KEY": 32, "BRIDGE_API_KEY": 32}
+    path = data_dir / ".desktop-secrets.json"
+    if keychain_unstable():
+        values = json.loads(path.read_text()) if path.exists() else {}
+        if any(name not in values for name in wanted):
+            # One last keychain read moves secrets an older build saved there (macOS asks once), so the app keeps its
+            # sessions and saved keys; after that this build never touches the keychain for its own secrets.
+            kr = _keyring()
+            for name, size in wanted.items():
+                old = ""
+                if kr is not None and not values.get(name):
+                    try:
+                        old = kr.get_password(SERVICE, name) or ""
+                    except Exception:  # noqa: BLE001 - denied or locked: start fresh for this one
+                        old = ""
+                values[name] = values.get(name) or old or secrets.token_urlsafe(size)
+            _write_secret_file(path, values)
+        return {name: values[name] for name in wanted}, "file"
     kr = _keyring()
     if kr is not None:
         values = {}
@@ -91,13 +127,10 @@ def load_master_secrets(data_dir: Path) -> tuple[dict, str]:
                 kr.set_password(SERVICE, name, v)
             values[name] = v
         return values, "os-keychain"
-    path = data_dir / ".desktop-secrets.json"
     values = json.loads(path.read_text()) if path.exists() else {}
     if any(name not in values for name in wanted):
         values = {name: values.get(name) or secrets.token_urlsafe(size) for name, size in wanted.items()}
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as f:
-            json.dump(values, f)
+        _write_secret_file(path, values)
     return values, "file"
 
 

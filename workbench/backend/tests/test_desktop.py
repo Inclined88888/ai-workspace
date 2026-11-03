@@ -170,3 +170,19 @@ def test_an_api_key_connection_without_a_key_says_so_and_never_calls_out(client)
         credential(conn)
     reason, park, fallback = router.classify(e.value)
     assert reason.startswith("no key saved") and park == 0 and fallback
+    db.run("DELETE FROM connections WHERE id = ?", cid)
+
+
+def test_keychain_refs_move_into_the_database_when_the_keychain_is_switched_off(client, desktop, monkeypatch, fake_url):
+    """An ad hoc signed desktop build turns the keychain off; keys an older build kept there must keep working."""
+    from app import config, db
+    from app.security import decrypt, migrate_keychain_refs
+
+    r = client.post("/api/providers", json={"name": "Keyed", "kind": "openai", "base_url": fake_url, "api_key": "sk-moved-0001"})
+    pid = r.json()["id"]
+    assert db.one("SELECT secret_enc FROM connections WHERE id = ?", pid)["secret_enc"].startswith("keychain:")
+    monkeypatch.setattr(config, "SECRET_BACKEND", "fernet")
+    assert migrate_keychain_refs() >= 1
+    stored = db.one("SELECT secret_enc FROM connections WHERE id = ?", pid)["secret_enc"]
+    assert not stored.startswith("keychain:") and decrypt(stored) == "sk-moved-0001"
+    assert migrate_keychain_refs() == 0
