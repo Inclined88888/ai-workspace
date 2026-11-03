@@ -477,6 +477,7 @@ def hold_reason(t: Tool, ctx: Ctx, args: dict) -> str:
 
 
 AUTOMATION_REASON = "An automation started this, so anything that sends or changes something outside the app waits for the user's OK."  # feat/v02-automations
+MCP_ASK_REASON = "It runs a tool on a connected MCP server, which can change things outside the app, so it needs the user's OK."
 ALWAYS_ASK_REASON = "It changes something on a website, which always needs the user's OK."
 LEARNED_ROUTINE_REASON = "This routine was set up from a suggestion, so it never sends or changes anything outside on its own."
 
@@ -495,8 +496,8 @@ def available_tools(ctx: Ctx) -> list[Tool]:
 
     tools = [t for t in TOOLS if t.when(ctx)]
     # MCP servers the user connected (feat/mcp-client): tools join the loop as mcp__<server>__<tool>. Output is
-    # third party content, so every MCP tool taints the turn (ctx.tainted) and anything external/persistent after
-    # it waits for the user; the calls themselves are not held just for being MCP.
+    # third party content, so every MCP tool taints the turn (ctx.tainted). A server can do anything (push code, send
+    # mail), so every call waits for the user's OK unless the server marks the tool readOnlyHint, like Claude Code.
     for spec in mcp_client.tool_specs():
         props = (spec.get("parameters") or {}).get("properties") or {}
         req = tuple((spec.get("parameters") or {}).get("required") or ())
@@ -507,7 +508,10 @@ def available_tools(ctx: Ctx) -> list[Tool]:
 
         _mcp_call.__signature__ = inspect.Signature(
             [inspect.Parameter(p, inspect.Parameter.POSITIONAL_OR_KEYWORD) for p in props])
-        tools.append(Tool(spec["name"], spec["description"], props, _mcp_call, req, untrusted=True))
+        ro = bool(spec.get("read_only"))
+        tools.append(Tool(spec["name"], spec["description"], props, _mcp_call, req, untrusted=True,
+                          effect="read" if ro else "external",
+                          confirm=None if ro else (lambda _a: MCP_ASK_REASON)))
     # Only show complete_goal when there's an active goal for this conversation
     has_active_goal = goals.get_by_conversation(ctx.conversation_id) is not None
     if not has_active_goal:

@@ -455,7 +455,8 @@ def tool_specs() -> list[dict]:
         for t in s.tools:
             specs.append({"name": f"mcp__{sname}__{t['name']}"[:64],
                           "description": f"[MCP {sname}] {t.get('description', '')}"[:1024],
-                          "parameters": t.get("inputSchema") or {"type": "object", "properties": {}}})
+                          "parameters": t.get("inputSchema") or {"type": "object", "properties": {}},
+                          "read_only": bool((t.get("annotations") or {}).get("readOnlyHint"))})
     return specs
 
 

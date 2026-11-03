@@ -37,7 +37,7 @@ for line in sys.stdin:
         pass
     elif method == "tools/list":
         send({"jsonrpc": "2.0", "id": mid, "result": {"tools": [
-            {"name": "echo", "description": "Echo the text back", "inputSchema":
+            {"name": "echo", "description": "Echo the text back", "annotations": {"readOnlyHint": True}, "inputSchema":
              {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}},
             {"name": "explode", "description": "Always fails", "inputSchema": {"type": "object", "properties": {}}}]}})
     elif method == "tools/call":
@@ -201,6 +201,20 @@ def test_mcp_tool_runs_in_the_assistant_loop_and_taints(client, stdio_script):
         assert any("Untrusted content" in m["content"] and "echo:from the model" in m["content"] for m in tool_msgs)
     finally:
         SCRIPT[:] = []
+        _del(client, srv["id"])
+
+
+def test_mcp_tools_without_read_only_hint_wait_for_approval(client, stdio_script):
+    from app import assistant
+
+    srv = _add(client, "fakegate", command=sys.executable, args=[stdio_script])
+    try:
+        ctx = assistant.Ctx(channel="web", conversation_id=1)
+        tools = {t.name: t for t in assistant.available_tools(ctx)}
+        assert assistant.hold_reason(tools["mcp__fakegate__echo"], ctx, {"text": "x"}) == ""
+        assert assistant.hold_reason(tools["mcp__fakegate__explode"], ctx, {}) == assistant.MCP_ASK_REASON
+        assert tools["mcp__fakegate__explode"].effect == "external"
+    finally:
         _del(client, srv["id"])
 
 
