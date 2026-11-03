@@ -42,8 +42,19 @@ def step(msg: str) -> None:
     print(f"\n\033[1m{msg}\033[0m" if not WIN else f"\n== {msg}", flush=True)
 
 
-def run(cmd: list[str], **kw) -> None:
-    subprocess.run(cmd, check=True, **kw)
+def run(cmd: list[str], log_file: Path | None = None, **kw) -> None:
+    """Run a command, capturing output to log_file. On failure, print the log path and last lines."""
+    if log_file:
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        with log_file.open("a", encoding="utf-8") as f:
+            f.write(f"$ {' '.join(cmd)}\n")
+            try:
+                subprocess.run(cmd, check=True, stdout=f, stderr=subprocess.STDOUT, **kw)
+            except subprocess.CalledProcessError as e:
+                f.write(f"\n--- Command failed with exit code {e.returncode} ---\n")
+                raise
+    else:
+        subprocess.run(cmd, check=True, **kw)
 
 
 def uv() -> str:
@@ -127,10 +138,11 @@ def ensure_frontend(src: Path, home: Path) -> None:
         except Exception as e:  # noqa: BLE001 - explain and stop
             sys.exit(f"This copy has no prebuilt web UI and Node.js could not be fetched ({e}). Use the release zip, or "
                      "install Node.js 20+ (nodejs.org) and run the installer again.")
-    say("web UI: building (one or two minutes)…")
+    log_file = home / "logs" / "frontend-build.log"
+    say(f"web UI: building (one or two minutes, log: {log_file})…")
     fe = src / "workbench" / "frontend"
-    run([npm, "ci", "--no-audit", "--no-fund", "--loglevel=error"], cwd=fe, env=env)
-    run([npm, "run", "build"], cwd=fe, env=env)
+    run([npm, "ci", "--no-audit", "--no-fund", "--loglevel=error"], cwd=fe, env=env, log_file=log_file)
+    run([npm, "run", "build"], cwd=fe, env=env, log_file=log_file)
     if fetched:
         shutil.rmtree(home / "cache" / "node", ignore_errors=True)
 
@@ -345,7 +357,7 @@ def ensure_path(bin_dir: Path) -> str:
         if "added by the AI Workspace installer" not in text:
             with open(rc, "a") as fh:
                 fh.write(("\n" if text and not text.endswith("\n") else "") + line)
-    return f"Open a new terminal window (or run: export PATH=\"{bin_dir}:$PATH\") so the commands are found."
+    return f"Added {bin_dir} to PATH in your shell config. Restart your terminal (or run: source {rcs[0]}) so the commands are found."
 
 
 def main() -> int:
@@ -394,8 +406,17 @@ def main() -> int:
         channel = None
     (home / "install.json").write_text(json.dumps({**({"channel": channel} if channel else {}), "src": str(src), "app": str(app), "python": str(py), "browser": browser,
                                                    "native": native, "bin": str(bin_dir)}, indent=1))
-    print("\nDone. Start it with:\n\n    ai-workspace\n\nAlso installed:  rooks (coding agent)   rooks-browser (browser agent)"
-          + ("" if a.no_desk else "   rooks-desk (computer use)"))
+    print("\nDone. The app is ready.")
+    print("\nWhat happens next:")
+    print("  1. Run 'ai-workspace' (or click the AI Workspace shortcut) to open the app.")
+    print("  2. On first launch, you'll pick a theme and choose how to think:")
+    print("     - Free cloud (recommended): paste a free Gemini or Groq key (2 minutes, no card)")
+    print("     - Your subscription: sign in with ChatGPT, Claude Code, or GitHub Copilot")
+    print("     - Paste API keys: OpenAI, Anthropic, xAI, Google, Groq, OpenRouter, etc.")
+    print("     - Local Ollama: private and offline (needs a strong computer)")
+    print("  3. After connecting a model, you land in Chat. Ask anything.")
+    print("\nAlso installed:")
+    print("  rooks (coding agent)   rooks-browser (browser agent)" + ("   rooks-desk (computer use)" if not a.no_desk else ""))
     if not a.no_desk:
         for line in desk_notes():
             print(f"\n{line}" if not line.startswith("  ") else line)

@@ -101,7 +101,7 @@ function FreeStep({ info, onBack, onDone }: { info: Record<string, KeyInfo>; onB
           <li>
             <span className="free-n">2</span>
             <span className="grow col" style={{ gap: 8 }}>
-              <span>Copy the key, come back, and it lands here.</span>
+              <span>Copy the key, come back, and paste it here.</span>
               <KeyField value={key} onChange={setKey} expect={info[pick]?.prefix} onDetected={onDetected} />
             </span>
           </li>
@@ -137,11 +137,11 @@ function SubscriptionStep({ onBack, onDone, onKey }: { onBack: () => void; onDon
       <div>
         <div className="kicker">Your subscription</div>
         <h1>Sign in with your plan</h1>
-        <p className="muted">No API key: use the plan you already pay for, where the provider allows it.</p>
+        <p className="muted">No API key needed. Use the plan you already pay for, where the provider allows it.</p>
       </div>
       {subs === null && <Loader2 size={16} className="spin" />}
       {claude && <PlanCard agent="claude" title="Claude" onConnected={start}
-        blurb={`For Claude ${claude.plans}. Uses Claude Code, Anthropic's own app: we set it up and open Anthropic's sign-in. Answers count against your plan.`} />}
+        blurb={`For Claude ${claude.plans}. Uses Claude Code (Anthropic's own app): we set it up and open Anthropic's sign-in. Answers count against your plan.`} />}
       {chatgpt && <ChatGPTCard sub={chatgpt} onConnected={start} />}
       {copilot && <PlanCard agent="copilot" title="GitHub Copilot" onConnected={start}
         blurb={`For Copilot ${copilot.plans}. Uses GitHub's own Copilot CLI: we set it up and open GitHub's sign-in. Each answer uses your plan's premium requests.`} />}
@@ -380,13 +380,13 @@ export default function Welcome({ onDone }: { onDone: () => void }) {
                 <Cloud size={20} />
                 <span className="grow">
                   <span className="row" style={{ gap: 10 }}><strong>Free cloud</strong><span className="tag-rec">Recommended</span></span>
-                  <span className="muted small">A free Gemini or Groq key. Two minutes, no card.</span>
+                  <span className="muted small">A free Gemini or Groq key. Two minutes, no card. The app falls back between them.</span>
                 </span>
                 <ArrowRight size={16} />
               </button>
               <button className="welcome-option" onClick={() => setStep("subscription")} disabled={!presets}>
                 <Sparkles size={20} />
-                <span className="grow"><strong>Sign in with your subscription</strong><span className="muted small">ChatGPT, Claude or GitHub Copilot: sign in with the plan you already pay for. No key needed.</span></span>
+                <span className="grow"><strong>Sign in with your subscription</strong><span className="muted small">ChatGPT, Claude, or GitHub Copilot: sign in with the plan you already pay for. No key needed.</span></span>
                 <ArrowRight size={16} />
               </button>
               <button className="welcome-option" onClick={() => { setKeyPreset(undefined); setStep("key"); }} disabled={!presets}>
@@ -398,7 +398,7 @@ export default function Welcome({ onDone }: { onDone: () => void }) {
                 <Cpu size={20} />
                 <span className="grow">
                   <span className="row" style={{ gap: 10 }}><strong>Local Ollama</strong><span className="tag-adv">Advanced</span></span>
-                  <span className="muted small">Private and offline. Needs a strong computer; it will run warm.</span>
+                  <span className="muted small">Private and offline. Models run on your machine. Needs a strong computer; it will run warm.</span>
                 </span>
                 <ArrowRight size={16} />
               </button>
