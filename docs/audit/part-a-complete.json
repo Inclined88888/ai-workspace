@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "base_commit": "64980bf9e4a1dca299dffa2bf30d15fe4f0c5369",
+  "results": [
+    {
+      "finding": 1,
+      "title": "Agent loop duplication",
+      "verdict": "PROVEN",
+      "evidence": "Separate entrypoints: Agent.run (rooks-code/agent.py:253) vs assistant.run_turn (workbench/backend/app/assistant.py:828). Both executed with scripted model, distinct call stacks.",
+      "command": "/Users/azad_mavi/.venvs/aiw/bin/python scripts/audit/check_core.py --finding 1"
+    },
+    {
+      "finding": 2,
+      "title": "Tool coverage asymmetry",
+      "verdict": "PROVEN",
+      "evidence": "Terminal 14 tools (read_file, edit_file, run_command, start_background, check_background, stop_background, task, todo, web_search, web_fetch, list_files, search, write_file, remember). Web 65 tools. Registries dynamically inspected from actual Agent.tool_specs() and available_tools().",
+      "command": "/Users/azad_mavi/.venvs/aiw/bin/python scripts/audit/check_core.py --finding 2"
+    },
+    {
+      "finding": 3,
+      "title": "Diff review missing on browser/app",
+      "verdict": "PROVEN",
+      "evidence": "Assistant.tsx renders tool calls as name+args only (lines 273, 290-294). No diff preview component for pre-apply review. Code.tsx DiffView is for CLI agent run diffs on Code page, not for Assistant chat tool calls.",
+      "command": "grep -n diff /Users/azad_mavi/aiw-wt/session-approval-slice/workbench/frontend/src/pages/Assistant.tsx"
+    },
+    {
+      "finding": 4,
+      "title": "Terminal parallelism gap",
+      "verdict": "REFUTED",
+      "evidence": "Two start_background jobs launched via registered tool; measured overlap 2.47s (sleep 4s each). Exit codes [0,0]. task tool executed real nested sub-agent with read-only registry (5 tools offered). Extras.subagent synchronously calls sub.run.",
+      "command": "/Users/azad_mavi/.venvs/aiw/bin/python scripts/audit/check_core.py --finding 4"
+    },
+    {
+      "finding": 5,
+      "title": "Cross-surface session continuity",
+      "verdict": "REFUTED",
+      "evidence": "Learning.after posted two terminal turns via TestClient to /v1/rooks/turn → same conversation_id=3, persisted in SQLite, visible via authenticated /api/conversations lookup. Session ID propagated as external_id.",
+      "command": "/Users/azad_mavi/.venvs/aiw/bin/python scripts/audit/check_core.py --finding 5"
+    },
+    {
+      "finding": 6,
+      "title": "Anomaly-first layout",
+      "verdict": "PROVEN",
+      "evidence": "Dashboard approvals above fold: 0. Assistant approvals above fold: 0. Fixed header with approvals: false. Approvals rendered in chat stream (Assistant.tsx line 298), not in fixed header above fold.",
+      "command": "playwright axe-core test on /#/ and /#/assistant"
+    },
+    {
+      "finding": 7,
+      "title": "App missing terminal",
+      "verdict": "UNKNOWN",
+      "evidence": "Desktop Tauri registry has no interactive terminal command; Rust sources have zero openpty/forkpty/portable.pty tokens. Backend plan_signin.py spawns real PTY via pty.openpty/Popen for credential discovery (exercised, works). No desktop UI command exists for general interactive shell.",
+      "command": "/Users/azad_mavi/.venvs/aiw/bin/python scripts/audit/check_core.py --finding 7"
+    },
+    {
+      "finding": 8,
+      "title": "Screen reader accessibility",
+      "verdict": "PROVEN",
+      "evidence": "axe-core on Assistant page: 2 violations (missing main landmark, missing h1). No ARIA live regions for approvals/steps. Terminal: not tested with VoiceOver/Orca harness; prompt_toolkit/Rich ARIA not verified.",
+      "command": "playwright axe-core test on /#/assistant"
+    }
+  ]
+}
