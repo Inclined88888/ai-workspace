@@ -22,6 +22,7 @@ from . import finetune, media  # noqa: E402 - phase 4
 from . import catalog  # noqa: E402 - model facts from models.dev
 from . import companion  # noqa: E402 - Companion: every agent's live steps, approvals and questions in one place
 from .mcp_server import mcp, mcp_app
+from . import mcp_client_api  # noqa: E402 - feat/mcp-client: Workbench as an MCP client (the user's own servers)
 from .adapt import hooks as adapt_hooks, routes as adapt_routes  # adapt and learn (feat/learn-and-adapt)
 from . import auto_tools, automations, jobs, v02_api  # noqa: E402 - feat/v02-automations
 from .team import loop as team_loop, routes as team_routes, tools as team_tools  # feat/team-lead
@@ -138,6 +139,7 @@ app.include_router(browser_proxy.router)
 app.include_router(desk_proxy.router)
 app.include_router(work_api.router)  # Files (any file, analysis, sandboxed Python) and Sites (any website the user works in)
 app.include_router(skills_hub.router)  # Skills from GitHub behind the security gate
+app.include_router(mcp_client_api.router)  # feat/mcp-client: connect Workbench to the user's own MCP servers
 app.include_router(cli_agents_api.router)  # hand jobs to the user's own Claude Code / Codex CLI
 app.include_router(plan_signin.router)  # install and sign in to Claude Code / Codex from the app
 app.include_router(adapt_routes.router)  # /api/learn: What I know about you, Show me how, suggestions
