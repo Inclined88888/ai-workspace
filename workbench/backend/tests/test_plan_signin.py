@@ -270,3 +270,52 @@ def test_claude_plan_is_asked_for_and_shown_its_own_tool_format():
     assert "<invoke name=\"TOOL\">" in system and "<tool_call>" not in prompt
     calls, _ = parse_text_tool_calls(prompt.split("ASSISTANT:\n", 1)[1].split("TOOL RESULT")[0], {"todo"})
     assert json.loads(calls[0]["function"]["arguments"]) == {"items": [{"text": "x", "status": "doing"}]}  # round-trips
+
+
+FAKE_STREAMING_CLAUDE = r'''#!{py}
+import json, sys
+a = sys.argv[1:]
+sys.stdin.read()
+if "stream-json" not in a:
+    print(json.dumps({{"type": "result", "result": "whole answer", "usage": {{"input_tokens": 3, "output_tokens": 2}}}}))
+    sys.exit(0)
+text = 'Reading the file first.\n<function_calls>\n<invoke name="read_file">\n<parameter name="path">a.py</parameter>\n</invoke>\n</function_calls>'
+for piece in ("Reading the ", "file first.\n<func", "tion_calls>\n<invoke name=\"read_file\">", "\n<parameter name=\"path\">a.py</parameter>\n</invoke>\n</function_calls>"):
+    print(json.dumps({{"type": "stream_event", "event": {{"type": "content_block_delta", "index": 0, "delta": {{"type": "text_delta", "text": piece}}}}}}), flush=True)
+print(json.dumps({{"type": "result", "result": text, "usage": {{"input_tokens": 5, "output_tokens": 9}}}}))
+'''
+
+
+def test_a_plan_turn_with_tools_streams_its_prose_through_v1_and_hides_the_call_markup(client, tmp_path, monkeypatch):
+    from app import config, db
+
+    fake = tmp_path / "claude"
+    fake.write_text(FAKE_STREAMING_CLAUDE.format(py=sys.executable))
+    fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setenv("WORKBENCH_CLAUDE_BIN", str(fake))
+    monkeypatch.setattr(config, "BROWSER_API_KEY", "k" * 32)
+    cid = db.run("INSERT INTO connections(name, auth_kind, protocol, base_url, secret_enc, residency, created_at) "
+                 "VALUES ('Claude plan (Claude Code)', 'cli_subscription', 'cli_plan', 'cli://claude', '', 'cloud', 't')")
+    try:
+        body = {"model": f"{cid}/opus", "stream": True, "messages": [{"role": "user", "content": "fix a.py"}],
+                "tools": [{"type": "function", "function": {"name": "read_file", "parameters": {"type": "object"}}}]}
+        r = client.post("/v1/chat/completions", json=body, headers={"Authorization": "Bearer " + "k" * 32})
+        chunks = [json.loads(line[6:]) for line in r.text.splitlines() if line.startswith("data: {")]
+        text = "".join(c["choices"][0]["delta"].get("content") or "" for c in chunks if c.get("choices"))
+        calls = [tc for c in chunks if c.get("choices") for tc in c["choices"][0]["delta"].get("tool_calls") or []]
+        assert text.startswith("Reading the file first.") and "<" not in text
+        texts = [c["choices"][0]["delta"].get("content") for c in chunks if c.get("choices") and c["choices"][0]["delta"].get("content")]
+        assert len(texts) >= 2  # it arrived in pieces, not as one block at the end
+        assert calls[0]["function"]["name"] == "read_file" and json.loads(calls[0]["function"]["arguments"]) == {"path": "a.py"}
+        assert chunks[-2]["choices"][0]["finish_reason"] == "tool_calls" if chunks[-2].get("choices") else True
+    finally:
+        db.run("DELETE FROM connections WHERE id = ?", cid)
+
+
+def test_claude_habit_tool_names_and_unclosed_xml_still_become_calls():
+    from app.adapters import parse_text_tool_calls
+
+    calls, left = parse_text_tool_calls('Checking.\n<function_calls>\n<invoke name="Read">\n<parameter name="file_path">a.md</parameter>\n'
+                                        '</invoke>\n<invoke name="Bash"><parameter name="command">ls', {"read_file", "run_command"})
+    assert [c["function"]["name"] for c in calls] == ["read_file", "run_command"] and left == "Checking."
+    assert json.loads(calls[1]["function"]["arguments"]) == {"command": "ls"}

@@ -136,3 +136,36 @@ def test_claude_native_xml_tool_calls_are_understood():
     assert [(c.name, c.arguments) for c in calls] == [("todo", {"items": [{"text": "a", "status": "doing"}]}),
                                                       ("read_file", {"path": "rooks_code/tui.py", "limit": 40})]
     assert rest == "Starting."
+
+
+def test_claude_style_tool_lines_and_modes(tmp_path, capsys):
+    import io
+
+    from rooks_code import tui
+    from rooks_code.providers import ToolCall
+    from rooks_code.tools import Plan
+
+    out = io.StringIO()
+    ui = tui.RichUI(out=out, color=False)
+    ui.console.width = 100
+    ui.tool_note("read src/app.py", read=True)
+    ui.tool_note("read-only")  # approval chatter stays off the screen
+    plan = Plan("command", "run: pytest -q", "pytest -q", lambda: ("", None, ""))
+    ui.show_plan(plan)
+    ui.tool_result(plan, "exit code 0\n3 passed", "ok")
+    ui.assistant("Done. `/version` works.<function_calls><invoke name=\"x\"></invoke></function_calls>", final=True)
+    text = out.getvalue() + capsys.readouterr().out
+    assert "⏺ Read(src/app.py)" in text and "⏺ Bash(pytest -q)" in text and "3 passed" in text and "* Done." in text
+    assert "read-only" not in text and "function_calls" not in text and "Done." in text
+
+    class S:
+        dry_run = auto_approve = False
+        trusted = staticmethod(lambda: False)
+    s = S()
+    assert tui.mode_of(s) == "asks first"
+    tui.set_mode(s, "auto-accept")
+    assert tui.mode_of(s) == "auto-accept"
+    tui.set_mode(s, "plan only")
+    assert s.dry_run and tui.mode_of(s) == "plan only"
+    # arguments named the way other agents name them still land
+    assert ToolCall("1", "read_file", {"file_path": "a.py"}).arguments == {"path": "a.py"}

@@ -34,6 +34,16 @@ class ToolCall:
     bad_json: str = ""  # the raw text when the model sent arguments that were not JSON
     from_text: bool = False  # recovered from the reply's text, not a structured call
 
+    # argument names models carry over from other agents' tools, mapped to ours
+    ALIASES = {"file_path": "path", "filepath": "path", "file": "path", "filename": "path", "cmd": "command",
+               "old_string": "old_text", "new_string": "new_text", "old_str": "old_text", "new_str": "new_text"}
+
+    def __post_init__(self):
+        if isinstance(self.arguments, dict):
+            for a, b in self.ALIASES.items():
+                if a in self.arguments and b not in self.arguments:
+                    self.arguments[b] = self.arguments.pop(a)
+
 
 @dataclass
 class Reply:

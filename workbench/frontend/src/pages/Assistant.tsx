@@ -34,6 +34,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   // feat/v02-anywhere-voice: a draft handed over while Chat is already open (the ask bar's "Do it in Chat")
   useEffect(() => { const d = (location.state as { draft?: string } | null)?.draft; if (d) setText(d); }, [location.state]);
   const [busy, setBusy] = useState(false);
+  const [draft, setDraft] = useState("");  // the answer as it is being written (cleared when the step ends)
   const [model, setModel] = useState("");
   const [busySince, setBusySince] = useState(0);
   const exit = useExit<number>(200);
@@ -86,6 +87,8 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
     let via: RouterInfo | undefined;
     await stream("/assistant/chat", { message: msg, conversation_id: cid, model: model || null, effort: isPlan ? effort : "" }, (ev) => {
       const t = ev.type as string | undefined;
+      if (t === "writing") { setDraft((d) => d + String(ev.text)); return; }
+      if (t !== "router") setDraft("");
       if (t === "start") newId = Number(ev.conversation_id);
       if (t === "router") via = ev as unknown as RouterInfo;
       if (t === "tool_call") setSteps((s) => [...s, { kind: "call", name: String(ev.name), text: String(ev.args) }]);
@@ -107,6 +110,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
       if (t === "error" || (!t && ev.error)) toast.err(String(ev.error));
     });
     setBusy(false);
+    setDraft("");
     loadConvs();
     if (newId && newId !== cid) navigate(`/assistant/${newId}`, { replace: true });
   };
@@ -212,6 +216,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
               <div className="msg msg-thinking" aria-label="Assistant is working">
                 <div className="msg-body">
                   <div className="msg-byline is-thinking" aria-hidden="true">Workspace</div>
+                  {draft && <div className="msg-text"><Markdown text={draft} /></div>}
                   <Thinking since={busySince} phase={(() => { const l = steps[steps.length - 1]; return l?.kind === "call" ? l.name.replace(/[_.]+/g, " ") : undefined; })()} />
                 </div>
               </div>

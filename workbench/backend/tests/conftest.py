@@ -48,7 +48,7 @@ async def completions(req: Request):
     CALLS.append(body)
     if body.get("model") == "fail-model":
         return JSONResponse({"error": {"message": "upstream exploded"}}, status_code=500)
-    if body.get("stream"):
+    if body.get("stream") and not body.get("tools"):
         return _sse([{"choices": [{"delta": {"content": "streamed"}}]},
                      {"choices": [], "usage": {"prompt_tokens": 600, "completion_tokens": 20}}])
     rf = body.get("response_format")
@@ -70,6 +70,16 @@ async def completions(req: Request):
         msg = nxt(body["messages"]) if callable(nxt) else nxt
     else:
         msg = {"role": "assistant", "content": "ok"}
+    if body.get("stream"):  # a tool-using turn read as a stream: the same reply, in OpenAI's chunk format
+        text = msg.get("content") or ""
+        chunks = [{"choices": [{"index": 0, "delta": {"content": p}}]} for p in (text[: len(text) // 2], text[len(text) // 2:]) if p]
+        for i, tc in enumerate(msg.get("tool_calls") or []):
+            args = tc["function"].get("arguments") or ""
+            chunks.append({"choices": [{"index": 0, "delta": {"tool_calls": [{"index": i, "id": tc.get("id"), "type": "function",
+                           "function": {"name": tc["function"]["name"], "arguments": args[:5]}}]}}]})
+            chunks.append({"choices": [{"index": 0, "delta": {"tool_calls": [{"index": i, "function": {"arguments": args[5:]}}]}}]})
+        chunks.append({"choices": [], "usage": {"prompt_tokens": 1000, "completion_tokens": 500}})
+        return _sse(chunks)
     return {"choices": [{"message": msg}], "usage": {"prompt_tokens": 1000, "completion_tokens": 500}}
 
 

@@ -9,6 +9,7 @@ about first (agent.py), and Ctrl+C stops the running task without leaving the se
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -87,7 +88,13 @@ class RichUI(UI):
 
     def __init__(self, *a, **kw):
         super().__init__(*a, **kw)
-        self.console = Console(highlight=False, soft_wrap=False, no_color=not self.color)
+        from rich.theme import Theme
+
+        accent = self.hexcolour("accent") if self.color else ""
+        self.console = Console(highlight=False, soft_wrap=False, no_color=not self.color,
+                               theme=Theme({"markdown.code": f"bold {accent}" if accent else "bold",  # inline `code`: coloured, no block
+                                            "markdown.h1": "bold", "markdown.h2": "bold underline", "markdown.link": accent or "underline",
+                                            "markdown.block_quote": "italic #9a9a9a"}))
         self._started = 0.0
         self.activity = "Thinking"  # what the agent is doing now, shown on the Working line
 
@@ -101,11 +108,12 @@ class RichUI(UI):
         text = text.strip()
         if not text:
             return
-        if not final:
-            self.p(self.c("dim", "· " + text))
-            return
         self.console.print()
-        self.console.print(Padding(Markdown(text, code_theme=self.code_theme()), (0, 0, 0, 2)))
+        self.bullet(Markdown(_hide_markup(text), code_theme=self.code_theme()), "ok" if final else "text")
+
+    def bullet(self, renderable, role: str = "ok") -> None:
+        """'⏺ ' before the first line, the rest indented under it (how Claude Code and Hermes lay out answers)."""
+        self.console.print(self._dotted(renderable, role if role != "text" else "dim"))
 
     def can_stream(self) -> bool:
         return bool(self.color)
@@ -118,7 +126,14 @@ class RichUI(UI):
             self._live = Live(console=self.console, refresh_per_second=12, vertical_overflow="visible", transient=False)
             self._live.start()
         self._buf += delta
-        self._live.update(Padding(Markdown(self._buf, code_theme=self.code_theme()), (0, 0, 0, 2)))
+        self._live.update(self._dotted(Markdown(_hide_markup(self._buf), code_theme=self.code_theme())))
+
+    def _dotted(self, renderable, role: str = "ok"):
+        g = Table.grid()
+        g.add_column(width=2, no_wrap=True)
+        g.add_column()
+        g.add_row(Text("⏺", style=self.hexcolour(role)) if self.color else Text("*"), renderable)
+        return g
 
     def stream_end(self) -> None:
         live = getattr(self, "_live", None)
@@ -139,25 +154,109 @@ class RichUI(UI):
                 while not stop.wait(0.1):
                     secs = int(time.monotonic() - started)
                     what = self.activity[:70]
-                    line = f"\r\033[2K{self.c('accent', frames[i % 10])} {what} {self.c('dim', f'· {secs}s · Ctrl+C to stop')}"
+                    agent = getattr(self, "agent", None)
+                    tok = ""
+                    if agent is not None:
+                        t = agent.log.totals()
+                        tok = f" · ↓ {_k(t['tokens_in'] + t['tokens_out'])} tokens"
+                    star = "✻✳✶✷✸✹"[(i // 3) % 6]
+                    line = (f"\r\033[2K{self.c('accent', star)} {self.c('accent', what + '…')} "
+                            f"{self.c('dim', f'({secs}s{tok} · Ctrl+C to stop)')}")
                     self.out.write(line); self.out.flush(); i += 1
                 self.out.write("\r\033[2K"); self.out.flush()
             threading.Thread(target=spin, daemon=True).start()
         elif self._spin:
             self._spin.set(); time.sleep(0.12); self._spin = None
 
+    QUIET = ("read-only", "auto-approved (--yes)", "trusted folder", "approved for this session", "dry run: not applied")
+
+    def _head(self, verb: str, arg: str, role: str = "accent") -> None:
+        t = Text()
+        t.append("⏺ ", style=self.hexcolour(role))
+        t.append(verb, style="bold")
+        if arg:
+            t.append(f"({arg})" if not arg.startswith(" ") else arg, style=self.hexcolour("dim") if verb in ("Thinking",) else "")
+        self.console.print(t, overflow="ellipsis", no_wrap=True)
+
+    def _sub(self, text: str, role: str = "dim") -> None:
+        self.console.print(Text("  ⎿  ", style=self.hexcolour("dim")) + Text(text, style=self.hexcolour(role)),
+                           overflow="ellipsis", no_wrap=True)
+
     def tool_note(self, text: str, read: bool = False) -> None:
-        if read and text:
-            self.activity = text[:1].upper() + text[1:]
-        super().tool_note(text, read)
+        if text in self.QUIET:
+            return
+        if text.strip().startswith("↳"):  # a sub-agent's step
+            self.console.print(Text(f"     {text.strip()}", style=self.hexcolour("dim")), overflow="ellipsis", no_wrap=True)
+            return
+        if not read:
+            self._sub(text, "error" if text.startswith("failed") else "dim")
+            return
+        self.activity = text[:1].upper() + text[1:]
+        if text.startswith("checklist"):
+            return  # the checklist panel shows it
+        verb, _, arg = text.partition(" ")
+        names = {"read": "Read", "list": "List", "search": "Search", "remember:": "Remember", "load": "Skill",
+                 "sub-agent:": "Task", "check": "Check", "search the web:": "Web search"}
+        if text.startswith("search the web:"):
+            verb, arg = "Web search", text.split(":", 1)[1].strip()
+        elif verb == "read" and arg.startswith("http"):
+            verb = "Fetch"
+        else:
+            verb = names.get(verb, verb.capitalize())
+        self._head(verb, arg.strip())
 
     def show_plan(self, plan) -> None:
         self.activity = plan.summary[:1].upper() + plan.summary[1:]
-        super().show_plan(plan)
+        s = plan.summary
+        if plan.effect == "command":
+            cmd = s.split(": ", 1)[1] if ": " in s else s
+            self._head("Bash" if not s.startswith(("start", "stop")) else ("Background" if s.startswith("start") else "Stop"), cmd)
+        elif plan.effect == "write":
+            verb, _, path = s.partition(" ")
+            self._head({"edit": "Update", "create": "Write", "overwrite": "Write"}.get(verb, verb.capitalize()), path)
+            if plan.preview:
+                from rich.syntax import Syntax
+
+                lines = plan.preview.rstrip("\n").splitlines()
+                body = "\n".join(l for l in lines[:120] if not l.startswith(("---", "+++")))
+                self.console.print(Padding(Panel(Syntax(body, "diff", theme=self.code_theme(), background_color="default", word_wrap=True),
+                                                 border_style=self.hexcolour("dim"), padding=(0, 1), expand=True), (0, 0, 0, 2)))
+                if len(lines) > 120:
+                    self._sub(f"… {len(lines) - 120} more lines")
+        else:
+            self._head("Tool", s)
 
     def tool_result(self, plan, result: str, outcome: str) -> None:
         self.activity = "Thinking"
-        super().tool_result(plan, result, outcome)
+        lines = (result or "").splitlines()
+        if outcome in ("tool_error", "check_failed"):
+            self._sub(("check failed: " if outcome == "check_failed" else "failed: ") + (lines[0] if lines else ""), "error")
+            for l in lines[1:8]:
+                self.console.print(Text(f"     {l}", style=self.hexcolour("error")), overflow="ellipsis", no_wrap=True)
+            return
+        if plan.effect == "read":
+            if plan.summary.startswith(("checklist", "remember", "sub-agent")):
+                if plan.summary.startswith("sub-agent"):
+                    self._sub(f"done · {len(lines)} lines of findings")
+                return
+            what = "lines" if plan.summary.startswith("read") and not plan.summary.startswith("read http") else "results"
+            n = len([l for l in lines if l.strip()]) if what == "results" else len(lines)
+            self._sub(f"{n} {what}" if n else "nothing found")
+            return
+        if plan.effect == "command":
+            body = [l for l in lines if l.strip()]
+            code = body[0] if body and body[0].startswith("exit code") else ""
+            out = body[1:] if code else body
+            for l in out[:10]:
+                self.console.print(Text("  ⎿  " if l is out[0] else "     ", style=self.hexcolour("dim")) + Text(l), overflow="ellipsis", no_wrap=True)
+            if len(out) > 10:
+                self._sub(f"… +{len(out) - 10} lines")
+            if code and code != "exit code 0":
+                self._sub(code, "error")
+            elif not out:
+                self._sub(code or "done")
+            return
+        self._sub(("✓ " + (lines[0] if lines else "done")) if outcome in ("verified", "ok") else outcome, "ok")
 
     def todos(self, items: list[dict]) -> None:
         t = Table.grid(padding=(0, 1))
@@ -344,37 +443,62 @@ def pick_model(agent, ui) -> bool:
     return True
 
 
+_MARKUP_RE = re.compile(r"<(?:antml:)?function_calls>.*?(?:</(?:antml:)?function_calls>|\Z)|<tool_call>.*?(?:</tool_call>|\Z)", re.S)
+
+
+def _hide_markup(text: str) -> str:
+    """Tool-call markup a model printed as text never reaches the screen (the call itself is shown as a tool line)."""
+    return _MARKUP_RE.sub("", text).rstrip()
+
+
 def banner(agent, ui: RichUI) -> None:
+    """A compact welcome, like Claude Code's: who, where, what it follows, and the few keys that matter."""
     s = agent.s
     accent, dim = ui.hexcolour("accent"), ui.hexcolour("dim")
-    width = shutil.get_terminal_size((100, 30)).columns
-    if width >= 60:
-        ui.console.print(Text(LOGO, style=f"bold {accent}"))
-    info = Table.grid(padding=(0, 2))
-    info.add_column(style=dim, no_wrap=True)
-    info.add_column()
-    info.add_row("Model", model_label(s, dim))
-    info.add_row("Folder", str(agent.root))
-    mode = "asks before every change" if not (s.auto_approve or s.trusted()) else "changes files without asking"
-    if s.dry_run:
-        mode = "dry run: shows changes, makes none"
-    info.add_row("Safety", mode)
-    info.add_row("Tools", f"{len(agent.tool_specs())} (files, terminal, web, background jobs, sub-agents{', your computer' if any('desk' in n for n in (s.mcp_servers or {})) else ''})")
-    files = getattr(agent, "instruction_files", [])
-    info.add_row("Project", ", ".join(Path(f).name for f in files) + " (followed)" if files else "no AGENTS.md yet (/init writes one)")
     branch = git_branch(agent.root)
-    if branch:
-        info.add_row("Git", branch)
-    tips = Text.from_markup(
-        f"Just type what you want, in plain words. For example: [italic]make a budget table from bank.csv[/]\n"
-        f"[{accent}]/[/] shows every command   [{accent}]@[/] picks a file   "
-        f"[{accent}]Esc Enter[/] new line   [{accent}]Ctrl+C[/] stops a task   [{accent}]Ctrl+D[/] quits")
+    home = str(Path.home())
+    folder = str(agent.root).replace(home, "~", 1) if str(agent.root).startswith(home) else str(agent.root)
+    files = getattr(agent, "instruction_files", [])
+    head = Text.from_markup(f"[bold {accent}]♜ Rooks[/] [{dim}]{__version__}[/]   [bold]{short_model(s)}[/]"
+                            + (f" [{dim}]· through your AI Workspace app[/]" if s.provider == "workbench" else f" [{dim}]· {s.provider}[/]"))
+    where = Text.from_markup(f"[{dim}]{folder}[/]" + (f"  [{accent}]⎇ {branch}[/]" if branch else "")
+                             + (f"  [{dim}]· follows {', '.join(Path(f).name for f in files)}[/]" if files else f"  [{dim}]· /init writes AGENTS.md[/]"))
+    tools = len(agent.tool_specs())
+    what = Text.from_markup(f"[{dim}]{tools} tools: files, terminal, web, background jobs, sub-agents"
+                            + (", your computer" if any("desk" in n for n in (s.mcp_servers or {})) else "")
+                            + " · remembers what you teach it[/]")
     body = Table.grid()
-    body.add_row(info)
-    body.add_row("")
-    body.add_row(tips)
-    ui.console.print(Panel(body, title=f"[bold]Rooks[/] [{dim}]{__version__}[/]", title_align="left",
-                           border_style=accent, padding=(1, 2), expand=False))
+    for row in (head, where, what):
+        body.add_row(row)
+    ui.console.print(Panel(body, border_style=accent, padding=(0, 1), expand=False))
+    ui.console.print(Text.from_markup(f"  [{dim}]Type a request in plain words.  [/][{accent}]/[/][{dim}] commands  [/][{accent}]@[/][{dim}] add a file  "
+                                      f"[/][{accent}]⇧Tab[/][{dim}] mode  [/][{accent}]?[/][{dim}] shortcuts[/]"))
+    recent = sessions(agent.root)[-3:]
+    if recent:
+        ui.console.print(Text.from_markup(f"  [{dim}]Recent: " + " · ".join(f"{t[:38]}" for _, t in reversed(recent)) + "   (/resume)[/]"),
+                         overflow="ellipsis", no_wrap=True)
+    ui.console.print()
+
+
+SHORTCUTS = [("/", "commands, with what each does"), ("@", "add a file or folder to your request"),
+             ("⇧Tab", "switch mode: asks first → auto-accept → plan only"), ("Esc Enter", "new line (paste keeps lines too)"),
+             ("↑ ↓", "earlier requests"), ("Ctrl+R", "search earlier requests"), ("Ctrl+C", "stop the current task"),
+             ("Ctrl+D", "quit"), ("model", "same as /model (plain words work for every command)")]
+
+MODES = ["asks first", "auto-accept", "plan only"]
+
+
+def mode_of(s) -> str:
+    return "plan only" if s.dry_run else ("auto-accept" if (s.auto_approve or s.trusted()) else "asks first")
+
+
+def set_mode(s, mode: str) -> None:
+    s.dry_run = mode == "plan only"
+    s.auto_approve = mode == "auto-accept"
+
+
+def _k(n: int) -> str:
+    return f"{n / 1000:.1f}k" if n >= 1000 else str(n)
 
 
 def help_table(ui: RichUI) -> None:
@@ -431,27 +555,54 @@ def run(agent, ui: RichUI) -> int:
     def _newline(event):
         event.current_buffer.insert_text("\n")
 
+    @keys.add("s-tab")
+    def _mode(event):  # Shift+Tab: asks first -> auto-accept -> plan only, like Claude Code
+        m = MODES[(MODES.index(mode_of(agent.s)) + 1) % len(MODES)]
+        set_mode(agent.s, m)
+        event.app.invalidate()
+
+    def rule():
+        return "─" * max(20, shutil.get_terminal_size((100, 30)).columns)
+
+    def message():
+        return FormattedText([("class:rule", rule() + "\n"), ("class:prompt", "❯ ")])
+
     def toolbar():
         s = agent.s
         t = agent.log.totals()
-        mode = "DRY RUN" if s.dry_run else ("auto" if (s.auto_approve or s.trusted()) else "asks first")
-        shown = short_model(s)
+        mode = mode_of(s)
         branch = git_branch(agent.root)
         todos = getattr(getattr(agent, "extras", None), "todos", [])
-        plan = [("class:barsep", "│"), ("class:bar", f" plan {sum(i['status'] == 'done' for i in todos)}/{len(todos)} ")] if todos else []
-        return FormattedText([("class:bar", f" {shown} "), ("class:barsep", "│"),
-                              ("class:bar", f" {Path(agent.root).name or agent.root}{f' ⎇ {branch}' if branch else ''} "), *plan, ("class:barsep", "│"),
-                              ("class:bar", f" {t['tokens_in'] + t['tokens_out']:,} tokens "), ("class:barsep", "│"),
-                              ("class:bar", f" {mode} "), ("class:barsep", "│"),
-                              ("class:bardim", " / commands  @ files  Ctrl+D quit ")])
+        window = s.context_tokens or 0
+        used = agent._estimate() if window else 0
+        pct = min(100, used * 100 // window) if window else 0
+        bar = "█" * (pct // 10) + "░" * (10 - pct // 10)
+        sep = ("class:sep", " · ")
+        parts = [("class:model", f" {short_model(s)}"), sep,
+                 ("class:dim", f"{Path(agent.root).name or agent.root}"), *([("class:branch", f" ⎇ {branch}")] if branch else []), sep,
+                 ("class:dim", f"context [{bar}] {pct}%"), sep,
+                 ("class:dim", f"{_k(t['tokens_in'] + t['tokens_out'])} tokens")]
+        if todos:
+            parts += [sep, ("class:dim", f"plan {sum(i['status'] == 'done' for i in todos)}/{len(todos)}")]
+        style = {"asks first": "class:dim", "auto-accept": "class:warn", "plan only": "class:plan"}[mode]
+        parts += [sep, (style, f"⏵⏵ {mode}"), ("class:hint", " ⇧Tab")]
+        return FormattedText([("class:rule", rule() + "\n"), *parts])
 
     accent = ui.hexcolour("accent") if ui.color else ""
+    dark = ui.theme.background != "light"
     style = Style.from_dict({
         "prompt": f"bold {accent}" if accent else "bold",
-        "bottom-toolbar": "noreverse",
-        "bar": f"bg:#2b2b2b #e6e6e6" if ui.theme.background != "light" else "bg:#ececec #222222",
-        "barsep": "bg:#2b2b2b #666666" if ui.theme.background != "light" else "bg:#ececec #999999",
-        "bardim": "bg:#2b2b2b #9a9a9a" if ui.theme.background != "light" else "bg:#ececec #666666",
+        "rule": "#555555" if dark else "#bbbbbb",
+        "bottom-toolbar": "noreverse bg:default",
+        "bottom-toolbar.text": "bg:default",
+        "model": f"bold {accent}" if accent else "bold",
+        "branch": accent or "",
+        "dim": "#9a9a9a" if dark else "#666666",
+        "sep": "#555555" if dark else "#aaaaaa",
+        "hint": "#6f6f6f" if dark else "#999999",
+        "warn": "bold #e5a50a",
+        "plan": "bold #5fafff",
+        "placeholder": "#6f6f6f italic" if dark else "#999999 italic",
         "completion-menu.completion": "bg:#333333 #e6e6e6",
         "completion-menu.completion.current": f"bg:{accent or '#555555'} #000000",
         "completion-menu.meta.completion": "bg:#262626 #a0a0a0",
@@ -460,11 +611,13 @@ def run(agent, ui: RichUI) -> int:
     history_path().parent.mkdir(parents=True, exist_ok=True)
     session = PromptSession(history=FileHistory(str(history_path())), completer=RooksCompleter(agent),
                             complete_while_typing=True, key_bindings=keys, bottom_toolbar=toolbar, style=style,
-                            complete_style="column")
+                            complete_style="column", reserve_space_for_menu=8,
+                            placeholder=FormattedText([("class:placeholder", "Ask anything, or describe a job. / for commands, @ to add a file")]))
+    ui.agent = agent  # the Working line shows live token use
     warned = False
     while True:
         try:
-            line = session.prompt(FormattedText([("class:prompt", "› ")]))
+            line = session.prompt(message)
         except KeyboardInterrupt:
             if not warned:
                 ui.p(ui.c("dim", "  (Ctrl+D or /exit to quit)"))
@@ -479,6 +632,14 @@ def run(agent, ui: RichUI) -> int:
         if not line.startswith("/") and ("/" + line.lower() in COMMANDS or line.lower() in ("exit", "quit", "bye")):
             # "model" or "exit" typed without the slash: do what was meant, not send it to the model as a request
             line = "/exit" if line.lower() in ("exit", "quit", "bye") else "/" + line.lower()
+        if line == "?":
+            t = Table.grid(padding=(0, 3))
+            t.add_column(style=f"bold {ui.hexcolour('accent')}", no_wrap=True)
+            t.add_column()
+            for k, v in SHORTCUTS:
+                t.add_row(k, v)
+            ui.console.print(Padding(t, (0, 2, 1, 2)))
+            continue
         if line.startswith("/"):
             cmd, _, rest = line.partition(" ")
             cmd = ALIASES.get(cmd.lower(), cmd.lower())
@@ -500,7 +661,14 @@ INIT_PROMPT = ("Write AGENTS.md at the project root for coding agents working he
 def git_branch(root) -> str:
     head = Path(root)
     for _ in range(12):
-        f = head / ".git" / "HEAD"
+        g = head / ".git"
+        if g.is_file():  # a worktree: ".git" names the real git dir
+            try:
+                d = Path(g.read_text().split("gitdir:", 1)[1].strip())
+                g = d if d.is_absolute() else head / d
+            except (OSError, IndexError):
+                return ""
+        f = g / "HEAD"
         if f.is_file():
             try:
                 ref = f.read_text().strip()

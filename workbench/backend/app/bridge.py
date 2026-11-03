@@ -112,9 +112,25 @@ async def _sse(ref: str | None, data: CompletionIn, channel: str):
     model = ref or "default"
     try:
         if data.tools or data.response_format:
-            res = await llm.chat(ref, data.messages, data.tools, trace={"channel": channel}, schema=_schema(data.response_format))
+            from .adapters import ON_TEXT
+
+            pieces: asyncio.Queue = asyncio.Queue()
+            sent = ""
+            ON_TEXT.set(pieces.put_nowait if not data.response_format else None)  # prose streams; tool calls come whole
+            task = asyncio.ensure_future(llm.chat(ref, data.messages, data.tools, trace={"channel": channel},
+                                                  schema=_schema(data.response_format)))
+            while not task.done() or not pieces.empty():
+                try:
+                    piece = await asyncio.wait_for(pieces.get(), 0.25)
+                except asyncio.TimeoutError:
+                    continue
+                sent += piece
+                yield _chunk(cid, model, {"role": "assistant", "content": piece} if sent == piece else {"content": piece})
+            res = task.result()
             msg, model = res["message"], res["ref"]
-            delta: dict = {"role": "assistant", "content": msg.get("content") or ""}
+            content = msg.get("content") or ""
+            rest = content[len(sent):] if content.startswith(sent) else ("" if sent else content)
+            delta: dict = {"role": "assistant", "content": rest}
             if msg.get("tool_calls"):
                 delta["tool_calls"] = [{**tc, "index": i} for i, tc in enumerate(msg["tool_calls"])]
             yield _chunk(cid, model, delta)

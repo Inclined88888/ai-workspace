@@ -277,6 +277,14 @@ class ChatCompletions(Protocol):
             body["response_format"] = {"type": "json_schema", "json_schema": {"name": schema["name"], "schema": schema["schema"], "strict": True}}
         if "openrouter.ai" in conn["base_url"]:
             body["usage"] = {"include": True}
+        on_text = ON_TEXT.get()
+        if on_text is not None and not schema:
+            try:
+                return await self._chat_streamed(conn, secret, body, on_text)
+            except ProviderError as e:
+                if e.upstream not in (400, 404, 415, 422):
+                    raise  # a server that refuses streaming with tools answers below the normal way
+
         data = (await _post(conn, f"{conn['base_url'].rstrip('/')}/chat/completions", body, self.headers(conn, secret), self.timeout)).json()
         msg = (data.get("choices") or [{}])[0].get("message") or {}
         calls = [_call(tc.get("id") or f"call_{i}", tc["function"]["name"], tc["function"].get("arguments") or "{}")
@@ -285,6 +293,41 @@ class ChatCompletions(Protocol):
         return {"message": {"role": "assistant", "content": msg.get("content") or "", "tool_calls": calls},
                 "usage": {"prompt_tokens": u.get("prompt_tokens") or 0, "completion_tokens": u.get("completion_tokens") or 0,
                           **({"cost": u["cost"]} if isinstance(u.get("cost"), (int, float)) else {})}}
+
+    async def _chat_streamed(self, conn, secret, body: dict, on_text) -> dict:
+        """The same turn as chat(), read as a stream: answer text goes to on_text as it arrives (through a TextGate, for
+        models that print calls as text), tool calls are assembled from their pieces. Returns chat()'s shape."""
+        body = {**body, "stream": True, "stream_options": {"include_usage": True}}
+        gate, text, usage, calls = TextGate(), "", {}, {}
+        try:
+            async for chunk in _sse(conn, f"{conn['base_url'].rstrip('/')}/chat/completions", body, self.headers(conn, secret), self.timeout):
+                if "error" in chunk and not chunk.get("choices"):
+                    err = chunk["error"] if isinstance(chunk["error"], str) else json.dumps(chunk["error"])[:400]
+                    raise ProviderError(502, err, upstream=chunk.get("status"), retry_after=chunk.get("retry_after"),
+                                        body=chunk.get("body") or err)
+                if chunk.get("usage"):
+                    usage = chunk["usage"]
+                for choice in chunk.get("choices") or []:
+                    d = choice.get("delta") or {}
+                    if d.get("content"):
+                        text += d["content"]
+                        piece = gate.feed(d["content"])
+                        if piece:
+                            on_text(piece)
+                    for tc in d.get("tool_calls") or []:
+                        slot = calls.setdefault(tc.get("index", 0), {"id": "", "name": "", "arguments": ""})
+                        f = tc.get("function") or {}
+                        slot["id"] = tc.get("id") or slot["id"]
+                        slot["name"] += f.get("name") or ""
+                        slot["arguments"] += f.get("arguments") or ""
+        except httpx.TimeoutException as e:
+            raise ProviderError(504, f"{conn['name']} did not answer within {int(self.timeout.read or 0)} s", kind="timeout") from e
+        except httpx.HTTPError as e:
+            raise ProviderError(502, f"{conn['name']} unreachable: {e.__class__.__name__}", kind="unreachable") from e
+        out = [_call(c["id"] or f"call_{i}", c["name"], c["arguments"] or "{}") for i, c in sorted(calls.items()) if c["name"]]
+        return {"message": {"role": "assistant", "content": text, "tool_calls": out},
+                "usage": {"prompt_tokens": usage.get("prompt_tokens") or 0, "completion_tokens": usage.get("completion_tokens") or 0,
+                          **({"cost": usage["cost"]} if isinstance(usage.get("cost"), (int, float)) else {})}}
 
     async def stream(self, conn, secret, model, messages):
         usage: dict = {}
@@ -620,6 +663,34 @@ class AnthropicMessages(Protocol):
 EFFORT: "contextvars.ContextVar[str]" = contextvars.ContextVar("effort", default="")
 EFFORTS = ("low", "medium", "high")
 
+# Where a tool-using turn's answer text goes while it is still being written (set by the /v1 bridge for a streaming
+# request). Adapters that can stream call it with each piece; tool-call markup is held back (TextGate).
+ON_TEXT: "contextvars.ContextVar" = contextvars.ContextVar("on_text", default=None)
+
+
+class TextGate:
+    """Passes answer text through as it arrives and stops at the first tool-call markup, so a client sees the prose
+    the model writes before its tool calls, never the calls' raw XML or JSON."""
+    MARKS = ("<function_calls", "<invoke", "<tool_call")
+
+    def __init__(self):
+        self.sent, self.pending, self.closed = "", "", False
+
+    def feed(self, delta: str) -> str:
+        if self.closed or not delta:
+            return ""
+        self.pending += delta
+        cut = min((i for i in (self.pending.find(m) for m in self.MARKS) if i >= 0), default=-1)
+        if cut >= 0:
+            out, self.closed = self.pending[:cut], True
+        else:
+            lt = self.pending.rfind("<")
+            hold = lt >= 0 and any(m.startswith(self.pending[lt:]) for m in self.MARKS)
+            out = self.pending[:lt] if hold else self.pending
+        self.pending = self.pending[len(out):] if not self.closed else ""
+        self.sent += out
+        return out
+
 
 class CliPlan(Protocol):
     """A chat turn answered by the user's own signed-in `claude` or `codex` CLI, so their Claude or ChatGPT plan pays.
@@ -724,13 +795,21 @@ class CliPlan(Protocol):
         if agent == "copilot":  # takes the prompt as an argument, not on stdin
             argv[1:1] = ["-p", prompt]
             prompt = ""
+        on_text = ON_TEXT.get()
+        live = agent == "claude" and on_text is not None and not schema
+        if live:  # same answer, written out as it is produced
+            i = argv.index("--output-format")
+            argv[i + 1:i + 2] = ["stream-json", "--verbose", "--include-partial-messages"]
         with tempfile.TemporaryDirectory(prefix="aiw-cli-") as empty:  # no project files, no CLAUDE.md, nothing to touch
             try:
                 proc = await asyncio.create_subprocess_exec(*argv,
                                                             cwd=empty, env=cli_agents.child_env(agent),
                                                             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
-                                                            stderr=asyncio.subprocess.PIPE)
-                out, err = await asyncio.wait_for(proc.communicate(prompt.encode()), self.timeout_s)
+                                                            stderr=asyncio.subprocess.PIPE, limit=16 * 1024 * 1024)
+                if live:
+                    out, err = await asyncio.wait_for(self._read_live(proc, prompt, on_text), self.timeout_s)
+                else:
+                    out, err = await asyncio.wait_for(proc.communicate(prompt.encode()), self.timeout_s)
             except asyncio.TimeoutError as e:
                 proc.kill()
                 raise ProviderError(504, f"{conn['name']} did not answer within {self.timeout_s} s", kind="timeout") from e
@@ -749,6 +828,37 @@ class CliPlan(Protocol):
             raise ProviderError(502, f"{conn['name']}: {detail}", upstream=429 if limited else (401 if signed_out else None),
                                 kind="quota" if limited else "http", body=detail)
         return {"message": {"role": "assistant", "content": text, "tool_calls": []}, "usage": usage}
+
+    @staticmethod
+    async def _read_live(proc, prompt: str, on_text) -> tuple[bytes, bytes]:
+        """claude --output-format stream-json: hand each text delta to on_text (through a TextGate); the last line is
+        the same result object --output-format json prints, so parse() reads the answer and usage from it."""
+        import asyncio
+
+        proc.stdin.write(prompt.encode())
+        await proc.stdin.drain()
+        proc.stdin.close()
+        gate, last = TextGate(), b""
+        err_task = asyncio.ensure_future(proc.stderr.read())
+        while True:
+            line = await proc.stdout.readline()
+            if not line:
+                break
+            if line.strip():
+                last = line
+            try:
+                ev = json.loads(line)
+            except ValueError:
+                continue
+            e = ev.get("event") or {}
+            if ev.get("type") == "stream_event" and e.get("type") == "content_block_delta":
+                d = e.get("delta") or {}
+                if d.get("type") == "text_delta":
+                    piece = gate.feed(d.get("text") or "")
+                    if piece:
+                        on_text(piece)
+        await proc.wait()
+        return last, await err_task
 
     @staticmethod
     def parse(agent: str, out: str) -> tuple[str, dict, str]:
@@ -963,17 +1073,37 @@ _FENCE_RE = re.compile(r"^```(?:json)?\s*(.*?)\s*```$", re.S)
 # Claude models (notably through the Claude Code plan) sometimes answer in Anthropic's own XML tool format instead of the
 # <tool_call> JSON they were asked for: <invoke name="tool"><parameter name="p">value</parameter></invoke>, optionally
 # inside <function_calls>. Parameter values are JSON when they parse (arrays, numbers), else text.
-_INVOKE_RE = re.compile(r"<(?:antml:)?invoke\s+name=\"([^\"]+)\"\s*>(.*?)</(?:antml:)?invoke>", re.S)
-_PARAM_RE = re.compile(r"<(?:antml:)?parameter\s+name=\"([^\"]+)\"\s*>(.*?)</(?:antml:)?parameter>", re.S)
+_INVOKE_RE = re.compile(r"<(?:antml:)?invoke\s+name=[\"']([^\"']+)[\"'][^>]*>(.*?)(?:</(?:antml:)?invoke>|(?=<(?:antml:)?invoke\s)|\Z)", re.S)
+_PARAM_RE = re.compile(r"<(?:antml:)?parameter\s+name=[\"']([^\"']+)[\"'][^>]*>(.*?)(?:</(?:antml:)?parameter>|(?=<(?:antml:)?parameter\s)|(?=</(?:antml:)?invoke)|\Z)", re.S)
+# Names Claude models reach for out of habit (Claude Code's own tools), mapped to the offered tool that does the job.
+_TOOL_ALIASES = {"read": ("read_file", "read"), "view": ("read_file",), "cat": ("read_file",), "bash": ("run_command", "terminal", "shell"),
+                 "shell": ("run_command", "terminal"), "terminal": ("run_command",), "edit": ("edit_file", "patch"),
+                 "str_replace": ("edit_file",), "write": ("write_file",), "create": ("write_file",), "ls": ("list_files",),
+                 "glob": ("list_files", "search"), "grep": ("search",), "websearch": ("web_search",), "webfetch": ("web_fetch",),
+                 "todowrite": ("todo",), "agent": ("task",)}
+
+
+def _tool_name(name: str, tool_names: set[str]) -> str | None:
+    """The offered tool a call means: exact, then ignoring case and separators, then a habitual alias."""
+    if name in tool_names:
+        return name
+    norm = lambda n: re.sub(r"[^a-z]", "", n.lower())  # noqa: E731
+    by = {norm(t): t for t in tool_names}
+    if norm(name) in by:
+        return by[norm(name)]
+    for alias in _TOOL_ALIASES.get(norm(name), ()):
+        if alias in tool_names:
+            return alias
+    return None
 _WRAP_RE = re.compile(r"</?(?:antml:)?function_calls>")
 
 
 def _xml_calls(content: str, tool_names: set[str]) -> tuple[list[tuple[str, dict]], str]:
     found, rest, seen = [], content, set()
     for m in _INVOKE_RE.finditer(content):
-        name = m.group(1)
         rest = rest.replace(m.group(0), "")
-        if name not in tool_names:
+        name = _tool_name(m.group(1), tool_names)
+        if name is None:  # never a tool nobody offered
             continue
         args = {}
         for p in _PARAM_RE.finditer(m.group(2)):

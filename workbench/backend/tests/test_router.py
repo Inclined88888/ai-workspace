@@ -32,6 +32,17 @@ async def p_chat(name: str, host: str, req: Request):
     status = m.get("status", 200)
     if status != 200:
         return JSONResponse({"error": {"message": m.get("body", "error")}}, status_code=status, headers=m.get("headers", {}))
+    if body.get("stream") and body.get("tools"):  # a tool-using turn read as a stream: the scripted reply, chunked
+        reply = SCRIPT.pop(0) if SCRIPT else {"role": "assistant", "content": f"answer from {name}"}
+
+        def gen_reply():
+            if reply.get("content"):
+                yield f"data: {json.dumps({'choices': [{'delta': {'content': reply['content']}}]})}\n\n"
+            for i, tc in enumerate(reply.get("tool_calls") or []):
+                yield f"data: {json.dumps({'choices': [{'delta': {'tool_calls': [{**tc, 'index': i}]}}]})}\n\n"
+            yield f"data: {json.dumps({'choices': [], 'usage': {'prompt_tokens': 10, 'completion_tokens': 4}})}\n\n"
+            yield "data: [DONE]\n\n"
+        return StreamingResponse(gen_reply(), media_type="text/event-stream", headers=m.get("headers", {}))
     if body.get("stream"):
         def gen():
             yield f"data: {json.dumps({'choices': [{'delta': {'content': f'hi from {name}'}}]})}\n\n"

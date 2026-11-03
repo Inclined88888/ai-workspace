@@ -764,7 +764,20 @@ async def _run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> Async
                 ctx.conversation_id, "auto:fast" if router.is_auto(model) else model, first_kept))
         msgs = [{"role": "system", "content": system}, *history]
         try:
-            res = await llm.chat(model, msgs, specs, trace=ctx.trace())
+            from .adapters import ON_TEXT
+
+            pieces: asyncio.Queue = asyncio.Queue()
+            token = ON_TEXT.set(pieces.put_nowait)  # the answer streams in as the model writes it (models that can stream)
+            try:
+                task = asyncio.ensure_future(llm.chat(model, msgs, specs, trace=ctx.trace()))
+            finally:
+                ON_TEXT.reset(token)  # only that call: background learning and later steps start clean
+            while not task.done() or not pieces.empty():
+                try:
+                    yield {"type": "writing", "text": await asyncio.wait_for(pieces.get(), 0.25)}
+                except asyncio.TimeoutError:
+                    continue
+            res = task.result()
             if res.get("router"):  # the smart router answered: say who, what it skipped, and what is left
                 yield {"type": "router", **res["router"]}
         except HTTPException as e:

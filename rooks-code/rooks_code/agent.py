@@ -22,6 +22,7 @@ from .undo import ChangeSets
 SYSTEM = """You are Rooks Code, a careful coding agent working in the user's project through tools.
 Project root: {root}
 Operating system: {os}
+{runtimes}
 Files and folders at the project root: {listing}
 
 How to work:
@@ -100,7 +101,8 @@ class Agent:
         self.messages: list[dict] = list(messages or [])
         self.always: set[str] = set()  # effects approved for the rest of the session ("a" at the prompt)
         self.budget = Budget(settings.max_tokens, settings.max_usd, settings.model, settings.prices, settings.local)
-        self.system = SYSTEM.format(root=self.root, os=f"{platform.system()} {platform.release()}", listing=_listing(self.root))
+        self.system = SYSTEM.format(root=self.root, os=f"{platform.system()} {platform.release()}", listing=_listing(self.root),
+                                    runtimes=_runtimes(self.root))
         self._turn: int | None = None
         self.learning = Learning(settings, session_id=self.log.session) if getattr(settings, "learn", True) and not sub else None
         self.extras = Extras(self)
@@ -460,3 +462,23 @@ def _is_local(host: str) -> bool:
         return ip.is_private or ip.is_loopback or ip.is_link_local
     except ValueError:
         return "." not in h
+
+
+def _runtimes(root) -> str:
+    """Which interpreters this machine really has, so the model's first command works (no `python: not found`)."""
+    import shutil
+
+    root = Path(root)
+    found = []
+    for venv in (".venv", "venv", "env"):
+        py = root / venv / "bin" / "python"
+        if py.exists():
+            found.append(f"project virtualenv: {venv}/bin/python (use it for this project's tests and scripts)")
+            break
+    names = [n for n in ("python3", "python", "node", "npm", "pnpm", "uv", "cargo", "go") if shutil.which(n)]
+    if "python3" in names and "python" not in names:
+        found.append("`python` is not installed here: use python3")
+    if names:
+        found.append("on PATH: " + ", ".join(names))
+    return "Runtimes: " + "; ".join(found) if found else ""
+
