@@ -12,21 +12,22 @@
 mod anywhere; // feat/v02-anywhere-voice: Ask from anywhere
 mod approvals;
 mod commands;
+mod native; // notifications, tray (close to tray), aiworkspace:// links
 mod sidecars;
 mod updater;
 
 use tauri::{Manager, RunEvent};
+use tauri_plugin_deep_link::DeepLinkExt;
 
 pub fn run() {
     let builder = tauri::Builder::default()
         // Must be first: a second launch focuses the running window instead of starting another backend.
+        // With its deep-link feature, a link that launches a second copy is forwarded to deep_link().on_open_url.
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.unminimize();
-                let _ = w.show();
-                let _ = w.set_focus();
-            }
+            native::show_main(app);
         }))
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -35,6 +36,8 @@ pub fn run() {
     updater::register(builder)
         .manage(sidecars::Supervisor::default())
         .manage(anywhere::Anywhere::default())
+        .manage(native::Native::default())
+        .on_window_event(native::on_window_event)
         .invoke_handler(tauri::generate_handler![
             commands::app_info,
             commands::open_data_dir,
@@ -46,18 +49,32 @@ pub fn run() {
             anywhere::set_ask_shortcut,
             anywhere::hide_ask_bar,
             anywhere::show_main_window,
+            native::notify,
+            native::desktop_ready,
         ])
         .setup(|app| {
             sidecars::start_workbench(app.handle().clone());
             updater::check_on_start(app.handle().clone());
             anywhere::register_saved(app.handle()); // feat/v02-anywhere-voice
+            if let Err(e) = native::setup_tray(app.handle()) {
+                log::warn!("tray icon unavailable: {e}"); // e.g. a Linux desktop without a status area
+            }
+            let handle = app.handle().clone();
+            app.deep_link().on_open_url(move |event| native::open_urls(&handle, &event.urls()));
+            if let Ok(Some(urls)) = app.deep_link().get_current() {
+                native::open_urls(app.handle(), &urls); // the link that launched the app
+            }
             Ok(())
         })
         .build(tauri::generate_context!())
         .expect("error while building the AI Workspace app")
-        .run(|app, event| {
-            if let RunEvent::Exit = event {
-                app.state::<sidecars::Supervisor>().stop_all();
+        .run(|app, event| match event {
+            RunEvent::Exit => app.state::<sidecars::Supervisor>().stop_all(),
+            // macOS: clicking the Dock icon after closing to tray brings the window back
+            #[cfg(target_os = "macos")]
+            RunEvent::Reopen { .. } => {
+                native::show_main(app);
             }
+            _ => {}
         });
 }

@@ -46,6 +46,7 @@ import Teach from "./pages/Teach"; // adapt and learn (feat/learn-and-adapt)
 import Plan from "./pages/Plan";
 import { AccountLayer } from "./ProGate";
 import JobsPage from "./v02/Jobs"; // feat/v02-automations: background jobs board
+import DesktopBridge from "./DesktopBridge"; // feat/tauri-native: aiworkspace:// links + tray
 import JobNotifier from "./v02/JobNotifier"; // feat/v02-automations: desktop notifications for jobs
 // feat/v02-anywhere-voice: ask bar, Talk, Meetings, their settings
 import AskBar from "./pages/AskBar";
@@ -370,7 +371,7 @@ export default function App() {
         </div>
       </main>
       <DeskGlow enabled={!!status.desk_enabled} />
-      <JobNotifier />{/* feat/v02-automations */}
+      <JobNotifier />{/* feat/v02-automations */}<DesktopBridge />{/* feat/tauri-native */}
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} pages={palettePages} />
       <AccountLayer />
     </div>

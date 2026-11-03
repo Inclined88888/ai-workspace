@@ -9,6 +9,7 @@ import { LiveMarkdown } from "../v02/LiveBlocks"; // feat/v02-automations: live 
 import { DictateButton } from "../voice/DictateButton"; // feat/v02-anywhere-voice (drawn as the motion voice orb)
 import { CheckThis, CheckToggle, ProjectSwitcher } from "../v02/ChatExtras"; // feat/v02-core
 import { WebSearchSetup } from "./ModelSignIn";
+import { askNotifyPermission, inBackground, notify } from "../desktop"; // feat/tauri-native
 
 type Conv = { id: number; title: string; channel: string; updated_at: string; model: string };
 type Msg = { id: number; role: string; content: string; tool_calls: string[]; name: string; via?: RouterInfo };
@@ -90,6 +91,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
     let newId = cid;
     let via: RouterInfo | undefined;
     let stopped = false;
+    let lastReply = "";
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     try {
@@ -108,8 +110,12 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
         }
         if (t === "claim_check") setSteps((s) => [...s, { kind: "check", name: "", ok: false,
           text: ev.retrying ? `Answer said "${ev.claim}" but nothing confirms it. Asking the model to act or correct it.` : `Still unconfirmed: "${ev.claim}"` }]);
-        if (t === "approval_required") setApprovals((a) => [...a, { id: Number(ev.id), tool: String(ev.tool), args: String(ev.args), effect: String(ev.effect), reason: String(ev.reason) }]);
+        if (t === "approval_required") {
+          setApprovals((a) => [...a, { id: Number(ev.id), tool: String(ev.tool), args: String(ev.args), effect: String(ev.effect), reason: String(ev.reason) }]);
+          if (inBackground()) void notify("Approval needed", `${String(ev.tool)}: ${String(ev.reason || "waiting for your OK")}`, { tag: "approval" });
+        }
         if (t === "message") {
+          lastReply = String(ev.content);
           const mid = Date.now() + 1;
           if (via) viaByReply.current.set(String(ev.content), via);
           setFreshId(mid);
@@ -124,6 +130,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
     abortRef.current = null;
     setBusy(false);
     setDraft("");
+    if (!stopped && lastReply && inBackground()) void notify("Reply ready", lastReply.replace(/\s+/g, " ").slice(0, 160), { tag: "reply" });
     loadConvs();
     const doneCid = newId || cid;
     if (stopped && doneCid) loadConv(doneCid); // pick up what the turn kept before it stopped
@@ -134,6 +141,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
     e?.preventDefault();
     const msg = text.trim();
     if (!msg || busy) return;
+    askNotifyPermission(); // a key press or click, so the browser shows its prompt (once)
     setText("");
     if (composerRef.current) composerRef.current.style.height = "auto";
     await run(msg, { echo: true });
