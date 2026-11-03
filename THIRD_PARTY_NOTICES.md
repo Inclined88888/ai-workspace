@@ -1,4 +1,4 @@
-# Third-Party Notices for Rooks Code Engine
+# Third-Party Notices
 
 This document lists third-party code and ideas incorporated into Rooks Code's engine, with attribution as required by their licenses.
 
