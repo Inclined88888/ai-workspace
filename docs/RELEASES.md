@@ -9,7 +9,8 @@ SHA256SUMS. Every file is attested and verified before upload/publication.
 
 Manual workflow dispatch produces a signed **candidate** Actions artifact without
 publishing a release. A valid version-tag push publishes the same artifact format
-as a GitHub release. Do not publish a version until Exit Gate 0's evidence is checked.
+as a GitHub release. For v0.1.0 the owner explicitly waived the two unverified external checks in Exit Gate 0.
+This is an exception, not a passing result; see PHASE0-GATE.md. Future releases must reassess those checks.
 The source includes Dockerfiles; this workflow does not sign container images or
 claim reproducible dependency resolution of upstream Docker/npm/pip packages.
 

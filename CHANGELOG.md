@@ -1,8 +1,26 @@
 # Changelog
 
 Every user-visible change that needs action, or changes data on upgrade, gets an entry: date, version, breaking changes,
-migration steps, rollback steps. Workbench has no release numbers yet (BACKLOG). Entries are identified by schema
-version and the merge commit on `main`.
+migration steps, rollback steps.
+
+## 2026-11-03 · v0.1.0
+
+First stable version tag. Includes the desktop app, web workspace, Rooks terminal and browser agents, Rooks Desk,
+model routing, chat attachments, Telegram and other channels, automation, and the integrated safety and audit tools.
+
+Breaking changes: no intentional API removal is documented; compatibility with every existing integration has not been
+independently audited. Back up app data and the encryption secret before upgrading.
+
+Migration: the backend runs its versioned database migration on startup. A pre-migration database backup is made when an
+older schema with legacy tables is detected. Keep `APP_SECRET` with the database or stored credentials cannot be read.
+
+Rollback: stop the app, restore a backup taken before this upgrade together with its matching encryption secret, and
+install the previous version. Do not run an older build against the upgraded database without restoring its backup.
+
+Release limitations: macOS and Windows operating-system installers are unsigned because Apple and Windows signing
+credentials are not configured. The in-app updater has its own signed bundles. A fresh real 1 GB VPS deployment and a
+live owner subscription/add-on telemetry check remain unverified; the owner explicitly waived these two release checks
+for v0.1.0. See `docs/PHASE0-GATE.md`.
 
 ## 2026-11-01 · Goal mode: durable objectives with round allowance and verified completion · branch feat/rea-goal
 

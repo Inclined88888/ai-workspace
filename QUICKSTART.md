@@ -1,4 +1,4 @@
-# AI Workspace: Quick start (v0.1 release candidate)
+# AI Workspace: Quick start (v0.1.0)
 
 One command installs everything for your user account, with no admin rights, Docker or Node.js needed:
 
@@ -33,21 +33,14 @@ Open **PowerShell** (Start → type *PowerShell* → Enter) and paste:
 irm https://raw.githubusercontent.com/Inclined88888/ai-workspace/main/install.ps1 | iex
 ```
 
-**Before this release candidate is merged to `main`**, install from its branch:
+**From the release source archive**, extract `ai-workspace-v0.1.0.tar.gz`, then run the installer from the extracted
+`ai-workspace-v0.1.0` folder:
 
-```bash
-# macOS / Linux
-curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/release/v0.1-rc/install.sh | AI_WORKSPACE_REF=release/v0.1-rc bash
-```
-```powershell
-# Windows
-$env:AI_WORKSPACE_REF='release/v0.1-rc'; irm https://raw.githubusercontent.com/Inclined88888/ai-workspace/release/v0.1-rc/install.ps1 | iex
-```
+* macOS / Linux: `bash install.sh`
+* Windows: run `install.ps1` in PowerShell.
 
-**From the release zip** (no download step), unzip `ai-workspace-0.1.0-rc1.zip`, then either:
-
-* macOS / Linux: run `bash install.sh` in that folder, or
-* Windows: right-click `install.ps1` → **Run with PowerShell**.
+The macOS and Windows native installers are unsigned in v0.1.0. Your operating system will warn on first launch;
+see [desktop release guidance](docs/desktop-release.md) before opening one.
 
 **What the installer does** (about 1–3 minutes):
 
