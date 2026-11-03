@@ -14,8 +14,12 @@ from .extras import READ_ONLY, Extras, project_instructions
 from .extras import NAMES as EXTRA_NAMES
 from .extras import SPECS as EXTRA_SPECS
 from .learning import Learning
+from .lint_test import LintTestRunner
+from .loop_detection import LoopDetector, LoopDetectionResult
 from .mcp import MCPError, MCPManager
+from .providers import ProviderError
 from .receipts import RunLog
+from .repo_map import RepoMap, build_repo_map_for_context
 from .tools import SPECS, Plan, Toolbox, ToolError
 from .undo import ChangeSets
 
@@ -56,6 +60,11 @@ RETRY_MAX_S = 30.0
 # is replaced by a summary the model writes, so a session can run for hours without the provider rejecting it.
 COMPACT_AT = 0.7
 KEEP_TURNS = 2  # the newest user prompts (with their tool calls and results) always stay word for word
+# Proactive pruning: when a single tool result exceeds this many chars, shorten it immediately
+PRUNE_TOOL_RESULT_AT = 8000
+# Tail budget: keep last N tool results unpruned
+TAIL_TOOL_RESULTS = 4
+
 SUMMARY_SYSTEM = ("You compress a coding session so it can continue. Write a dense summary of the conversation below for "
                   "the agent that continues it: the user's goals and preferences, files read or changed (exact paths), "
                   "commands run and their results, decisions made, and what is still open. Facts only, no advice.")
@@ -110,6 +119,19 @@ class Agent:
         if self.instructions:
             self.system += "\n\n" + self.instructions
         self._extra = ""  # this request's memory and skills context (learning.py)
+        self.loop_detector = LoopDetector() if not sub else None
+        # Build lightweight repo map for project overview
+        self.repo_map = RepoMap(self.root, max_tokens=1500) if not sub else None
+        if self.repo_map:
+            repo_map_text = self.repo_map.get_repo_map()
+            if repo_map_text:
+                self.system += f"\n\nProject structure (symbol index):\n{repo_map_text}"
+
+        # Lint/test runner (optional, enabled via settings)
+        self.lint_test_runner = None
+        if not sub and getattr(settings, "lint_after_edit", False):
+            self.lint_test_runner = LintTestRunner(self.root)
+
         # Through the app (provider workbench) the model is picked per task and the app keeps the spend, so a
         # per-model price is neither known nor needed here: only warn when the user picked a model directly.
         # NVIDIA NIM's hosted API is a free trial (no card, no bill), so a missing price there is not a risk to flag.
@@ -214,7 +236,9 @@ class Agent:
         self.ui.tool_note(f"compacted the conversation: ~{before:,} to ~{after:,} tokens")
         return True
 
-    def _shrink_tool_results(self, keep_last: int = 6, limit: int = 2000) -> bool:
+    def _shrink_tool_results(self, keep_last: int = TAIL_TOOL_RESULTS, limit: int = PRUNE_TOOL_RESULT_AT) -> bool:
+        """Proactively shorten old tool results that exceed the size limit.
+        Returns whether anything was changed."""
         changed = 0
         for m in self.messages[:-keep_last]:
             if m["role"] == "tool" and len(m.get("content") or "") > limit:
@@ -225,10 +249,26 @@ class Agent:
             self.ui.tool_note(f"shortened {changed} old tool output(s) to fit the context window")
         return bool(changed)
 
+    def _proactive_prune(self) -> bool:
+        """Prune large tool results immediately after they're added, before they bloat context."""
+        changed = 0
+        # Find the most recent tool result that's too large
+        for m in reversed(self.messages):
+            if m["role"] == "tool" and len(m.get("content") or "") > PRUNE_TOOL_RESULT_AT:
+                m["content"] = m["content"][:PRUNE_TOOL_RESULT_AT - 500] + "\n[... output shortened to fit the model's context window ...]"
+                changed += 1
+                break  # Only prune the most recent one per call
+        if changed:
+            self.log.add("compaction", "ok", parent=self._turn, detail="proactively pruned large tool result")
+        return bool(changed)
+
     # one prompt --------------------------------------------------------------------------------------------------
     def run(self, prompt: str) -> str:
         first = len(self.messages)
         self._extra = self.learning.context(prompt) if self.learning else ""
+        # Reset loop detector for new prompt
+        if self.loop_detector:
+            self.loop_detector.reset()
         self.messages.append({"role": "user", "content": images.content(prompt, self.root)})  # @shot.png sends the picture
         self._turn = turn = self.log.add("turn", "running", args=prompt)
         self.changes.begin(prompt)
@@ -243,6 +283,16 @@ class Agent:
                     outcome, answer = "budget_paused", f"Stopped: {reason}. Raise the cap with --max-tokens/--max-usd."
                     self.ui.warn(answer)
                     break
+
+                # Loop/doom detection check at the start of each step
+                if self.loop_detector and self.loop_detector.is_loop_detected():
+                    outcome, answer = "loop_detected", (
+                        f"Loop detected: {self.loop_detector._last_loop_detail}. "
+                        f"Please provide guidance or type 'continue' to try a different approach."
+                    )
+                    self.ui.warn(answer)
+                    break
+
                 self.ui.thinking(True)
                 t0 = time.monotonic()
                 streamed: list[str] = []
@@ -294,6 +344,28 @@ class Agent:
                     writes += kind in ("verified", "check_failed")
                     failed_checks += kind == "check_failed"
                     self.messages.append({"role": "tool", "tool_call_id": call.id, "content": result})
+                    # Proactive pruning: shrink large tool results immediately
+                    self._proactive_prune()
+
+                # After all tool calls in this step, run lint/test on changed files if enabled
+                if self.lint_test_runner and writes:
+                    changed_files = list(self.changes.current.keys()) if self.changes.current else []
+                    if changed_files:
+                        lint_results = self.lint_test_runner.run_lint_on_changed_files(
+                            [self.root / f for f in changed_files]
+                        )
+                        if lint_results:
+                            lint_text = self.lint_test_runner.format_lint_results(lint_results)
+                            self.messages.append({"role": "user", "content": f"Lint check results:\n{lint_text}"})
+                            # Re-estimate context after adding lint results
+                            estimate = self._estimate()
+
+                        # Run tests
+                        test_result = self.lint_test_runner.run_tests()
+                        if not test_result.passed:
+                            test_text = self.lint_test_runner.format_test_result(test_result)
+                            self.messages.append({"role": "user", "content": f"Test results:\n{test_text}"})
+                            estimate = self._estimate()
             else:
                 outcome, answer = "step_limit", f"Stopped after {self.s.max_steps} model calls without finishing (--max-steps)."
                 self.ui.warn(answer)
@@ -324,7 +396,8 @@ class Agent:
 
     def _complete(self, streamed: list[str]):
         """One model call. A rate limit or an overloaded provider is tried again after a pause (its Retry-After when
-        it sends one), up to RETRIES times, but never once text has been shown: a half answer is not restarted."""
+        it sends one), up to RETRIES times, but never once text has been shown: a half answer is not restarted.
+        Falls back to configured fallback models on transient failures (429, 5xx)."""
         on_text = None
         if self._streaming():
             def on_text(delta: str) -> None:
@@ -332,22 +405,58 @@ class Agent:
                     self.ui.thinking(False)
                 streamed.append(delta)
                 self.ui.stream(delta)
-        for attempt in range(RETRIES + 1):
-            try:
-                system = self.system + (f"\n\n{self._extra}" if self._extra else "")
-                if on_text:
-                    return self.model.complete(system, self.messages, self.tool_specs(), on_text=on_text)
-                return self.model.complete(system, self.messages, self.tool_specs())
-            except providers.ProviderError as e:
-                if attempt == RETRIES or streamed or not getattr(e, "transient", False):
-                    raise
-                wait = min(e.retry_after if e.retry_after is not None else RETRY_BASE_S * 3 ** attempt, RETRY_MAX_S)
-                self.ui.thinking(False)
-                self.ui.warn(f"{self.s.provider} is busy (HTTP {e.status}); trying again in {wait:.0f} s")
-                self.log.add("model_call", "retry", parent=self._turn, failure_reason=str(e)[:500])
-                time.sleep(wait)
-                self.ui.thinking(True)
-        raise AssertionError("unreachable")
+                # Loop detection: track streaming content for chanting
+                if self.loop_detector:
+                    self.loop_detector.on_content_chunk(delta)
+
+        # Build the fallback chain: primary + configured fallbacks
+        fallback_chain = [(self.s.provider, self.s.model)]
+        fallback_chain.extend(self.s.fallback_models)
+
+        last_error: providers.ProviderError | None = None
+        for fb_idx, (fb_provider, fb_model) in enumerate(fallback_chain):
+            # Create model for this fallback if not the primary
+            if fb_idx > 0:
+                # Switch to fallback provider/model
+                from . import providers as providers_mod
+                fallback_settings = self.s
+                fallback_settings.provider = fb_provider
+                fallback_settings.model = fb_model
+                # Look up provider config
+                from .config import PROVIDERS
+                p = PROVIDERS.get(fb_provider, {})
+                fallback_settings.kind = p.get("kind", "openai")
+                fallback_settings.base_url = p.get("base_url", "").rstrip("/")
+                fallback_settings.key_env = p.get("key_env", "")
+                fallback_settings.local = bool(p.get("local", False))
+                self.model = providers_mod.make(fallback_settings, on_egress=self._egress)
+                self.ui.warn(f"Falling back to {fb_provider}/{fb_model}...")
+
+            for attempt in range(RETRIES + 1):
+                try:
+                    system = self.system + (f"\n\n{self._extra}" if self._extra else "")
+                    if on_text:
+                        return self.model.complete(system, self.messages, self.tool_specs(), on_text=on_text)
+                    return self.model.complete(system, self.messages, self.tool_specs())
+                except providers.ProviderError as e:
+                    last_error = e
+                    if attempt == RETRIES or streamed or not getattr(e, "transient", False):
+                        # This fallback failed, try next in chain
+                        break
+                    wait = min(e.retry_after if e.retry_after is not None else RETRY_BASE_S * 3 ** attempt, RETRY_MAX_S)
+                    self.ui.thinking(False)
+                    self.ui.warn(f"{self.s.provider} is busy (HTTP {e.status}); trying again in {wait:.0f} s")
+                    self.log.add("model_call", "retry", parent=self._turn, failure_reason=str(e)[:500])
+                    time.sleep(wait)
+                    self.ui.thinking(True)
+            else:
+                # Retries exhausted for this fallback, continue to next fallback
+                continue
+            # If we broke out of the attempt loop (non-transient or max retries), try next fallback
+            continue
+        else:
+            # All fallbacks exhausted
+            raise ProviderError(f"All {len(fallback_chain)} model(s) failed. Last error: {last_error}")
 
     def _streaming(self) -> bool:
         return bool(getattr(self.s, "stream", False)) and getattr(self.ui, "can_stream", lambda: False)()
@@ -384,6 +493,16 @@ class Agent:
             except (ValueError, TypeError) as e:
                 self.log.add("tool_call", "bad_args", parent=turn, tool=call.name, args=args_text, failure_reason=str(e))
                 return f"Error: bad arguments: {e}", "bad_args"
+
+        # Loop detection: check this tool call
+        if self.loop_detector:
+            loop_result = self.loop_detector.on_tool_call(call.name, call.arguments)
+            if loop_result.detected:
+                self.log.add("loop_detection", "detected", parent=turn, tool=call.name,
+                             detail=f"{loop_result.loop_type}: {loop_result.detail}")
+                self.ui.tool_note(f"Loop detected: {loop_result.detail}")
+                # Don't execute the tool; return the loop detection message
+                return f"Loop detected: {loop_result.detail}. Stopping to avoid unproductive repetition.", "loop_detected"
         effect = {"command": "external"}.get(plan.effect, plan.effect)
         action = self.log.add("tool_call", "running", parent=turn, tool=call.name, effect=effect, args=args_text,
                               from_text=int(call.from_text))

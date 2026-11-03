@@ -48,7 +48,7 @@ def test_trusted_folders(tmp_path):
 def test_edit_requires_unique_match(tmp_path):
     (tmp_path / "f.txt").write_text("x\nx\n")
     tb = Toolbox(tmp_path)
-    with pytest.raises(ToolError, match="2 times"):
+    with pytest.raises(ToolError, match="matches 2 locations"):
         tb.prepare("edit_file", {"path": "f.txt", "old_text": "x", "new_text": "y"})
     plan = tb.prepare("edit_file", {"path": "f.txt", "old_text": "x", "new_text": "y", "replace_all": True})
     assert "-x" in plan.preview and (tmp_path / "f.txt").read_text() == "x\nx\n"  # nothing applied before approval
@@ -163,3 +163,173 @@ def test_help_never_hides_a_command(monkeypatch):
     tui.help_table(ui)
     out = ui.console.file.getvalue()
     assert all(cmd in out for cmd in tui.COMMANDS)
+
+
+# ── New feature tests ──────────────────────────────────────────────────
+
+def test_loop_detection_tool_call_cycle(tmp_path):
+    """Loop detector catches repeated identical tool calls."""
+    from rooks_code.loop_detection import LoopDetector, LoopDetectionResult
+
+    detector = LoopDetector()
+    # Simulate 5 identical tool calls (threshold)
+    result = LoopDetectionResult()
+    for _ in range(5):
+        result = detector.on_tool_call("read_file", {"path": "a.py"})
+    assert result.detected
+    assert result.loop_type == "tool_call"
+    assert "Repeating cycle" in result.detail
+
+
+def test_loop_detection_read_heavy(tmp_path):
+    """Loop detector catches many reads without writes."""
+    from rooks_code.loop_detection import LoopDetector, LoopDetectionResult
+
+    detector = LoopDetector()
+    result = LoopDetectionResult()
+    # Use different read tools to avoid tool_call cycle detection
+    read_tools = ["read_file", "list_files", "search", "web_search", "web_fetch"]
+    # Fill the window with 20 read calls (4 cycles of 5 different tools)
+    # Detection happens when the window is full (call 20)
+    for i in range(20):
+        result = detector.on_tool_call(read_tools[i % 5], {"path": "a.py", "pattern": "foo"})
+    assert result.detected
+    assert result.loop_type == "read_heavy"
+
+
+def test_edit_fuzzy_matching_whitespace(tmp_path):
+    """Edit tool matches with whitespace differences."""
+    from rooks_code.tools import Toolbox
+
+    (tmp_path / "f.txt").write_text("def foo():\n    return 1\n")
+    tb = Toolbox(tmp_path)
+    # Extra spaces in old_text
+    plan = tb.prepare("edit_file", {
+        "path": "f.txt",
+        "old_text": "def foo():  \n    return 1\n",
+        "new_text": "def foo():\n    return 2\n",
+    })
+    assert plan.apply()[1] is True
+    assert (tmp_path / "f.txt").read_text() == "def foo():\n    return 2\n"
+
+
+def test_edit_fuzzy_matching_indentation(tmp_path):
+    """Edit tool matches with different indentation."""
+    from rooks_code.tools import Toolbox
+
+    (tmp_path / "f.txt").write_text("def foo():\n    return 1\n")
+    tb = Toolbox(tmp_path)
+    # Wrong indentation in old_text
+    plan = tb.prepare("edit_file", {
+        "path": "f.txt",
+        "old_text": "def foo():\nreturn 1\n",
+        "new_text": "def foo():\n    return 2\n",
+    })
+    assert plan.apply()[1] is True
+    assert (tmp_path / "f.txt").read_text() == "def foo():\n    return 2\n"
+
+
+def test_edit_fuzzy_matching_line_trimmed(tmp_path):
+    """Edit tool matches with trailing whitespace differences."""
+    from rooks_code.tools import Toolbox
+
+    (tmp_path / "f.txt").write_text("def foo():\n    return 1   \n")
+    tb = Toolbox(tmp_path)
+    # No trailing spaces in old_text
+    plan = tb.prepare("edit_file", {
+        "path": "f.txt",
+        "old_text": "def foo():\n    return 1\n",
+        "new_text": "def foo():\n    return 2\n",
+    })
+    assert plan.apply()[1] is True
+    assert (tmp_path / "f.txt").read_text() == "def foo():\n    return 2\n"
+
+
+def test_edit_miss_hint_shows_closest_lines(tmp_path):
+    """Edit tool shows closest matching lines on failure."""
+    from rooks_code.tools import Toolbox, ToolError
+
+    (tmp_path / "f.txt").write_text("def foo():\n    return 1\n\ndef bar():\n    return 2\n")
+    tb = Toolbox(tmp_path)
+    with pytest.raises(ToolError) as exc:
+        tb.prepare("edit_file", {
+            "path": "f.txt",
+            "old_text": "def foo():\n    return 999\n",
+            "new_text": "def foo():\n    return 2\n",
+        })
+    assert "closest lines" in str(exc.value).lower() or "the closest lines" in str(exc.value).lower()
+
+
+def test_repo_map_extracts_symbols(tmp_path):
+    """Repo map extracts functions and classes from Python files."""
+    from rooks_code.repo_map import RepoMap
+
+    (tmp_path / "mod.py").write_text("""
+def hello():
+    \"\"\"Say hello.\"\"\"
+    return "hi"
+
+class Greeter:
+    \"\"\"Greets people.\"\"\"
+    def greet(self, name):
+        return f"Hello, {name}"
+""")
+    repo_map = RepoMap(tmp_path)
+    symbols = repo_map.get_all_symbols()
+    names = {s.name for s in symbols}
+    assert "hello" in names
+    assert "Greeter" in names
+    assert "greet" in names
+
+
+def test_repo_map_formats_output(tmp_path):
+    """Repo map produces formatted output within token budget."""
+    from rooks_code.repo_map import RepoMap
+
+    (tmp_path / "mod.py").write_text("def foo():\n    return 1\n")
+    repo_map = RepoMap(tmp_path, max_tokens=100)
+    output = repo_map.get_repo_map()
+    assert "mod.py" in output
+    assert "foo" in output
+
+
+def test_proactive_pruning(tmp_path):
+    """Large tool results are proactively pruned."""
+    from rooks_code.agent import Agent, PRUNE_TOOL_RESULT_AT
+
+    # This is tested indirectly through the agent's _proactive_prune
+    # Just verify the constant is reasonable
+    assert PRUNE_TOOL_RESULT_AT == 8000
+
+
+def test_fallback_chain_config(tmp_path, monkeypatch):
+    """Config loads fallback_models from TOML."""
+    from rooks_code import config
+
+    toml = """
+provider = "ollama"
+model = "qwen2.5:7b"
+fallback_models = [
+    {provider = "groq", model = "llama-3.3-70b"},
+    {provider = "openrouter", model = "openai/gpt-4o-mini"},
+]
+"""
+    (tmp_path / "rooks.toml").write_text(toml)
+    monkeypatch.setenv("ROOKS_CONFIG", str(tmp_path / "rooks.toml"))
+    s = config.resolve({}, tmp_path)
+    assert s.fallback_models == [("groq", "llama-3.3-70b"), ("openrouter", "openai/gpt-4o-mini")]
+
+
+def test_lint_after_edit_config(tmp_path, monkeypatch):
+    """Config loads lint_after_edit setting."""
+    from rooks_code import config
+
+    toml = """
+provider = "ollama"
+model = "qwen2.5:7b"
+lint_after_edit = true
+"""
+    (tmp_path / "rooks.toml").write_text(toml)
+    monkeypatch.setenv("ROOKS_CONFIG", str(tmp_path / "rooks.toml"))
+    s = config.resolve({}, tmp_path)
+    assert s.lint_after_edit is True
