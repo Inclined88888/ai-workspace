@@ -3,8 +3,10 @@ from __future__ import annotations
 """The run log: every agent action is one row in `actions` (R2). There is no other ledger.
 Kinds and their outcomes:
   turn        running | no_claim | backed | fixed | unbacked | model_error | step_limit | empty_answer | budget_paused | interrupted
+              | repeat_blocked
   model_call  ok | error
   tool_call   verified | ok | check_failed | bad_args | unknown_tool | rejected | tool_error | held | denied | duplicate
+              | repeat_blocked (refused: the same call already failed the same way REPEAT_LIMIT times in a row)
   decision    approved | denied        (the user's answer to a held tool_call, which is its parent)
 
 Rows link through parent_action_id: a turn's model and tool calls point at the turn; an approved tool run points at
@@ -139,7 +141,7 @@ def args_preview(raw: str) -> str:
 # The trace (item 21): top-level runs and the tree of actions under each. payload_enc never leaves this module.
 _TREE = ("WITH RECURSIVE tree(id) AS (SELECT ? UNION ALL SELECT a.id FROM actions a JOIN tree t ON a.parent_action_id = t.id) ")
 FAILED = ("error", "check_failed", "bad_args", "unknown_tool", "tool_error", "unbacked", "model_error", "step_limit",
-          "empty_answer", "interrupted", "denied", "rejected")
+          "empty_answer", "interrupted", "denied", "rejected", "repeat_blocked")
 
 
 def runs(limit: int = 50, before: int | None = None, channel: str = "", failed: bool = False,

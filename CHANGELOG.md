@@ -4,6 +4,32 @@ Every user-visible change that needs action, or changes data on upgrade, gets an
 migration steps, rollback steps. Workbench has no release numbers yet (BACKLOG). Entries are identified by schema
 version and the merge commit on `main`.
 
+## 2026-11-01 · Long tool results, step limit setting, repeat guard · branch feat/rea-p0-harness
+
+From the competitor review (P0 items 1, 2 and 4):
+
+- **Long tool results are kept, not cut.**
+  - Before: a tool result over 20,000 characters (a long email thread, web page or listing) was cut there and the
+    model never knew. Now the full result (up to 2 million characters) is stored with its conversation.
+  - The model sees the first 14,000 and the last 4,000 characters, the size, and an id. The new `read_tool_result`
+    tool reads any part by offset, or finds the passages that mention a phrase. It is offered only once a conversation
+    has a stored result.
+  - Reads are scoped to the conversation that produced the result. A result from web or email stays untrusted when read
+    back, so approval holds still apply.
+- **Step limit is a setting.**
+  - The default is still 12 model calls per turn.
+  - `PUT /api/settings` accepts `max_steps` (overall, 1 to 100, 0 restores the default) and `max_steps_channels`, for
+    example `{"schedule": 30}` (0 removes an override). `GET /api/settings` reports them.
+- **Repeat guard.**
+  - After 3 identical failures in a row (same tool, same arguments, same error), that exact call is refused for the
+    rest of the turn. The model is told why.
+  - A second attempt at a blocked call ends the turn with an honest summary.
+  - New outcome `repeat_blocked` for tool calls and turns; it counts as a failure in the run log. A success, or a
+    different call in between, resets the count.
+- Migration: new table `tool_results`, created on start, with no data change and no schema version bump. Rows are
+  deleted with their conversation.
+- Rollback: check out the previous commit. The leftover `tool_results` table is ignored.
+
 ## 2026-11-01 · Goal mode: durable objectives with round allowance and verified completion · branch feat/rea-goal
 
 - **Goal mode** attaches a durable objective to a conversation. When a turn ends without the goal met, the assistant
@@ -204,7 +230,7 @@ Replaces the dark, gradient "premium" look with a quiet 90s fashion-editorial st
 - **Type.** Bodoni Moda (Didone, optical sizes) for headings and the wordmark, Hanken Grotesk for the UI and JetBrains Mono for code. All three are bundled locally (OFL 1.1). Inter has been removed.
 - **Colour.** One accent, cherry red (#D21F3C; #B5122B for text), and a baby-blue secondary (#D5E5F4) used only for fills. Every text pair meets WCAG AA.
 - **No gradients, glow, blur or sparkle icons.** The logo mark is now a typographic wordmark. Surfaces are flat with hairline rules and square corners, and nav items are text only.
-- **Motion** is limited to fades and small page turns, and is fully disabled under reduced motion.
+- **Motion** is limited to fades and small page turns, and is fully disabled under `prefers-reduced-motion`.
 - **Desktop splash and welcome screen** were restyled to match. The splash bundles its own Bodoni subset (116 KB).
 - **Bundle:** JS 410.07 kB (122.45 gzip), CSS 37.41 kB (8.13 gzip).
 - Screenshots are in `screenshots/editorial/`.
@@ -216,8 +242,8 @@ Replaces the dark, gradient "premium" look with a quiet 90s fashion-editorial st
   in the sidebar overrides it (stored in the browser as `wb-theme`).
 * Inter and JetBrains Mono are bundled (`@fontsource-variable`, OFL 1.1). The app makes no font requests to the network.
 * Cmd/Ctrl+K command palette for pages, new chat / note / task and the theme.
-* Chat: new message layout, code blocks with a language label and a Copy button, a streaming reveal with a caret, a
-  typing indicator, an auto-growing composer with the model picker, and suggestion cards on an empty chat.
+* Chat: new message layout, code blocks with a language label and a Copy button, a streaming reveal with a caret,
+  a typing indicator, an auto-growing composer with the model picker, and suggestion cards on an empty chat.
 * Redesigned app shell and sidebar, auth, the desktop welcome flow and the desktop splash (`desktop/ui/index.html`), with
   skeleton loaders, empty states, toasts and modals.
 * Motion stays between 120 and 240 ms and is CSS only. All of it switches off under `prefers-reduced-motion`. Focus
@@ -306,6 +332,7 @@ secret rotation or manual SQL is needed. Existing schema-v2 installations are un
 No schema/key migration. Recreate enabled Paperclip containers to apply its new
 environment. Roll back the image/client if needed; preserve volumes and APP_SECRET.
 [Phase 0 gate](docs/PHASE0-GATE.md) records the acceptance assumptions and limits.
+
 ## 2026-10-29 · Official Codex CLI launcher · Phase 1 item 117
 
 Optional `codex` profile reuses Item 116's unchanged Node transport. The official
@@ -497,4 +524,3 @@ apart from timestamps and ids.
    `workbench.db-wal` and `workbench.db-shm` if present).
 3. Start the previous image.
 4. Anything recorded after the upgrade (costs, approvals, tool runs) is lost.
-

@@ -2,6 +2,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import secrets
 import time
 from datetime import datetime, timezone
@@ -216,17 +217,25 @@ def desktop_info():
 # Settings and providers
 @api.get("/settings")
 def get_settings():
+    from .assistant import MAX_STEPS, max_steps
+
+    channels = {r["key"][len("max_steps_"):]: int(r["value"]) for r in db.all(
+        "SELECT key, value FROM settings WHERE key LIKE 'max_steps\\_%' ESCAPE '\\'") if str(r["value"]).isdigit()}
     return {
         "workspace_name": db.get_setting("workspace_name", config.WORKSPACE_NAME),
         "default_model": db.get_setting("default_model", ""),
         "chat_url": config.CHAT_URL,
         "tools_url": "http://workbench:8000/tools/openapi.json",
+        # model calls the assistant may make in one turn: the overall setting, per channel overrides, the default
+        "max_steps": max_steps(""), "max_steps_channels": channels, "max_steps_default": MAX_STEPS,
     }
 
 
 class SettingsIn(BaseModel):
     workspace_name: str | None = Field(None, max_length=80)
     default_model: str | None = Field(None, max_length=300)
+    max_steps: int | None = Field(None, ge=0, le=100)  # 0 restores the default
+    max_steps_channels: dict[str, int] | None = None   # e.g. {"schedule": 30}; a value of 0 removes the override
 
 
 @api.put("/settings")
@@ -237,6 +246,15 @@ def put_settings(data: SettingsIn):
         if data.default_model:
             llm.check_ref(data.default_model)
         db.set_setting("default_model", data.default_model)
+    if data.max_steps is not None:
+        db.set_setting("max_steps", str(data.max_steps) if data.max_steps else "")
+    for channel, n in (data.max_steps_channels or {}).items():
+        if not re.fullmatch(r"[a-z_]{1,20}", channel) or not 0 <= n <= 100:
+            raise HTTPException(422, f"max_steps_channels: {channel!r} needs a lowercase channel name and 0 to 100")
+        if n:
+            db.set_setting(f"max_steps_{channel}", str(n))
+        else:
+            db.run("DELETE FROM settings WHERE key = ?", f"max_steps_{channel}")
     return get_settings()
 
 

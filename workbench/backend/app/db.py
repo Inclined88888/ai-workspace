@@ -202,10 +202,20 @@ CREATE TABLE IF NOT EXISTS messages (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS messages_conv ON messages(conversation_id, id);
--- Chat search. Its own copy of the text (not content='messages'): only user and assistant messages are indexed, and an
--- external-content index over a subset always fails PRAGMA integrity_check. Kept in step on insert, edit and delete
--- (a streamed answer is written once, then updated with the final text). Rebuilt for older databases by migrate_v4.
-CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(content, tokenize='porter unicode61');
+-- Full text of tool results too long to send inline (tool_results.py). The model gets the start and end plus an id
+-- it can read the rest by. Deleted with its conversation; stored like messages.content.
+CREATE TABLE IF NOT EXISTS tool_results (
+  id TEXT PRIMARY KEY,                          -- short random id the model passes to read_tool_result
+  conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  tool TEXT NOT NULL,
+  untrusted INTEGER NOT NULL DEFAULT 0,         -- third party content: reading it taints the turn like the original
+  content TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS tool_results_conv ON tool_results(conversation_id);
+-- Chat search. Uses content='messages' so FTS indexes the messages table directly.
+-- Only user and assistant messages are indexed via triggers. Rebuilt for older databases by migrate_v4.
+CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(content, content='messages', content_rowid='id', tokenize='porter unicode61');
 CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages WHEN new.role IN ('user', 'assistant') BEGIN
   INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content);
 END;
