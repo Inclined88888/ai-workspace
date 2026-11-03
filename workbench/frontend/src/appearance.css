@@ -85,7 +85,6 @@
 /* ---- Type pairings ---- */
 :root[data-font="modern"] {
   --font-serif: var(--font-sans);
-  --font-sans: var(--font-sans);
 }
 :root[data-font="modern"] h1,
 :root[data-font="modern"] .empty.hero .empty-title { font-weight: 600; letter-spacing: var(--tracking-tight); }

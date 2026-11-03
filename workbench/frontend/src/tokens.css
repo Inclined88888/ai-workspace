@@ -293,3 +293,16 @@
     scroll-behavior: auto !important;
   }
 }
+/* Aliases for names older components still use. */
+:root {
+  --sans: var(--font-sans);
+  --border-focus: var(--color-border-focus);
+  --danger-hover: var(--color-danger-hover);
+  --success-soft: var(--color-success-soft);
+  --success-text: var(--color-success-text);
+  --warning-soft: var(--color-warning-soft);
+  --warning-text: var(--color-warning-text);
+  --dur-2: var(--dur-normal);
+  --dur-3: var(--dur-slow);
+  --dur-med: var(--dur-normal);
+}

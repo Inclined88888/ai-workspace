@@ -12,39 +12,12 @@
   --serif: var(--font-serif);
   --font: var(--font-sans);
   --mono: var(--font-mono);
-  --text-2xs: var(--text-2xs);
-  --text-xs: var(--text-xs);
-  --text-sm: var(--text-sm);
-  --text-md: var(--text-md);
-  --text-lg: var(--text-lg);
-  --text-xl: var(--text-xl);
-  --text-2xl: var(--text-2xl);
-  --text-3xl: var(--text-3xl);
-  --text-4xl: var(--text-4xl);
   --track: var(--tracking-wide);
-  --space-1: var(--space-1);
-  --space-2: var(--space-2);
-  --space-3: var(--space-3);
-  --space-4: var(--space-4);
-  --space-5: var(--space-5);
-  --space-6: var(--space-6);
-  --space-8: var(--space-8);
-  --space-10: var(--space-10);
-  --space-12: var(--space-12);
   /* Corners: 6 / 10 / 14 */
-  --radius-xs: var(--radius-xs);
-  --radius-sm: var(--radius-sm);
   --radius: var(--radius-md);
-  --radius-lg: var(--radius-lg);
-  --radius-full: var(--radius-full);
   /* Motion: fades 100-200ms */
-  --dur-fast: var(--dur-fast);
   --dur: var(--dur-normal);
-  --dur-slow: var(--dur-slow);
-  --ease-out: var(--ease-out);
-  --ease-in-out: var(--ease-in-out);
   --ease-spring: var(--ease-out);
-  --sidebar-w: var(--sidebar-w);
   --inset: 0px;
 }
 
@@ -84,10 +57,6 @@
   --code-bg: var(--color-code-bg);
   --scrim: var(--color-scrim);
   --hl: transparent;
-  --shadow-1: var(--shadow-1);
-  --shadow-2: var(--shadow-2);
-  --shadow-3: var(--shadow-3);
-  --shadow-4: var(--shadow-4);
   --glow: none;
   --shadow: var(--shadow-2);
   color-scheme: light;
@@ -127,7 +96,6 @@
   --warn-soft: var(--color-warning-soft);
   --code-bg: var(--color-code-bg);
   --scrim: var(--color-scrim);
-  --shadow-4: var(--shadow-4);
   color-scheme: dark;
 }
 
