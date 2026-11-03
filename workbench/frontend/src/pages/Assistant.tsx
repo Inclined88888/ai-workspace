@@ -231,6 +231,27 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
           <ProjectSwitcher cid={cid} /><CheckToggle cid={cid} />{/* feat/v02-core */}
           {tabs}
         </div>
+        {approvals.length > 0 && (
+          <div className="approvals-header" role="region" aria-label="Pending approvals" aria-live="polite">
+            <div className="approvals-header-inner">
+              <div className="approvals-header-title">
+                <ShieldAlert size={16} style={{ color: "var(--warn-text)" }} />
+                <span><strong>{approvals.length}</strong> pending approval{approvals.length > 1 ? "s" : ""}</span>
+              </div>
+              <div className="approvals-header-list">
+                {approvals.slice(0, 3).map((a) => (
+                  <div key={a.id} className="approval-header-item">
+                    <span className="tool-name">{a.tool}</span>
+                    <span className="tool-reason">{a.reason}</span>
+                  </div>
+                ))}
+                {approvals.length > 3 && (
+                  <div className="approval-header-more">+{approvals.length - 3} more</div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
         <div className="chat-scroll" aria-live="polite">
           <div className="chat-thread">
             {visible.length === 0 && !busy && (
