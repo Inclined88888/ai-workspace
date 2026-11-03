@@ -176,7 +176,7 @@ class RichUI(UI):
         t.append("⏺ ", style=self.hexcolour(role))
         t.append(verb, style="bold")
         if arg:
-            t.append(f"({arg})" if not arg.startswith(" ") else arg, style=self.hexcolour("dim") if verb in ("Thinking",) else "")
+            t.append(f" {arg}" if not arg.startswith(" ") else arg, style=self.hexcolour("dim") if verb in ("Thinking",) else "")
         self.console.print(t, overflow="ellipsis", no_wrap=True)
 
     def _sub(self, text: str, role: str = "dim") -> None:
@@ -248,10 +248,10 @@ class RichUI(UI):
             body = [l for l in lines if l.strip()]
             code = body[0] if body and body[0].startswith("exit code") else ""
             out = body[1:] if code else body
-            for l in out[:10]:
-                self.console.print(Text("  ⎿  " if l is out[0] else "     ", style=self.hexcolour("dim")) + Text(l), overflow="ellipsis", no_wrap=True)
-            if len(out) > 10:
-                self._sub(f"… +{len(out) - 10} lines")
+            if out:
+                self._sub(out[0][:120])
+                if len(out) > 1:
+                    self._sub(f"… +{len(out) - 1} lines")
             if code and code != "exit code 0":
                 self._sub(code, "error")
             elif not out:
@@ -468,10 +468,9 @@ def banner(agent, ui: RichUI) -> None:
     what = Text.from_markup(f"[{dim}]{tools} tools: files, terminal, web, background jobs, sub-agents"
                             + (", your computer" if any("desk" in n for n in (s.mcp_servers or {})) else "")
                             + " · remembers what you teach it[/]")
-    body = Table.grid()
-    for row in (head, where, what):
-        body.add_row(row)
-    ui.console.print(Panel(body, border_style=accent, padding=(0, 1), expand=False))
+    ui.console.print(head)
+    ui.console.print(where)
+    ui.console.print(what)
     ui.console.print(Text.from_markup(f"  [{dim}]Type a request in plain words.  [/][{accent}]/[/][{dim}] commands  [/][{accent}]@[/][{dim}] add a file  "
                                       f"[/][{accent}]⇧Tab[/][{dim}] mode  [/][{accent}]?[/][{dim}] shortcuts[/]"))
     recent = sessions(agent.root)[-3:]
@@ -503,12 +502,21 @@ def _k(n: int) -> str:
 
 
 def help_table(ui: RichUI) -> None:
-    t = Table.grid(padding=(0, 3))
-    t.add_column(style=f"bold {ui.hexcolour('accent')}", no_wrap=True)
-    t.add_column()
-    for cmd, what in COMMANDS.items():
-        t.add_row(cmd, what)
-    ui.console.print(Padding(t, (1, 2)))
+    categories = {
+        "Session": ["/help", "/new", "/undo", "/diff", "/compact", "/cost", "/receipt", "/exit"],
+        "Model": ["/model", "/effort", "/provider", "/login"],
+        "Context": ["/memory", "/skills", "/init", "/context", "/sessions", "/resume"],
+        "Behavior": ["/auto", "/dry-run", "/doctor", "/copy", "/image", "/jobs"],
+    }
+    for cat, cmds in categories.items():
+        t = Table.grid(padding=(0, 3))
+        t.add_column(style=f"bold {ui.hexcolour('accent')}", no_wrap=True)
+        t.add_column()
+        for cmd in cmds:
+            if cmd in COMMANDS:
+                t.add_row(cmd, COMMANDS[cmd])
+        ui.console.print(Padding(Text(cat, style=f"bold {ui.hexcolour('accent')}"), (1, 2, 0, 2)))
+        ui.console.print(Padding(t, (0, 2)))
     ui.console.print(Padding(Text("Anything that is not a command is a request. Mention a file with @, for example: "
                                   "summarise @notes.md", style=ui.hexcolour("dim")), (0, 2, 1, 2)))
 
@@ -562,11 +570,12 @@ def run(agent, ui: RichUI) -> int:
         set_mode(agent.s, m)
         event.app.invalidate()
 
-    def rule():
-        return "─" * max(20, shutil.get_terminal_size((100, 30)).columns)
+    @keys.add("escape")
+    def _interrupt(event):  # Esc: interrupt current task like Ctrl+C
+        raise KeyboardInterrupt()
 
     def message():
-        return FormattedText([("class:rule", rule() + "\n"), ("class:prompt", "❯ ")])
+        return FormattedText([("class:prompt", "❯ ")])
 
     def toolbar():
         s = agent.s
@@ -587,13 +596,12 @@ def run(agent, ui: RichUI) -> int:
             parts += [sep, ("class:dim", f"plan {sum(i['status'] == 'done' for i in todos)}/{len(todos)}")]
         style = {"asks first": "class:dim", "auto-accept": "class:warn", "plan only": "class:plan"}[mode]
         parts += [sep, (style, f"⏵⏵ {mode}"), ("class:hint", " ⇧Tab")]
-        return FormattedText([("class:rule", rule() + "\n"), *parts])
+        return FormattedText(parts)
 
     accent = ui.hexcolour("accent") if ui.color else ""
     dark = ui.theme.background != "light"
     style = Style.from_dict({
         "prompt": f"bold {accent}" if accent else "bold",
-        "rule": "#555555" if dark else "#bbbbbb",
         "bottom-toolbar": "noreverse bg:default",
         "bottom-toolbar.text": "bg:default",
         "model": f"bold {accent}" if accent else "bold",
