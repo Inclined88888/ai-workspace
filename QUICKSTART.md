@@ -22,7 +22,7 @@ they use your keys and your free tiers, fall back when a provider hits a limit, 
 Open **Terminal** and paste:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/integration/v0.3/install.sh | bash
 ```
 
 ### Windows 10 / 11
@@ -30,18 +30,18 @@ curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/main/ins
 Open **PowerShell** (Start → type *PowerShell* → Enter) and paste:
 
 ```powershell
-irm https://raw.githubusercontent.com/Inclined88888/ai-workspace/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/Inclined88888/ai-workspace/integration/v0.3/install.ps1 | iex
 ```
 
-**Before this release candidate is merged to `main`**, install from its branch:
+**To install a different branch or tag**, set `AI_WORKSPACE_REF`:
 
 ```bash
 # macOS / Linux
-curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/release/v0.1-rc/install.sh | AI_WORKSPACE_REF=release/v0.1-rc bash
+curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/integration/v0.3/install.sh | AI_WORKSPACE_REF=main bash
 ```
 ```powershell
 # Windows
-$env:AI_WORKSPACE_REF='release/v0.1-rc'; irm https://raw.githubusercontent.com/Inclined88888/ai-workspace/release/v0.1-rc/install.ps1 | iex
+$env:AI_WORKSPACE_REF='main'; irm https://raw.githubusercontent.com/Inclined88888/ai-workspace/integration/v0.3/install.ps1 | iex
 ```
 
 **From the release zip** (no download step), unzip `ai-workspace-0.1.0-rc1.zip`, then either:

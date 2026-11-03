@@ -15,11 +15,11 @@
 #                   (no admin rights; it cannot drive windows running as administrator unless it is elevated too)
 # Python 3.12 is fetched by uv (astral.sh) into your user folder.
 #
-# Options (env vars, because `irm | iex` cannot take arguments):
+# Settings (env vars, because `irm | iex` cannot take arguments):
 #   AI_WORKSPACE_NO_START=1   don't open the app at the end
 #   AI_WORKSPACE_NATIVE=auto|yes|no   native installer from GitHub releases (default auto)
 #   AI_WORKSPACE_HELPERS=yes|no   optional helper apps for Files (Tesseract, FFmpeg, LibreOffice via winget; default: ask)
-#   AI_WORKSPACE_REF (branch/tag to download, default main)   AI_WORKSPACE_REPO (owner/repo)
+#   AI_WORKSPACE_REF (branch/tag to download, default integration/v0.3)   AI_WORKSPACE_REPO (owner/repo)
 # Run it again to upgrade. Your chats, keys and settings are kept. Uninstall: QUICKSTART.md.
 
 & {
@@ -28,7 +28,7 @@
   [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
   $repo = if ($env:AI_WORKSPACE_REPO) { $env:AI_WORKSPACE_REPO } else { 'Inclined88888/ai-workspace' }
-  $ref = if ($env:AI_WORKSPACE_REF) { $env:AI_WORKSPACE_REF } else { 'main' }
+  $ref = if ($env:AI_WORKSPACE_REF) { $env:AI_WORKSPACE_REF } else { 'integration/v0.3' }
   $bin = if ($env:AI_WORKSPACE_BIN) { $env:AI_WORKSPACE_BIN } else { Join-Path $env:USERPROFILE '.local\bin' }
 
   Write-Host 'AI Workspace installer' -ForegroundColor White

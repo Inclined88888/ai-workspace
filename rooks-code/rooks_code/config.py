@@ -86,11 +86,18 @@ def app_link() -> dict:
         return {}
 
 
-NO_MODEL_HELP = ("No AI model is set up yet. Run `rooks login` to connect one, or open the app (run `ai-workspace`) and "
-                 "choose \"Free cloud\" (a free Gemini or Groq key: two minutes, no card), or set a key in this terminal:\n"
-                 "    export GROQ_API_KEY=...     (free at https://console.groq.com/keys)\n"
-                 "    export GEMINI_API_KEY=...   (free at https://aistudio.google.com/apikey)\n"
-                 "On Windows PowerShell: $env:GROQ_API_KEY=\"...\"")
+NO_MODEL_HELP = (
+    "No AI model is set up yet.\n"
+    "\n"
+    "Quick options:\n"
+    "  1. Run `rooks login` and follow the prompts.\n"
+    "  2. Open the app: run `ai-workspace`, pick \"Free cloud\", paste a free Gemini or Groq key (2 min, no card).\n"
+    "  3. Set a key in this terminal:\n"
+    "       export GROQ_API_KEY=...     # free at https://console.groq.com/keys\n"
+    "       export GEMINI_API_KEY=...   # free at https://aistudio.google.com/apikey\n"
+    "     On Windows PowerShell:\n"
+    "       $env:GROQ_API_KEY=\"...\""
+)
 KEY_ORDER = ("anthropic", "openai", "openrouter", "gemini", "groq", "nvidia", "xai", "deepseek", "mistral", "cerebras",
              "together", "fireworks")  # when no app is open
 DOCKER_URL = "http://localhost:3100"  # where setup.sh publishes Workbench (WORKBENCH_PORT)

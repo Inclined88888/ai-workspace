@@ -13,6 +13,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 @pytest.fixture(autouse=True)
 def no_local_servers(monkeypatch, tmp_path):
     """A Workbench on this machine (Docker on :3100) or keys saved by a real `rooks login` must not leak into tests."""
+    # Clear all API key and token env vars so tests are isolated from the shell
+    for name in tuple(os.environ):
+        if name.endswith(("_API_KEY", "_TOKEN")):
+            monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("WORKBENCH_PORT", "9")
     monkeypatch.setenv("ROOKS_CONFIG", str(tmp_path / "isolated-rooks.toml"))
 
