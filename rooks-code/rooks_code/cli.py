@@ -237,6 +237,7 @@ HELP = """/undo        put back the files changed by the last prompt
 /provider P  switch provider (openai, anthropic, nvidia, workbench, ...), keeping the conversation
 /compact     summarise the conversation so far to free the context window
 /receipt     path of this session's receipt
+/image P [Q] ask about a picture (or mention @shot.png in a prompt)
 /clear       forget the conversation /exit  quit (or Ctrl-D)"""
 
 
@@ -475,6 +476,14 @@ def repl(agent, ui: UI) -> int:
                 ui.p("" if agent.compact("asked with /compact") else "nothing to compact yet")
             elif cmd == "/receipt":
                 ui.p(str(agent.log.path))
+            elif cmd == "/image":
+                from .images import image_command
+
+                prompt, err = image_command(rest, agent.root)
+                if err:
+                    ui.p(err)
+                else:
+                    agent.run(prompt)
             elif cmd == "/clear":
                 agent.messages.clear()
                 ui.p("conversation cleared")

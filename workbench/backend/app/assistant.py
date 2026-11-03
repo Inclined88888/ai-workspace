@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo
 import httpx
 from fastapi import HTTPException
 
-from . import actions, compression, config, db, llm, receipts, research, router, services, tools
+from . import actions, attachments, compression, config, db, llm, receipts, research, router, services, tools
 
 MAX_STEPS = 12
 HISTORY_MESSAGES = 40
@@ -51,6 +51,7 @@ class Ctx:
     request_key: str = ""              # caller's idempotency key: a retried request with the same key is refused (item 28)
     started: float = 0.0
     skip_save: bool = False            # the caller already stored this turn's user message (edit-and-resend)
+    attachments: list[dict] = field(default_factory=list)  # this turn's files (attachments.resolve), stored with the message
 
     def trace(self) -> dict:
         return {"channel": self.channel, "conversation_id": self.conversation_id,
@@ -661,6 +662,16 @@ def _history(conversation_id: int, budget_chars: int = 300_000) -> list[dict]:
     return _history_window(conversation_id, budget_chars)[0]
 
 
+def _cost(m: dict) -> int:
+    """Characters a message counts against the window; an image counts a fixed amount, not its base64 length."""
+    c = m.get("content")
+    if isinstance(c, list):
+        imgs = sum(1 for p in c if isinstance(p, dict) and p.get("type") == "image_url")
+        text = [p for p in c if not (isinstance(p, dict) and p.get("type") == "image_url")]
+        return len(json.dumps({**m, "content": text}, ensure_ascii=False)) + imgs * attachments.IMAGE_COST_CHARS
+    return len(json.dumps(m, ensure_ascii=False))
+
+
 def _history_window(conversation_id: int, budget_chars: int = 300_000) -> tuple[list[dict], int | None]:
     """The recent conversation as model messages, repaired and cut to fit the model's window, plus the id of the
     first message kept (None when nothing was kept). Older messages are covered by compression's rolling summary.
@@ -670,6 +681,15 @@ def _history_window(conversation_id: int, budget_chars: int = 300_000) -> tuple[
     Budget: oldest messages go first, and the cut always lands on a user message so tool exchanges stay whole.
     """
     rows = db.all("SELECT * FROM messages WHERE conversation_id = ? ORDER BY id DESC LIMIT ?", conversation_id, HISTORY_MESSAGES)[::-1]
+    # feat/attachments: only the newest few images go as pixels; older ones become a one-line note
+    pixels_for: set[int] = set()
+    left = attachments.IMAGES_IN_CONTEXT
+    for r in reversed(rows):
+        if left > 0 and r.get("attachments") and r["role"] == "user":
+            n = sum(1 for a in json.loads(r["attachments"]) if a.get("kind") == "image")
+            if n:
+                pixels_for.add(r["id"])
+                left -= n
     out: list[dict] = []
     ids: list[int | None] = []
     pending: list[str] = []
@@ -693,6 +713,9 @@ def _history_window(conversation_id: int, budget_chars: int = 300_000) -> tuple[
                 m["tool_calls"] = json.loads(r["tool_calls"])
                 pending = [tc["id"] for tc in m["tool_calls"]]
             out.append(m)
+        elif r.get("attachments"):
+            metas = json.loads(r["attachments"])
+            out.append({"role": "user", "content": attachments.content_parts(r["content"], metas, r["id"] in pixels_for)})
         else:
             out.append({"role": "user", "content": r["content"]})
         ids.append(r["id"])
@@ -702,7 +725,7 @@ def _history_window(conversation_id: int, budget_chars: int = 300_000) -> tuple[
         return [], None
     used, keep_from = 0, starts[-1]
     for i in range(len(out) - 1, -1, -1):
-        used += len(json.dumps(out[i], ensure_ascii=False))
+        used += _cost(out[i])
         if used > budget_chars:
             break
         if i in starts:
@@ -715,9 +738,12 @@ def new_conversation(channel: str, title: str = "New chat", external_id: str = "
                   title[:120], channel, external_id, agent_id, db.now(), db.now())
 
 
-def _save(conversation_id: int, role: str, content: str = "", tool_calls: list | None = None, tool_call_id: str = "", name: str = "") -> int:
-    mid = db.run("INSERT INTO messages(conversation_id, role, content, tool_calls, tool_call_id, name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                 conversation_id, role, content, json.dumps(tool_calls) if tool_calls else "", tool_call_id, name, db.now())
+def _save(conversation_id: int, role: str, content: str = "", tool_calls: list | None = None, tool_call_id: str = "", name: str = "",
+          attachments: list[dict] | None = None) -> int:
+    mid = db.run("INSERT INTO messages(conversation_id, role, content, tool_calls, tool_call_id, name, attachments, created_at) "
+                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                 conversation_id, role, content, json.dumps(tool_calls) if tool_calls else "", tool_call_id, name,
+                 json.dumps(attachments) if attachments else "", db.now())
     db.run("UPDATE conversations SET updated_at = ? WHERE id = ?", db.now(), conversation_id)
     return mid
 
@@ -749,7 +775,8 @@ async def _run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> Async
     if ctx.request_key and actions.by_key("turn:" + ctx.request_key):
         raise HTTPException(409, "This request was already received (same idempotency key); it was not run again")
     if conv["title"] == "New chat":
-        db.run("UPDATE conversations SET title = ? WHERE id = ?", user_text.strip().splitlines()[0][:80] or "Chat", ctx.conversation_id)
+        first = (user_text.strip().splitlines() or [""])[0][:80] or (ctx.attachments[0]["name"][:80] if ctx.attachments else "") or "Chat"
+        db.run("UPDATE conversations SET title = ? WHERE id = ?", first, ctx.conversation_id)
     model = model or (ctx.agent or {}).get("model") or conv["model"] or None
     try:
         ctx.model = model or llm.default_model_ref()
@@ -759,11 +786,15 @@ async def _run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> Async
     ctx.turn_action_id = actions.add("turn", "running", trace=ctx.trace(), model=ctx.model,
                                      request_id=("turn:" + ctx.request_key) if ctx.request_key else None)
     if not ctx.skip_save:
-        _save(ctx.conversation_id, "user", user_text)
+        _save(ctx.conversation_id, "user", user_text, attachments=ctx.attachments)
     specs = [t.spec() for t in available_tools(ctx)]
     ctx.tainted = ctx.tainted or bool(db.one(
         f"SELECT 1 FROM (SELECT name FROM messages WHERE conversation_id = ? ORDER BY id DESC LIMIT ?) "
         f"WHERE name IN ({','.join('?' * len(UNTRUSTED_TOOLS))}) LIMIT 1", ctx.conversation_id, HISTORY_MESSAGES, *UNTRUSTED_TOOLS))
+    # feat/attachments: an attached document's text is third party content, like a web page or an email
+    ctx.tainted = ctx.tainted or attachments.has_documents(ctx.attachments) or bool(db.one(
+        "SELECT 1 FROM (SELECT attachments FROM messages WHERE conversation_id = ? ORDER BY id DESC LIMIT ?) "
+        "WHERE attachments LIKE '%\"kind\": \"document\"%' LIMIT 1", ctx.conversation_id, HISTORY_MESSAGES))
     budget = llm.context_chars(model)
     summarising = None
     nudged = False

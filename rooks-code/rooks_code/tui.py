@@ -64,6 +64,7 @@ COMMANDS: dict[str, str] = {
     "/sessions": "earlier conversations in this folder",
     "/resume": "continue an earlier conversation: /resume ID",
     "/copy": "copy the last answer to the clipboard",
+    "/image": "ask about a picture: /image PATH [question] (or mention @shot.png in a request)",
     "/compact": "summarise the conversation so far to make room",
     "/cost": "tokens used and cost so far",
     "/auto": "turn asking before changes off or on",
@@ -734,6 +735,14 @@ def command(agent, ui: RichUI, cmd: str, rest: str) -> None:
     s = agent.s
     if cmd == "/help":
         help_table(ui)
+    elif cmd == "/image":
+        from .images import image_command
+
+        prompt, err = image_command(rest, agent.root)
+        if err:
+            ui.p(ui.c("warn", "  " + err))
+        else:
+            agent.run(prompt)
     elif cmd == "/new":
         agent.messages.clear()
         ui.p(ui.c("ok", "  Fresh start: the conversation is cleared (files are not touched)."))

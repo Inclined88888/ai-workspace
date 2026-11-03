@@ -9,9 +9,10 @@ import { LiveMarkdown } from "../v02/LiveBlocks"; // feat/v02-automations: live 
 import { DictateButton } from "../voice/DictateButton"; // feat/v02-anywhere-voice (drawn as the motion voice orb)
 import { CheckThis, CheckToggle, ProjectSwitcher } from "../v02/ChatExtras"; // feat/v02-core
 import { WebSearchSetup } from "./ModelSignIn";
+import { Att, AttachButton, filesFrom, MessageAttachments, PendingChips, useAttachments } from "../Attachments"; // feat/attachments
 
 type Conv = { id: number; title: string; channel: string; updated_at: string; model: string };
-type Msg = { id: number; role: string; content: string; tool_calls: string[]; name: string; via?: RouterInfo };
+type Msg = { id: number; role: string; content: string; tool_calls: string[]; name: string; via?: RouterInfo; attachments?: Att[] };
 type Step = { kind: "call" | "result" | "check"; name: string; text: string; ok?: boolean };
 type Approval = { id: number; tool: string; args: string; effect: string; reason: string };
 type Memory = { id: number; content: string; kind: string; source: string; updated_at: string };
@@ -49,6 +50,8 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   const abortRef = useRef<AbortController | null>(null); // the in-flight turn; Stop aborts it
   const [editing, setEditing] = useState<number | null>(null); // user message being edited inline
   const [editText, setEditText] = useState("");
+  const att = useAttachments(); // feat/attachments: files waiting to go with the next message
+  const [dropping, setDropping] = useState(false);
 
   const loadConvs = () => api<Conv[]>(`/conversations${q ? `?q=${encodeURIComponent(q)}` : ""}`).then(setConvs).catch(toast.err);
   useEffect(() => { const t = setTimeout(loadConvs, 200); return () => clearTimeout(t); }, [q]);
@@ -81,19 +84,19 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
 
   /** One streamed turn. echo: show the user's text as a fresh bubble (not on resend, where it's already on screen
    *  and stored). resend: the server skips saving the user message again. */
-  const run = async (msg: string, opts: { echo?: boolean; resend?: boolean } = {}) => {
+  const run = async (msg: string, opts: { echo?: boolean; resend?: boolean; files?: Att[] } = {}) => {
     setBusy(true);
     setBusySince(Date.now());
     setSteps([]);
     setEditing(null);
-    if (opts.echo) setMessages((m) => [...m, { id: Date.now(), role: "user", content: msg, tool_calls: [], name: "" }]);
+    if (opts.echo) setMessages((m) => [...m, { id: Date.now(), role: "user", content: msg, tool_calls: [], name: "", attachments: opts.files }]);
     let newId = cid;
     let via: RouterInfo | undefined;
     let stopped = false;
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     try {
-      await stream("/assistant/chat", { message: msg, conversation_id: cid, model: model || null, effort: isPlan ? effort : "", resend: !!opts.resend }, (ev) => {
+      await stream("/assistant/chat", { message: msg, conversation_id: cid, model: model || null, effort: isPlan ? effort : "", resend: !!opts.resend, attachments: (opts.files ?? []).map((a) => a.id) }, (ev) => {
         const t = ev.type as string | undefined;
         if (t === "writing") { setDraft((d) => d + String(ev.text)); return; }
         if (t !== "router") setDraft("");
@@ -133,10 +136,12 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   const send = async (e?: FormEvent) => {
     e?.preventDefault();
     const msg = text.trim();
-    if (!msg || busy) return;
+    const files = att.ready;
+    if ((!msg && !files.length) || busy || att.uploading) return;
+    att.clear();
     setText("");
     if (composerRef.current) composerRef.current.style.height = "auto";
-    await run(msg, { echo: true });
+    await run(msg, { echo: true, files });
   };
 
   /** Stop: abort the fetch here and tell the server to cancel the turn, so tools stop too; partial text is kept. */
@@ -245,7 +250,10 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
                     </div>
                   ) : (
                     <div className="msg-user-row">
-                      <div className="bubble-user">{m.content}</div>
+                      <div className="col" style={{ gap: 0, alignItems: "flex-end" }}>
+                        <MessageAttachments items={m.attachments} />
+                        {m.content && <div className="bubble-user">{m.content}</div>}
+                      </div>
                       <button className="btn ghost sm icon msg-edit" aria-label="Edit and resend" title="Edit and resend" disabled={busy}
                         onClick={() => { setEditing(m.id); setEditText(m.content); }}><Pencil size={12} /></button>
                     </div>
@@ -303,13 +311,19 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
           </div>
         </div>
         <form className="composer-wrap" onSubmit={send}>
-          <div className={`composer has-tracer${busy ? " is-working" : ""}`}>
+          <div className={`composer has-tracer${busy ? " is-working" : ""}${dropping ? " drop-target" : ""}`}
+            onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setDropping(true); } }}
+            onDragLeave={() => setDropping(false)}
+            onDrop={(e) => { const f = filesFrom(e.dataTransfer); setDropping(false); if (f.length) { e.preventDefault(); att.add(f); } }}>
             <Tracer active={busy} label="Assistant is working" />
+            <PendingChips items={att.items} onRemove={att.remove} />
             <textarea ref={composerRef} rows={1} value={text} aria-label="Message"
               onChange={(e) => { setText(e.target.value); const t = e.target; t.style.height = "auto"; t.style.height = `${Math.min(240, t.scrollHeight)}px`; }}
               placeholder="Ask anything, or describe a job to do…"
+              onPaste={(e) => { const f = filesFrom(e.clipboardData); if (f.length) { e.preventDefault(); att.add(f); } }}
               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} />
             <div className="composer-bar">
+              <AttachButton onFiles={att.add} disabled={busy} />
               <ModelSelect value={model} onChange={setModel} models={models} />
               {isPlan && <EffortSelect value={effort} onChange={setEffort} />}
               <div className="spacer" />
@@ -318,7 +332,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
               <DictateButton orb disabled={busy} onText={(t) => { setText((v) => (v ? v + " " : "") + t); composerRef.current?.focus(); }} />
               {busy
                 ? <button type="button" className="btn send" onClick={stopTurn} aria-label="Stop" title="Stop; what was written so far is kept"><Square size={15} /></button>
-                : <button className="btn primary send" disabled={!text.trim()} aria-label="Send"><ArrowUp size={16} /></button>}
+                : <button className="btn primary send" disabled={(!text.trim() && !att.ready.length) || att.uploading} aria-label="Send"><ArrowUp size={16} /></button>}
             </div>
           </div>
         </form>
