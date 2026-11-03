@@ -6,6 +6,8 @@
   ai-workspace --stop       stop a copy started by this launcher
   ai-workspace --status     is it running, where, and which agents are linked
   ai-workspace --logs       where the logs are, and their last lines (paste these when reporting a problem)
+  ai-workspace --update     update to the newest release on this install's channel (--check: only look)
+  ai-workspace --update --channel edge|stable   switch channel (edge = every commit on main) and update
 
 The app window is Chrome or Edge in --app mode with its own profile: no tabs, no address bar, its own icon in the dock or
 taskbar. Closing that window stops the backend. Data lives in the same folder the native app uses, so switching between
@@ -31,6 +33,8 @@ import webbrowser
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import update as updates  # noqa: E402  (desktop/launcher/update.py)
 ROOT = HERE.parent.parent  # the installed source tree (contains workbench/ and desktop/)
 IDENT = "com.inclined88888.aiworkspace"  # desktop/src-tauri/tauri.conf.json identifier: same data folder as the native app
 NAME = "AI Workspace"
@@ -232,6 +236,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--status", action="store_true")
     p.add_argument("--logs", action="store_true", help="show where the logs are and their last lines")
     p.add_argument("--version", action="store_true")
+    p.add_argument("--update", action="store_true", help="update to the newest release on this install's channel")
+    p.add_argument("--check", action="store_true", help="with --update: only report whether an update exists")
+    p.add_argument("--channel", choices=updates.CHANNELS, help="with --update: stable (releases) or edge (main), saved")
     a = p.parse_args(argv)
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(line_buffering=True)  # progress lines show up at once, even when piped to a log
@@ -241,6 +248,13 @@ def main(argv: list[str] | None = None) -> int:
     if a.version:
         print((ROOT / "VERSION").read_text().strip() if (ROOT / "VERSION").exists() else "dev")
         return 0
+    current = (ROOT / "VERSION").read_text().strip() if (ROOT / "VERSION").exists() else "dev"
+    if a.update or a.channel:
+        if running and not a.check:
+            say("Stopping the running copy first…")
+            stop(st)
+        return updates.run_update(current, a.channel, os.environ.get("AI_WORKSPACE_REPO") or updates.DEFAULT_REPO,
+                                  check_only=a.check)
     if a.logs:
         print(f"logs: {logs_dir()}")
         for name in ("launcher.log", "workbench.log"):
@@ -257,6 +271,10 @@ def main(argv: list[str] | None = None) -> int:
             print(f"web UI: {'ok' if ui_ok(st['url']) else 'MISSING (the window would be blank; run the installer again)'}")
             print(f"backend pid: {st.get('pid')}")
         print(f"version: {(ROOT / 'VERSION').read_text().strip() if (ROOT / 'VERSION').exists() else 'dev'}")
+        print(f"channel: {updates.get_channel()}")
+        if updates.get_channel() == updates.CHANNEL_STABLE:
+            res = updates.check(current)
+            print(f"update: {'available, ' + res['latest'] + ' (ai-workspace --update)' if res['available'] else 'none'}")
         print(f"data: {data_dir()}")
         print(f"logs: {logs_dir()}  (ai-workspace --logs)")
         print(f"native app: {' '.join(native_app() or ['not installed (uses an app window in Chrome/Edge)'])}")
@@ -268,6 +286,9 @@ def main(argv: list[str] | None = None) -> int:
         print("stopped" if ok else "not running")
         return 0
 
+    notice = updates.cached_notice(current)  # no network: the result of the last --status / --update check
+    if notice:
+        say(notice)
     native = None if (a.web or a.no_open) else native_app()
     if native:
         say(f"Opening the {NAME} app…")

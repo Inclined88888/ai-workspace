@@ -32,3 +32,17 @@ commit and signer identity. Reject altered artifacts or an unexpected signer.
 Rollback means deploying a previously verified source/image and restoring its
 compatible data backup. Do not delete existing volumes. No database migration is
 introduced by this Phase 0 work.
+
+## Update channels
+
+`ai-workspace --update` re-runs the official installer at the newest release for this install's channel; the data
+folder is never touched. `ai-workspace --update --check` only reports.
+
+* `stable` (default): the newest GitHub release whose tag is exactly `vX.Y.Z`. Pre releases and `desktop-v*` tags
+  are never offered.
+* `edge`: every commit on `main`. Switch with `ai-workspace --update --channel edge` (and back with `stable`).
+
+The channel is saved per install in `~/.ai-workspace/install.json` and survives updates. `ai-workspace --status`
+checks GitHub for a newer stable release; a plain `ai-workspace` launch makes no network request and only repeats
+the result of the last check ("Update available"). The desktop app has its own signed updater
+(docs/desktop-release.md).
