@@ -96,20 +96,23 @@ SmartScreen warning. Not wired up yet (it needs an MSIX package and a Partner Ce
 
 Either way SmartScreen reputation builds up over the first downloads; signing does not remove the warning on day one.
 
-### In-app updater (prepared, disabled)
+### In-app updater (on for tagged builds)
 
-The updater code is in `desktop/src-tauri/src/updater.rs` behind the `updater` Cargo feature, which is off by default,
-so the app never contacts an update server today. To turn it on:
+The updater lives in `desktop/src-tauri/src/updater.rs` behind the `updater` Cargo feature. The key pair exists: the
+public key is in `desktop/src-tauri/tauri.updater.conf.json`, and the private key plus its password are the
+`TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` repository secrets (maintainer copy:
+`~/.tauri/ai-workspace.key`, password in the macOS keychain item `tauri-updater-key-password`). Losing the private key
+means existing installs can no longer update; back it up offline.
 
-1. `cd desktop && npx tauri signer generate -w ~/.tauri/ai-workspace.key` (free; keep the private key safe: losing it means
-   existing installs can no longer update).
-2. Put the **public** key in `desktop/src-tauri/tauri.updater.conf.json` in place of the placeholder and commit it.
-3. Add secrets `TAURI_SIGNING_PRIVATE_KEY` (the private key file's contents) and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+Tagged builds therefore compile the updater in and sign every update bundle (`.sig`). The `publish` job runs
+`desktop/scripts/make_latest_json.py`, which maps each signed bundle to its Tauri platform key (`darwin-aarch64`,
+`darwin-x86_64`, `windows-x86_64`, `linux-x86_64`) and uploads `latest.json` to the release. The app checks
+`releases/latest/download/latest.json` at start-up and asks before installing. Note `releases/latest` skips
+prereleases, so desktop-only `desktop-v*` prereleases do not reach users through the updater.
 
-From the next tag, builds include the updater, sign update bundles (`.sig`), and the app checks
-`releases/latest/download/latest.json` at start-up and asks before installing. **One more step is still needed:**
-generating and uploading `latest.json` (Tauri's format, listing each platform's bundle URL and signature) in the
-`publish` job. That is left for the release that turns the updater on, so it can be tested end to end.
+Rotating the key: generate a new pair, replace the public key and both secrets. Installs that only know the old public
+key cannot verify updates signed with the new one, so ship one release signed with the old key first that already
+contains the new public key.
 
 ### Cost summary
 

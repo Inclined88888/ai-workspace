@@ -181,6 +181,10 @@ jobs:
             -o -name '*.sig' -o -name '*.app.tar.gz' \) -exec cp {} out/ \;
           # Make Intel and Apple silicon DMGs distinguishable
           for f in out/*.dmg; do [ -e "$f" ] || continue; case "$f" in *aarch64*|*x64*) ;; *) mv "$f" "${f%.dmg}_${{ matrix.target }}.dmg";; esac; done
+          # Both macOS jobs emit "AI Workspace.app.tar.gz(.sig)"; tag them with the target so they don't overwrite each
+          # other when the publish job merges artifacts, and so make_latest_json.py can map them to darwin-<arch>.
+          for f in out/*.app.tar.gz out/*.app.tar.gz.sig; do [ -e "$f" ] || continue
+            n="$(basename "$f")"; mv "$f" "out/${n/.app.tar.gz/_${{ matrix.target }}.app.tar.gz}"; done
           ls -la out
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -202,6 +206,17 @@ jobs:
           pattern: desktop-*
           merge-multiple: true
           path: out
+      - name: Updater manifest (latest.json)
+        env:
+          GH_REPO_NAME: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF#refs/tags/}"; TAG="${TAG#desktop-}"
+          if ls out/*.sig >/dev/null 2>&1; then
+            python3 desktop/scripts/make_latest_json.py out "$TAG" "$GH_REPO_NAME"
+          else
+            echo "No .sig files: updater key secret missing, so no latest.json this release."
+          fi
       - name: Checksums
         run: cd out && sha256sum * > SHA256SUMS-desktop
       - name: Upload to the release

@@ -53,6 +53,7 @@ step "Scorecard selftest (every benchmark check judged against gold answers, no 
   && ok "scorecard selftest" || bad "scorecard selftest"
 
 step "Rooks Code (rooks-code)"
+(cd desktop/scripts && "$PY" -m pytest -q -p no:cacheprovider test_make_latest_json.py) && ok "desktop-scripts" || bad "desktop-scripts"
 (cd rooks-code && "${NOKEYS[@]}" "$PY" -m pytest -q -p no:cacheprovider -W ignore tests) && ok "rooks" || bad "rooks"
 
 if ! $QUICK; then
