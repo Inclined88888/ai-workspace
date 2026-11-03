@@ -198,6 +198,19 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
     { title: "Draft an email", hint: "in my usual tone", text: "Draft a friendly follow-up email to a beta tester" },
     { title: "Automate something", hint: "like a daily summary", text: "Every weekday at 8am, send me a summary of what's due" },
   ];
+  // Screen reader only utility
+  const srOnly: React.CSSProperties = {
+    position: "absolute",
+    width: "1px",
+    height: "1px",
+    padding: 0,
+    margin: "-1px",
+    overflow: "hidden",
+    clip: "rect(0, 0, 0, 0)",
+    whiteSpace: "nowrap",
+    border: 0
+  };
+
   return (
     <div className={`split ${cid !== null ? "has-selection" : ""}`}>
       <div className="split-list">
@@ -253,7 +266,8 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
           </div>
         )}
         <div className="chat-scroll" aria-live="polite">
-          <div className="chat-thread">
+          <main className="chat-thread" role="main" aria-label="Chat conversation">
+            <h1 style={srOnly}>Chat conversation</h1>
             {visible.length === 0 && !busy && (
               <Empty hero title="What can I do for you?"
                 hint="I remember what matters across conversations, use your notes, tasks, calendar and mail, search the web, and can schedule things like a daily report.">
@@ -307,7 +321,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
                   </div>
                 </div>)}
             {steps.length > 0 && (
-              <div className="steps-list timeline" aria-label="Tool activity">
+              <div className="steps-list timeline" aria-label="Tool activity" aria-live="polite" aria-atomic="false">
                 {steps.map((s, i) => {
                   const diff = (s.kind === "call" && (s.name === "edit_file" || s.name === "write_file"))
                     ? extractDiffFromArgs(s.text)
@@ -350,7 +364,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
               </div>
             )}
             <div ref={endRef} />
-          </div>
+          </main>
         </div>
         <form className="composer-wrap" onSubmit={send}>
           <div className={`composer has-tracer${busy ? " is-working" : ""}${dropping ? " drop-target" : ""}`}
