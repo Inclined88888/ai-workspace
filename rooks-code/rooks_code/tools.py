@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+from .edit_matching import calculate_edit_match, EditMatchResult
+
 SKIP_DIRS = {".git", ".hg", ".svn", "node_modules", "__pycache__", ".venv", "venv", ".mypy_cache", ".pytest_cache",
              ".rooks", "dist", "build", ".next", ".tox", "target"}
 MAX_OUTPUT = 20_000
@@ -196,16 +198,31 @@ class Toolbox:
     def _edit_file(self, a: dict) -> Plan:
         p = self._path(a.get("path"), must_exist=True, writing=True)
         old_text, new_text = a.get("old_text"), a.get("new_text")
+        replace_all = bool(a.get("replace_all"))
         if not isinstance(old_text, str) or not isinstance(new_text, str) or not old_text:
             raise ToolError("old_text (non-empty) and new_text are required strings")
         text = p.read_text(encoding="utf-8")
-        count = text.count(old_text)
-        if count == 0:
-            raise ToolError(f"old_text was not found in {a['path']}; read the file and copy the text exactly")
-        if count > 1 and not a.get("replace_all"):
-            raise ToolError(f"old_text appears {count} times in {a['path']}; add surrounding lines or set replace_all")
-        new = text.replace(old_text, new_text) if a.get("replace_all") else text.replace(old_text, new_text, 1)
-        return self._write_plan(p, text, new, "edited")
+
+        # Use layered fuzzy matching
+        result: EditMatchResult = calculate_edit_match(
+            source=text,
+            search=old_text,
+            replacement=new_text,
+            replace_all=replace_all,
+        )
+
+        if not result.matched:
+            raise ToolError(result.error_hint or f"old_text was not found in {a['path']}; read the file and copy the text exactly")
+
+        if len(result.matches) > 1 and not replace_all:
+            raise ToolError(
+                f"old_text matches {len(result.matches)} locations in {a['path']}; "
+                f"add surrounding lines or set replace_all=true"
+            )
+
+        new = result.new_content
+        strategy_note = f" (matched via {result.strategy})" if result.strategy != "exact" else ""
+        return self._write_plan(p, text, new, f"edited{strategy_note}")
 
     def _write_file(self, a: dict) -> Plan:
         p = self._path(a.get("path"), writing=True)

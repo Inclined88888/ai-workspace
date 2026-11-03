@@ -203,7 +203,10 @@ class Settings:
     key: str = ""                        # a key handed over by the running app (never written anywhere by Rooks)
     effort: str = ""                     # how hard a plan's model thinks (low, medium, high); "" = the plan's default
     learn: bool = True                   # remember facts and learn skills (through the app: shared with chat)
+    lint_after_edit: bool = False        # run linter/tests after edits and feed errors back
     root: Path = field(default_factory=Path.cwd)
+    # Fallback chain: list of (provider, model) pairs to try on transient failures (429, 5xx)
+    fallback_models: list[tuple[str, str]] = field(default_factory=list)
 
     @property
     def api_key(self) -> str:
@@ -259,12 +262,16 @@ def resolve(flags: dict, root: Path, file: dict | None = None) -> Settings:
     cfg = load_file() if file is None else file
     s = Settings(root=root)
     for key in ("max_usd", "max_tokens", "max_steps", "command_timeout", "trusted_folders", "auto_approve", "workbench_url", "nudge",
-                "stream", "context_tokens", "learn"):
+                "stream", "context_tokens", "learn", "lint_after_edit"):
         if key in cfg:
             setattr(s, key, cfg[key])
     s.prices = dict(cfg.get("prices", {}))
     s.mcp_servers = dict(cfg.get("mcp", {}).get("servers", {}))
     s.mcp_servers.update(_project_mcp(root))
+    # Load fallback chain
+    fallback_list = cfg.get("fallback_models", [])
+    if isinstance(fallback_list, list):
+        s.fallback_models = [(item.get("provider", ""), item.get("model", "")) for item in fallback_list if isinstance(item, dict)]
     desk = _desk_mcp(cfg)
     if desk and "desk" not in s.mcp_servers:
         s.mcp_servers["desk"] = desk
