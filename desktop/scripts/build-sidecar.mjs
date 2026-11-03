@@ -13,6 +13,12 @@ const args = process.argv.slice(2);
 const opt = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
 
 const python = opt("--python") ?? process.env.PYTHON ?? (process.platform === "win32" ? "python" : "python3");
+const version = execFileSync(python, ["-c", "import platform; print(platform.python_version())"], { encoding: "utf8" }).trim();
+const [major, minor] = version.split(".").map(Number);
+if (!(major > 3 || (major === 3 && minor >= 12))) {
+  console.error(`Python 3.12 or newer is required to build the sidecar; ${python} is ${version}. Pass --python with a supported interpreter.`);
+  process.exit(1);
+}
 const target = opt("--target") ?? process.env.TAURI_TARGET_TRIPLE ??
   /host: (\S+)/.exec(execFileSync("rustc", ["-vV"], { encoding: "utf8" }))[1];
 const ext = target.includes("windows") ? ".exe" : "";

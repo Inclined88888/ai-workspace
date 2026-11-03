@@ -103,7 +103,8 @@ class UI:
                 return "n"
             if not sys.stdin.isatty():
                 self.p(line.strip())  # piped answers are echoed so transcripts read naturally
-            a = line.strip().lower()[:1]
+            a = line.strip().lower()
+            a = {"yes": "y", "no": "n", "always": "a"}.get(a, a)
             if a in ("y", "n", "a"):
                 return a
 
