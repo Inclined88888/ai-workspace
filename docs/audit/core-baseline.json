@@ -1,0 +1,1061 @@
+{
+  "schema_version": 1,
+  "base_commit": "64980bf9e4a1dca299dffa2bf30d15fe4f0c5369",
+  "isolation": {
+    "temporary_root": "/Users/azad_mavi/.hermes/cache/scratch/aiw-core-audit-52dfjq47",
+    "cleanup": "TemporaryDirectory removed after checks",
+    "network": "socket.connect denied",
+    "real_provider_calls": false,
+    "app_lifespan_started": false
+  },
+  "results": [
+    {
+      "finding": 1,
+      "verdict": "PROVEN",
+      "evidence": {
+        "claim": "The rooks terminal and Workbench chat have distinct executable agent-loop implementations.",
+        "entrypoints": [
+          {
+            "callable": "rooks_code.agent.Agent.run",
+            "path": "rooks-code/rooks_code/agent.py",
+            "line": 253,
+            "end_line": 382
+          },
+          {
+            "callable": "app.assistant.run_turn",
+            "path": "workbench/backend/app/assistant.py",
+            "line": 828,
+            "end_line": 840
+          },
+          {
+            "callable": "app.assistant._run_turn",
+            "path": "workbench/backend/app/assistant.py",
+            "line": 848,
+            "end_line": 1013
+          }
+        ],
+        "dispatch": [
+          {
+            "path": "rooks-code/rooks_code/cli.py",
+            "line": 232,
+            "text": "from .agent import Agent"
+          },
+          {
+            "path": "rooks-code/rooks_code/cli.py",
+            "line": 240,
+            "text": "agent = Agent(s, ui, messages=history)"
+          },
+          {
+            "path": "rooks-code/rooks_code/cli.py",
+            "line": 243,
+            "text": "answer = agent.run(\" \".join(args.prompt))"
+          },
+          {
+            "path": "rooks-code/rooks_code/cli.py",
+            "line": 505,
+            "text": "agent.run(prompt)"
+          },
+          {
+            "path": "rooks-code/rooks_code/cli.py",
+            "line": 512,
+            "text": "agent.run(line)"
+          },
+          {
+            "path": "workbench/backend/app/assistant_api.py",
+            "line": 107,
+            "text": "async for e in assistant.run_turn(ctx, data.message, data.model):"
+          }
+        ],
+        "executed": {
+          "cli_answer": "AUDIT_CLI_OK",
+          "cli_model_calls": 1,
+          "web_model_calls": 1,
+          "web_events": [
+            {
+              "type": "message",
+              "content": "AUDIT_WEB_OK"
+            },
+            {
+              "type": "done",
+              "conversation_id": 1,
+              "cost_cents": 0.0,
+              "tool_calls": 0
+            }
+          ]
+        },
+        "limits": "Model boundaries scripted in-process; proves separate orchestration, not provider behavior or that code is wholly duplicated."
+      },
+      "command": "/Users/azad_mavi/.venvs/aiw/bin/python scripts/audit/check_core.py --finding 1"
+    },
+    {
+      "finding": 2,
+      "verdict": "PROVEN",
+      "evidence": {
+        "claim": "Actual offered terminal and web tool registries differ in a fresh unconfigured workspace.",
+        "registries": [
+          {
+            "callable": "rooks_code.agent.Agent.tool_specs",
+            "path": "rooks-code/rooks_code/agent.py",
+            "line": 151,
+            "end_line": 154
+          },
+          {
+            "callable": "app.assistant.available_tools",
+            "path": "workbench/backend/app/assistant.py",
+            "line": 530,
+            "end_line": 556
+          }
+        ],
+        "terminal": {
+          "count": 14,
+          "names": [
+            "check_background",
+            "edit_file",
+            "list_files",
+            "read_file",
+            "remember",
+            "run_command",
+            "search",
+            "start_background",
+            "stop_background",
+            "task",
+            "todo",
+            "web_fetch",
+            "web_search",
+            "write_file"
+          ]
+        },
+        "web": {
+          "count": 65,
+          "names": [
+            "add_file_from_path",
+            "add_to_project",
+            "analyse_spreadsheet",
+            "append_to_note",
+            "check_site",
+            "compare_files",
+            "create_automation",
+            "create_event",
+            "create_note",
+            "create_project",
+            "create_task",
+            "describe_image",
+            "draft_message",
+            "edit_spreadsheet",
+            "find_free_time",
+            "forget",
+            "generate_image",
+            "get_agenda",
+            "list_calendars",
+            "list_events",
+            "list_files",
+            "list_mail_accounts",
+            "list_playbooks",
+            "list_projects",
+            "list_schedules",
+            "list_sites",
+            "list_tasks",
+            "load_skill",
+            "make_document",
+            "offer_choices",
+            "project_context",
+            "read_email",
+            "read_file",
+            "read_note",
+            "read_page",
+            "read_skill_file",
+            "remember",
+            "remember_for_me",
+            "request_secure_form",
+            "run_playbook",
+            "run_python",
+            "run_skill_script",
+            "save_email_attachments",
+            "save_email_draft",
+            "save_page",
+            "save_skill",
+            "schedule_task",
+            "search_email",
+            "search_files",
+            "search_history",
+            "search_memory",
+            "search_notes",
+            "send_email",
+            "site_action",
+            "site_file",
+            "site_records",
+            "site_schedule",
+            "start_background_job",
+            "team_assign",
+            "team_status",
+            "team_today_plan",
+            "team_update_task",
+            "update_task",
+            "vault_list",
+            "watch_site"
+          ]
+        },
+        "terminal_subagent": [
+          "list_files",
+          "read_file",
+          "search",
+          "web_fetch",
+          "web_search"
+        ],
+        "terminal_only": [
+          "check_background",
+          "edit_file",
+          "run_command",
+          "search",
+          "start_background",
+          "stop_background",
+          "task",
+          "todo",
+          "web_fetch",
+          "web_search",
+          "write_file"
+        ],
+        "web_only": [
+          "add_file_from_path",
+          "add_to_project",
+          "analyse_spreadsheet",
+          "append_to_note",
+          "check_site",
+          "compare_files",
+          "create_automation",
+          "create_event",
+          "create_note",
+          "create_project",
+          "create_task",
+          "describe_image",
+          "draft_message",
+          "edit_spreadsheet",
+          "find_free_time",
+          "forget",
+          "generate_image",
+          "get_agenda",
+          "list_calendars",
+          "list_events",
+          "list_mail_accounts",
+          "list_playbooks",
+          "list_projects",
+          "list_schedules",
+          "list_sites",
+          "list_tasks",
+          "load_skill",
+          "make_document",
+          "offer_choices",
+          "project_context",
+          "read_email",
+          "read_note",
+          "read_page",
+          "read_skill_file",
+          "remember_for_me",
+          "request_secure_form",
+          "run_playbook",
+          "run_python",
+          "run_skill_script",
+          "save_email_attachments",
+          "save_email_draft",
+          "save_page",
+          "save_skill",
+          "schedule_task",
+          "search_email",
+          "search_files",
+          "search_history",
+          "search_memory",
+          "search_notes",
+          "send_email",
+          "site_action",
+          "site_file",
+          "site_records",
+          "site_schedule",
+          "start_background_job",
+          "team_assign",
+          "team_status",
+          "team_today_plan",
+          "team_update_task",
+          "update_task",
+          "vault_list",
+          "watch_site"
+        ],
+        "web_callable_implementations": [
+          {
+            "callable": "app.assistant.<lambda>",
+            "path": "workbench/backend/app/assistant.py",
+            "line": 360,
+            "end_line": 360
+          },
+          {
+            "callable": "app.assistant.<lambda>",
+            "path": "workbench/backend/app/assistant.py",
+            "line": 361,
+            "end_line": 361
+          },
+          {
+            "callable": "app.assistant.<lambda>",
+            "path": "workbench/backend/app/assistant.py",
+            "line": 364,
+            "end_line": 364
+          },
+          {
+            "callable": "app.assistant.<lambda>",
+            "path": "workbench/backend/app/assistant.py",
+            "line": 367,
+            "end_line": 367
+          },
+          {
+            "callable": "app.assistant.<lambda>",
+            "path": "workbench/backend/app/assistant.py",
+            "line": 370,
+            "end_line": 370
+          },
+          {
+            "callable": "app.assistant.<lambda>",
+            "path": "workbench/backend/app/assistant.py",
+            "line": 372,
+            "end_line": 372
+          },
+          {
+            "callable": "app.assistant.<lambda>",
+            "path": "workbench/backend/app/assistant.py",
+            "line": 375,
+            "end_line": 375
+          },
+          {
+            "callable": "app.assistant.<lambda>",
+            "path": "workbench/backend/app/assistant.py",
+            "line": 377,
+            "end_line": 377
+          },
+          {
+            "callable": "app.assistant.<lambda>",
+            "path": "workbench/backend/app/assistant.py",
+            "line": 379,
+            "end_line": 379
+          },
+          {
+            "callable": "app.assistant.<lambda>",
+            "path": "workbench/backend/app/assistant.py",
+            "line": 385,
+            "end_line": 387
+          },
+          {
+            "callable": "app.assistant.<lambda>",
+            "path": "workbench/backend/app/assistant.py",
+            "line": 391,
+            "end_line": 391
+          },
+          {
+            "callable": "app.assistant.<lambda>",
+            "path": "workbench/backend/app/assistant.py",
+            "line": 395,
+            "end_line": 395
+          },
+          {
+            "callable": "app.assistant.<lambda>",
+            "path": "workbench/backend/app/assistant.py",
+            "line": 399,
+            "end_line": 399
+          },
+          {
+            "callable": "app.assistant.<lambda>",
+            "path": "workbench/backend/app/assistant.py",
+            "line": 401,
+            "end_line": 401
+          },
+          {
+            "callable": "app.assistant.<lambda>",
+            "path": "workbench/backend/app/assistant.py",
+            "line": 403,
+            "end_line": 403
+          },
+          {
+            "callable": "app.assistant.<lambda>",
+            "path": "workbench/backend/app/assistant.py",
+            "line": 407,
+            "end_line": 408
+          },
+          {
+            "callable": "app.assistant._send_email",
+            "path": "workbench/backend/app/assistant.py",
+            "line": 311,
+            "end_line": 319
+          },
+          {
+            "callable": "app.assistant._read_page",
+            "path": "workbench/backend/app/assistant.py",
+            "line": 108,
+            "end_line": 115
+          },
+          {
+            "callable": "app.assistant.<lambda>",
+            "path": "workbench/backend/app/assistant.py",
+            "line": 427,
+            "end_line": 427
+          },
+          {
+            "callable": "app.assistant._forget",
+            "path": "workbench/backend/app/assistant.py",
+            "line": 179,
+            "end_line": 184
+          },
+          {
+            "callable": "app.assistant.<lambda>",
+            "path": "workbench/backend/app/assistant.py",
+            "line": 431,
+            "end_line": 431
+          },
+          {
+            "callable": "app.assistant.<lambda>",
+            "path": "workbench/backend/app/assistant.py",
+            "line": 433,
+            "end_line": 433
+          },
+          {
+            "callable": "app.assistant.<lambda>",
+            "path": "workbench/backend/app/assistant.py",
+            "line": 436,
+            "end_line": 436
+          },
+          {
+            "callable": "app.assistant._read_skill_file",
+            "path": "workbench/backend/app/assistant.py",
+            "line": 220,
+            "end_line": 223
+          },
+          {
+            "callable": "app.assistant._run_skill_script",
+            "path": "workbench/backend/app/assistant.py",
+            "line": 226,
+            "end_line": 232
+          },
+          {
+            "callable": "app.assistant._save_skill",
+            "path": "workbench/backend/app/assistant.py",
+            "line": 235,
+            "end_line": 238
+          },
+          {
+            "callable": "app.assistant._schedule",
+            "path": "workbench/backend/app/assistant.py",
+            "line": 241,
+            "end_line": 244
+          },
+          {
+            "callable": "app.assistant.<lambda>",
+            "path": "workbench/backend/app/assistant.py",
+            "line": 450,
+            "end_line": 451
+          },
+          {
+            "callable": "app.work_tools.build.<locals>.<lambda>",
+            "path": "workbench/backend/app/work_tools.py",
+            "line": 33,
+            "end_line": 33
+          },
+          {
+            "callable": "app.work_tools.build.<locals>.<lambda>",
+            "path": "workbench/backend/app/work_tools.py",
+            "line": 38,
+            "end_line": 38
+          },
+          {
+            "callable": "app.work_tools.build.<locals>.<lambda>",
+            "path": "workbench/backend/app/work_tools.py",
+            "line": 40,
+            "end_line": 40
+          },
+          {
+            "callable": "app.work_tools.build.<locals>.<lambda>",
+            "path": "workbench/backend/app/work_tools.py",
+            "line": 44,
+            "end_line": 44
+          },
+          {
+            "callable": "app.work_tools.build.<locals>.<lambda>",
+            "path": "workbench/backend/app/work_tools.py",
+            "line": 47,
+            "end_line": 47
+          },
+          {
+            "callable": "app.analysis.describe_image",
+            "path": "workbench/backend/app/analysis.py",
+            "line": 530,
+            "end_line": 550
+          },
+          {
+            "callable": "app.work_tools.build.<locals>.<lambda>",
+            "path": "workbench/backend/app/work_tools.py",
+            "line": 53,
+            "end_line": 53
+          },
+          {
+            "callable": "app.work_tools.build.<locals>.<lambda>",
+            "path": "workbench/backend/app/work_tools.py",
+            "line": 60,
+            "end_line": 60
+          },
+          {
+            "callable": "app.work_tools.build.<locals>.<lambda>",
+            "path": "workbench/backend/app/work_tools.py",
+            "line": 64,
+            "end_line": 64
+          },
+          {
+            "callable": "app.work_tools.build.<locals>.<lambda>",
+            "path": "workbench/backend/app/work_tools.py",
+            "line": 66,
+            "end_line": 66
+          },
+          {
+            "callable": "app.work_tools.build.<locals>.<lambda>",
+            "path": "workbench/backend/app/work_tools.py",
+            "line": 70,
+            "end_line": 73
+          },
+          {
+            "callable": "app.work_tools.build.<locals>.<lambda>",
+            "path": "workbench/backend/app/work_tools.py",
+            "line": 75,
+            "end_line": 75
+          },
+          {
+            "callable": "app.work_tools.build.<locals>.<lambda>",
+            "path": "workbench/backend/app/work_tools.py",
+            "line": 78,
+            "end_line": 78
+          },
+          {
+            "callable": "app.work_tools._schedule",
+            "path": "workbench/backend/app/work_tools.py",
+            "line": 104,
+            "end_line": 108
+          },
+          {
+            "callable": "app.work_tools.build.<locals>.<lambda>",
+            "path": "workbench/backend/app/work_tools.py",
+            "line": 83,
+            "end_line": 83
+          },
+          {
+            "callable": "app.work_tools.build.<locals>.<lambda>",
+            "path": "workbench/backend/app/work_tools.py",
+            "line": 86,
+            "end_line": 86
+          },
+          {
+            "callable": "app.work_tools._act",
+            "path": "workbench/backend/app/work_tools.py",
+            "line": 111,
+            "end_line": 115
+          },
+          {
+            "callable": "app.adapt.hooks.register_tools.<locals>._list_playbooks",
+            "path": "workbench/backend/app/adapt/hooks.py",
+            "line": 85,
+            "end_line": 87
+          },
+          {
+            "callable": "app.adapt.hooks.register_tools.<locals>._run_playbook",
+            "path": "workbench/backend/app/adapt/hooks.py",
+            "line": 81,
+            "end_line": 83
+          },
+          {
+            "callable": "app.auto_tools.save_email_attachments",
+            "path": "workbench/backend/app/auto_tools.py",
+            "line": 87,
+            "end_line": 117
+          },
+          {
+            "callable": "app.auto_tools.add_file_from_path",
+            "path": "workbench/backend/app/auto_tools.py",
+            "line": 120,
+            "end_line": 130
+          },
+          {
+            "callable": "app.auto_tools.create_automation",
+            "path": "workbench/backend/app/auto_tools.py",
+            "line": 133,
+            "end_line": 141
+          },
+          {
+            "callable": "app.auto_tools.start_job",
+            "path": "workbench/backend/app/auto_tools.py",
+            "line": 144,
+            "end_line": 148
+          },
+          {
+            "callable": "app.projects.build_tools.<locals>._list",
+            "path": "workbench/backend/app/projects.py",
+            "line": 676,
+            "end_line": 677
+          },
+          {
+            "callable": "app.projects.build_tools.<locals>._context",
+            "path": "workbench/backend/app/projects.py",
+            "line": 679,
+            "end_line": 680
+          },
+          {
+            "callable": "app.projects.build_tools.<locals>._create",
+            "path": "workbench/backend/app/projects.py",
+            "line": 682,
+            "end_line": 684
+          },
+          {
+            "callable": "app.projects.build_tools.<locals>._add",
+            "path": "workbench/backend/app/projects.py",
+            "line": 686,
+            "end_line": 688
+          },
+          {
+            "callable": "app.team.tools.register_tools.<locals>.assign",
+            "path": "workbench/backend/app/team/tools.py",
+            "line": 17,
+            "end_line": 27
+          },
+          {
+            "callable": "app.team.tools.register_tools.<locals>.status",
+            "path": "workbench/backend/app/team/tools.py",
+            "line": 29,
+            "end_line": 35
+          },
+          {
+            "callable": "app.team.tools.register_tools.<locals>.<lambda>",
+            "path": "workbench/backend/app/team/tools.py",
+            "line": 50,
+            "end_line": 50
+          },
+          {
+            "callable": "app.team.tools.register_tools.<locals>.update",
+            "path": "workbench/backend/app/team/tools.py",
+            "line": 37,
+            "end_line": 41
+          },
+          {
+            "callable": "app.teammates.hooks._draft_message",
+            "path": "workbench/backend/app/teammates/hooks.py",
+            "line": 62,
+            "end_line": 68
+          },
+          {
+            "callable": "app.teammates.hooks._request_secure_form",
+            "path": "workbench/backend/app/teammates/hooks.py",
+            "line": 71,
+            "end_line": 76
+          },
+          {
+            "callable": "app.teammates.hooks._vault_list",
+            "path": "workbench/backend/app/teammates/hooks.py",
+            "line": 79,
+            "end_line": 83
+          },
+          {
+            "callable": "app.teammates.hooks._remember_for_me",
+            "path": "workbench/backend/app/teammates/hooks.py",
+            "line": 86,
+            "end_line": 92
+          },
+          {
+            "callable": "app.teammates.hooks._offer_choices",
+            "path": "workbench/backend/app/teammates/hooks.py",
+            "line": 103,
+            "end_line": 108
+          },
+          {
+            "callable": "app.teammates.hooks._save_page",
+            "path": "workbench/backend/app/teammates/hooks.py",
+            "line": 95,
+            "end_line": 100
+          }
+        ],
+        "limits": "No configured MCP servers, browser/desk services, provider keys or user-installed packs; differences are names, not proof of semantically missing capabilities. Terminal inventory includes actual Learning.specs()."
+      },
+      "command": "/Users/azad_mavi/.venvs/aiw/bin/python scripts/audit/check_core.py --finding 2"
+    },
+    {
+      "finding": 4,
+      "verdict": "REFUTED",
+      "evidence": {
+        "claim": "The terminal cannot execute two background shell tasks concurrently (and has no subagent task tool).",
+        "background_launches": [
+          "started job1 (pid 52303): /Users/azad_mavi/.venvs/aiw/bin/python -c 'import json,time,os,sys; s=time.monotonic(); time.sleep(4); json.dump({\"start\":s,\"end\":time.monotonic(),\"pid\":os.getpid(),\"stdin_isatty\":sys.stdin.isatty()},open('\"'\"'/Users/azad_mavi/.hermes/cache/scratch/aiw-core-audit-52dfjq47/parallel/interval-1.json'\"'\"',\"w\"))'\njob1: running for 1s \u00b7 /Users/azad_mavi/.venvs/aiw/bin/python -c 'import json,time,os,sys; s=time.monotonic(); time.sleep(4); json.dump({\"start\":s,\"end\":time.monotonic(),\"pid\":os.getpid(),\"stdin_isatty\":sys.stdin.isatty()},open('\"'\"'/Users/azad_mavi/.hermes/cache/scratch/aiw-core-audit-52dfjq47/parallel/interval-1.json'\"'\"',\"w\"))'\n",
+          "started job2 (pid 52304): /Users/azad_mavi/.venvs/aiw/bin/python -c 'import json,time,os,sys; s=time.monotonic(); time.sleep(4); json.dump({\"start\":s,\"end\":time.monotonic(),\"pid\":os.getpid(),\"stdin_isatty\":sys.stdin.isatty()},open('\"'\"'/Users/azad_mavi/.hermes/cache/scratch/aiw-core-audit-52dfjq47/parallel/interval-2.json'\"'\"',\"w\"))'\njob2: running for 1s \u00b7 /Users/azad_mavi/.venvs/aiw/bin/python -c 'import json,time,os,sys; s=time.monotonic(); time.sleep(4); json.dump({\"start\":s,\"end\":time.monotonic(),\"pid\":os.getpid(),\"stdin_isatty\":sys.stdin.isatty()},open('\"'\"'/Users/azad_mavi/.hermes/cache/scratch/aiw-core-audit-52dfjq47/parallel/interval-2.json'\"'\"',\"w\"))'\n"
+        ],
+        "intervals": [
+          {
+            "start": 113132.060775541,
+            "end": 113136.135833916,
+            "pid": 52303,
+            "stdin_isatty": false
+          },
+          {
+            "start": 113133.666374583,
+            "end": 113137.741423875,
+            "pid": 52304,
+            "stdin_isatty": false
+          }
+        ],
+        "overlap_seconds": 2.4694593330059433,
+        "elapsed_seconds": 5.807528249992174,
+        "exit_codes": [
+          0,
+          0
+        ],
+        "status": "job1: finished, exit code 0 for 5s \u00b7 /Users/azad_mavi/.venvs/aiw/bin/python -c 'import json,time,os,sys; s=time.monotonic(); time.sleep(4); json.dump({\"start\":s,\"end\":time.monotonic(),\"pid\":os.getpid(),\"stdin_isatty\":sys.stdin.isatty()},open('\"'\"'/Users/azad_mavi/.hermes/cache/scratch/aiw-core-audit-52dfjq47/parallel/interval-1.json'\"'\"',\"w\"))'\njob2: finished, exit code 0 for 4s \u00b7 /Users/azad_mavi/.venvs/aiw/bin/python -c 'import json,time,os,sys; s=time.monotonic(); time.sleep(4); json.dump({\"start\":s,\"end\":time.monotonic(),\"pid\":os.getpid(),\"stdin_isatty\":sys.stdin.isatty()},open('\"'\"'/Users/azad_mavi/.hermes/cache/scratch/aiw-core-audit-52dfjq47/parallel/interval-2.json'\"'\"',\"w\"))'",
+        "jobs_impl": {
+          "callable": "rooks_code.extras.Jobs.start",
+          "path": "rooks-code/rooks_code/extras.py",
+          "line": 237,
+          "end_line": 247
+        },
+        "subagent_impl": {
+          "callable": "rooks_code.extras.Extras.subagent",
+          "path": "rooks-code/rooks_code/extras.py",
+          "line": 346,
+          "end_line": 356
+        },
+        "subagent_executed": {
+          "answer": "AUDIT_SUB_OK",
+          "offered_tools": [
+            "read_file",
+            "list_files",
+            "search",
+            "web_search",
+            "web_fetch"
+          ]
+        },
+        "jobs_slash_dispatch": [],
+        "limits": "Jobs are shell processes (stdin DEVNULL), usable for servers/watchers/tests, not model subagents or interactive PTYs. task creates a real nested Agent with scripted model and read-only registry; Extras.subagent synchronously calls sub.run. Concurrent model subagents were not demonstrated."
+      },
+      "command": "/Users/azad_mavi/.venvs/aiw/bin/python scripts/audit/check_core.py --finding 4"
+    },
+    {
+      "finding": 5,
+      "verdict": "REFUTED",
+      "evidence": {
+        "claim": "Completed terminal turns do not persist into a session-linked Workbench conversation visible by ID.",
+        "session": "20261103T223410Z-d0071c",
+        "transport_responses": [
+          {
+            "status": 200,
+            "body": {
+              "conversation_id": 3,
+              "learning": true
+            }
+          },
+          {
+            "status": 200,
+            "body": {
+              "conversation_id": 3,
+              "learning": true
+            }
+          }
+        ],
+        "conversation": {
+          "id": 3,
+          "title": "audit first prompt",
+          "channel": "cli",
+          "external_id": "20261103T223410Z-d0071c",
+          "agent_id": null,
+          "model": "audit-scripted",
+          "memory_cursor": 0,
+          "created_at": "2026-11-03T22:34:10+00:00",
+          "updated_at": "2026-11-03T22:34:10+00:00"
+        },
+        "persisted_messages": [
+          {
+            "role": "user",
+            "name": "",
+            "content": "audit first prompt"
+          },
+          {
+            "role": "assistant",
+            "name": "",
+            "content": ""
+          },
+          {
+            "role": "tool",
+            "name": "read_file",
+            "content": "AUDIT_MARKER"
+          },
+          {
+            "role": "assistant",
+            "name": "",
+            "content": "audit persisted answer"
+          },
+          {
+            "role": "user",
+            "name": "",
+            "content": "audit second prompt"
+          },
+          {
+            "role": "assistant",
+            "name": "",
+            "content": ""
+          },
+          {
+            "role": "tool",
+            "name": "read_file",
+            "content": "AUDIT_MARKER"
+          },
+          {
+            "role": "assistant",
+            "name": "",
+            "content": "audit persisted answer"
+          }
+        ],
+        "list_status": 200,
+        "lookup": {
+          "status": 200,
+          "body": {
+            "id": 3,
+            "title": "audit first prompt",
+            "channel": "cli",
+            "external_id": "20261103T223410Z-d0071c",
+            "agent_id": null,
+            "model": "audit-scripted",
+            "memory_cursor": 0,
+            "created_at": "2026-11-03T22:34:10+00:00",
+            "updated_at": "2026-11-03T22:34:10+00:00",
+            "messages": [
+              {
+                "id": 3,
+                "role": "user",
+                "content": "audit first prompt",
+                "tool_calls": [],
+                "name": "",
+                "attachments": [],
+                "created_at": "2026-11-03T22:34:10+00:00"
+              },
+              {
+                "id": 4,
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                  "read_file"
+                ],
+                "name": "",
+                "attachments": [],
+                "created_at": "2026-11-03T22:34:10+00:00"
+              },
+              {
+                "id": 5,
+                "role": "tool",
+                "content": "AUDIT_MARKER",
+                "tool_calls": [],
+                "name": "read_file",
+                "attachments": [],
+                "created_at": "2026-11-03T22:34:10+00:00"
+              },
+              {
+                "id": 6,
+                "role": "assistant",
+                "content": "audit persisted answer",
+                "tool_calls": [],
+                "name": "",
+                "attachments": [],
+                "created_at": "2026-11-03T22:34:10+00:00"
+              },
+              {
+                "id": 7,
+                "role": "user",
+                "content": "audit second prompt",
+                "tool_calls": [],
+                "name": "",
+                "attachments": [],
+                "created_at": "2026-11-03T22:34:10+00:00"
+              },
+              {
+                "id": 8,
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                  "read_file"
+                ],
+                "name": "",
+                "attachments": [],
+                "created_at": "2026-11-03T22:34:10+00:00"
+              },
+              {
+                "id": 9,
+                "role": "tool",
+                "content": "AUDIT_MARKER",
+                "tool_calls": [],
+                "name": "read_file",
+                "attachments": [],
+                "created_at": "2026-11-03T22:34:10+00:00"
+              },
+              {
+                "id": 10,
+                "role": "assistant",
+                "content": "audit persisted answer",
+                "tool_calls": [],
+                "name": "",
+                "attachments": [],
+                "created_at": "2026-11-03T22:34:10+00:00"
+              }
+            ]
+          }
+        },
+        "learning_hook_calls": [
+          {
+            "conversation_id": 3,
+            "tool_calls": 1,
+            "channel": "rooks-code"
+          },
+          {
+            "conversation_id": 3,
+            "tool_calls": 1,
+            "channel": "rooks-code"
+          }
+        ],
+        "entrypoints": [
+          {
+            "callable": "rooks_code.learning.Learning.after",
+            "path": "rooks-code/rooks_code/learning.py",
+            "line": 191,
+            "end_line": 216
+          }
+        ],
+        "limits": "Real Learning.after thread -> TestClient transport adapter replacing only urllib I/O -> actual authenticated /v1/rooks/turn -> isolated SQLite -> actual authenticated conversation lookup. Learning mining hook scripted (no provider keys). Persistence happens after completion; live shared session or cross-interface agent resume is not established."
+      },
+      "command": "/Users/azad_mavi/.venvs/aiw/bin/python scripts/audit/check_core.py --finding 5"
+    },
+    {
+      "finding": 7,
+      "verdict": "UNKNOWN",
+      "evidence": {
+        "claim": "The desktop app lacks a user-accessible interactive terminal/shell launch capability.",
+        "registered_tauri_commands": [
+          "commands::app_info",
+          "commands::open_data_dir",
+          "commands::open_logs",
+          "sidecars::list_sidecars",
+          "approvals::request_approval",
+          "anywhere::get_ask_shortcut",
+          "anywhere::set_ask_shortcut",
+          "anywhere::hide_ask_bar",
+          "anywhere::show_main_window",
+          "native::notify",
+          "native::desktop_ready"
+        ],
+        "rust_source_files_inspected": [
+          "desktop/src-tauri/src/anywhere.rs",
+          "desktop/src-tauri/src/approvals.rs",
+          "desktop/src-tauri/src/commands.rs",
+          "desktop/src-tauri/src/lib.rs",
+          "desktop/src-tauri/src/main.rs",
+          "desktop/src-tauri/src/native.rs",
+          "desktop/src-tauri/src/sidecars.rs",
+          "desktop/src-tauri/src/updater.rs"
+        ],
+        "interactive_terminal_token_hits": [],
+        "actual_app_child_process_probe": {
+          "entrypoint": {
+            "callable": "app.plan_signin._run",
+            "path": "workbench/backend/app/plan_signin.py",
+            "line": 50,
+            "end_line": 51
+          },
+          "argv": [
+            "/Users/azad_mavi/.venvs/aiw/bin/python",
+            "-c",
+            "print marker and stdin isatty"
+          ],
+          "returncode": 0,
+          "stdout": "AUDIT_APP_CHILD_OK\nisatty=False\n",
+          "stderr": ""
+        },
+        "actual_app_pty_probe": {
+          "entrypoint": {
+            "callable": "app.plan_signin.SignIn.__init__",
+            "path": "workbench/backend/app/plan_signin.py",
+            "line": 165,
+            "end_line": 179
+          },
+          "exit_code": 0,
+          "output": "AUDIT_PTY_READY\nisatty=True\naudit-input\necho=audit-input\n",
+          "stdin_write": "audit-input newline",
+          "replacement": "Only _finish credential discovery disabled; real openpty/Popen/reader exercised."
+        },
+        "native_spawn_sites": [
+          {
+            "path": "desktop/src-tauri/src/sidecars.rs",
+            "line": 227,
+            "text": "app.shell().command(program).args(pre).args(args)"
+          },
+          {
+            "path": "desktop/src-tauri/src/sidecars.rs",
+            "line": 231,
+            "text": ".sidecar(\"workbench-server\")"
+          },
+          {
+            "path": "desktop/src-tauri/src/sidecars.rs",
+            "line": 239,
+            "text": ".spawn()"
+          }
+        ],
+        "backend_pty_sites": [
+          {
+            "path": "workbench/backend/app/plan_signin.py",
+            "line": 170,
+            "text": "self.proc = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=_env())"
+          },
+          {
+            "path": "workbench/backend/app/plan_signin.py",
+            "line": 173,
+            "text": "import pty"
+          },
+          {
+            "path": "workbench/backend/app/plan_signin.py",
+            "line": 175,
+            "text": "master, slave = pty.openpty()"
+          },
+          {
+            "path": "workbench/backend/app/plan_signin.py",
+            "line": 176,
+            "text": "self.proc = subprocess.Popen(args, stdin=slave, stdout=slave, stderr=slave, env=_env(), close_fds=True, start_new_session=True)"
+          },
+          {
+            "path": "workbench/backend/app/plan_signin.py",
+            "line": 177,
+            "text": "os.close(slave)"
+          },
+          {
+            "path": "workbench/backend/app/plan_signin.py",
+            "line": 178,
+            "text": "self.fd = master"
+          }
+        ],
+        "cli_agent_spawn_sites": [
+          {
+            "path": "workbench/backend/app/cli_agents.py",
+            "line": 115,
+            "text": "p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, env=child_env(agent), stdin=subprocess.DEVNULL)"
+          },
+          {
+            "path": "workbench/backend/app/cli_agents.py",
+            "line": 491,
+            "text": "run.proc = await asyncio.create_subprocess_exec(*argv, cwd=run.folder, env=child_env(run.agent),"
+          },
+          {
+            "path": "workbench/backend/app/cli_agents.py",
+            "line": 492,
+            "text": "stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,"
+          },
+          {
+            "path": "workbench/backend/app/cli_agents.py",
+            "line": 493,
+            "text": "stderr=asyncio.subprocess.PIPE, limit=8 * 1024 * 1024, **kw)"
+          }
+        ],
+        "limits": "App subprocess spawn is executed and works; Tauri sidecar spawn and plan sign-in PTY are present in source, so blanket no-spawn claims are false. Sign-in PTY is purpose-specific, not a general interactive terminal. No desktop UI execution/compiled Tauri command invocation performed; a missing token/command is insufficient to prove absence through every path."
+      },
+      "command": "/Users/azad_mavi/.venvs/aiw/bin/python scripts/audit/check_core.py --finding 7"
+    }
+  ],
+  "captured_stdout": ""
+}
