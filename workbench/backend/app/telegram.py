@@ -173,6 +173,8 @@ async def loop() -> None:
                                 await _handle(client, u["message"], u["update_id"])
                             except Exception as e:  # noqa: BLE001 - one bad message must not stop the bot
                                 log.warning("telegram message failed: %s", e)
+                    # A fast empty response (or test transport) must not starve the app's event loop.
+                    await asyncio.sleep(0)
         except Exception as e:  # noqa: BLE001
             _status.update(running=False, error=redact(str(e))[:300])  # shown in Settings; may quote the request URL
             await asyncio.sleep(15)
