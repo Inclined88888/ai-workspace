@@ -57,7 +57,7 @@ export function KeyField({ value, onChange, expect, autoFocus, onDetected }: {
 }
 
 /** Sign in with ChatGPT (OpenAI's own sign-in in the browser), with Codex as the fallback. */
-export function ChatGPTCard({ sub, onConnected, cta = "Start chatting" }: { sub: Sub; onConnected: () => Promise<void> | void; cta?: string }) {
+export function ChatGPTCard({ onConnected, cta = "Start chatting" }: { sub: Sub; onConnected: () => Promise<void> | void; cta?: string }) {
   const [state, setState] = useState<{ state: string; url: string } | null>(null);
   const [status, setStatus] = useState<{ status: string; error?: string; email?: string } | null>(null);
   const [pasted, setPasted] = useState("");
