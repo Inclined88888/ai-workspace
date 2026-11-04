@@ -16,7 +16,7 @@
 #
 # Options:  --no-start (don't open the app at the end)  --no-browser (skip the Chromium download)
 #           --no-desk (don't install rooks-desk, computer use)
-#           --native auto|yes|no (native installer from GitHub releases; default auto)
+#           --native auto|yes|no (native installer from GitHub releases; default no, that release is the old app)
 #           --no-helpers (don't offer the optional helper apps: Tesseract, FFmpeg, LibreOffice)
 # Settings: AI_WORKSPACE_REF (branch/tag when downloading, default integration/v0.3)  AI_WORKSPACE_REPO (owner/repo)
 #           AI_WORKSPACE_HELPERS=yes|no (answer the helper-apps question in advance)

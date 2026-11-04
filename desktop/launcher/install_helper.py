@@ -306,6 +306,15 @@ def native_asset(repo: str) -> tuple[str, str] | None:
     return None
 
 
+def remove_stale_desktop_app() -> None:
+    """The published Mac app is older than this branch. If it stays, opening AI Workspace loads that old one."""
+    if not MAC:
+        return
+    app = Path("/Applications") / f"{NAME}.app"
+    if (app / "Contents" / "MacOS" / "ai-workspace-desktop").is_file():
+        shutil.rmtree(app, ignore_errors=True)
+
+
 def install_native(repo: str, home: Path) -> str:
     found = native_asset(repo)
     if not found:
@@ -372,7 +381,7 @@ def main() -> int:
     p.add_argument("--home", default=os.environ.get("AI_WORKSPACE_HOME") or str(Path.home() / ".ai-workspace"))
     p.add_argument("--bin", default=os.environ.get("AI_WORKSPACE_BIN") or str(Path.home() / ".local" / "bin"))
     p.add_argument("--repo", default=os.environ.get("AI_WORKSPACE_REPO") or "Inclined88888/ai-workspace")
-    p.add_argument("--native", choices=("auto", "yes", "no"), default=os.environ.get("AI_WORKSPACE_NATIVE", "auto"))
+    p.add_argument("--native", choices=("auto", "yes", "no"), default=os.environ.get("AI_WORKSPACE_NATIVE", "no"))
     p.add_argument("--no-browser", action="store_true")
     p.add_argument("--no-desk", action="store_true", help="do not install rooks-desk (computer use)")
     p.add_argument("--no-shortcut", action="store_true")
@@ -390,6 +399,8 @@ def main() -> int:
     step("3/5  A browser for Rooks Browser")
     browser = ensure_browser(a.no_browser)
     step("4/5  Launch command and shortcut")
+    if a.native == "no":
+        remove_stale_desktop_app()
     launcher = write_launcher(bin_dir, home, app, py)
     say(f"command: {launcher}")
     if not a.no_shortcut:
