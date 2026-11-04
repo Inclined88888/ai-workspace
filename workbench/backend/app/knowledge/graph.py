@@ -123,6 +123,43 @@ def neighbours(eid: int, depth: int = 1) -> list[dict]:
     return out
 
 
+MAX_DEPTH = 4
+MAX_NODES = 200
+
+
+def traverse(eid: int, depth: int = 2, direction: str = "both", rel: str | None = None) -> dict:
+    """Walk the graph from one entity, breadth first: out (edges it starts), in (edges pointing at it) or both,
+    optionally one relationship type. Each node carries its hop count and the path of edges back to the start."""
+    if direction not in ("in", "out", "both"):
+        raise HTTPException(400, "direction must be in, out or both")
+    depth = max(1, min(int(depth), MAX_DEPTH))
+    get(eid)  # 404 for an unknown entity
+    where = {"out": "src = ?", "in": "dst = ?", "both": "(src = ? OR dst = ?)"}[direction]
+    seen, frontier, out = {eid}, [(eid, [])], []
+    for hop in range(1, depth + 1):
+        nxt = []
+        for n, path in frontier:
+            args = [n, n] if direction == "both" else [n]
+            sql = f"SELECT src, rel, dst FROM kn_edges WHERE {where}" + (" AND rel = ?" if rel else "") + " ORDER BY id"
+            for r in db.all(sql, *args, *([rel] if rel else [])):
+                other = r["dst"] if r["src"] == n else r["src"]
+                if other in seen:
+                    continue
+                seen.add(other)
+                step = {"from": r["src"], "rel": r["rel"], "to": r["dst"]}
+                try:
+                    node = get(other)
+                except HTTPException:
+                    continue
+                out.append({**node, "rel": r["rel"], "direction": "out" if r["src"] == n else "in", "hops": hop,
+                            "path": path + [step]})
+                nxt.append((other, path + [step]))
+                if len(out) >= MAX_NODES:
+                    return {"start": eid, "depth": depth, "direction": direction, "rel": rel, "nodes": out, "truncated": True}
+        frontier = nxt
+    return {"start": eid, "depth": depth, "direction": direction, "rel": rel, "nodes": out, "truncated": False}
+
+
 def list_(type: str | None = None, q: str = "", limit: int = 200) -> list[dict]:
     schema.ensure()
     sql, args = "SELECT * FROM kn_entities WHERE deleted_at IS NULL", []

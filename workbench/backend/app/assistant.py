@@ -208,6 +208,25 @@ def _any_words(text: str) -> str:
     return " OR ".join(words[:12])
 
 
+def explore_graph(name: str, direction: str = "both", rel: str = "", depth: int = 2) -> dict:
+    """B2: the knowledge graph as a tool. Finds the entity by name, then walks it (knowledge.graph.traverse)."""
+    from .knowledge import graph
+
+    start = graph.find(name)
+    if not start:
+        matches = graph.list_(q=name, limit=5)
+        if not matches:
+            return {"found": False, "note": f"No entity called {name!r} in the knowledge graph."}
+        start = matches[0]
+    if start.get("privacy") == "sensitive":  # like recall: sensitive entities never go to the model
+        return {"found": False, "note": f"{name!r} is marked sensitive in the knowledge graph."}
+    t = graph.traverse(start["id"], depth, direction or "both", rel or None)
+    return {"found": True, "start": {"id": start["id"], "type": start["type"], "name": start["name"]}, "truncated": t["truncated"],
+            "related": [{"name": n["name"], "type": n["type"], "rel": n["rel"], "direction": n["direction"], "hops": n["hops"],
+                         "via": " -> ".join(f"{p['from']}:{p['rel']}:{p['to']}" for p in n["path"])}
+                        for n in t["nodes"] if n.get("privacy") != "sensitive"]}
+
+
 def search_memories(query: str, limit: int = 8) -> list[dict]:
     from .adapt import knowledge
 
@@ -447,6 +466,12 @@ TOOLS: list[Tool] = [
     Tool("forget", "Delete a memory by id when the user asks or it is wrong.", {"memory_id": I()}, _forget, ("memory_id",),
          effect="persistent"),
     Tool("search_memory", "Search what you remember about the user.", {"query": S()}, lambda query: search_memories(query), ("query",)),
+    Tool("explore_graph", "Walk the knowledge graph from a person, company, project or other entity by name: who works "
+         "where, who is on what, what is about what. direction out|in|both, rel optional (works_at, member_of, assigned_to, "
+         "about, mentions, part_of, attended, located_at, owns), depth 1 to 4.",
+         {"name": S("the entity's name"), "direction": S("out, in or both (default both)"), "rel": S("only this relationship"),
+          "depth": {"type": "integer", "description": "hops, 1 to 4 (default 2)"}},
+         lambda name, direction="both", rel="", depth=2: explore_graph(name, direction, rel, depth), ("name",)),
     Tool("search_history", "Full text search over past conversations with the user.", {"query": S()},
          lambda query: search_history(query), ("query",)),
     # Skills

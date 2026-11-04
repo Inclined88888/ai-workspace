@@ -105,6 +105,12 @@ def entity(eid: int):
     return {**e, "links": graph.neighbours(eid, 1), "memories": memory.list_(subject_id=eid) + memory.list_(project_id=eid)}
 
 
+@router.get("/graph/traverse")
+def traverse(eid: int, depth: int = 2, direction: str = "both", rel: str | None = None):
+    """Walk the knowledge graph from an entity (B2): direction in | out | both, optional rel, depth 1 to 4."""
+    return graph.traverse(eid, depth, direction, rel)
+
+
 @router.delete("/entities/{eid}")
 def forget_entity(eid: int):
     return graph.forget(eid)
