@@ -1041,6 +1041,9 @@ async def _run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> Async
                     pass
                 continue
             _save(ctx.conversation_id, "tool", out, tool_call_id=call["id"], name=fn["name"])
+            r = ctx.receipts[-1] if ctx.receipts else {}
+            yield {"type": "tool_result", "name": fn["name"], "ok": ok, "preview": out[:300],
+                   "receipt": {"verified": r.get("verified"), "evidence": r.get("evidence", "")}}
             if r.get("outcome") in ("held", "denied"):
                 yield {"type": "approval_required" if r["outcome"] == "held" else "approval_denied", "id": r["action_id"],
                        "tool": fn["name"], "args": fn["arguments"][:500], "effect": r["effect"], "reason": r.get("reason") or HOLD_REASON}
