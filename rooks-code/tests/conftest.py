@@ -41,4 +41,6 @@ def rooks(project, *args, stdin="", env=None):
     e = {**os.environ, "PYTHONPATH": str(PKG), "NO_COLOR": "1", "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1", **(env or {})}
     return subprocess.run([sys.executable, "-m", "rooks_code", "-C", str(project), *args] if args and args[0] not in (
         "undo", "receipts", "doctor", "init", "mcp", "version", "login", "egress", "pack") else [sys.executable, "-m", "rooks_code", *args],
+
+        "undo", "receipts", "doctor", "init", "mcp", "version", "login", "egress", "pack", "redact") else [sys.executable, "-m", "rooks_code", *args],
         input=stdin, capture_output=True, text=True, encoding="utf-8", env=e, timeout=60)
