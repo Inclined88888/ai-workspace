@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from . import calendar_sync, config, db, llm, mail, research, services
+from . import calendar_sync, catalog, config, db, llm, mail, research, services
 from .adapters import ALLOWED, validate
 from .db import OFFICIAL_HOSTS
 from .redact import redact, redact_obj
@@ -228,6 +228,9 @@ def get_settings():
         "tools_url": "http://workbench:8000/tools/openapi.json",
         # model calls the assistant may make in one turn: the overall setting, per channel overrides, the default
         "max_steps": max_steps(""), "max_steps_channels": channels, "max_steps_default": MAX_STEPS,
+        # daily download of model prices and limits from models.dev; off by default (L4: no unasked outbound call)
+        "model_catalog_refresh": catalog.auto_refresh(),
+        "model_catalog_env": os.getenv("MODEL_CATALOG_REFRESH", "") in ("0", "1"),
     }
 
 
@@ -236,6 +239,7 @@ class SettingsIn(BaseModel):
     default_model: str | None = Field(None, max_length=300)
     max_steps: int | None = Field(None, ge=0, le=100)  # 0 restores the default
     max_steps_channels: dict[str, int] | None = None   # e.g. {"schedule": 30}; a value of 0 removes the override
+    model_catalog_refresh: bool | None = None
 
 
 @api.put("/settings")
@@ -255,6 +259,10 @@ def put_settings(data: SettingsIn):
             db.set_setting(f"max_steps_{channel}", str(n))
         else:
             db.run("DELETE FROM settings WHERE key = ?", f"max_steps_{channel}")
+    if data.model_catalog_refresh is not None:
+        db.set_setting("model_catalog_refresh", "1" if data.model_catalog_refresh else "0")
+        if data.model_catalog_refresh:
+            catalog.refresh_in_background()  # at most once a day; the age check still applies
     return get_settings()
 
 

@@ -126,9 +126,23 @@ def reset() -> None:
         _data, _by_id = None, {}
 
 
+def auto_refresh() -> bool:
+    """Off unless the user turns it on in Settings: nothing leaves this machine unasked. The bundled snapshot is used
+    meanwhile. MODEL_CATALOG_REFRESH=1 or 0 overrides the setting (servers, tests)."""
+    env = os.getenv("MODEL_CATALOG_REFRESH", "")
+    if env in ("0", "1"):
+        return env == "1"
+    from . import db
+
+    try:
+        return db.get_setting("model_catalog_refresh", "0") == "1"
+    except Exception:  # noqa: BLE001 - no database yet: stay off
+        return False
+
+
 def refresh(force: bool = False) -> bool:
     """Download a newer catalog when the one in use is over a day old. Never raises: offline keeps the old one."""
-    if os.getenv("MODEL_CATALOG_REFRESH", "1") == "0" and not force:
+    if not force and not auto_refresh():
         return False
     if not force and time.time() - (load().get("fetched") or 0) < MAX_AGE_S:
         return False

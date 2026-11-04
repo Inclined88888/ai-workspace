@@ -254,7 +254,7 @@ function Usage() {
 
 export default function Settings({ onChanged }: { onChanged: () => void }) {
   const { models, reload } = useModels();
-  const [s, setS] = useState({ workspace_name: "", default_model: "", chat_url: "", tools_url: "" });
+  const [s, setS] = useState({ workspace_name: "", default_model: "", chat_url: "", tools_url: "", model_catalog_refresh: false, model_catalog_env: false });
   const [pw, setPw] = useState({ current: "", new: "" });
   const toast = useToast();
   const [desktop, setDesktop] = useState<DesktopInfo | null>(null);
@@ -263,6 +263,10 @@ export default function Settings({ onChanged }: { onChanged: () => void }) {
 
   const save = async () => {
     try { setS(await api("/settings", { method: "PUT", body: { workspace_name: s.workspace_name, default_model: s.default_model } })); toast.ok("Saved"); onChanged(); }
+    catch (e) { toast.err(e); }
+  };
+  const setCatalog = async (on: boolean) => {
+    try { setS(await api("/settings", { method: "PUT", body: { model_catalog_refresh: on } })); toast.ok(on ? "Model prices will update once a day" : "Model price updates are off"); }
     catch (e) { toast.err(e); }
   };
   const changePw = async (e: FormEvent) => {
@@ -291,6 +295,15 @@ export default function Settings({ onChanged }: { onChanged: () => void }) {
           <div className="row"><Search size={16} /><h2>Web search</h2></div>
           <div className="muted small">Lets Research and Chat look things up on the web.</div>
           <WebSearchSetup />
+        </div>
+        <div className="card col" id="model-prices">
+          <h2>Model prices and limits</h2>
+          <div className="muted small">Costs and context sizes come from a list built into the app. Turn this on to download a newer list from models.dev once a day. It is a plain download: no chats, keys or settings are sent, though models.dev sees your IP address. Off unless you turn it on.</div>
+          <label className="row" style={{ gap: 8 }}>
+            <input type="checkbox" checked={s.model_catalog_refresh} disabled={s.model_catalog_env} onChange={(e) => setCatalog(e.target.checked)} />
+            Update model prices from models.dev daily
+          </label>
+          {s.model_catalog_env && <div className="muted small">Set by MODEL_CATALOG_REFRESH on the server; change it there.</div>}
         </div>
         <ConnectMailCalendar />
         {desktop?.desktop && <DesktopApp info={desktop} />}
