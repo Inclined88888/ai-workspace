@@ -1,0 +1,85 @@
+- complementary:
+  - text: AI Workspace
+  - button "Search ⌘ K"
+  - link "Home":
+    - /url: /
+  - link "Chat":
+    - /url: /assistant
+  - text: Today
+  - link "Mail":
+    - /url: /mail
+  - link "Calendar":
+    - /url: /calendar
+  - link "Tasks":
+    - /url: /tasks
+  - link "Team":
+    - /url: /team
+  - text: Your stuff
+  - link "Notes":
+    - /url: /notes
+  - link "Files":
+    - /url: /files
+  - link "Research":
+    - /url: /research
+  - text: Do it for me
+  - link "Automations":
+    - /url: /automations
+  - link "Coding":
+    - /url: /code
+  - link "Terminal":
+    - /url: /terminal
+  - button "More"
+  - button "Settings"
+  - button "Advanced"
+  - button "Sign out"
+- main:
+  - heading "Terminal" [level=1]
+  - button "Start rooks"
+  - button "New shell"
+  - text: Your own shell on this computer, in your home folder. It runs with your account's rights and without the app's keys. Closing the page ends it and anything it started.
+  - status
+  - list:
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+  - textbox "Terminal input"

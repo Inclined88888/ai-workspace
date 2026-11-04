@@ -1,0 +1,19 @@
+PASS setup and sign in
+PASS B1: every sub-task listed
+PASS B1: synthesis shown
+PASS B1: failed sub-task marked
+PASS B2: 2-hop walk shows all three
+PASS B2: paths show the links
+PASS B2: rel filter narrows the walk
+PASS #7: typed command ran in the app terminal (app-term-42)
+PASS #7: leaving the page ended the shell (open=0)
+PASS chat: a main landmark is exposed
+PASS chat: at least one live region
+PASS b1-team-runs: no serious or critical axe violations ([])
+PASS b2-graph-walk: no serious or critical axe violations ([])
+PASS app-terminal: no serious or critical axe violations ([])
+PASS chat: no serious or critical axe violations ([])
+b1-team-runs axe: []
+b2-graph-walk axe: []
+app-terminal axe: []
+chat axe: []
