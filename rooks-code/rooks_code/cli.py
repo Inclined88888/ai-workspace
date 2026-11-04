@@ -24,6 +24,8 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import shutil
+import subprocess
 import sys
 import threading
 import time
@@ -186,6 +188,67 @@ def parser() -> argparse.ArgumentParser:
     return ap
 
 
+# Folders searched for projects when rooks starts in the home folder. Desktop, Documents and Downloads are left out on
+# purpose: reading them makes macOS ask for permission. A path typed at the prompt can still point anywhere.
+SKIP_DIRS = {"Desktop", "Documents", "Downloads", "Library", "Movies", "Music", "Pictures", "Applications", "Public",
+             "node_modules", "venv", ".venv"}
+PROJECT_MARKS = (".git", ".rooks", "pyproject.toml", "package.json", "Cargo.toml", "go.mod")
+
+
+def project_candidates(home: Path, limit: int = 9) -> list[Path]:
+    """Likely project folders under home (one or two levels down), newest first."""
+    found: dict[Path, float] = {}
+
+    def usable(d: Path) -> bool:
+        return d.is_dir() and not d.name.startswith(".") and d.name not in SKIP_DIRS and "backup" not in d.name.lower()
+
+    try:
+        kids = [k for k in home.iterdir() if usable(k)]
+    except OSError:
+        return []
+    for k in kids:
+        try:
+            if any((k / m).exists() for m in PROJECT_MARKS):
+                found[k] = k.stat().st_mtime
+                continue
+            for g in k.iterdir():  # one level down: ~/code/repo, ~/aiw-wt/worktree
+                if usable(g) and any((g / m).exists() for m in PROJECT_MARKS):
+                    found[g] = g.stat().st_mtime
+        except OSError:
+            continue
+    return sorted(found, key=lambda k: found[k], reverse=True)[:limit]
+
+
+def pick_project(root: Path, ask=input, say=print) -> Path | None:
+    """Started in the home folder: offer recent project folders by number, or take a typed path. Asks again after a
+    wrong answer instead of quitting. Returns the folder, root for "stay here", or None to quit."""
+    home = Path.home()
+    options = project_candidates(home)
+    say(f"  You are in {root}, not a project folder. Pick one:")
+    for i, p in enumerate(options, 1):
+        shown = "~/" + str(p.relative_to(home)) if p.is_relative_to(home) else str(p)
+        say(f"  {i}  {shown}")
+    say("  Or type a folder path (~ works).  Enter = stay here.  q = quit")
+    for _ in range(5):
+        try:
+            a = ask("  › ").strip()
+        except (EOFError, KeyboardInterrupt):
+            return None
+        if not a:
+            return root
+        if a.lower() in ("q", "quit", "exit"):
+            return None
+        if a.isdigit() and 1 <= int(a) <= len(options):
+            return options[int(a) - 1]
+        a = a.strip("'\"")  # a path dragged in from Finder arrives quoted
+        p = home / a[2:] if a.startswith("~/") else home if a == "~" else Path(a)
+        p = (root / p if not p.is_absolute() else p).resolve()
+        if p.is_dir():
+            return p
+        say(f"  {p} is not a folder. Type a number from the list, a folder path, Enter to stay, or q.")
+    return None
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     for stream in (sys.stdout, sys.stderr):
@@ -204,20 +267,10 @@ def main(argv: list[str] | None = None) -> int:
     interactive = not args.prompt and sys.stdin.isatty() and sys.stdout.isatty()
     # Started in the home folder (or /): a request would crawl everything there, so ask for the project first.
     if interactive and root in (Path.home().resolve(), Path(root.anchor)):
-        print(f"  You are in {root}, not a project folder.")
-        print("  1  Open a project folder")
-        print("  2  Stay here anyway")
-        try:
-            choice = input("  › ").strip()
-            if choice == "1":
-                new_path = input("  Folder: ").strip()
-                root = Path(new_path).expanduser().resolve() if new_path else root
-                if not root.is_dir():
-                    sys.exit(f"rooks: {root} is not a folder")
-            elif choice != "2":
-                return 0
-        except (EOFError, KeyboardInterrupt):
+        picked = pick_project(root)
+        if picked is None:
             return 0
+        root = picked
     overrides = {"provider": args.provider, "model": args.model, "base_url": args.base_url, "yes": args.yes,
                  "dry_run": args.dry_run, "max_usd": args.max_usd, "max_tokens": args.max_tokens, "max_steps": args.max_steps}
     try:
@@ -477,13 +530,55 @@ def provider_command(agent, ui: UI, rest: str) -> None:
     ui.p(f"now on {s.provider}/{s.model}")
 
 
+def open_app_and_link(wait_s: float = 90, model_wait_s: float = 600) -> bool:
+    """Start AI Workspace if it is not open (the native app, or its window in Chrome/Edge), wait until it publishes
+    app.json, then wait until a model is connected in it. Ctrl-C gives up."""
+    try:
+        link = config.app_link()
+        if not link:
+            print("  Opening AI Workspace…", flush=True)
+            subprocess.Popen(["ai-workspace"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             start_new_session=True)  # keeps running after rooks exits
+            deadline = time.monotonic() + wait_s
+            while not (link := config.app_link()):
+                if time.monotonic() > deadline:
+                    print("  AI Workspace did not answer in time. Run `ai-workspace` yourself, then start rooks again.")
+                    return False
+                time.sleep(1)
+        if not config.app_has_models(link):
+            print("  AI Workspace is open. Connect a model in its window (a free key, or sign in with ChatGPT, Claude or")
+            print("  Copilot). I'll carry on here as soon as it's connected. Ctrl-C to stop.", flush=True)
+            deadline = time.monotonic() + model_wait_s
+            while not config.app_has_models(link):
+                if time.monotonic() > deadline:
+                    print("  Still no model in AI Workspace. Start rooks again once one is connected.")
+                    return False
+                time.sleep(2)
+        print("  Linked to AI Workspace.\n")
+        return True
+    except KeyboardInterrupt:
+        print()
+        return False
+
+
 def first_run_setup(root: Path, why: str = "No AI service is connected yet.") -> bool:
     """At a terminal with nothing connected: walk through `rooks login` now instead of stopping with an error."""
     import argparse
 
     from . import login
 
-    print(f"\nWelcome to Rooks. {why} Let's connect one (about a minute).\n")
+    print(f"\nWelcome to Rooks. {why}")
+    if shutil.which("ai-workspace") or config.app_link():
+        print("  1  Use AI Workspace and the models connected there (recommended)")
+        print("  2  Connect a model here instead (API key, Ollama, a server)")
+        try:
+            pick = input("  › ").strip() or "1"
+        except (KeyboardInterrupt, EOFError):
+            print()
+            return False
+        if pick == "1":
+            return open_app_and_link()
+    print("Let's connect one (about a minute).\n")
     try:
         ok = login.main(argparse.Namespace(provider=None, url=None, model=None, key_stdin=False), root) == 0
     except (KeyboardInterrupt, EOFError):
