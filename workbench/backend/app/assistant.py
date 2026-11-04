@@ -871,7 +871,7 @@ async def _run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> Async
     # feat/attachments: an attached document's text is third party content, like a web page or an email
     ctx.tainted = ctx.tainted or attachments.has_documents(ctx.attachments) or bool(db.one(
     "SELECT 1 FROM (SELECT attachments FROM messages WHERE conversation_id = ? ORDER BY id DESC LIMIT ?) "
-    "WHERE attachments LIKE '%\\\"kind\\\": \\\"document\\\"%' LIMIT 1", ctx.conversation_id, HISTORY_MESSAGES))
+    "WHERE attachments LIKE ? LIMIT 1", ctx.conversation_id, HISTORY_MESSAGES, '%"kind": "document"%'))  # json.dumps form
     budget = llm.context_chars(model)
     summarising = None
     nudged = False
