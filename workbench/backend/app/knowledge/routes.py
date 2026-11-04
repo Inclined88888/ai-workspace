@@ -1,11 +1,12 @@
-"""/api/knowledge: memory, people, projects, search, conflicts, tidy-up, export, data safety."""
+""""/api/knowledge: memory, people, projects, search, conflicts, tidy-up, export, data safety."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, Response, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from ..security import require_user
+from .. import db
 from . import backup, crypto, export_all, graph, importers, improve, live, memory, schema
 from .recall import recall as _recall_fn, search_all
 
@@ -103,6 +104,37 @@ def add_entity(body: EntIn):
 def entity(eid: int):
     e = graph.get(eid)
     return {**e, "links": graph.neighbours(eid, 1), "memories": memory.list_(subject_id=eid) + memory.list_(project_id=eid)}
+
+
+@router.get("/graph/traverse")
+def traverse(eid: int, depth: int = 2, direction: str = "both", rel: str | None = None):
+    """Edge-traversing query: walk the graph from an entity.
+    direction: 'out' (outgoing), 'in' (incoming), 'both' (both directions)
+    rel: optional relationship type to filter by"""
+    if direction not in ("in", "out", "both"):
+        raise HTTPException(400, "direction must be 'in', 'out', or 'both'")
+    schema.ensure()
+    seen, frontier, out = {eid}, [eid], []
+    for d in range(depth):
+        nxt = []
+        for n in frontier:
+            sql = "SELECT src, rel, dst FROM kn_edges WHERE " + ("src = ?" if direction == "out" else "dst = ?" if direction == "in" else "src = ? OR dst = ?")
+            args = [n, n] if direction == "both" else [n]
+            if rel:
+                sql += " AND rel = ?"
+                args.append(rel)
+            for r in db.all(sql, *args):
+                other = r["dst"] if r["src"] == n else r["src"]
+                if other in seen:
+                    continue
+                seen.add(other)
+                nxt.append(other)
+                try:
+                    out.append({**graph.get(other), "rel": r["rel"], "direction": "out" if r["src"] == n else "in", "hops": d + 1})
+                except HTTPException:
+                    pass
+        frontier = nxt
+    return {"start": eid, "depth": depth, "direction": direction, "rel": rel, "nodes": out}
 
 
 @router.delete("/entities/{eid}")
