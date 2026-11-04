@@ -180,6 +180,24 @@ def forget_everything() -> dict:
     return {"deleted": n}
 
 
+def forget_matching(text: str) -> list[str]:
+    """Drop facts whose words contain this phrase. 'everything' clears the store. Returns what went."""
+    phrase = " ".join((text or "").split())
+    if len(phrase) < 2:
+        raise HTTPException(400, "Say which memory to forget.")
+    if phrase.lower() in {"everything", "all", "*"}:
+        gone = [f["content"] for f in all_facts()]
+        forget_everything()
+        return gone
+    needle = phrase.lower()
+    gone = []
+    for fact in all_facts():
+        if needle in (fact.get("content") or "").lower():
+            delete(fact["id"])
+            gone.append(fact["content"])
+    return gone
+
+
 # Retrieval -----------------------------------------------------------------------------------------------------------
 def _docs() -> list[dict]:
     store.ensure()

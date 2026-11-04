@@ -81,13 +81,17 @@ SPECS = [
      "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
                     "required": ["path", "content"]}},
     {"name": "run_command", "description": "Run a shell command in the project folder and return its exit code and output. "
-                                           "Use it for tests, builds, and git. The user approves commands. Stay inside the "
-                                           "project unless they asked you to go outside it. This is not a kernel sandbox.",
+                                           "Use it for tests, builds, and git. The user approves commands. In project mode, "
+                                           "the command can change files in this folder and cannot write outside it.",
      "parameters": {"type": "object", "properties": {
          "command": {"type": "string"}, "timeout": {"type": "integer", "description": "Seconds (default 120)"}},
          "required": ["command"]}},
 ]
 NAMES = {s["name"] for s in SPECS}
+
+
+def _seatbelt_path(path) -> str:
+    return str(path).replace("\\", "\\\\").replace('"', "")
 
 
 def _clip(text: str, limit: int = MAX_OUTPUT) -> str:
@@ -197,10 +201,12 @@ def diff(old: str, new: str, rel: str) -> str:
 
 
 class Toolbox:
-    def __init__(self, root: Path, command_timeout: int = 120, cancel: threading.Event | None = None):
+    def __init__(self, root: Path, command_timeout: int = 120, cancel: threading.Event | None = None,
+                 sandbox: str = "full"):
         self.root = root.resolve()
         self.command_timeout = command_timeout
         self.cancel = cancel or threading.Event()
+        self.sandbox = sandbox if sandbox in ("project", "full") else "full"
 
     def _check_cancel(self) -> None:
         if self.cancel.is_set():
@@ -446,6 +452,38 @@ class Toolbox:
         old = p.read_text(encoding="utf-8") if p.exists() else ""
         return self._write_plan(p, old, content, "wrote" if p.exists() else "created")
 
+    def _command_argv(self, cmd: str) -> list[str]:
+        """Project mode keeps writes inside the folder. Full mode is an ordinary shell."""
+        shell = "cmd.exe" if sys.platform == "win32" else "/bin/sh"
+        flag = "/c" if sys.platform == "win32" else "-c"
+        argv = [shell, flag, cmd]
+        if self.sandbox != "project" or sys.platform != "darwin":
+            return argv
+        seatbelt = shutil.which("sandbox-exec")
+        if not seatbelt:
+            raise ToolError("This computer cannot keep commands inside the project folder.")
+        tmp = os.environ.get("TMPDIR") or "/tmp"
+        profile = "\n".join([
+            "(version 1)",
+            "(deny default)",
+            "(allow process*)",
+            "(allow signal)",
+            "(allow sysctl-read)",
+            "(allow mach-lookup)",
+            "(allow ipc-posix*)",
+            "(allow system-socket)",
+            "(allow network*)",
+            "(allow file-read*)",
+            "(allow file-map-executable)",
+            "(allow file-ioctl)",
+            f'(allow file-write* (subpath "{_seatbelt_path(self.root)}"))',
+            f'(allow file-write* (subpath "{_seatbelt_path(tmp)}"))',
+            '(allow file-write* (subpath "/private/tmp"))',
+            '(allow file-write* (subpath "/tmp"))',
+            '(allow file-write* (subpath "/dev"))',
+        ])
+        return [seatbelt, "-p", profile, *argv]
+
     def _run_command(self, a: dict) -> Plan:
         cmd = a.get("command")
         if not isinstance(cmd, str) or not cmd.strip():
@@ -454,7 +492,8 @@ class Toolbox:
 
         def run():
             try:
-                r = subprocess.run(cmd, shell=True, cwd=self.root, capture_output=True, text=True, timeout=timeout,
+                argv = self._command_argv(cmd)
+                r = subprocess.run(argv, cwd=self.root, capture_output=True, text=True, timeout=timeout,
                                    encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL)
             except subprocess.TimeoutExpired as e:
                 out = (e.stdout or "") + (e.stderr or "") if isinstance(e.stdout, str) else ""

@@ -125,6 +125,34 @@ def test_sub_agent_reads_only_and_returns_its_summary(tmp_path):
     assert len([p for p in (tmp_path / ".rooks" / "runs").glob("*.messages.json")]) == 1  # the sub-agent saved no session
 
 
+def test_mode_command_switches_the_tools_on_offer(tmp_path):
+    from rooks_code import tui
+
+    a = Agent(settings(tmp_path), UI(), model=FakeModel([]))
+    ui = UI()
+    tui.command(a, ui, "/mode", "plan")
+    assert a.mode() == "plan"
+    offered = {t["name"] for t in a.tool_specs()}
+    assert "read_file" in offered and "write_file" not in offered and "run_command" not in offered
+    tui.command(a, ui, "/mode", "build")
+    assert "write_file" in {t["name"] for t in a.tool_specs()}
+
+
+def test_plan_mode_will_not_write_a_file(tmp_path):
+    (tmp_path / "a.py").write_text("x = 1\n")
+    ui = UI()
+    model = FakeModel([
+        assistant("", [call("write_file", {"path": "a.py", "content": "nope\n"})]),
+        assistant("I only looked."),
+    ])
+    a = Agent(settings(tmp_path, auto_approve=True, mode="plan"), ui, model=model)
+    a.run("change a.py")
+    assert (tmp_path / "a.py").read_text() == "x = 1\n"
+    offered = {t["name"] for t in model.calls[0]["tools"]}
+    assert "write_file" not in offered and "read_file" in offered
+    assert "not available" in model.calls[-1]["messages"][-1]["content"]
+
+
 def test_before_tool_hook_can_stop_a_command(tmp_path):
     hook = tmp_path / ".rooks" / "hooks"
     hook.mkdir(parents=True)

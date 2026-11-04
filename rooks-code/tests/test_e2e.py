@@ -52,7 +52,7 @@ def test_fixes_a_bug_with_approval_diff_command_and_receipt(project, fake):
     assert (project / "calc.py").read_text() == "def add(a, b):\n    return a + b\n"
     out = r.stdout
     assert "-    return a - b" in out and "+    return a + b" in out          # the diff was shown
-    assert "Apply this change? [y]es / [n]o / [a]lways this session: y" in out
+    assert "Apply this change? [y]es / [n]o / [a]lways this session:\ny" in out
     assert "Run this command?" in out and "tests pass" in out
     assert "Fixed add()" in out
     # the model saw every tool result, in order

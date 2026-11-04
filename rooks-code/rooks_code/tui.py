@@ -19,7 +19,7 @@ from pathlib import Path
 
 from . import __version__, config
 from .learning import local_path as learning_path
-from .cli import UI, HELP, app_models, effort_command, load_session, model_command, provider_command, set_model, short_model, undo_text
+from .cli import UI, HELP, app_models, effort_command, load_session, mode_command, model_command, provider_command, set_model, short_model, undo_text
 
 try:
     from prompt_toolkit import PromptSession
@@ -52,9 +52,10 @@ COMMANDS: dict[str, str] = {
     "/new": "start a fresh conversation",
     "/model": "pick the AI, the model and how hard it thinks (arrow keys)",
     "/effort": "how hard a plan's model thinks: /effort low, medium, high or auto",
+    "/mode": "chat talks, plan reads, build can change files: /mode chat",
     "/provider": "switch the AI service: /provider NAME",
     "/login": "connect an AI service (paste a key, or use your AI Workspace app)",
-    "/memory": "what Rooks remembers about you (shared with the AI Workspace app)",
+    "/memory": "what Rooks remembers about you; /memory forget <words> drops one",
     "/history": "search past Chat and terminal turns: /history words",
     "/skills": "procedures Rooks learned; /skills add GITHUB-LINK checks a new one",
     "/undo": "put back the files changed by the last request",
@@ -297,7 +298,8 @@ class RichUI(UI):
         self._started = 0.0
         tokens = totals["tokens_in"] + totals["tokens_out"]
         cost = "" if totals["cost_unknown"] else f" · ${totals['usd']:.4f}"
-        self.p(self.c("dim", f"  {tokens:,} tokens{cost}{' · /undo puts the files back' if undo else ''}"))
+        mode = str(getattr(s, "mode", "build") or "build")
+        self.p(self.c("dim", f"  {tokens:,} tokens{cost} · {mode}{' · /undo puts the files back' if undo else ''}"))
 
 
 class RooksCompleter(Completer):
@@ -509,7 +511,7 @@ def _k(n: int) -> str:
 def help_table(ui: RichUI) -> None:
     categories = {
         "Session": ["/help", "/new", "/undo", "/diff", "/compact", "/cost", "/receipt", "/exit"],
-        "Model": ["/model", "/effort", "/provider", "/login"],
+        "Model": ["/model", "/effort", "/mode", "/provider", "/login"],
         "Context": ["/memory", "/history", "/skills", "/init", "/context", "/sessions", "/resume"],
         "Behavior": ["/auto", "/dry-run", "/doctor", "/copy", "/image", "/jobs"],
     }
@@ -764,12 +766,18 @@ def command(agent, ui: RichUI, cmd: str, rest: str) -> None:
             model_command(agent, ui, rest)
     elif cmd == "/effort":
         effort_command(agent, ui, rest)
+    elif cmd == "/mode":
+        mode_command(agent, ui, rest)
     elif cmd == "/provider":
         provider_command(agent, ui, rest)
     elif cmd == "/login":
         relogin(agent, ui)
     elif cmd == "/memory":
         learning = getattr(agent, "learning", None)
+        if learning and rest.split()[:1] and rest.split()[0].lower() == "forget":
+            phrase = rest.split(None, 1)[1] if len(rest.split(None, 1)) > 1 else ""
+            ui.p("  " + learning.forget(phrase).replace("\n", "\n  "))
+            return
         facts = learning.facts() if learning else []
         if not learning:
             ui.p("  Learning is off (learn = false in rooks.toml).")

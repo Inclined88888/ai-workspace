@@ -209,6 +209,21 @@ def test_loop_detection_read_heavy(tmp_path):
     assert result.loop_type == "read_heavy"
 
 
+def test_project_sandbox_blocks_a_write_outside_the_folder(tmp_path):
+    """A command may change files in the project. It may not write outside it, even into the home folder."""
+    outside = Path.home() / f".rooks-escape-{tmp_path.name}.txt"
+    outside.unlink(missing_ok=True)
+    tb = Toolbox(tmp_path)
+    tb.sandbox = "project"
+    result = tb.prepare("run_command", {"command": f"echo pwned > '{outside}'"}).apply()[0]
+    try:
+        assert not outside.exists(), result
+        tb.prepare("run_command", {"command": "echo ok > inside.txt"}).apply()
+        assert (tmp_path / "inside.txt").read_text().strip() == "ok"
+    finally:
+        outside.unlink(missing_ok=True)
+
+
 def test_edit_fuzzy_matching_whitespace(tmp_path):
     """Edit tool matches with whitespace differences."""
     from rooks_code.tools import Toolbox

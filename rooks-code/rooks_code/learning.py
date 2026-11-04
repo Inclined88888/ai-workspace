@@ -55,6 +55,12 @@ def _load_local() -> list[str]:
         return []
 
 
+def _save_local(facts: list[str]) -> None:
+    p = local_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps({"facts": facts[-MAX_LOCAL:]}, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
 def _norm(s: str) -> str:
     return " ".join("".join(c for c in s.lower() if c.isalnum() or c == " ").split())
 
@@ -134,12 +140,10 @@ class Learning:
             return "Already known; nothing new saved."
         facts = (facts + [fact])[-MAX_LOCAL:]
         try:
-            p = local_path()
-            p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(json.dumps({"facts": facts}, ensure_ascii=False, indent=1), encoding="utf-8")
+            _save_local(facts)
         except OSError as e:
             return f"Error: could not save it ({e})"
-        return f"Saved. Rooks will remember it in later sessions ({p})."
+        return f"Saved. Rooks will remember it in later sessions ({local_path()})."
 
     def facts(self) -> list[str]:
         """What is remembered, for /memory."""
@@ -149,6 +153,38 @@ class Learning:
             except (OSError, ValueError, urllib.error.URLError):
                 return []
         return _load_local()
+
+    def forget(self, text: str) -> str:
+        """Drop memories that contain these words. The same store chat uses, when the app is connected."""
+        phrase = " ".join((text or "").split())
+        if len(phrase) < 2:
+            return "Say which memory to forget, or say everything."
+        if self.app:
+            try:
+                r = self._req("POST", "/forget", {"text": phrase})
+            except urllib.error.HTTPError as e:
+                if e.code == 400:
+                    return "Say which memory to forget, or say everything."
+                return f"Error: the app could not forget it ({e.code})"
+            except (OSError, ValueError, urllib.error.URLError) as e:
+                return f"Error: the app could not forget it ({e})"
+            gone = [str(x) for x in (r.get("forgotten") or []) if str(x).strip()]
+        else:
+            facts = _load_local()
+            if phrase.lower() in {"everything", "all", "*"}:
+                gone, kept = list(facts), []
+            else:
+                needle = phrase.lower()
+                gone = [f for f in facts if needle in f.lower()]
+                kept = [f for f in facts if needle not in f.lower()]
+            if gone:
+                try:
+                    _save_local(kept)
+                except OSError as e:
+                    return f"Error: could not forget it ({e})"
+        if not gone:
+            return "Nothing matched that."
+        return "\n".join(f"Forgot: {item}" for item in gone[:40])
 
     def history(self, q: str = "", limit: int = 12) -> list[dict]:
         """Search past Chat and terminal turns via the app (Hermes-style session recall)."""

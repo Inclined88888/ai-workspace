@@ -106,6 +106,28 @@ def test_terminal_web_search_and_read_go_through_the_app(client, auth, monkeypat
     assert client.get("/v1/rooks/read", params={"url": "file:///etc/passwd"}, headers=auth).status_code == 400
 
 
+def test_the_terminal_can_forget_one_memory(client, auth):
+    """What you forget in the terminal is gone for chat too. A phrase that does not match leaves the rest."""
+    from app.adapt import knowledge
+
+    kept = knowledge.add("Name is Azad", "about", "user")
+    gone = knowledge.add("I use pnpm for this repo", "fact", "user")
+    assert kept and gone
+    try:
+        r = client.post("/v1/rooks/forget", headers=auth, json={"text": "pnpm"})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert any("pnpm" in item for item in body["forgotten"])
+        left = [f["content"] for f in client.get("/v1/rooks/memory", headers=auth).json()["facts"]]
+        assert not any("pnpm" in item for item in left)
+        assert any("Azad" in item for item in left)
+        missing = client.post("/v1/rooks/forget", headers=auth, json={"text": "pnpm"})
+        assert missing.status_code == 200 and missing.json()["forgotten"] == []
+    finally:
+        knowledge.delete(kept["id"])
+        knowledge.delete(gone["id"])
+
+
 def test_history_searches_past_chat_and_terminal_turns(client, auth):
     from app import db
 

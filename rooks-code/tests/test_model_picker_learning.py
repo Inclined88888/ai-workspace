@@ -190,6 +190,31 @@ def test_learning_with_the_app(app, tmp_path):
     assert turn["untrusted"] is False
 
 
+def test_forgetting_a_local_fact_leaves_the_rest(tmp_path):
+    s = config.Settings(root=tmp_path, provider="nvidia", base_url="http://127.0.0.1:9/v1")
+    learn = Learning(s)
+    assert learn.remember("I use pnpm for this repo").startswith("Saved.")
+    assert learn.remember("Name is Azad").startswith("Saved.")
+    msg = learn.forget("pnpm")
+    assert "pnpm" in msg and "Azad" not in msg
+    left = learn.facts()
+    assert any("Azad" in f for f in left)
+    assert not any("pnpm" in f for f in left)
+    assert learn.forget("pnpm") == "Nothing matched that."
+    assert learn.forget("") == "Say which memory to forget, or say everything."
+
+
+def test_memory_forget_command_says_what_went(tmp_path):
+    from rooks_code import tui
+
+    agent, ui = FakeAgent(config.Settings(root=tmp_path, provider="nvidia", base_url="http://127.0.0.1:9/v1")), UI()
+    agent.learning = Learning(agent.s)
+    agent.learning.remember("I use pnpm for this repo")
+    tui.command(agent, ui, "/memory", "forget pnpm")
+    assert any("Forgot" in line and "pnpm" in line for line in ui.out)
+    assert not any("pnpm" in f for f in agent.learning.facts())
+
+
 def test_learning_without_the_app_keeps_facts_locally(tmp_path):
     s = config.Settings(root=tmp_path, provider="nvidia", base_url="http://127.0.0.1:9/v1")
     learn = Learning(s)

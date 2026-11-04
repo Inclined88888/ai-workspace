@@ -203,6 +203,8 @@ class Settings:
     key: str = ""                        # a key handed over by the running app (never written anywhere by Rooks)
     effort: str = ""                     # how hard a plan's model thinks (low, medium, high); "" = the plan's default
     learn: bool = True                   # remember facts and learn skills (through the app: shared with chat)
+    mode: str = "build"                  # chat talks, plan reads, build can change files and run commands
+    sandbox: str = "project"             # project keeps command writes inside the folder; full does not
     lint_after_edit: bool = False        # run linter/tests after edits and feed errors back
     root: Path = field(default_factory=Path.cwd)
     # Fallback chain: list of (provider, model) pairs to try on transient failures (429, 5xx)
@@ -262,9 +264,17 @@ def resolve(flags: dict, root: Path, file: dict | None = None) -> Settings:
     cfg = load_file() if file is None else file
     s = Settings(root=root)
     for key in ("max_usd", "max_tokens", "max_steps", "command_timeout", "trusted_folders", "auto_approve", "workbench_url", "nudge",
-                "stream", "context_tokens", "learn", "lint_after_edit"):
+                "stream", "context_tokens", "learn", "lint_after_edit", "mode", "sandbox"):
         if key in cfg:
             setattr(s, key, cfg[key])
+    if str(s.mode).lower() not in ("chat", "plan", "build"):
+        s.mode = "build"
+    else:
+        s.mode = str(s.mode).lower()
+    if str(s.sandbox).lower() not in ("project", "full"):
+        s.sandbox = "project"
+    else:
+        s.sandbox = str(s.sandbox).lower()
     s.prices = dict(cfg.get("prices", {}))
     s.mcp_servers = dict(cfg.get("mcp", {}).get("servers", {}))
     s.mcp_servers.update(_project_mcp(root))

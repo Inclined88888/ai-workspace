@@ -450,6 +450,20 @@ def effort_command(agent, ui: UI, rest: str) -> None:
          " (it applies to subscription plans through the AI Workspace app)"))
 
 
+def mode_command(agent, ui: UI, rest: str) -> None:
+    """/mode chat|plan|build. Chat talks, plan reads, build can change files."""
+    want = rest.strip().lower()
+    current = agent.mode() if hasattr(agent, "mode") else str(getattr(agent.s, "mode", "build") or "build")
+    if not want:
+        ui.p(f"mode is {current}. chat talks, plan reads, build can change files.")
+        return
+    if want not in ("chat", "plan", "build"):
+        ui.error("use /mode chat, plan or build")
+        return
+    agent.s.mode = want
+    ui.p(f"mode is now {want}.")
+
+
 def model_command(agent, ui: UI, rest: str) -> None:
     """/model: the chat models you can use, numbered (through the app: grouped by AI, newest few each);
     /model N or /model NAME switches; /model all lists everything."""

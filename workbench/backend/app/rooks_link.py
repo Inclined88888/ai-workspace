@@ -6,6 +6,7 @@
 /v1/rooks/skills/N   one skill's steps (counts as a use, like load_skill in chat)
 /v1/rooks/history    search past Chat and terminal turns (FTS) for /history in the terminal
 /v1/rooks/remember   save a fact the user stated in the terminal (same store as chat's remember tool)
+/v1/rooks/forget     drop facts that contain a phrase, or everything (same store as chat)
 /v1/rooks/turn       a finished terminal request: kept as a conversation (shown in the app's chat history as a
                      terminal chat) and mined in the background for facts and reusable skills, exactly like a chat turn
 
@@ -165,6 +166,18 @@ def remember(data: RememberIn):
     from .assistant import _remember
 
     return _remember(data.content, data.kind)
+
+
+class ForgetIn(BaseModel):
+    text: str = ""
+
+
+@router.post("/forget")
+def forget(data: ForgetIn):
+    """Drop memories that contain these words. Chat then stops seeing them too."""
+    from .adapt import knowledge
+
+    return {"forgotten": knowledge.forget_matching(data.text)}
 
 
 class Call(BaseModel):

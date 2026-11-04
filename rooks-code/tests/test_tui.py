@@ -28,7 +28,7 @@ def test_slash_opens_every_command_with_what_it_does(tmp_path):
     got = complete(FakeAgent(tmp_path), "/")
     assert [t for t, _ in got] == list(tui.COMMANDS)
     assert all(meta for _, meta in got)
-    assert [t for t, _ in complete(FakeAgent(tmp_path), "/mo")] == ["/model"]
+    assert [t for t, _ in complete(FakeAgent(tmp_path), "/mo")] == ["/model", "/mode"]
 
 
 def test_model_names_complete_after_slash_model(tmp_path):

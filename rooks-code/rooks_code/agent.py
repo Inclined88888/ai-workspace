@@ -108,7 +108,7 @@ class Agent:
         self.root: Path = settings.root.resolve()
         self.log = log or RunLog(self.root, provider=settings.provider, model=settings.model)
         self.model = model or providers.make(settings, on_egress=self._egress)
-        self.tools = Toolbox(self.root, settings.command_timeout)
+        self.tools = Toolbox(self.root, settings.command_timeout, sandbox=getattr(settings, "sandbox", "project"))
         self.changes = ChangeSets(self.root)
         self.sub = sub  # a sub-agent (the task tool): no MCP servers, no learning; tools depend on sub_mode
         self.sub_mode = sub_mode if sub else "explore"  # explore|plan = read-only; build = edits under parent approvals
@@ -155,11 +155,26 @@ class Agent:
                      args=f"{method} {u.scheme}://{host}{f':{u.port}' if u.port else ''}{u.path}", latency_ms=ms,
                      failure_reason=error)
 
+    def mode(self) -> str:
+        """chat talks, plan reads, build can change the project."""
+        mode = str(getattr(self.s, "mode", "build") or "build").lower()
+        return mode if mode in ("chat", "plan", "build") else "build"
+
+    def _mode_allows(self, name: str) -> bool:
+        if self.sub or self.mode() == "build":
+            return True
+        learning = self.learning.names() if self.learning else set()
+        if self.mode() == "chat":
+            return name in learning
+        return name in READ_ONLY or name in learning
+
     def tool_specs(self) -> list[dict]:
         if self.sub:
             allow = BUILD_TOOLS if self.sub_mode == "build" else READ_ONLY
-            return [t for t in SPECS + EXTRA_SPECS if t["name"] in allow]
-        return SPECS + EXTRA_SPECS + (self.learning.specs() if self.learning else []) + (self.mcp.tool_specs() if self.mcp else [])
+            specs = [t for t in SPECS + EXTRA_SPECS if t["name"] in allow]
+        else:
+            specs = SPECS + EXTRA_SPECS + (self.learning.specs() if self.learning else []) + (self.mcp.tool_specs() if self.mcp else [])
+        return [t for t in specs if self._mode_allows(t["name"])]
 
     def trusted_effect(self, effect: str, mcp_server: str | None = None) -> str:
         """Why this action needs no prompt, or '' when the user must approve it."""
@@ -543,6 +558,8 @@ class Agent:
                 allow = BUILD_TOOLS if self.sub_mode == "build" else READ_ONLY
                 if self.sub and call.name not in allow:
                     raise ToolError(f"{call.name} is not available to a {self.sub_mode} sub-agent")
+                if not self._mode_allows(call.name):
+                    raise ToolError(f"{call.name} is not available in {self.mode()} mode")
                 if call.name in EXTRA_NAMES:
                     plan = self.extras.prepare(call.name, call.arguments)
                 elif self.learning and call.name in self.learning.names():
