@@ -64,6 +64,19 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
     }).catch(toast.err);
     api<Approval[]>(`/approvals?conversation_id=${id}`).then(setApprovals).catch(toast.err);
   };
+  // Approvals raised elsewhere (the rooks terminal on this conversation) show up while the chat is open
+  useEffect(() => {
+    if (!cid) return;
+    const t = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      api<Approval[]>(`/approvals?conversation_id=${cid}`).then((fresh) => setApprovals((cur) => {
+        const ids = new Set(fresh.map((a) => a.id));
+        const same = cur.length === fresh.length && cur.every((a) => ids.has(a.id));
+        return same ? cur : fresh;
+      })).catch(() => {});
+    }, 3000);
+    return () => clearInterval(t);
+  }, [cid]);
   useEffect(() => {
     setSteps([]);
     setApprovals([]);
