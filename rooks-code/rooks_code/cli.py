@@ -6,6 +6,7 @@ or local Ollama / LM Studio (works fully offline).
   rooks -c                      continue the last session in this folder (--resume ID for an older one)
   rooks login                   connect a model: paste a key, or point at your AI Workspace server
   rooks undo                    put back the files changed by the last prompt
+  rooks pack [list|info|add|remove] ID   the app's Packs gallery
   rooks receipts [list|show|import --db PATH]
   rooks -P claude-code "task"   hand the job to your own signed-in Claude Code (your Claude plan); also -P codex
   rooks doctor                  check the provider, key and MCP servers, and say what to fix
@@ -34,7 +35,7 @@ from . import __version__, config, receipts
 from . import theme as term_theme
 from .undo import ChangeSets
 
-SUBCOMMANDS = ("undo", "receipts", "doctor", "init", "mcp", "version", "login")
+SUBCOMMANDS = ("undo", "receipts", "doctor", "init", "mcp", "version", "login", "pack")
 
 
 class UI:
@@ -551,6 +552,10 @@ def undo_text(changes: ChangeSets) -> str:
 
 
 def subcommand(name: str, rest: list[str]) -> int:
+    if name == "pack":  # B3: has its own arguments
+        from . import pack_cli
+
+        return pack_cli.main(rest)
     ap = argparse.ArgumentParser(prog=f"rooks {name}")
     ap.add_argument("-C", "--cwd", default=os.getcwd())
     if name == "receipts":
