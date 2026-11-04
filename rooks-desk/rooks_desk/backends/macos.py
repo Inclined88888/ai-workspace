@@ -1,10 +1,10 @@
 """macOS: pynput (Quartz events) for input, mss for screenshots, Quartz for the window list and the Accessibility API
 (AXUIElement, via pyobjc) for element trees.
 
-macOS asks the person for two permissions, granted to the app that starts Rooks Desk (Terminal, iTerm, or AI
-Workspace): Screen Recording (System Settings > Privacy & Security > Screen & System Audio Recording) to see the screen,
-and Accessibility (Privacy & Security > Accessibility) to click, type and read element trees. `rooks-desk setup` shows
-the prompts and opens the right panes."""
+macOS asks for two permissions, and the prompt is named AI Workspace: Screen Recording
+(System Settings > Privacy & Security > Screen & System Audio Recording) to see the screen, and Accessibility
+(Privacy & Security > Accessibility) to click, type and read what is on screen. `rooks-desk setup` shows the
+prompts and opens the right panes."""
 
 from __future__ import annotations
 
@@ -43,9 +43,8 @@ class MacBackend(Backend):
         screen = bool(Quartz.CGPreflightScreenCaptureAccess()) if hasattr(Quartz, "CGPreflightScreenCaptureAccess") else True
         ax = bool(AS.AXIsProcessTrusted())
         return {
-            "screen": {"ok": screen, "how": "System Settings > Privacy & Security > Screen & System Audio Recording: turn on the app "
-                                            "you started Rooks Desk from (Terminal or AI Workspace), then quit and reopen it."},
-            "input": {"ok": ax, "how": "System Settings > Privacy & Security > Accessibility: turn on the same app."},
+            "screen": {"ok": screen, "how": "System Settings > Privacy & Security > Screen & System Audio Recording: turn on AI Workspace, then quit and reopen it."},
+            "input": {"ok": ax, "how": "System Settings > Privacy & Security > Accessibility: turn on AI Workspace."},
             "accessibility": {"ok": ax, "how": "Same switch as input (Accessibility)."},
         }
 

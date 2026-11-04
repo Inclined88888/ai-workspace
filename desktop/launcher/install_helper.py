@@ -249,11 +249,15 @@ def write_shortcut(launcher: Path, app: Path, py: Path) -> str:
             (bundle / "Contents" / "Info.plist").write_text(
                 '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
                 '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>'
-                f"<key>CFBundleName</key><string>{NAME}</string><key>CFBundleExecutable</key><string>ai-workspace</string>"
-                "<key>CFBundleIdentifier</key><string>com.inclined88888.aiworkspace.launcher</string>"
+                f"<key>CFBundleName</key><string>{NAME}</string>"
+                f"<key>CFBundleDisplayName</key><string>{NAME}</string>"
+                "<key>CFBundleExecutable</key><string>ai-workspace</string>"
+                "<key>CFBundleIdentifier</key><string>com.inclined88888.aiworkspace</string>"
                 "<key>CFBundlePackageType</key><string>APPL</string>"
                 "<key>NSAppleEventsUsageDescription</key><string>AI Workspace reads and drafts email through Apple Mail for "
                 "accounts you signed in to on this Mac. It never sends without your yes.</string>"
+                "<key>NSMicrophoneUsageDescription</key><string>AI Workspace listens when you use voice or record a meeting. Nothing is recorded unless you start it.</string>"
+                "<key>NSScreenCaptureUsageDescription</key><string>AI Workspace sees the screen only while you are using the computer page, and only after you allow it.</string>"
                 "<key>CFBundleIconFile</key><string>icon.icns</string></dict></plist>\n")
             res = bundle / "Contents" / "Resources"
             res.mkdir(parents=True, exist_ok=True)
@@ -261,7 +265,8 @@ def write_shortcut(launcher: Path, app: Path, py: Path) -> str:
             if icns.exists():
                 shutil.copyfile(icns, res / "icon.icns")
             exe = macos / "ai-workspace"
-            exe.write_text(f'#!/bin/sh\nexec "{launcher}" --web\n')
+            # Stay this app (do not exec). macOS then names permission prompts AI Workspace, not Python or Chrome.
+            exe.write_text(f'#!/bin/sh\n"{launcher}" --web\n')
             exe.chmod(0o755)
             os.utime(bundle)  # Finder re-reads the icon
             lsregister = Path("/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister")
