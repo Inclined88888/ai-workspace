@@ -6,7 +6,7 @@ import {
   Package, // feat/v02-packs
   UsersRound, // feat/team-lead
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { CommandPalette } from "./Palette";
 import Teammates from "./teammates/Teammates"; // feat/grok-style
 import Groups from "./teammates/Groups"; // feat/grok-style
@@ -57,7 +57,7 @@ import VoiceSettings from "./pages/VoiceSettings";
 import { FolderKanban, History as HistoryIcon } from "lucide-react"; // feat/v02-core
 import { LineChart as LineChartIcon } from "lucide-react"; // phase 3: Insights
 import { FileText as FileTextIcon, Lock as LockIcon, MessageCircle as MessageCircleIcon } from "lucide-react"; // feat/grok-style
-import { FlaskConical, Mic, UserRound, Video } from "lucide-react"; // one icon per meaning in the nav
+import { FlaskConical, Mic, SquareTerminal, UserRound, Video } from "lucide-react"; // one icon per meaning in the nav
 import Projects from "./pages/Projects"; // feat/v02-core
 import HistoryPage from "./pages/History"; // feat/v02-core
 import McpServers from "./pages/McpServers"; // feat/mcp-client
@@ -67,6 +67,7 @@ import PackLegal from "./pages/PackLegal"; // feat/v02-packs
 import PackStudy from "./pages/PackStudy"; // feat/v02-packs
 import Knowledge from "./memory/Knowledge"; // feat/memory-core
 import Team from "./team/Team"; // feat/team-lead
+const TerminalPage = lazy(() => import("./pages/TerminalPage")); // #7: xterm.js loads only on this page
 
 export type Status = {
   setup_complete: boolean;
@@ -115,6 +116,7 @@ const NAV: NavGroup[] = [
     { to: "/computer", label: "Computer", icon: Monitor, addon: "desk" },
     { to: "/automations", label: "Automations", icon: CalendarClock },
     { to: "/code", label: "Coding", icon: Code2 },
+    { to: "/terminal", label: "Terminal", icon: SquareTerminal }, // #7
   ] },
   { section: "More", collapsible: true, items: [
     { to: "/projects", label: "Projects", icon: FolderKanban },
@@ -340,6 +342,7 @@ export default function App() {
           <Route path="/sites" element={<SitesPage />} />
           <Route path="/research/:id" element={<Research />} />
           <Route path="/code" element={<Code />} />
+          <Route path="/terminal" element={<Suspense fallback={<div className="page muted">Loading…</div>}><TerminalPage /></Suspense>} />
           <Route path="/code/:id" element={<Code />} />
           <Route path="/browser" element={<Browser />} />
           <Route path="/browser/:id" element={<Browser />} />

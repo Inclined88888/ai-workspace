@@ -19,6 +19,7 @@ from . import egress  # noqa: E402
 egress.install()  # before anything connects: every outbound request is in the audit log (R8, item 75)
 
 from . import actions, api, appearance, assistant_api, bridge, browser_proxy, cli_agents_api, company, plan_signin, config, connect, db, desk_proxy, health, llm, mobile, scheduler, sites, skills_hub, telegram, work_api  # noqa: E402
+from . import terminal_pty  # noqa: E402 - #7 app terminal
 from . import compression  # AIW-Phase1: rolling compression of long chats
 from . import finetune, media  # noqa: E402 - phase 4
 from . import catalog  # noqa: E402 - model facts from models.dev
@@ -141,6 +142,7 @@ def healthz():
 from . import openapi  # registers authenticated schema before including the router
 
 app.include_router(api.public)
+app.include_router(terminal_pty.router)  # #7: the app's own terminal (loopback, signed in, same origin)
 app.include_router(api.api)
 app.include_router(assistant_api.router)
 app.include_router(connect.router)  # Connect Google / Connect Microsoft: one sign-in for mail and calendar

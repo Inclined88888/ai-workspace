@@ -59,3 +59,8 @@
 .gantt-swatch.now { width: 2px; background: var(--accent); }
 .work-helpers { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-bottom: 14px; }
 .work-helpers p { margin: 0; flex: 1 1 320px; }
+
+/* #7 app terminal */
+.terminal-page { display: flex; flex-direction: column; gap: 8px; height: 100%; max-width: none; }
+.terminal-page .page-head { align-items: center; gap: 8px; }
+.terminal-box { flex: 1; min-height: 360px; background: var(--panel-2); border: 1px solid var(--border); padding: 6px; }

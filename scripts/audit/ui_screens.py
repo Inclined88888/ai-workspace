@@ -25,7 +25,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 BACKEND = ROOT / "workbench" / "backend"
 DIST = ROOT / "workbench" / "frontend" / "dist"
-OUT = ROOT / "docs" / "evidence" / "ui"
+OUT = ROOT / "docs" / "evidence" / "ui" / os.environ.get("UI_BROWSER", "chromium")
 H = {"X-Workbench": "1"}
 
 SEED = r"""
@@ -96,7 +96,8 @@ def main() -> int:
             except OSError:
                 time.sleep(0.1)
         with sync_playwright() as pw:
-            br = pw.chromium.launch()
+            engine = os.environ.get("UI_BROWSER", "chromium")  # webkit = the engine of the macOS app window (WKWebView)
+            br = getattr(pw, engine).launch()
             ctx = br.new_context(viewport={"width": 1280, "height": 900}, reduced_motion="reduce")  # no mid-fade contrast
             page = ctx.new_page()
             page.goto(url)
@@ -141,6 +142,20 @@ def main() -> int:
             page.wait_for_selector("text=Acme Pty Ltd", timeout=10000)
             b2, _ = audit("b2-graph-walk")
 
+            # #7: the app's own terminal runs a real shell on this machine
+            page.goto(url + "/terminal")
+            page.wait_for_selector(".xterm-rows", timeout=15000)
+            page.wait_for_function("() => !document.querySelector('[role=status]')?.innerText.includes('Connecting')", timeout=15000)
+            page.click(".terminal-box")
+            page.keyboard.type("echo app-term-$((6*7))\n")
+            page.wait_for_function("() => document.querySelector('.xterm-rows').innerText.includes('app-term-42')", timeout=15000)
+            check(True, "#7: typed command ran in the app terminal (app-term-42)")
+            term, _ = audit("app-terminal")
+            page.goto(url + "/")  # leaving the page ends the shell
+            page.wait_for_timeout(2500)
+            st = page.request.get(url + "/api/terminal/status", headers=H).json()
+            check(st["open"] == 0, f"#7: leaving the page ended the shell (open={st['open']})")
+
             # chat: the screen reader surface (landmark, heading, live regions)
             page.goto(url + "/assistant")
             page.wait_for_timeout(1500)
@@ -149,7 +164,7 @@ def main() -> int:
 
             check(bool(re.search(r"^\s*- main\b", tree, re.M)), "chat: a main landmark is exposed")
             check(page.locator("[aria-live]").count() >= 1, "chat: at least one live region")
-            for name, v in (("b1-team-runs", b1), ("b2-graph-walk", b2), ("chat", chat)):
+            for name, v in (("b1-team-runs", b1), ("b2-graph-walk", b2), ("app-terminal", term), ("chat", chat)):
                 serious = [x for x in v if x["impact"] in ("serious", "critical")]
                 check(not serious, f"{name}: no serious or critical axe violations ({[x['id'] for x in serious]})")
             br.close()
@@ -161,7 +176,7 @@ def main() -> int:
     (OUT / "results.json").write_text(json.dumps(results, indent=1))
     for c in results.get("checks", []):
         print(("PASS " if c["ok"] else "FAIL ") + c["check"])
-    for k in ("b1-team-runs", "b2-graph-walk", "chat"):
+    for k in ("b1-team-runs", "b2-graph-walk", "app-terminal", "chat"):
         if k in results:
             print(k, "axe:", [(v["id"], v["impact"], v["nodes"]) for v in results[k]["axe_violations"]])
     return 1 if failures else 0

@@ -231,6 +231,7 @@ def get_settings():
         # daily download of model prices and limits from models.dev; off by default (L4: no unasked outbound call)
         "model_catalog_refresh": catalog.auto_refresh(),
         "model_catalog_env": os.getenv("MODEL_CATALOG_REFRESH", "") in ("0", "1"),
+        "app_terminal": db.get_setting("app_terminal", "1") == "1",
     }
 
 
@@ -240,6 +241,7 @@ class SettingsIn(BaseModel):
     max_steps: int | None = Field(None, ge=0, le=100)  # 0 restores the default
     max_steps_channels: dict[str, int] | None = None   # e.g. {"schedule": 30}; a value of 0 removes the override
     model_catalog_refresh: bool | None = None
+    app_terminal: bool | None = None
 
 
 @api.put("/settings")
@@ -259,6 +261,8 @@ def put_settings(data: SettingsIn):
             db.set_setting(f"max_steps_{channel}", str(n))
         else:
             db.run("DELETE FROM settings WHERE key = ?", f"max_steps_{channel}")
+    if data.app_terminal is not None:
+        db.set_setting("app_terminal", "1" if data.app_terminal else "0")
     if data.model_catalog_refresh is not None:
         db.set_setting("model_catalog_refresh", "1" if data.model_catalog_refresh else "0")
         if data.model_catalog_refresh:
