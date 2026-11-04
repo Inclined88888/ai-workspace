@@ -95,7 +95,7 @@ def test_claude_job_asks_then_resumes_with_only_the_approved_steps(client, fakes
     assert run["files"] == ["hello.txt"] and "+hello from claude" in run["diff"]
     assert run["cost_usd"] == pytest.approx(0.0123) and run["tokens_in"] >= 1200
 
-    calls = [json.loads(line) for line in fakes["log"].read_text().splitlines() if "-p" in line]
+    calls = [c for c in map(json.loads, fakes["log"].read_text().splitlines()) if "-p" in c["argv"]]  # not the path
     first, second = calls
     assert first["argv"][first["argv"].index("--permission-mode") + 1] == "manual"
     assert "--resume" not in first["argv"] and "--allowedTools" not in first["argv"]
