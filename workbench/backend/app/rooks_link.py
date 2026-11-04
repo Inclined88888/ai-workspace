@@ -184,7 +184,6 @@ async def run_turn(data: RunTurnIn):
     """Run one turn via the backend's shared agent loop.
     Returns SSE stream of events: tool_call, tool_result, message, error, done, writing."""
     from .api import sse
-    from .assistant import Ctx
 
     conv = db.one("SELECT * FROM conversations WHERE id = ? AND channel = ?", data.conversation_id, CHANNEL)
     if not conv:
@@ -243,3 +242,66 @@ async def turn(data: TurnIn):
         learn._tasks.add(task)
         task.add_done_callback(learn._tasks.discard)
     return {"conversation_id": cid, "learning": learning}
+
+
+# Terminal approvals (one row per terminal action). The terminal asks for an OK before it changes a file or runs a command
+# on its own machine; the same request appears in the app's Approvals with its diff, and whichever side answers first
+# decides. The app never runs these actions itself: an approval from the app only tells the terminal to go ahead.
+TERMINAL_REQUEST = "terminal:"
+
+
+class TerminalApprovalIn(BaseModel):
+    conversation_id: int
+    tool: str = Field(..., min_length=1, max_length=100)
+    effect: str = Field(..., pattern="^(write|command|external)$")
+    summary: str = Field("", max_length=2000)
+    preview: str = Field("", max_length=200000)  # the unified diff or the command, as the terminal shows it
+
+
+@router.post("/approvals")
+def terminal_approval(data: TerminalApprovalIn):
+    import uuid
+
+    from . import actions, push
+
+    if not db.one("SELECT 1 FROM conversations WHERE id = ? AND channel = ?", data.conversation_id, CHANNEL):
+        raise HTTPException(404, "Conversation not found")
+    effect = "external" if data.effect == "command" else data.effect
+    args = json.dumps({"summary": data.summary, "diff": data.preview} if data.effect == "write"
+                      else {"summary": data.summary, "command": data.preview})
+    aid = actions.add("tool_call", "held", trace={"channel": CHANNEL, "conversation_id": data.conversation_id},
+                      tool=data.tool, effect=effect, args=args[:4000], payload=args,
+                      detail="Rooks is asking before it changes something on your computer.",
+                      request_id=TERMINAL_REQUEST + uuid.uuid4().hex)
+    push.approval_needed(aid, data.tool)
+    return {"id": aid}
+
+
+def _terminal_row(aid: int) -> dict:
+    row = db.one("SELECT id, request_id FROM actions WHERE id = ? AND kind = 'tool_call'", aid)
+    if not row or not (row["request_id"] or "").startswith(TERMINAL_REQUEST):
+        raise HTTPException(404, "No terminal approval with this id")
+    return row
+
+
+@router.get("/approvals/{aid}")
+def terminal_approval_status(aid: int):
+    from . import actions
+
+    _terminal_row(aid)
+    a = actions.approval(aid)
+    return {"id": aid, "status": a["status"], "decided_at": a["decided_at"]}
+
+
+class TerminalDecisionIn(BaseModel):
+    approve: bool
+
+
+@router.post("/approvals/{aid}")
+def terminal_approval_answer(aid: int, data: TerminalDecisionIn):
+    """The user answered in the terminal: record it so the app's card closes. 409 when the app answered first."""
+    from . import actions
+
+    _terminal_row(aid)
+    actions.decide(aid, data.approve, CHANNEL)
+    return {"id": aid, "status": actions.approval(aid)["status"]}

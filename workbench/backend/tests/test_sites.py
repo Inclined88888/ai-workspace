@@ -152,8 +152,17 @@ def test_assistant_site_action_is_always_held(client, portal):
     assert ok["status"] == "done" and fake_sites.SUBMITS and fake_sites.SUBMITS[-1]["data"]["status"] == "Complete"
 
 
-def test_plain_english_watch(client, portal):
+def test_plain_english_watch(client, portal, monkeypatch):
+    import datetime as _dt
+
     from app import db, scheduler, sites
+
+    class _Day(_dt.date):  # the fixture's jobs are due 2026-10-25 and 2026-11-03: pin "today" between them
+        @classmethod
+        def today(cls):
+            return cls(2026, 11, 1)
+
+    monkeypatch.setattr(sites, "date", _Day)
 
     r = sites.parse_request("check my portal every morning and tell me which jobs are overdue")
     assert r["cron"] == "0 7 * * *" and r["show"] == ["overdue"] and r["about"] == "job"

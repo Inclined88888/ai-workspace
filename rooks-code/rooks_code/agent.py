@@ -4,11 +4,11 @@ back, and repeat until it answers without asking for a tool, hits the step limit
 from __future__ import annotations
 
 import json
+import os
 import platform
 import re
 import time
 import urllib.request
-import uuid
 from pathlib import Path
 
 from . import images, providers
@@ -63,6 +63,8 @@ COMPACT_AT = 0.7
 KEEP_TURNS = 2  # the newest user prompts (with their tool calls and results) always stay word for word
 # Proactive pruning: when a single tool result exceeds this many chars, shorten it immediately
 PRUNE_TOOL_RESULT_AT = 8000
+DELEGATION_WAIT_S = 900  # one shared-loop turn, including time the user takes to approve a change
+BRIDGE_LOCAL = {"read_file", "list_files", "search", "edit_file", "write_file", "run_command"}  # run here, not in the app
 # Tail budget: keep last N tool results unpruned
 TAIL_TOOL_RESULTS = 4
 
@@ -253,8 +255,7 @@ class Agent:
 
     # one prompt --------------------------------------------------------------------------------------------------
     def run(self, prompt: str) -> str:
-        # Use bridge-based execution for workbench provider
-        if (self.s.provider == "workbench" and self.s.base_url and self.s.api_key and getattr(self.ui, 'conversation_id', None)):
+        if self.uses_shared_loop():
             return self.run_via_bridge(prompt)
 
         first = len(self.messages)
@@ -387,142 +388,66 @@ class Agent:
                 self.learning.after(prompt, answer, self.messages[first:])
         return answer
 
+    def uses_shared_loop(self) -> bool:
+        """Connected to the AI Workspace app, linked to one of its conversations, and not a sub-agent.
+        ROOKS_SHARED_LOOP=0 keeps the local loop (the app still receives the finished turn via /v1/rooks/turn)."""
+        return (os.environ.get("ROOKS_SHARED_LOOP", "1") != "0" and not self.sub and self.s.provider == "workbench"
+                and bool(self.s.base_url and self.s.api_key and getattr(self.ui, "conversation_id", None)))
+
     def run_via_bridge(self, prompt: str) -> str:
-        """Run one prompt via the backend's run_turn bridge.
-        Handles SSE events: tool_delegation, approval_required, tool_result, message, done, error.
-        """
-        if not (self.s.provider == "workbench" and self.s.base_url and self.s.api_key and getattr(self.ui, 'conversation_id', None)):
-            raise RuntimeError("Bridge not configured: provider must be workbench with base_url, api_key, and conversation_id")
-
-        base_url = self.s.base_url.rstrip("/")
-        run_turn_url = f"{base_url}/v1/rooks/run_turn"
-        headers = {"Authorization": f"Bearer {self.s.api_key}", "Content-Type": "application/json", "X-Workbench": "1"}
-
-        payload = json.dumps({
-            "conversation_id": self.ui.conversation_id,
-            "prompt": prompt,
-            "model": self.s.model or "",
-            "effort": getattr(self.s, "effort", "") or ""
-        }).encode()
-
-        req = urllib.request.Request(run_turn_url, data=payload, headers=headers, method="POST")
-        answer = ""
+        """Run one prompt on the app's shared agent loop (/v1/rooks/run_turn): one conversation, one ledger and the same
+        tools as chat. File and shell tools still run here, on this machine, through _call (approval, diff, undo)."""
+        base = self.s.base_url.rstrip("/").removesuffix("/v1")
+        hdr = {"Authorization": f"Bearer {self.s.api_key}", "Content-Type": "application/json", "X-Workbench": "1"}
+        body = json.dumps({"conversation_id": self.ui.conversation_id, "prompt": prompt,
+                           "model": self.s.model if self.s.model not in ("", "default") else None}).encode()
+        self._turn = turn = self.log.add("turn", "running", args=prompt)
+        answer, outcome = "", "answered"
+        req = urllib.request.Request(f"{base}/v1/rooks/run_turn", data=body, headers=hdr, method="POST")
         try:
-            with urllib.request.urlopen(req, timeout=300) as resp:
-                for line in resp:
-                    line = line.decode().strip()
-                    if not line.startswith("data: "):
+            with urllib.request.urlopen(req, timeout=DELEGATION_WAIT_S) as resp:
+                for raw in resp:
+                    line = raw.decode("utf-8", "replace").strip()
+                    if not line.startswith("data:"):
                         continue
                     try:
-                        event = json.loads(line[6:])
+                        ev = json.loads(line[5:])
                     except json.JSONDecodeError:
                         continue
-
-                    ev_type = event.get("type")
-                    if ev_type == "tool_delegation":
-                        # Execute tool locally and send result back
-                        delegation_id = event.get("id")
-                        tool_name = event.get("tool")
-                        tool_args = event.get("args", {})
-                        effect = event.get("effect", "read")
-
-                        self.ui.p(self.ui.c("2", f"  [Bridge] Delegating {tool_name} to terminal..."))
-                        ok, result = self._execute_local_tool(tool_name, tool_args)
-
-                        # Send result back to backend
-                        result_payload = json.dumps({
-                            "delegation_id": delegation_id,
-                            "ok": ok,
-                            "result": result
-                        }).encode()
-                        res_req = urllib.request.Request(
-                            f"{base_url}/v1/rooks/tool_result",
-                            data=result_payload,
-                            headers={"Authorization": f"Bearer {self.s.api_key}", "Content-Type": "application/json", "X-Workbench": "1"},
-                            method="POST"
-                        )
-                        try:
-                            with urllib.request.urlopen(res_req, timeout=30):
-                                pass
-                        except Exception as e:
-                            self.ui.warn(f"Failed to send tool result: {e}")
-
-                    elif ev_type == "tool_result":
-                        # Tool executed by backend, just show result
-                        pass
-                    elif ev_type == "message":
-                        answer = event.get("content", "")
-                        if answer:
-                            self.ui.assistant(answer, final=True)
-                    elif ev_type == "done":
-                        answer = event.get("content", "") or answer
+                    kind = ev.get("type")
+                    if kind == "tool_delegation":
+                        call = providers.ToolCall(str(ev.get("id")), ev.get("tool", ""), ev.get("args") or {})
+                        result, out = self._call(call, turn)
+                        ok = out not in ("denied", "tool_error", "bad_args", "unknown_tool", "check_failed", "loop_detected")
+                        post = urllib.request.Request(f"{base}/v1/rooks/tool_result", method="POST", headers=hdr,
+                                                      data=json.dumps({"delegation_id": ev.get("id"), "ok": ok,
+                                                                       "result": result}).encode())
+                        with urllib.request.urlopen(post, timeout=30):
+                            pass
+                    elif kind == "tool_call" and ev.get("name") not in BRIDGE_LOCAL:
+                        self.ui.tool_note(f"{ev.get('name')} (app)", read=True)
+                    elif kind == "approval_required":
+                        self.ui.tool_note(f"{ev.get('tool')} is waiting for your OK in the app (Approvals): {ev.get('reason', '')}")
+                    elif kind == "writing" and self._streaming():
+                        self.ui.stream(ev.get("text", ""))
+                    elif kind == "message":
+                        answer = ev.get("content", "") or answer
+                    elif kind == "stopped":
+                        answer, outcome = ev.get("content", "Stopped."), "stopped"
+                    elif kind == "error":
+                        answer, outcome = f"Error: {ev.get('error')}", "model_error"
+                        self.ui.error(str(ev.get("error")))
+                    elif kind == "done":
+                        if outcome == "answered":
+                            outcome = ev.get("outcome") or "no_claim"  # the app's claim check on its own answer
                         break
-                    elif ev_type == "error":
-                        self.ui.error(event.get("error", "Unknown error"))
-                        return f"Error: {event.get('error')}"
-                    elif ev_type == "approval_required":
-                        # Approval will be handled by UI.ask polling
-                        pass
-                    elif ev_type == "writing":
-                        # Streaming text
-                        if self._streaming():
-                            self.ui.stream(event.get("text", ""))
-                    elif ev_type == "tool_call":
-                        # Tool called by backend (non-delegated)
-                        pass
-        except Exception as e:
-            self.ui.error(f"Bridge error: {e}")
-            raise
+        except (OSError, ValueError) as e:  # urllib errors are OSError subclasses
+            self.log.finish(turn, "model_error", failure_reason=str(e)[:500])
+            raise providers.ProviderError(f"the app's shared loop is unreachable: {e}") from e
+        if answer and outcome not in ("stopped", "model_error"):
+            self.ui.assistant(answer, final=True)
+        self.log.finish(turn, outcome)
         return answer or "(no answer)"
-
-    def _execute_local_tool(self, tool_name: str, args: dict) -> tuple[bool, str]:
-        """Execute a terminal tool locally and return (ok, result)."""
-        try:
-            if tool_name == "read_file":
-                path = args.get("path", "")
-                offset = args.get("offset", 1)
-                limit = args.get("limit", 400)
-                from .tools import read_file
-                result = read_file(self.root, path, offset, limit)
-                return True, result
-            elif tool_name == "list_files":
-                path = args.get("path", ".")
-                pattern = args.get("pattern", "")
-                from .tools import list_files
-                result = list_files(self.root, path, pattern)
-                return True, result
-            elif tool_name == "search":
-                pattern = args.get("pattern", "")
-                path = args.get("path", ".")
-                glob = args.get("glob", "")
-                ignore_case = args.get("ignore_case", False)
-                from .tools import search
-                result = search(self.root, pattern, path, glob, ignore_case)
-                return True, result
-            elif tool_name == "edit_file":
-                path = args.get("path", "")
-                old_text = args.get("old_text", "")
-                new_text = args.get("new_text", "")
-                replace_all = args.get("replace_all", False)
-                from .tools import edit_file
-                result = edit_file(self.root, path, old_text, new_text, replace_all)
-                return True, result
-            elif tool_name == "write_file":
-                path = args.get("path", "")
-                content = args.get("content", "")
-                from .tools import write_file
-                result = write_file(self.root, path, content)
-                return True, result
-            elif tool_name == "run_command":
-                command = args.get("command", "")
-                timeout = args.get("timeout", 120)
-                from .tools import run_command
-                result = run_command(self.root, command, timeout)
-                return True, result
-            else:
-                return False, f"Unknown tool: {tool_name}"
-        except Exception as e:
-            return False, f"Error executing {tool_name}: {e}"
 
     def _complete(self, streamed: list[str]):
         """One model call. A rate limit or an overloaded provider is tried again after a pause (its Retry-After when
@@ -648,6 +573,7 @@ class Agent:
             if why:
                 self.ui.tool_note(why)
             else:
+                plan.tool = call.name  # the app's Approvals card names the tool
                 answer = self.ui.ask(plan)
                 decision = "approved" if answer in ("y", "a") else "denied"
                 self.log.add("decision", decision, parent=action, tool=call.name,

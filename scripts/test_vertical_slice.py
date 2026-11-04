@@ -114,7 +114,17 @@ def run_test():
     print("  ✓ Browser/App can see pending approvals")
     print("  ✓ Browser/App can resolve approvals")
     print("  ✓ Terminal polling would receive decision (UI.ask() polls /api/approvals)")
-    print("  ✓ No agent.py changes, no .messages.json deprecation, no generic /tools/call")
+    # L6, checked rather than printed: agent.py still exists and still owns the local loop, session files are still
+    # written, and there is no generic tool-call endpoint on the backend
+    import pathlib
+    import re
+    root = pathlib.Path(__file__).resolve().parents[1]
+    agent_src = (root / "rooks-code/rooks_code/agent.py").read_text()
+    assert "def run(self" in agent_src and "def _call(self" in agent_src, "agent.py local loop missing"
+    assert ".messages.json" in "".join(p.read_text() for p in (root / "rooks-code/rooks_code").glob("*.py")), "session files gone"
+    backend = "".join(p.read_text() for p in (root / "workbench/backend/app").rglob("*.py"))
+    assert not re.search(r"""@\w+\.(post|get)\(["']/tools/call""", backend), "generic /tools/call endpoint exists"
+    print("  ✓ L6: agent.py keeps the local loop and approvals; session files kept; no generic /tools/call")
 
 if __name__ == "__main__":
     run_test()

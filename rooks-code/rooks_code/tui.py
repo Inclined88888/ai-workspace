@@ -272,22 +272,25 @@ class RichUI(UI):
                                          expand=False, padding=(0, 1)), (0, 0, 0, 2)))
 
     def ask(self, plan) -> str:
+        from . import shared_approval
+
         label = {"write": "Make this change", "command": "Run this command", "external": "Use this tool"}[plan.effect]
         self.p("")
         self.p("  " + self.c("bold", f"{label}?") + "  " + self.c("ok", "y") + " yes   " + self.c("error", "n") + " no   "
                + self.c("accent", "a") + " yes, and don't ask again this session")
-        while True:
+
+        def show():
+            sys.stdout.write("  › ")
+            sys.stdout.flush()
+
+        def read():
             try:
-                a = input("  › ").strip().lower()
-                a = {"yes": "y", "no": "n", "always": "a"}.get(a, a)
-            except EOFError:
-                return "n"
+                return sys.stdin.readline()
             except KeyboardInterrupt:
                 self.p("")
-                return "n"
-            if a in ("y", "n", "a"):
-                return a
-            self.p(self.c("dim", "  Type y, n or a, then Enter."))
+                return "n\n"
+
+        return shared_approval.ask(self, plan, show, read)
 
     def footer(self, totals: dict, s, undo: bool) -> None:
         self._started = 0.0
