@@ -37,3 +37,12 @@
 .kn-menu button:hover { background: var(--panel-2); }
 .kn-improved { border-left: 3px solid var(--accent); }
 .kn-proposal { display: flex; gap: 10px; align-items: center; margin-top: 12px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--accent-soft); }
+
+/* B2 graph walk */
+.graph-walk-controls { flex-wrap: wrap; align-items: flex-end; margin-bottom: 8px; }
+.graph-walk-controls .field { min-width: 140px; }
+.graph-hop { margin-top: 10px; }
+.graph-list { list-style: none; margin: 0; padding: 0; }
+.graph-list .kn-row { align-items: center; gap: 8px; flex-wrap: wrap; }
+.graph-path { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: var(--text-xs); color: var(--muted); }
+.graph-step { display: inline-flex; align-items: center; gap: 4px; }

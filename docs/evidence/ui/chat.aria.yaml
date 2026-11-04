@@ -1,0 +1,58 @@
+- complementary:
+  - text: AI Workspace
+  - button "Search ⌘ K"
+  - link "Home":
+    - /url: /
+  - link "Chat":
+    - /url: /assistant
+  - text: Today
+  - link "Mail":
+    - /url: /mail
+  - link "Calendar":
+    - /url: /calendar
+  - link "Tasks":
+    - /url: /tasks
+  - link "Team":
+    - /url: /team
+  - text: Your stuff
+  - link "Notes":
+    - /url: /notes
+  - link "Files":
+    - /url: /files
+  - link "Research":
+    - /url: /research
+  - text: Do it for me
+  - link "Automations":
+    - /url: /automations
+  - link "Coding":
+    - /url: /code
+  - button "More"
+  - button "Settings"
+  - button "Advanced"
+  - button "Sign out"
+- main:
+  - heading "Chats" [level=2]
+  - button "New"
+  - textbox "Search conversations"
+  - text: No conversations yet Start one on the right. New chat
+  - button "No project"
+  - button "Check answers"
+  - button "Chat"
+  - button "Memory"
+  - button "Skills"
+  - button "Settings"
+  - main "Chat conversation":
+    - heading "Chat conversation" [level=1]
+    - text: What can I do for you? I remember what matters across conversations, use your notes, tasks, calendar and mail, search the web, and can schedule things like a daily report.
+    - button "Plan my week from my tasks and calendar"
+    - button "Research a topic with sources I can check"
+    - button "Draft an email in my usual tone"
+    - button "Automate something like a daily summary"
+  - textbox "Message":
+    - /placeholder: Ask anything, or describe a job to do…
+  - button "Attach files"
+  - combobox "Model":
+    - option "Default model" [selected]
+  - text: Shift + Enter for a new line
+  - button "Speak instead of typing"
+  - button "Send" [disabled]

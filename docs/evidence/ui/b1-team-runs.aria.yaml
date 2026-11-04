@@ -1,0 +1,62 @@
+- complementary:
+  - text: AI Workspace
+  - button "Search ⌘ K"
+  - link "Home":
+    - /url: /
+  - link "Chat":
+    - /url: /assistant
+  - text: Today
+  - link "Mail":
+    - /url: /mail
+  - link "Calendar":
+    - /url: /calendar
+  - link "Tasks":
+    - /url: /tasks
+  - link "Team":
+    - /url: /team
+  - text: Your stuff
+  - link "Notes":
+    - /url: /notes
+  - link "Files":
+    - /url: /files
+  - link "Research":
+    - /url: /research
+  - text: Do it for me
+  - link "Automations":
+    - /url: /automations
+  - link "Coding":
+    - /url: /code
+  - button "More"
+  - button "Settings"
+  - button "Advanced"
+  - button "Sign out"
+- main:
+  - text: Your team
+  - heading "Team" [level=1]
+  - paragraph: Give people work in plain words. See who's on what, what's late and what's stuck. Nothing goes out to your team without your OK unless you've said so in Settings.
+  - text: 0 doing 0 need a look 0 not given out
+  - textbox "Give someone a task":
+    - /placeholder: Give Sam the Smith St quote by Friday, urgent
+  - button "Assign" [disabled]
+  - tablist:
+    - tab "Board"
+    - tab "Workload"
+    - tab "Timeline"
+    - tab "Today's plan"
+    - tab "AI runs" [selected]
+    - tab "Settings"
+  - region "AI team runs":
+    - article:
+      - button "Compare three suppliers for office chairs Done 3/3 sub-tasks · just now" [expanded]:
+        - strong: Compare three suppliers for office chairs
+        - text: Done 3/3 sub-tasks · just now
+      - list "Sub-tasks of run 1":
+        - listitem:
+          - text: "S1 Price and warranty of supplier A Done job #1"
+          - group: Result
+        - listitem:
+          - text: "S2 Price and warranty of supplier B Done job #2"
+          - group: Result
+        - listitem: "S3 Delivery times for both Failed job #3"
+      - heading "Answer" [level=3]
+      - text: Supplier A is cheaper; B has the longer warranty. Delivery times could not be checked.

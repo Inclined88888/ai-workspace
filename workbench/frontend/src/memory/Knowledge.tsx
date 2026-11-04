@@ -5,6 +5,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { Empty, relTime, useToast } from "../util";
 import { FiledChip } from "./FiledChip";
+import GraphWalk from "./GraphWalk";
 import { YourData } from "./YourData";
 import { Conflict, Entity, EntityDetail, Filing, Mem, SCOPE_LABEL, TIER_LABEL, Tidy, Why } from "./types";
 import "./memory.css";
@@ -138,6 +139,7 @@ function EntityPage({ id, onBack, toast }: { id: number; onBack: () => void; toa
         {e.memories.length ? e.memories.map((m) => <div key={m.id} className="kn-row"><div className="grow">{m.content}<div className="kn-sub">{m.source_kind === "user" ? "You told me" : "Picked up"} {relTime(m.observed_at)}</div></div></div>)
           : <div className="muted">Nothing yet.</div>}
       </section>
+      <GraphWalk id={e.id} name={e.name} />
       {Object.entries(byType).map(([t, list]) => (
         <section key={t} className="kn-section">
           <h3>{LABEL[t] ?? t}</h3>

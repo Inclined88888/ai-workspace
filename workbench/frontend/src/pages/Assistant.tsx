@@ -441,7 +441,7 @@ function MemoryTab() {
       <p className="muted" style={{ margin: 0 }}>Learned automatically from your conversations on every channel. "Who you are" is always in context; the rest is recalled when relevant. Edit or delete anything.</p>
       <form className="card row wrap" onSubmit={add}>
         <input className="input grow" style={{ minWidth: 220 }} value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} placeholder="Teach it something, e.g. I prefer short answers" />
-        <select className="input" style={{ width: 150 }} value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })}>
+        <select className="input" style={{ width: 150 }} aria-label="Kind of memory" value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })}>
           <option value="profile">Who I am</option><option value="preference">Preference</option><option value="fact">Fact</option>
         </select>
         <button className="btn primary" disabled={form.content.trim().length < 3}>Add</button>

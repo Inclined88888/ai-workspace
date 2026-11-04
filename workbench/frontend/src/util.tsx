@@ -180,7 +180,7 @@ export function ModelSelect({
   const groups = new Map<string, Model[]>();
   models.forEach((m) => groups.set(m.provider, [...(groups.get(m.provider) ?? []), m]));
   return (
-    <select className="input" value={value} onChange={(e) => onChange(e.target.value)}>
+    <select className="input" value={value} onChange={(e) => onChange(e.target.value)} aria-label="Model">
       {allowDefault && <option value="">Default model</option>}
       {[...groups.entries()].map(([provider, list]) => (
         <optgroup key={provider} label={provider}>

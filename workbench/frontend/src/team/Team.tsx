@@ -9,6 +9,7 @@ import {
   addDays, bar, CHANNEL_LABEL, daysBetween, Member, niceDate, Notice, OutboxItem, Overview, Plan, PRIORITY_LABEL, Reply, STATUS_LABEL,
   Suggestion, Task,
 } from "./types";
+import LeadRuns from "./LeadRuns";
 import "./team.css";
 
 const TABS = [
@@ -16,6 +17,7 @@ const TABS = [
   { id: "workload", label: "Workload", icon: Users },
   { id: "timeline", label: "Timeline", icon: CalendarRange },
   { id: "today", label: "Today's plan", icon: Sun },
+  { id: "runs", label: "AI runs", icon: Sparkles },
   { id: "settings", label: "Settings", icon: Settings2 },
 ] as const;
 type Tab = (typeof TABS)[number]["id"];
@@ -63,12 +65,13 @@ export default function Team() {
           </button>
         ))}
       </nav>
-      {!d ? <div className="card pad faint">Loading…</div> : !d.members.length && tab !== "settings" ? <FirstRun team={t} /> : (
+      {!d ? <div className="card pad faint">Loading…</div> : !d.members.length && tab !== "settings" && tab !== "runs" ? <FirstRun team={t} /> : (
         <div className="team-view" key={tab}>
           {tab === "board" && <Board d={d} team={t} />}
           {tab === "workload" && <Workload d={d} />}
           {tab === "timeline" && <Timeline d={d} />}
           {tab === "today" && <TodayPlan team={t} />}
+          {tab === "runs" && <LeadRuns />}
           {tab === "settings" && <SettingsTab d={d} team={t} />}
         </div>
       )}

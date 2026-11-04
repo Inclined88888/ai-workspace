@@ -1,0 +1,63 @@
+{
+ "commit": "1c89656",
+ "checks": [
+  {
+   "ok": true,
+   "check": "setup and sign in"
+  },
+  {
+   "ok": true,
+   "check": "B1: every sub-task listed"
+  },
+  {
+   "ok": true,
+   "check": "B1: synthesis shown"
+  },
+  {
+   "ok": true,
+   "check": "B1: failed sub-task marked"
+  },
+  {
+   "ok": true,
+   "check": "B2: 2-hop walk shows all three"
+  },
+  {
+   "ok": true,
+   "check": "B2: paths show the links"
+  },
+  {
+   "ok": true,
+   "check": "B2: rel filter narrows the walk"
+  },
+  {
+   "ok": true,
+   "check": "chat: a main landmark is exposed"
+  },
+  {
+   "ok": true,
+   "check": "chat: at least one live region"
+  },
+  {
+   "ok": true,
+   "check": "b1-team-runs: no serious or critical axe violations ([])"
+  },
+  {
+   "ok": true,
+   "check": "b2-graph-walk: no serious or critical axe violations ([])"
+  },
+  {
+   "ok": true,
+   "check": "chat: no serious or critical axe violations ([])"
+  }
+ ],
+ "b1-team-runs": {
+  "axe_violations": []
+ },
+ "b2-graph-walk": {
+  "axe_violations": []
+ },
+ "chat": {
+  "axe_violations": []
+ },
+ "failures": []
+}

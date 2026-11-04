@@ -140,3 +140,16 @@
   .team-assign .input { flex: 1 1 100%; min-width: 0; order: 2; }
   .team-assign .btn { order: 3; margin-left: auto; }
 }
+
+/* B1 AI team runs */
+.lead-run-head { all: unset; display: flex; align-items: center; gap: 10px; cursor: pointer; width: 100%; }
+.lead-run-head:focus-visible { outline: 2px solid var(--accent-ring); outline-offset: 3px; }
+.lead-tree { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 8px; border-left: 2px solid var(--border); }
+.lead-sub { list-style: none; }
+.lead-text { white-space: pre-wrap; font-size: var(--text-sm); margin-top: 6px; }
+.lead-synth { border-top: 1px solid var(--border); padding-top: 10px; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.lead-run .pill { font-size: var(--text-2xs); padding: 1px 7px; border: 1px solid currentColor; }
+.lead-done { color: var(--ok); }
+.lead-failed { color: var(--danger-text); }
+.lead-stopped { color: var(--muted); }
+.lead-running, .lead-queued, .lead-synthesizing { color: var(--warn-text); }
