@@ -7,12 +7,16 @@
 /v1/rooks/remember   save a fact the user stated in the terminal (same store as chat's remember tool)
 /v1/rooks/turn       a finished terminal request: kept as a conversation (shown in the app's chat history as a
                      terminal chat) and mined in the background for facts and reusable skills, exactly like a chat turn
+/v1/rooks/conversation  create or get a conversation for the given terminal session
+/v1/rooks/handoff    web⇄terminal handoff: web generates a code, terminal claims it to resume the conversation
 
 Same bridge key as /v1/chat/completions. Learning obeys the app's switches: Settings "Learn about me" and learning on.
 """
 
 import asyncio
 import json
+import secrets
+import time
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -22,6 +26,10 @@ from .bridge import require_bridge_key
 
 router = APIRouter(prefix="/v1/rooks", dependencies=[Depends(require_bridge_key)])
 CHANNEL = "cli"  # listed in the app's chat history next to web, phone and Telegram chats
+
+# Handoff: one-time codes that let the terminal claim a web conversation
+_HANDOFF_TTL = 120
+_handoffs: dict[str, dict] = {}
 
 
 @router.get("/context")
@@ -171,3 +179,30 @@ async def turn(data: TurnIn):
         learn._tasks.add(task)
         task.add_done_callback(learn._tasks.discard)
     return {"conversation_id": cid, "learning": learning}
+
+
+class HandoffCreate(BaseModel):
+    conversation_id: int = Field(..., gt=0)
+    ttl: int = Field(120, ge=30, le=600)
+
+
+@router.post("/handoff")
+def handoff_create(data: HandoffCreate):
+    """Web generates a one-time handoff code for the terminal to claim this conversation."""
+    row = db.one("SELECT id FROM conversations WHERE id = ? AND channel = ?", data.conversation_id, "web")
+    if not row:
+        raise HTTPException(404, "Conversation not found or not a web conversation")
+    code = secrets.token_urlsafe(24)
+    _handoffs[code] = {"conversation_id": data.conversation_id, "expires": time.monotonic() + data.ttl}
+    return {"code": code, "expires_in": data.ttl}
+
+
+@router.get("/handoff")
+def handoff_claim(code: str):
+    """Terminal claims a handoff code and gets the conversation_id to resume."""
+    entry = _handoffs.pop(code, None)
+    if entry is None:
+        raise HTTPException(404, "Invalid or expired handoff code")
+    if entry["expires"] < time.monotonic():
+        raise HTTPException(404, "Handoff code has expired")
+    return {"conversation_id": entry["conversation_id"], "claimed": True}
