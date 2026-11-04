@@ -125,6 +125,38 @@ def test_sub_agent_reads_only_and_returns_its_summary(tmp_path):
     assert len([p for p in (tmp_path / ".rooks" / "runs").glob("*.messages.json")]) == 1  # the sub-agent saved no session
 
 
+def test_before_tool_hook_can_stop_a_command(tmp_path):
+    hook = tmp_path / ".rooks" / "hooks"
+    hook.mkdir(parents=True)
+    script = hook / "before_tool"
+    script.write_text("#!/bin/sh\nread line\nprintf '%s' \"$line\" | grep -q run_command && exit 2\nexit 0\n")
+    script.chmod(0o755)
+    ui = UI()
+    model = FakeModel([
+        assistant("", [call("run_command", {"command": "echo hi"})]),
+        assistant("Stopped."),
+    ])
+    a = Agent(settings(tmp_path, auto_approve=True), ui, model=model)
+    assert a.run("run it") == "Stopped."
+    assert "project hook" in model.calls[-1]["messages"][-1]["content"]
+
+
+def test_build_sub_agent_may_edit_under_parent_approvals(tmp_path):
+    (tmp_path / "bug.py").write_text("x = 1\n")
+    ui = UI()
+    model = FakeModel([
+        assistant("", [call("task", {"goal": "set x to 2 in bug.py", "mode": "build"})]),
+        assistant("", [call("edit_file", {"path": "bug.py", "old_text": "x = 1\n", "new_text": "x = 2\n"})]),
+        assistant("Changed bug.py: x is now 2."),
+        assistant("Fixed."),
+    ])
+    a = Agent(settings(tmp_path, auto_approve=True), ui, model=model)
+    assert a.run("fix bug.py") == "Fixed."
+    assert (tmp_path / "bug.py").read_text() == "x = 2\n"
+    sub_tools = {t["name"] for t in model.calls[1]["tools"]}
+    assert "edit_file" in sub_tools and "run_command" in sub_tools and "task" not in sub_tools
+
+
 def test_claude_native_xml_tool_calls_are_understood():
     from rooks_code.providers import parse_text_tool_calls
 

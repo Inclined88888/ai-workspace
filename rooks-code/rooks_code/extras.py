@@ -5,7 +5,8 @@
 * todo: a visible checklist the agent keeps for multi-step work (shown live in the terminal)
 * web_search and web_fetch: through the AI Workspace app's search, or straight from the web without it
 * background commands: start a server, watcher or long test run, check its output later, stop it
-* task: a sub-agent with its own fresh context and read-only tools, for research that would flood the main context
+* task: a sub-agent with its own fresh context — explore (read-only research), plan (read-only), or build (can edit/run
+  under the same approvals as you)
 """
 
 from __future__ import annotations
@@ -49,13 +50,21 @@ SPECS = [
      "parameters": {"type": "object", "properties": {"job": {"type": "string"}, "lines": {"type": "integer"}}}},
     {"name": "stop_background", "description": "Stop a background job.",
      "parameters": {"type": "object", "properties": {"job": {"type": "string"}}, "required": ["job"]}},
-    {"name": "task", "description": "Give a self-contained research job to a sub-agent with a fresh context and read-only "
-                                    "tools (read, list, search files, web). It returns a summary. Use it to explore a large "
-                                    "codebase or compare options without filling your own context.",
-     "parameters": {"type": "object", "properties": {"goal": {"type": "string"}}, "required": ["goal"]}},
+    {"name": "task", "description": "Give a self-contained job to a sub-agent with a fresh context. mode=explore (default) "
+                                    "or plan: read-only research. mode=build: may edit files and run commands, with the same "
+                                    "approvals as you. Returns a dense summary. Use explore to scan a large codebase; use "
+                                    "build for a focused fix that would clutter your own context.",
+     "parameters": {"type": "object", "properties": {
+         "goal": {"type": "string"},
+         "mode": {"type": "string", "enum": ["explore", "plan", "build"],
+                  "description": "explore/plan = read-only; build = edit and run under your approvals"}},
+                    "required": ["goal"]}},
 ]
 NAMES = {s["name"] for s in SPECS}
 READ_ONLY = {"read_file", "list_files", "search", "web_search", "web_fetch"}
+# Build sub-agents get file tools + shell + checklist, not nested task/background (keeps trust and context bounded).
+BUILD_TOOLS = READ_ONLY | {"write_file", "edit_file", "run_command", "todo"}
+TASK_MODES = frozenset({"explore", "plan", "build"})
 
 
 # project instructions -------------------------------------------------------------------------------------------------
@@ -340,19 +349,33 @@ class Extras:
             goal = str(a.get("goal") or "").strip()
             if not goal:
                 raise ToolError("goal is required")
-            return Plan("read", f"sub-agent: {goal[:120]}", goal, lambda: (self.subagent(goal), None, ""))
+            mode = str(a.get("mode") or "explore").strip().lower()
+            if mode not in TASK_MODES:
+                mode = "explore"
+            label = f"sub-agent ({mode}): {goal[:100]}"
+            # build may write/run — effect must trigger the same approvals as a direct edit
+            effect = "write" if mode == "build" else "read"
+            return Plan(effect, label, goal, lambda g=goal, m=mode: (self.subagent(g, m), None, ""))
         raise ToolError(f"unknown tool {name}")
 
-    def subagent(self, goal: str) -> str:
-        """A fresh agent with read-only tools; its final answer comes back as the tool result."""
+    def subagent(self, goal: str, mode: str = "explore") -> str:
+        """A fresh agent; explore/plan are read-only, build may edit/run under the parent's approvals."""
         from .agent import Agent
 
+        mode = mode if mode in TASK_MODES else "explore"
         parent = self.agent
-        sub_ui = _SubUI(parent.ui)
-        sub = Agent(parent.s, sub_ui, model=parent.model, log=parent.log, sub=True)
-        answer = sub.run("You are a sub-agent doing research for another agent. Use only read-only tools. When done, reply "
-                         "with a dense summary of what you found: exact file paths, line numbers, facts, and open "
-                         "questions. Do not change anything.\n\nGoal: " + goal)
+        allow_writes = mode == "build"
+        sub_ui = _SubUI(parent.ui, allow_writes=allow_writes)
+        sub = Agent(parent.s, sub_ui, model=parent.model, log=parent.log, sub=True, sub_mode=mode)
+        if allow_writes:
+            brief = ("You are a sub-agent doing a focused build job for another agent. You may edit files and run commands; "
+                     "the user approves risky steps the same way as the parent. When done, reply with a dense summary: "
+                     "what you changed, exact paths, test results, and what is left.\n\nGoal: ")
+        else:
+            brief = ("You are a sub-agent doing research for another agent. Use only read-only tools. When done, reply "
+                     "with a dense summary of what you found: exact file paths, line numbers, facts, and open "
+                     "questions. Do not change anything.\n\nGoal: ")
+        answer = sub.run(brief + goal)
         return answer or "(the sub-agent returned nothing)"
 
     def close(self) -> None:
@@ -360,15 +383,18 @@ class Extras:
 
 
 class _SubUI:
-    """The sub-agent's activity, indented under the parent's, and never asked to approve (it only reads)."""
+    """Sub-agent activity indented under the parent. Explore/plan never approve writes; build asks the parent UI."""
 
-    def __init__(self, ui):
+    def __init__(self, ui, allow_writes: bool = False):
         self.ui = ui
+        self.allow_writes = allow_writes
 
     def tool_note(self, text, read=False):
         self.ui.tool_note("  ↳ " + text, read=read) if hasattr(self.ui, "tool_note") else None
 
     def ask(self, plan):
+        if self.allow_writes and hasattr(self.ui, "ask"):
+            return self.ui.ask(plan)
         return "n"
 
     def __getattr__(self, name):

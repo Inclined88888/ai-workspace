@@ -25,14 +25,14 @@ DARK = ("night", "neon")
 FONTS = ("editorial", "modern", "classic", "system")
 MOTION = ("full", "subtle", "off")
 ACCENTS = ("theme", "sun", "cherry", "ink", "cobalt", "forest", "ochre")
-DEFAULT = {"theme": "sunshine", "resolved": "sunshine", "dark": False, "font": "modern", "size": 14, "motion": "full", "accent": "theme"}
+DEFAULT = {"theme": "gallery", "resolved": "gallery", "dark": False, "font": "modern", "size": 14, "motion": "full", "accent": "theme"}
 
 owner = APIRouter(prefix="/api", dependencies=[Depends(require_user)])
 device = APIRouter(prefix="/api/mobile")
 
 
 class AppearanceIn(BaseModel):
-    theme: str = "sunshine"
+    theme: str = "gallery"
     resolved: str | None = None
     dark: bool | None = None
     font: str = "modern"
@@ -45,7 +45,7 @@ def clean(data: dict) -> dict:
     theme = data.get("theme") if data.get("theme") in THEMES else DEFAULT["theme"]
     resolved = data.get("resolved") if data.get("resolved") in THEMES and data.get("resolved") != "auto" else None
     if resolved is None:
-        resolved = "sunshine" if theme == "auto" else theme
+        resolved = "gallery" if theme == "auto" else theme
     if theme != "auto":
         resolved = theme
     try:

@@ -97,10 +97,8 @@ def endpoints(provider: str) -> dict:
 
 
 NOT_CONFIGURED = {
-    "google": ("One-click Google isn't set up in this build yet. You can still connect Gmail with an app password under "
-               "Other provider, or paste your own Google OAuth client under Use your own app registration."),
-    "microsoft": ("One-click Microsoft isn't set up in this build yet. Outlook.com and Microsoft 365 only allow OAuth, so "
-                  "paste your own Azure app registration under Use your own app registration, or ask the maintainer."),
+    "google": "Sign-in with Google isn't set up on this computer. Connect Gmail with an app password instead.",
+    "microsoft": "Sign-in with Microsoft isn't set up on this computer. Type the email address below.",
 }
 
 

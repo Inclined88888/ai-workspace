@@ -150,6 +150,16 @@ class Learning:
                 return []
         return _load_local()
 
+    def history(self, q: str = "", limit: int = 12) -> list[dict]:
+        """Search past Chat and terminal turns via the app (Hermes-style session recall)."""
+        if not self.app:
+            return []
+        try:
+            d = self._req("GET", "/history?" + urllib.parse.urlencode({"q": q[:200], "limit": str(limit)}))
+            return [r for r in (d.get("results") or []) if isinstance(r, dict)]
+        except (OSError, ValueError, urllib.error.URLError):
+            return []
+
     def skill_list(self) -> list[dict]:
         """Saved skills, for /skills (the app's; none without it)."""
         if self.app and not self.skills:

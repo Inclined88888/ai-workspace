@@ -166,7 +166,7 @@ def test_sign_in_with_chatgpt_end_to_end(client, siwc_env):
     b = _begin(client)
     q = b["q"]
     # First sign-in registers this app: OpenAI's open-source client registration, never another vendor's client id
-    assert q["client_id"] == "dynamic_agent_client" and q["agent_name_hint"] == "AI Workspace" and q["ext_agent_host_id"]
+    assert q["client_id"] == "dynamic_agent_client" and q["agent_name_hint"] == "Rooks" and q["ext_agent_host_id"]
     assert q["redirect_uri"].startswith("http://127.0.0.1:") and q["redirect_uri"].endswith("/auth/callback")
     assert q["code_challenge_method"] == "S256" and "chatgpt.tokens.use.direct" in q["scope"]
     assert q["resource"] == "https://api.openai.com/v1"

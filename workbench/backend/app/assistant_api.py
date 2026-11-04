@@ -40,6 +40,7 @@ class ChatIn(BaseModel):
     model: str | None = None
     channel: str = Field("web", pattern="^(web|cli|mobile)$")
     effort: str = Field("", pattern="^(|low|medium|high)$")  # how hard a plan's model thinks; "" = the plan's default
+    mode: str = Field("chat", pattern="^(chat|plan|build)$")  # chat | plan | build, same names as the terminal
     resend: bool = False      # this turn's user message is already stored (edit-and-resend); don't save it again
     attachments: list[str] = Field(default_factory=list, max_length=attachments_mod.MAX_PER_MESSAGE)  # ids from /assistant/attachments
 
@@ -99,7 +100,8 @@ def chat(data: ChatIn, idempotency_key: str | None = Header(None)):
 
         EFFORT.set(data.effort)  # this turn only: the stream runs in its own task
         yield {"type": "start", "conversation_id": cid}
-        ctx = assistant.Ctx(channel=data.channel, conversation_id=cid, request_key=key, skip_save=data.resend, attachments=files)
+        ctx = assistant.Ctx(channel=data.channel, conversation_id=cid, request_key=key, skip_save=data.resend,
+                            attachments=files, work_mode=data.mode)
         task = asyncio.current_task()
         if task is not None:
             assistant.TURNS[cid] = task  # the Stop button cancels this task; finally() hands the slot back

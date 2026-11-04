@@ -13,6 +13,7 @@ PUBLIC = {
     ("POST", "/api/desktop/handoff"),        # desktop bearer token checked in handler
     ("GET", "/api/desktop/session"),         # desktop token checked in handler
     ("POST", "/api/login"),
+    ("POST", "/api/lock/reset"),          # forgotten PIN, this computer only; checked in the handler
     ("POST", "/api/logout"),
     ("POST", "/api/mobile/link/sealed"),     # device token inside the sealed envelope
     ("POST", "/api/mobile/pair/claim"),      # short-lived pairing code

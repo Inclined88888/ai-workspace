@@ -730,6 +730,12 @@ async def check(sid: int, f=None) -> dict:
     from . import learn_hook
 
     learn_hook.observe("site", f"Checked {s['name']}: {digest.splitlines()[0] if digest else ''}", f"site:{sid}")
+    try:
+        from . import projects
+
+        projects.file_site_change(sid, cid, s["name"], digest)
+    except Exception as e:  # noqa: BLE001 - a check still succeeds if filing does not
+        log.debug("site change not filed: %s", e)
     return {"check_id": cid, "status": "ok", "pages": len(pages), "records": n, "collections": [c["name"] for c in st["collections"]],
             "changes": changes, "digest": digest}
 
@@ -1156,6 +1162,20 @@ async def sign_in(sid: int) -> dict:
         raise HTTPException(r.status_code, r.json().get("detail", r.text) if r.headers.get("content-type", "").startswith("application/json") else r.text)
     db.run("UPDATE sites SET mode = CASE WHEN mode = 'http' THEN 'browser' ELSE mode END WHERE id = ?", sid)
     return {"ok": True, "message": "A browser window opened. Sign in there as you normally do, then close the window and press “Check now”."}
+
+
+async def sign_out(sid: int) -> dict:
+    """Delete the saved browser sign-in for this site. The site itself stays."""
+    s = get(sid)
+    if not (config.BROWSER_URL and config.BROWSER_API_KEY):
+        raise HTTPException(400, "Rooks Browser is not running. Restart the app, then try again.")
+    async with httpx.AsyncClient(timeout=30) as c:
+        r = await c.post(f"{config.BROWSER_URL}/api/site/forget", json={"profile": f"site-{sid}"},
+                         headers={"Authorization": f"Bearer {config.BROWSER_API_KEY}"})
+    if r.status_code >= 400:
+        detail = r.json().get("detail", r.text) if r.headers.get("content-type", "").startswith("application/json") else r.text
+        raise HTTPException(r.status_code, detail)
+    return {"ok": True, "site": s["name"], "message": "Saved sign-in removed. Sign in again when you want this site remembered."}
 
 
 def now_utc() -> str:

@@ -77,6 +77,7 @@ class Ctx:
     fail_streak: tuple[str, str, int] = ("", "", 0)  # (call signature, error text, count) of the latest failing calls
     blocked_calls: set[str] = field(default_factory=set)  # signatures blocked after REPEAT_LIMIT identical failures
     blocked_hits: int = 0              # attempts to run a blocked call; the second one ends the turn
+    work_mode: str = "chat"            # chat | plan | build — same names as the terminal
 
     def trace(self) -> dict:
         return {"channel": self.channel, "conversation_id": self.conversation_id,
@@ -133,9 +134,38 @@ async def _read_page(url: str) -> dict:
     return {"url": url, "text": text}
 
 
+_LOOK = re.compile(
+    r"\bbrowser\b"
+    r"|\bgo (?:to|search|see|look|check|open|on)\b(?!\s+(?:chat|mail|calendar|tasks|notes|home)\b)"
+    r"|\b(?:xero|servicem8|service\s*m8|service\s*mate|quickbooks|myob)\b",
+    re.I,
+)
+
+
+def wants_a_look(text: str) -> bool:
+    """The person said go. Saved or not, that is a browser job."""
+    return bool(_LOOK.search(text or ""))
+
+
+_COMPUTER = re.compile(
+    r"\bcomputer use\b"
+    r"|\b(?:use|open|on|with)\b.{0,40}\bcomputer\b"
+    r"|\b(?:the|this|my) computer\b",
+    re.I,
+)
+
+
+def wants_the_computer(text: str) -> bool:
+    """The person said to use this computer. It does not have to be switched on already."""
+    return bool(_COMPUTER.search(text or ""))
+
+
 async def _browse(goal: str, max_steps: int = 15, ctx: "Ctx | None" = None) -> dict:
-    if not (config.BROWSER_URL and config.BROWSER_API_KEY):
-        raise HTTPException(400, "The browser add-on is not enabled.")
+    from . import local_agents
+
+    why = local_agents.unavailable()
+    if why:
+        return {"started": False, "message": why}
     h = {"Authorization": f"Bearer {config.BROWSER_API_KEY}"}
     async with httpx.AsyncClient(timeout=30) as c:
         # the browser runs on the conversation's own model, through Workbench's /v1 bridge (R1)
@@ -149,18 +179,35 @@ async def _browse(goal: str, max_steps: int = 15, ctx: "Ctx | None" = None) -> d
             j = (await c.get(f"{config.BROWSER_URL}/api/jobs/{jid}", headers=h)).json()
             if j["status"] not in ("queued", "running"):
                 res = j.get("result") or {}
-                return {"status": j["status"], "answer": res.get("final"), "agent_claims_success": res.get("success"),
-                        "urls": (res.get("urls") or [])[-8:], "error": j.get("error")}
+                # OpenManus-style: leave page context for the next model step (URL + claim + where to look)
+                urls = (res.get("urls") or [])[-8:]
+                answer = res.get("final")
+                return {
+                    "status": j["status"],
+                    "answer": answer,
+                    "agent_claims_success": res.get("success"),
+                    "urls": urls,
+                    "error": j.get("error"),
+                    "page_context": {
+                        "last_url": urls[-1] if urls else None,
+                        "visited": urls,
+                        "summary": (answer or "")[:1200],
+                        "note": "Use these URLs and the summary as the live browser state for your next step.",
+                    },
+                }
     return {"status": "still running", "job_id": jid}
 
 
 async def _use_computer(goal: str, max_steps: int = 30, dry_run: bool = False, ctx: "Ctx | None" = None) -> dict:
     """Rooks Desk: operate the user's own desktop apps, terminal and files. Sensitive steps pause for the user's approval
     on the Computer page; this waits for them."""
-    from . import account, desk_proxy
+    from . import account, desk_proxy, local_agents
 
     if not account.allowed("computer_use"):  # integration/v0.2: Pro gate for chat, jobs and automations alike
         return {"error": account.upgrade_detail("computer_use")["message"], "upgrade_required": "computer_use"}
+    why = local_agents.computer_unavailable()
+    if why:
+        return {"started": False, "message": why}
     job = {"goal": goal, "max_steps": max_steps, "dry_run": bool(dry_run), "provider": "workbench",
            "model": (ctx.model if ctx else "") or "default", "source": "assistant"}
     jid = (await desk_proxy.call("POST", "/api/jobs", json=job)).json()["id"]
@@ -434,8 +481,9 @@ TOOLS: list[Tool] = [
     Tool("search_email", "Search the user's recent email. An empty query lists the latest messages in the inbox. "
          "Results carry account_id and uid for read_email.", {"query": S(), "account_id": I()},
          lambda query="", account_id=None: tools.search_email(query, account_id or None), untrusted=True),
-    Tool("list_mail_accounts", "The user's connected mailboxes (id, address, kind: google, microsoft or imap).", {},
-         lambda: db.all("SELECT id, name, email, kind FROM mail_accounts ORDER BY id")),
+    Tool("list_mail_accounts", "The user's connected mailboxes (id, address, kind, life_role: work|personal|other). "
+         "Prefer work for boss/colleague/vendor mail and personal for friends/family.", {},
+         lambda: db.all("SELECT id, name, email, kind, life_role FROM mail_accounts ORDER BY id")),
     Tool("read_email", "Read one email in full by account_id and uid (both from search_email).", {"account_id": I(), "uid": S()},
          lambda account_id, uid: tools.read_email(account_id, str(uid)), ("account_id", "uid"), untrusted=True),
     Tool("save_email_draft", "Save an email draft for the user to review (also in Gmail or Outlook Drafts). Never sends. "
@@ -452,13 +500,17 @@ TOOLS: list[Tool] = [
     Tool("web_search", "Search the web. Returns titles, URLs and snippets.", {"query": S()},
          lambda query: research.web_search(query, 6), ("query",), untrusted=True, when=lambda ctx: _search_ready()),
     Tool("read_page", "Read the text of one public web page.", {"url": S()}, _read_page, ("url",), untrusted=True),
-    Tool("browse_web", "Use a real browser to complete a multi step goal on websites (slow).", {"goal": S(), "max_steps": I()},
-         _browse, ("goal",), when=lambda ctx: bool(config.BROWSER_URL and config.BROWSER_API_KEY), effect="external", untrusted=True),
-    Tool("use_computer", "Operate the user's own computer like a person: open and click apps, type, use the terminal, read and "
-         "write files in the folders they allowed (slow). Shell commands, files elsewhere, messages, purchases and logins "
-         "wait for the user to approve them on the Computer page.",
+    Tool("browse_web", "Open the browser and look at a website (slow). Use this when the user says to open a browser, "
+         "go to a site, or check an account such as Xero or ServiceM8. Always asks them first. A saved work site is not required, "
+         "and you must not tell them to add one instead of calling this.",
+         {"goal": S(), "max_steps": I()},
+         _browse, ("goal",), effect="external", untrusted=True,
+         confirm=lambda a: "This opens the browser on your computer."),
+    Tool("use_computer", "Use this computer: open apps, click, type, and work with files (slow). Call this when the user says "
+         "to use the computer. Always asks them first. It does not have to be switched on already.",
          {"goal": S("the whole task, self contained"), "max_steps": I(), "dry_run": B("plan and describe only, change nothing")},
-         _use_computer, ("goal",), when=lambda ctx: bool(config.DESK_URL and config.DESK_API_KEY), effect="external", untrusted=True),
+         _use_computer, ("goal",), effect="external", untrusted=True,
+         confirm=lambda a: "This uses the computer in front of you."),
     # Memory
     Tool("remember", "Save a durable fact about the user. kind: profile (who they are), preference, or fact.",
          {"content": S(), "kind": S()}, lambda content, kind="fact", ctx=None: _remember(content, kind, ctx), ("content",),
@@ -793,8 +845,18 @@ def system_prompt(ctx: Ctx, user_text: str) -> str:
         "Be direct and useful. Use tools when they help; never invent tool results. Prefer saving email drafts; send_email and invitations "
         "only run after the user approves each one. "
         "When you learn something lasting about the user, call remember. Before a task that matches a skill, call load_skill. "
-        "After finishing a complex multi step task that will recur, consider save_skill.",
+        "After finishing a complex multi step task that will recur, consider save_skill. "
+        "If the user asks to open a browser, go to a website, or check an account, call browse_web. That asks them before the "
+        "browser opens. Never say a work site is missing, and never tell them to add a site, instead of calling browse_web. "
+        "If the user asks to use this computer, call use_computer. That asks them first. Do not say computer use is off.",
     ]
+    mode = getattr(ctx, "work_mode", "chat") or "chat"
+    if mode == "plan":
+        parts.append("Mode: plan. Propose steps and ask before you change anything. Do not send mail, spend money, or run destructive actions.")
+    elif mode == "build":
+        parts.append("Mode: build. Carry the task through with tools. Still wait for approval before sending mail, purchases, or anything destructive.")
+    if ctx.channel in ("telegram", "slack", "discord", "whatsapp", "signal", "matrix", "email"):
+        parts.append("This message came from a chat app. You share the same memory and skills as Chat in the app. Prefer drafts. Never send mail or spend money without approval.")
     from .adapt import knowledge  # what the assistant knows lives in the encrypted learn store (old rows moved once)
 
     try:
@@ -995,7 +1057,30 @@ async def _run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> Async
     cost = 0.0
     final = ""
     limit = max_steps(ctx.channel)
+    asked_go = False
     for _ in range(limit):
+        go = None
+        if not asked_go and ctx.channel in ("web", "cli", "mobile"):
+            if wants_the_computer(user_text):
+                go = ("use_computer", "You said go. Allow computer use and I'll do it on this computer.")
+            elif wants_a_look(user_text):
+                go = ("browse_web", "You said go. Allow the browser and I'll open it.")
+        if go:
+            asked_go = True
+            name, final = go
+            args = json.dumps({"goal": user_text.strip()[:500]})
+            ctx.tool_calls += 1
+            ok, out = await run_tool(name, args, ctx)
+            r = ctx.receipts[-1] if ctx.receipts else {}
+            yield {"type": "tool_call", "name": name, "args": args[:500], "from_text": False}
+            yield {"type": "tool_result", "name": name, "ok": ok, "preview": out[:300],
+                   "receipt": {"verified": r.get("verified"), "evidence": r.get("evidence", "")}}
+            if r.get("outcome") == "held":
+                yield {"type": "approval_required", "id": r["action_id"], "tool": name, "args": args[:500],
+                       "effect": r.get("effect") or "external", "reason": r.get("reason") or ""}
+            _save(ctx.conversation_id, "assistant", final)
+            receipts.record_turn(ctx, "held" if r.get("outcome") == "held" else "ok")
+            break
         specs = [t.spec() for t in available_tools(ctx)]  # per step: read_tool_result appears once a result is stored
         if ctx.agent:
             from .usage import over_budget
@@ -1129,6 +1214,12 @@ async def _run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> Async
         _save(ctx.conversation_id, "assistant", final)
         receipts.record_turn(ctx, "step_limit")
     yield {"type": "message", "content": final}
+    if ctx.channel in ("web", "cli", "mobile"):
+        from . import automations
+
+        offer = automations.habit_offer(user_text)
+        if offer:
+            yield {"type": "automate_offer", **offer}
     turn_row = db.one("SELECT outcome FROM actions WHERE id = ?", ctx.turn_action_id) if ctx.turn_action_id else None
     yield {"type": "done", "conversation_id": ctx.conversation_id, "cost_cents": round(cost, 3), "tool_calls": ctx.tool_calls,
            "outcome": turn_row["outcome"] if turn_row else ""}  # the claim check's verdict (backed, unbacked, ...)
@@ -1209,7 +1300,9 @@ async def decide(action_id: int, approve: bool, channel: str = "web") -> dict:
     if not approve:
         _save(a["conversation_id"], "user", f"[I denied request #{action_id}: {a['tool']}. Do not do it.]")
         return actions.approval(action_id)
+    conv = db.one("SELECT model FROM conversations WHERE id = ?", a["conversation_id"])
     ctx = Ctx(channel=channel, conversation_id=a["conversation_id"], turn_action_id=decision)
+    ctx.model = (conv or {}).get("model") or ""
     ok, out = await run_tool(a["tool"], actions.raw_args(action_id), ctx, approved=True)
     run = ctx.receipts[-1]
     actions.finish(run["action_id"], run["outcome"], detail=out[:2000])

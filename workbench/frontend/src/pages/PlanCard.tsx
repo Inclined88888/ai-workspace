@@ -1,6 +1,9 @@
-import { ArrowRight, Check, Download, ExternalLink, Loader2, UserRound } from "lucide-react";
+import { ArrowRight, Check, Download, ExternalLink, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api";
+import { BrandMark, Brand } from "../brand";
+
+const MARK: Record<"claude" | "codex" | "copilot", Brand | null> = { claude: "claude", codex: "chatgpt", copilot: null };
 
 type PlanState = { installed: boolean; signed_in: boolean; account: string; can_install: boolean; connected: boolean; name: string; terms: string; quota?: string };
 type SignIn = { id: string; status: string; url: string; code: string; needs_code: boolean; error: string };
@@ -49,9 +52,10 @@ export default function PlanCard({ agent, title, blurb, onConnected, cta = "Star
     await onConnected();
   });
 
+  const mark = MARK[agent];
   return (
     <div className="sub-card on">
-      <div className="row" style={{ gap: 8 }}><strong className="sub-name">{title}</strong>{st?.signed_in && <span className="badge ok"><Check size={11} /> Signed in</span>}</div>
+      <div className="row" style={{ gap: 8 }}>{mark && <BrandMark name={mark} />}<strong className="sub-name">{title}</strong>{st?.signed_in && <span className="badge ok"><Check size={11} /> Signed in</span>}</div>
       <p className="small muted">{blurb} {st && <a href={st.terms} target="_blank" rel="noreferrer">Terms</a>}</p>
       {error && <div className="alert err">{error}</div>}
       {!st ? <Loader2 size={14} className="spin" /> : busy ? (
@@ -95,7 +99,7 @@ export default function PlanCard({ agent, title, blurb, onConnected, cta = "Star
       ) : (
         <div className="col" style={{ gap: 6 }}>
           {signin?.status === "failed" && <div className="alert err">{signin.error || "Sign-in didn't finish. Try again."}</div>}
-          <div className="row"><button className="btn primary" onClick={start}><UserRound size={15} /> Sign in with {st.name}</button></div>
+          <div className="row"><button className="btn primary" onClick={start}>{mark && <BrandMark name={mark} />} Sign in with {st.name}</button></div>
         </div>
       )}
     </div>

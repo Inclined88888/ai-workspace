@@ -130,8 +130,29 @@ def test_browse_tool_runs_the_browser_on_the_conversations_model(client, fake_ur
     BROWSER_JOBS.clear()
     SCRIPT[:] = [tool_call("browse_web", {"goal": "find the opening hours", "max_steps": 5}), {"role": "assistant", "content": "Open 9 to 5."}]
     ev = events(client.post("/api/assistant/chat", json={"message": "check the hours", "model": f"{client.pid}/fake-model"}))
-    assert next(e for e in ev if e["type"] == "tool_result")["ok"]
+    held = next(e for e in ev if e["type"] == "approval_required")
+    assert held["tool"] == "browse_web" and "browser" in held["reason"].lower()
+    assert BROWSER_JOBS == []
+    ok = client.post(f"/api/approvals/{held['id']}", json={"approve": True}).json()
+    assert ok["status"] == "done"
     assert BROWSER_JOBS == [{"goal": "find the opening hours", "max_steps": 5, "provider": "workbench", "model": f"{client.pid}/fake-model"}]
+
+
+def test_looking_at_a_site_asks_to_open_the_browser(client):
+    """'Go to Xero' asks to open the browser. It does not tell the user to add a work site."""
+    from conftest import events
+
+    from app import assistant
+
+    assert assistant.wants_a_look("go to xero see how many invoices are left for payment")
+    assert assistant.wants_a_look("go search on google servicem8 for me")
+    assert assistant.wants_a_look("open the browser and see how many orders we have")
+    assert not assistant.wants_a_look("Catch me up on my mail")
+    ev = events(client.post("/api/assistant/chat", json={"message": "go to xero see how many invoices are left for payment"}))
+    held = next(e for e in ev if e["type"] == "approval_required")
+    assert held["tool"] == "browse_web" and "browser" in held["reason"].lower()
+    said = " ".join(e.get("content") or "" for e in ev if e["type"] == "message")
+    assert "work site" not in said.lower() and "browser" in said.lower()
 
 
 def test_rooks_code_gets_a_local_coder_model_when_ollama_only(monkeypatch):

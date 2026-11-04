@@ -1,6 +1,7 @@
 import { ArrowLeft, ArrowRight, Check, Cloud, Cpu, Download, ExternalLink, KeyRound, Loader2, ListChecks, ShieldCheck, Sparkles } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { api, stream } from "../api";
+import { BrandMark } from "../brand";
 import PlanCard from "./PlanCard";
 import { ChatGPTCard, KEY_ORDER, KeyField, KeyInfo, Preset, Sub, Validation } from "./ModelSignIn";
 import { ThemeGrid, TypeChoices } from "../ThemePicker";
@@ -122,6 +123,52 @@ function FreeStep({ info, onBack, onDone }: { info: Record<string, KeyInfo>; onB
   );
 }
 
+/** Right after the PIN: the company's own sign-in, not another password typed in here. */
+export function AccountsStep({ onNext }: { onNext: () => void }) {
+  const [subs, setSubs] = useState<Sub[] | null>(null);
+  const [note, setNote] = useState("");
+  useEffect(() => { api<{ options: Sub[] }>("/auth/subscriptions").then((r) => setSubs(r.options)).catch(() => setSubs([])); }, []);
+  const chatgpt = subs?.find((s) => s.id === "chatgpt");
+  const claude = subs?.find((s) => s.id === "claude" && s.available && s.via === "claude_code");
+  const openWindow = async (who: string) => {
+    setNote("");
+    try {
+      await api("/mail/mac/settings", { method: "POST" });
+      setNote(`A window from your Mac is open. Choose Add Account, pick ${who}, and sign in as usual. Your password stays with ${who}.`);
+    } catch (err) {
+      setNote((err as Error).message);
+    }
+  };
+  const go = async () => {
+    await api("/desktop/signins-done", { method: "POST" }).catch(() => undefined);
+    onNext();
+  };
+  return (
+    <div className="col gap-lg">
+      <div className="accounts-head">
+        <div>
+          <h1>Sign in with the accounts you already use</h1>
+          <p className="muted">Optional. Each one opens that company's own window. You can connect them later.</p>
+        </div>
+        <button type="button" className="btn" onClick={go}>Skip for now</button>
+      </div>
+      {note && <div className="alert">{note}</div>}
+      <div className="signin-picks">
+        <button type="button" className="btn" onClick={() => openWindow("Google")}><BrandMark name="google" /> Gmail</button>
+        <button type="button" className="btn" onClick={() => openWindow("Microsoft")}><BrandMark name="microsoft" /> Microsoft</button>
+        <button type="button" className="btn" onClick={() => openWindow("Apple")}><BrandMark name="apple" /> Apple</button>
+      </div>
+      {chatgpt && <ChatGPTCard sub={chatgpt} onConnected={go} cta="Continue" />}
+      {claude && <PlanCard agent="claude" title="Claude" onConnected={go} cta="Continue"
+        blurb="Opens Claude's own sign-in. Use the plan you already pay for." />}
+      <div className="row">
+        <div className="spacer" />
+        <button type="button" className="btn" onClick={go}>Skip for now</button>
+      </div>
+    </div>
+  );
+}
+
 function SubscriptionStep({ onBack, onDone, onKey }: { onBack: () => void; onDone: () => void; onKey: (preset: string) => void }) {
   const [subs, setSubs] = useState<Sub[] | null>(null);
   useEffect(() => {
@@ -141,10 +188,10 @@ function SubscriptionStep({ onBack, onDone, onKey }: { onBack: () => void; onDon
       </div>
       {subs === null && <Loader2 size={16} className="spin" />}
       {claude && <PlanCard agent="claude" title="Claude" onConnected={start}
-        blurb={`For Claude ${claude.plans}. Uses Claude Code (Anthropic's own app): we set it up and open Anthropic's sign-in. Answers count against your plan.`} />}
+        blurb="Use the Claude plan you already pay for. Sign-in opens in Anthropic's own app." />}
       {chatgpt && <ChatGPTCard sub={chatgpt} onConnected={start} />}
       {copilot && <PlanCard agent="copilot" title="GitHub Copilot" onConnected={start}
-        blurb={`For Copilot ${copilot.plans}. Uses GitHub's own Copilot CLI: we set it up and open GitHub's sign-in. Each answer uses your plan's premium requests.`} />}
+        blurb="Use the Copilot plan you already pay for. Sign-in opens in GitHub's own app." />}
       {!!subs?.some((s) => !s.available) && (
         <details className="other-plans">
           <summary>Other plans: not available yet</summary>
@@ -331,7 +378,7 @@ function OllamaStep({ preset, onBack, onDone }: { preset: Preset; onBack: () => 
 }
 
 export default function Welcome({ onDone }: { onDone: () => void }) {
-  const [step, setStep] = useState<"look" | "choose" | "free" | "subscription" | "key" | "ollama">("look");
+  const [step, setStep] = useState<"accounts" | "look" | "choose" | "free" | "subscription" | "key" | "ollama">("accounts");
   const [keyPreset, setKeyPreset] = useState<string>();
   const [presets, setPresets] = useState<Record<string, Preset> | null>(null);
   const [info, setInfo] = useState<Record<string, KeyInfo>>({});
@@ -346,12 +393,14 @@ export default function Welcome({ onDone }: { onDone: () => void }) {
   return (
     <div className="auth welcome">
       <div className={`card auth-card welcome-card${welcomeWide ? " wide" : ""}`} key={step}>
-        <div className="steps">{[0, 1, 2].map((i) => <span key={i} className={i <= (step === "look" ? 0 : step === "choose" ? 1 : 2) ? "on" : ""} />)}</div>
+        <div className="steps">{[0, 1, 2].map((i) => <span key={i} className={i <= (step === "accounts" ? 0 : step === "look" ? 1 : 2) ? "on" : ""} />)}</div>
+        {step === "accounts" && <AccountsStep onNext={() => setStep("look")} />}
         {step === "look" && (
           <div className="col gap-lg">
             <div className="welcome-hero">
               <div className="kicker">First run · 1 of 3</div>
-              <div className="wordmark xl">AI Workspace</div>
+              <div className="wordmark xl">Rooks</div>
+              <p className="muted" style={{ margin: "8px 0 0" }}>Your own workspace and assistant.</p>
               <h1 className="welcome-title">Pick your look</h1>
               <p className="muted">Tap a theme and everything changes straight away, including the browser, the terminal and your phone. You can change it any time in Appearance.</p>
             </div>
@@ -362,7 +411,7 @@ export default function Welcome({ onDone }: { onDone: () => void }) {
               <Tracer active />
             </div>
             <div className="look-actions">
-              <span className="small muted">Sunshine is the default.</span>
+              <span className="small muted">Standard is the everyday look. The others are here if you want them.</span>
               <button className="btn primary" onClick={() => { saveAppearanceRemote(readAppearance()); setStep("choose"); }}>Continue <ArrowRight size={14} /></button>
             </div>
           </div>
@@ -371,7 +420,8 @@ export default function Welcome({ onDone }: { onDone: () => void }) {
           <div className="col gap-lg">
             <div className="welcome-hero">
               <div className="kicker">First run · 2 of 3</div>
-              <div className="wordmark xl">AI Workspace</div>
+              <div className="wordmark xl">Rooks</div>
+              <p className="muted" style={{ margin: "8px 0 0" }}>Your own workspace and assistant.</p>
               <h1 className="welcome-title">Choose how to think</h1>
               <p className="muted">The thinking happens in the cloud, so your computer stays cool and quiet. You can add more ways later.</p>
             </div>

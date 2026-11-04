@@ -104,3 +104,23 @@ def test_terminal_web_search_and_read_go_through_the_app(client, auth, monkeypat
     assert client.get("/v1/rooks/search", params={"q": "fastapi"}, headers=auth).json()["results"][0]["snippet"] == "fastapi"
     assert client.get("/v1/rooks/read", params={"url": "https://x.dev"}, headers=auth).json()["text"] == "page text"
     assert client.get("/v1/rooks/read", params={"url": "file:///etc/passwd"}, headers=auth).status_code == 400
+
+
+def test_history_searches_past_chat_and_terminal_turns(client, auth):
+    from app import db
+
+    cid = db.run(
+        "INSERT INTO conversations(title, channel, external_id, model, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+        "vendor quote", "cli", "hist-test-1", "m", db.now(), db.now())
+    db.run("INSERT INTO messages(conversation_id, role, content, created_at) VALUES (?, 'user', ?, ?)",
+           cid, "What did the vendor quote for widgets?", db.now())
+    db.run("INSERT INTO messages(conversation_id, role, content, created_at) VALUES (?, 'assistant', ?, ?)",
+           cid, "They quoted twelve dollars per widget.", db.now())
+    try:
+        empty = client.get("/v1/rooks/history", headers=auth).json()["results"]
+        assert any("widget" in (r.get("snippet") or "").lower() for r in empty)
+        hit = client.get("/v1/rooks/history", params={"q": "vendor quote"}, headers=auth).json()["results"]
+        assert hit and "widget" in hit[0]["snippet"].lower()
+        assert hit[0]["channel"] == "cli"
+    finally:
+        db.run("DELETE FROM conversations WHERE id = ?", cid)

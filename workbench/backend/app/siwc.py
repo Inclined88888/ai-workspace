@@ -39,7 +39,7 @@ from .security import decrypt, store_connection_secret
 
 log = logging.getLogger("workbench.siwc")
 
-APP_NAME = "AI Workspace"
+APP_NAME = "Rooks"
 SCOPES = "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct"
 PLAN_SCOPE = "chatgpt.tokens.use.direct"
 REGISTER_CLIENT = "dynamic_agent_client"
@@ -88,7 +88,7 @@ def _b64d(s: str) -> bytes:
 # The loopback listener: a tiny HTTP server on 127.0.0.1 that receives one redirect
 _servers: dict[int, asyncio.base_events.Server] = {}
 
-_DONE_PAGE = ("<!doctype html><meta charset=utf-8><title>AI Workspace</title><body style=\"font:16px/1.5 Georgia,serif;"
+_DONE_PAGE = ("<!doctype html><meta charset=utf-8><title>Rooks</title><body style=\"font:16px/1.5 Georgia,serif;"
               "background:#F5F1E8;color:#141311;display:grid;place-items:center;height:100vh;margin:0\"><div><h1 style=\"font-weight:400\">"
               "{title}</h1><p>{body}</p></div>")
 
@@ -106,7 +106,7 @@ async def _serve_callback(reader: asyncio.StreamReader, writer: asyncio.StreamWr
             result = await complete("http://127.0.0.1" + target)
             ok = result.get("status") == "connected"
             page = _DONE_PAGE.format(title="You're signed in." if ok else "Sign-in didn't finish.",
-                                     body="You can close this tab and go back to AI Workspace." if ok else result.get("error", "Try again from the app."))
+                                     body="You can close this tab and go back to Rooks." if ok else result.get("error", "Try again from the app."))
             data = page.encode()
             writer.write(b"HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\nContent-Length: "
                          + str(len(data)).encode() + b"\r\n\r\n" + data)
@@ -226,7 +226,7 @@ async def complete(callback_url: str) -> dict:
         return status(q["state"])
     if q.get("error"):
         if q["error"] == "access_denied":
-            return _fail(a, "You didn't allow AI Workspace to use your ChatGPT plan. Nothing was saved.")
+            return _fail(a, "You didn't allow Rooks to use your ChatGPT plan. Nothing was saved.")
         return _fail(a, f"ChatGPT sign-in failed: {q.get('error_description') or q['error']}")
     client_id = a["client_id"]
     issued = q.get("client_id")

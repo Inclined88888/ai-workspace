@@ -6,6 +6,7 @@ that profile's folder, readable only by this user, and reused by every later rea
 
   POST /api/site/login    {"url", "profile"}                       a visible window opens on the site; sign in there
   POST /api/site/close    {"profile"}                              save the session and close that window
+  POST /api/site/forget   {"profile"}                              close and delete that saved sign-in
   POST /api/site/page     {"url", "profile"}                       -> {"url", "status", "html", "content_type"}
   POST /api/site/submit   {"url", "profile", "form_index", "values", "approved": true}
                                                                    fill and send form N on that page -> {"url", "status", "html"}
@@ -20,6 +21,7 @@ import base64
 import json
 import os
 import re
+import shutil
 from pathlib import Path
 
 from . import runner
@@ -162,6 +164,16 @@ class Sites:
             win["closing"].set_result(True)
         return {"ok": True, "profile": profile, "status": "closed", "signed_in_before": True}
 
+    async def forget(self, profile: str) -> dict:
+        """Close any open window and delete the saved sign-in for this profile."""
+        if not _PROFILE.match(profile or "") or profile.startswith("."):
+            raise SiteError("profile must be 1-64 letters, digits, dot, dash or underscore")
+        await self.close(profile)
+        d = runner.home() / "site-profiles" / profile
+        if d.is_dir():
+            shutil.rmtree(d)
+        return {"ok": True, "profile": profile, "wiped": True}
+
     # read, submit, download ------------------------------------------------------------------------------------------
     async def _with_page(self, profile: str, fn):
         win = self.windows.get(profile)
@@ -274,6 +286,8 @@ def handle(jobs, action: str, body: dict) -> tuple[int, dict]:
         if action == "close":
             profile_dir(profile)
             return 200, s.run(s.close(profile), 30)
+        if action == "forget":
+            return 200, s.run(s.forget(profile), 30)
         if action == "page":
             return 200, s.run(s.page(body.get("url"), profile), 120)
         if action == "submit":

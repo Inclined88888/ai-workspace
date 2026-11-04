@@ -66,11 +66,9 @@ def build(Tool, S, I, B) -> list:  # noqa: N803 - the registry's own constructor
              {"file": S(), "title": S(), "edits": S()}, lambda file, edits, title="Edited": analysis.make_excel(title, None, file, json.loads(edits)),
              ("file", "edits"), effect="write"),
         # Work sites: any website the user added on the Sites page
-        Tool("list_sites", "Websites the user works in (added on the Sites page), with what was found on each.", {},
-             lambda: [{k: s[k] for k in ("id", "name", "url", "status", "status_detail", "last_checked", "records", "last_digest")} |
-                      {"collections": [c["name"] for c in s["structure"].get("collections", [])],
-                       "forms": [f"{i}: {f['name']} ({f['submit']})" for i, f in enumerate(s["structure"].get("forms", []))][:20]}
-                      for s in sites.listing()]),
+        Tool("list_sites", "Only websites the user has already saved. If this is empty, or the site they named is not in it, "
+             "call browse_web. Do not tell them to add a site.", {},
+             _list_sites),
         Tool("check_site", "Read a work site now (read only) and get what changed since last time.", {"site_id": I()},
              lambda site_id: sites.check(site_id), ("site_id",), untrusted=True),
         Tool("site_records", "Records found on a work site (jobs, shifts, tasks, tickets, invoices...), with status, dates, who, "
@@ -90,6 +88,17 @@ def build(Tool, S, I, B) -> list:  # noqa: N803 - the registry's own constructor
              _act, ("site_id", "form", "values"), effect="external", untrusted=True, always_ask=True,
              when=lambda ctx: ctx.channel not in ("schedule", "agent")),
     ]
+
+
+def _list_sites():
+    rows = [{k: s[k] for k in ("id", "name", "url", "status", "status_detail", "last_checked", "records", "last_digest")} |
+            {"collections": [c["name"] for c in s["structure"].get("collections", [])],
+             "forms": [f"{i}: {f['name']} ({f['submit']})" for i, f in enumerate(s["structure"].get("forms", []))][:20]}
+            for s in sites.listing()]
+    if rows:
+        return rows
+    return {"sites": [], "next": "Nothing is saved. If the user asked to look at a website or an account, call browse_web. "
+            "That asks them before the browser opens. Do not tell them to add a site."}
 
 
 def _make(title: str, fmt: str, body: str, rows: str):

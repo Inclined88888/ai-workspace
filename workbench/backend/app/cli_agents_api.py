@@ -1,6 +1,6 @@
 """HTTP routes for coding-agent hand-off (cli_agents.py): detection, jobs, live progress, approvals."""
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from . import cli_agents
@@ -35,7 +35,7 @@ async def status(fresh: bool = False):
 
 
 class RunIn(BaseModel):
-    agent: str = Field(..., pattern="^(claude|codex)$")
+    agent: str = Field(..., pattern="^(rooks|claude|codex)$")
     task: str = Field(..., min_length=1, max_length=20000)
     folder: str = Field(..., min_length=1, max_length=1000)
     mode: str = Field("ask", pattern="^(ask|edits|plan)$")
@@ -43,8 +43,9 @@ class RunIn(BaseModel):
 
 
 @router.post("/runs")
-async def start(data: RunIn):
+async def start(data: RunIn, request: Request):
     _ensure_loaded()
+    cli_agents.note_origin(str(request.base_url))
     info = cli_agents.detect(data.agent)
     if not info["installed"]:
         raise HTTPException(409, f"{info['name']} isn't installed on this computer. Install it with: {info['install']}")

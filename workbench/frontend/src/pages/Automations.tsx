@@ -8,6 +8,8 @@ type Schedule = { id: number; name: string; cron: string; prompt: string; delive
 type Item = { id: number; title: string; body: string; source: string; read: number; created_at: string };
 
 const PRESETS = [
+  { label: "Plan my day, 7:30", name: "Plan my day", cron: "30 7 * * 1-5",
+    prompt: "Plan my day. Check my calendar and what's due. Open each place I've shown you (list_playbooks, then run_playbook for each) and see what's new. Write today in order: what to do, and when. Add anything with a time as a task due today. Do not send mail or pay anyone." },
   { label: "Daily report, 8:00", name: "Daily report", cron: "0 8 * * *",
     prompt: "Write my daily briefing: today's events and due or overdue tasks (use get_agenda), anything you remember I'm working on or waiting for, and 3 suggested priorities. Under 200 words." },
   { label: "Weekly review, Fri 17:00", name: "Weekly review", cron: "0 17 * * 5",
@@ -15,6 +17,29 @@ const PRESETS = [
   { label: "Weekday news, 7:30", name: "Morning news", cron: "30 7 * * 1-5",
     prompt: "Search the web for the most important news in my areas of interest (from memory) and give me 5 bullet points with links." },
 ];
+
+function OfferWhen() {
+  const [when, setWhen] = useState("2");
+  const toast = useToast();
+  useEffect(() => { api<{ when: string }>("/automations/offer").then((r) => setWhen(r.when)).catch(() => undefined); }, []);
+  const pick = async (v: string) => {
+    setWhen(v);
+    try { await api("/automations/offer", { method: "PUT", body: { when: v } }); }
+    catch (e) { toast.err(e); }
+  };
+  return (
+    <label className="row small" style={{ marginBottom: 16, gap: 10 }}>
+      <span>Ask to save a task</span>
+      <select className="input sm" aria-label="When to offer an automation" value={when} onChange={(e) => pick(e.target.value)}>
+        <option value="2">After I've done it twice</option>
+        <option value="3">After I've done it three times</option>
+        <option value="always">Every time</option>
+        <option value="off">Don't ask</option>
+      </select>
+      {toast.node}
+    </label>
+  );
+}
 
 function describe(cron: string): string {
   const [m, h, dom, mon, dow] = cron.split(" ");
@@ -55,7 +80,8 @@ export default function Automations() {
 
   return (
     <div className="page" style={{ maxWidth: 1000 }}>
-      <div className="page-head"><div><h1>Automations</h1><p className="muted">Scheduled tasks run by your assistant in {data.timezone || "your timezone"}. You can also just ask in chat: "every Friday at 5pm summarise my week".</p></div></div>
+      <div className="page-head"><div><h1>Automations</h1><p className="muted">Show me once where to look, and I can check it each morning. Plan my day opens those places, sees what's new, and writes the plan.</p></div></div>
+      <OfferWhen />
       <TriggerAutomations />{/* feat/v02-automations: "when X happens, do Y" */}
       <h2 className="trig-sub">Scheduled reports</h2>
 

@@ -135,7 +135,8 @@ CREATE TABLE IF NOT EXISTS mail_accounts (
   username TEXT NOT NULL,
   password_enc TEXT NOT NULL,
   kind TEXT NOT NULL DEFAULT 'imap',            -- imap | google | microsoft (connect.py)
-  linked_account_id INTEGER REFERENCES linked_accounts(id) ON DELETE CASCADE
+  linked_account_id INTEGER REFERENCES linked_accounts(id) ON DELETE CASCADE,
+  life_role TEXT NOT NULL DEFAULT 'other'       -- work | personal | other (assistant picks by role)
 );
 
 -- Connect Google / Connect Microsoft (connect.py): one sign-in, tokens in the keychain or encrypted here
@@ -500,6 +501,7 @@ def _run_steps(c: sqlite3.Connection, version: int, steps: list) -> None:
 ADDED_COLUMNS = (
     ("mail_accounts", "kind", "TEXT NOT NULL DEFAULT 'imap'"),
     ("mail_accounts", "linked_account_id", "INTEGER REFERENCES linked_accounts(id) ON DELETE CASCADE"),
+    ("mail_accounts", "life_role", "TEXT NOT NULL DEFAULT 'other'"),  # work | personal | other
     ("calendars", "linked_account_id", "INTEGER REFERENCES linked_accounts(id) ON DELETE CASCADE"),
     ("messages", "attachments", "TEXT NOT NULL DEFAULT ''"),  # feat/attachments
 )

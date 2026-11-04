@@ -135,22 +135,39 @@ def test_assistant_uses_the_computer_on_the_conversations_model(client, desk_on)
     SCRIPT[:] = [tool_call("use_computer", {"goal": "save my notes to Documents/notes.txt"}),
                  {"role": "assistant", "content": "Done: notes.txt is saved."}]
     ev = events(client.post("/api/assistant/chat", json={"message": "save my notes", "model": f"{client.pid}/fake-model"}))
-    res = next(e for e in ev if e["type"] == "tool_result")
-    assert res["ok"], res
+    held = next(e for e in ev if e["type"] == "approval_required")
+    assert held["tool"] == "use_computer" and "computer" in held["reason"].lower()
+    assert SEEN["jobs"] == []
+    ok = client.post(f"/api/approvals/{held['id']}", json={"approve": True}).json()
+    assert ok["status"] == "done"
     job = SEEN["jobs"][0]
     assert job["goal"] == "save my notes to Documents/notes.txt" and job["provider"] == "workbench"
     assert job["model"] == f"{client.pid}/fake-model" and job["dry_run"] is False
 
 
-def test_use_computer_is_only_offered_when_desk_is_on(client, monkeypatch):
+def test_telling_it_to_use_the_computer_asks(client, monkeypatch):
+    """'Use the computer' asks, even when computer use was not already running."""
     from app import assistant, config
 
     monkeypatch.setattr(config, "DESK_URL", "")
+    monkeypatch.setattr(config, "DESK_API_KEY", "")
+    assert assistant.wants_the_computer("use the computer and open Notes")
+    assert not assistant.wants_the_computer("go to xero and count the invoices")
+    ev = events(client.post("/api/assistant/chat", json={"message": "use the computer and open Notes"}))
+    held = next(e for e in ev if e["type"] == "approval_required")
+    assert held["tool"] == "use_computer" and "computer" in held["reason"].lower()
+    said = " ".join(e.get("content") or "" for e in ev if e["type"] == "message")
+    assert "computer" in said.lower()
+
+
+def test_use_computer_is_offered_and_asks(client, monkeypatch):
+    from app import assistant, config
+
+    monkeypatch.setattr(config, "DESK_URL", "")
+    monkeypatch.setattr(config, "DESK_API_KEY", "")
     tool = next(t for t in assistant.TOOLS if t.name == "use_computer")
-    assert not tool.when(None)
-    monkeypatch.setattr(config, "DESK_URL", "http://127.0.0.1:1")
-    monkeypatch.setattr(config, "DESK_API_KEY", DESK_KEY)
     assert tool.when(None) and tool.effect == "external"
+    assert "computer" in tool.confirm({}).lower()
 
 
 def test_bridge_accepts_the_desk_key_and_channel(client, desk_on, monkeypatch):

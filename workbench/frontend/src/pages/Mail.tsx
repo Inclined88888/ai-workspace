@@ -4,7 +4,8 @@ import { api, stream } from "../api";
 import { Empty, ModelSelect, relTime, useModels, useToast } from "../util";
 import ConnectMailCalendar from "./ConnectMailCalendar";
 
-type Account = { id: number; name: string; email: string };
+type Account = { id: number; name: string; email: string; life_role?: "work" | "personal" | "other" };
+const ROLE_LABEL: Record<string, string> = { work: "Work", personal: "Personal", other: "Other" };
 type Summary = { uid: string; from: string; subject: string; date: string; unread: boolean };
 type Message = Summary & { reply_to: string; to: string; cc: string; message_id: string; body: string };
 type Draft = { id: number; account_id: number | null; to_addr: string; subject: string; body: string; in_reply_to: string; updated_at: string };
@@ -128,9 +129,31 @@ export default function MailPage() {
           <div className="row">
             {accounts.length > 1 ? (
               <select className="input grow" value={account.id} onChange={(e) => setAccount(accounts.find((a) => a.id === Number(e.target.value))!)}>
-                {accounts.map((a) => <option key={a.id} value={a.id}>{a.email}</option>)}
+                {accounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {ROLE_LABEL[a.life_role || "other"]}: {a.email}
+                  </option>
+                ))}
               </select>
-            ) : <strong className="grow truncate">{account.email}</strong>}
+            ) : <strong className="grow truncate">{ROLE_LABEL[account.life_role || "other"]}: {account.email}</strong>}
+            <select
+              className="input"
+              title="Is this work or personal mail?"
+              value={account.life_role || "other"}
+              onChange={async (e) => {
+                const life_role = e.target.value as Account["life_role"];
+                try {
+                  await api(`/mail/accounts/${account.id}`, { method: "PATCH", body: { life_role } });
+                  const next = { ...account, life_role };
+                  setAccount(next);
+                  setAccounts((all) => (all || []).map((a) => (a.id === account.id ? next : a)));
+                } catch (err) { toast.err(err); }
+              }}
+            >
+              <option value="work">Work</option>
+              <option value="personal">Personal</option>
+              <option value="other">Other</option>
+            </select>
             <button className="btn ghost sm icon" onClick={load} title="Refresh">{loading ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />}</button>
             <button className="btn primary sm" onClick={() => { setMsg(null); setCompose({ to: "", subject: "", body: "", in_reply_to: "" }); }}><PenSquare size={14} /></button>
           </div>

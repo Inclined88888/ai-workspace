@@ -5,8 +5,8 @@ import { api } from "../api";
 import { Empty, Markdown, useToast } from "../util";
 
 export type CliAgent = {
-  id: "claude" | "codex"; name: string; plan: string; install: string; login: string; login_hint: string; docs: string; terms: string;
-  installed: boolean; version: string; signed_in: boolean; auth: "subscription" | "api_key" | "none"; ready: boolean; detail: string;
+  id: "rooks" | "claude" | "codex"; name: string; plan: string; install: string; login: string; login_hint: string; docs: string; terms: string;
+  installed: boolean; version: string; signed_in: boolean; auth: "subscription" | "api_key" | "workspace" | "none"; ready: boolean; detail: string;
 };
 type RunSummary = { id: string; agent: string; agent_name: string; task: string; folder: string; mode: string; status: string; created_at: number };
 type Ev = { kind: string; t: number; text?: string; tool?: string; label?: string; input?: string; id?: string; error?: boolean; sub?: boolean; model?: string };
@@ -35,13 +35,20 @@ export function AgentSetup({ agent, onRecheck, checking }: { agent: CliAgent; on
     <div className="cli-setup col">
       <div className="row">
         <span className={`dot ${agent.ready ? "ok" : agent.installed ? "warn" : ""}`} aria-hidden />
-        <strong className="grow">{agent.ready ? (agent.auth === "subscription" ? "Ready, signed in with your plan" : "Ready, signed in with an API key")
+        <strong className="grow">{agent.ready
+          ? (agent.auth === "workspace" ? "Ready. Uses the models already connected here" : agent.auth === "subscription" ? "Ready, signed in with your plan" : "Ready, signed in with an API key")
           : agent.installed ? "Installed, not signed in" : "Not installed"}</strong>
         <button type="button" className="btn sm ghost" onClick={onRecheck} disabled={checking}>
           {checking ? <Loader2 size={13} className="spin" /> : <RefreshCw size={13} />} Check again
         </button>
       </div>
-      {!agent.ready && (
+      {!agent.ready && agent.id === "rooks" && (
+        <ol className="cli-steps">
+          <li>Rooks comes with this app. If it is missing, install Rooks again.</li>
+          <li>Come back and press Check again.</li>
+        </ol>
+      )}
+      {!agent.ready && agent.id !== "rooks" && (
         <ol className="cli-steps">
           {!agent.installed && <li>Install it: <code>{agent.install}</code></li>}
           <li>Sign in: run <code>{agent.login}</code> in a terminal and choose your {agent.id === "claude" ? "Claude" : "ChatGPT"} account.</li>
@@ -91,13 +98,14 @@ export default function Code() {
   const [run, setRun] = useState<Run | null>(null);
   const [form, setForm] = useState(() => {
     const saved = JSON.parse(localStorage.getItem("wb-code-form") || "{}");
-    return { agent: saved.agent || "claude", folder: saved.folder || "", mode: saved.mode || "ask", task: "" };
+    return { agent: saved.agent || "rooks", folder: saved.folder || "", mode: saved.mode || "ask", task: "" };
   });
   const [reply, setReply] = useState("");
   const [busy, setBusy] = useState(false);
   const bottom = useRef<HTMLDivElement>(null);
   const [tick, setTick] = useState(0);
   const kickUntil = useRef(0); // keep polling briefly after an action while the job restarts
+  const pickedDefault = useRef(false);
 
   const detect = (fresh = false) => {
     setChecking(true);
@@ -105,6 +113,13 @@ export default function Code() {
   };
   const loadRuns = () => api<RunSummary[]>("/cli-agents/runs").then(setRuns).catch(toast.err);
   useEffect(() => { detect(); loadRuns(); }, []);
+  useEffect(() => {
+    if (!agents || pickedDefault.current) return;
+    pickedDefault.current = true;
+    const current = agents.find((a) => a.id === form.agent);
+    const rooks = agents.find((a) => a.id === "rooks");
+    if (rooks?.ready && !current?.ready) setForm((f) => ({ ...f, agent: "rooks" }));
+  }, [agents, form.agent]);
 
   useEffect(() => {
     if (!id) return setRun(null);
@@ -157,13 +172,13 @@ export default function Code() {
       <div className="page-head">
         <div>
           <h1>Coding agent</h1>
-          <p className="muted">Hand a coding job to Claude Code or Codex on this computer. It runs on your own plan, in a folder you pick, and asks before it changes anything.</p>
+          <p className="muted">Rooks works in a project folder on this computer. It reads the code, changes files, and runs commands, and it asks you first. It uses the models you already connected. Claude Code and Codex are here too, if you already use them.</p>
         </div>
       </div>
 
       <form className="card col code-new" onSubmit={start}>
         <div className="seg" role="radiogroup" aria-label="Agent">
-          {(agents || [{ id: "claude", name: "Claude Code" }, { id: "codex", name: "Codex" }] as CliAgent[]).map((a) => (
+          {(agents || [{ id: "rooks", name: "Rooks" }, { id: "claude", name: "Claude Code" }, { id: "codex", name: "Codex" }] as CliAgent[]).map((a) => (
             <button type="button" role="radio" aria-checked={form.agent === a.id} key={a.id} className={form.agent === a.id ? "on" : ""}
               onClick={() => setForm({ ...form, agent: a.id })}>
               {a.name}{a.ready && <span className="dot ok" aria-label="ready" />}
@@ -185,7 +200,11 @@ export default function Code() {
             {busy ? <Loader2 size={15} className="spin" /> : <Play size={15} />} Start
           </button>
         </div>
-        <div className="small faint">{MODES.find((m) => m.id === form.mode)?.hint} Only use folders you trust: the agent loads that project's own settings and hooks.</div>
+        <div className="small faint">{form.agent === "rooks" && form.mode === "edits"
+          ? "Changes files and runs commands in this folder without asking. Only for a folder you trust."
+          : form.agent === "rooks" && form.mode === "plan"
+            ? "Reads the project and writes a plan. Changes nothing."
+            : MODES.find((m) => m.id === form.mode)?.hint} Only use folders you trust.</div>
       </form>
 
       <div className="code-layout">
@@ -217,7 +236,7 @@ export default function Code() {
                   <span className="mono truncate">{run.folder}</span>
                   {(run.tokens_in > 0 || run.tokens_out > 0) && <span>{(run.tokens_in + run.tokens_out).toLocaleString()} tokens</span>}
                 </div>
-                {run.error && <div className="alert err">{run.error}{/Not logged in|401|Unauthorized/.test(run.error) && <div className="small">Sign in again in a terminal with <code>{run.agent === "claude" ? "claude" : "codex login"}</code>, then retry.</div>}</div>}
+                {run.error && <div className="alert err">{run.error}{/Not logged in|401|Unauthorized/.test(run.error) && run.agent !== "rooks" && <div className="small">Sign in again in a terminal with <code>{run.agent === "claude" ? "claude" : "codex login"}</code>, then retry.</div>}</div>}
               </div>
 
               {run.pending.length > 0 && (
@@ -230,7 +249,7 @@ export default function Code() {
                     <button className="btn primary sm" onClick={() => act("approve")}>Allow and continue</button>
                     <button className="btn sm" onClick={() => act("deny")}>Don't allow</button>
                   </div>
-                  <div className="small faint">Allowing lets it run exactly these steps for the rest of this job.</div>
+                  <div className="small faint">{run.agent === "rooks" ? "Allowing lets this step go ahead. The next change asks again." : "Allowing lets it run exactly these steps for the rest of this job."}</div>
                 </div>
               )}
 

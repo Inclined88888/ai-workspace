@@ -30,4 +30,4 @@ export type Project = {
   counts?: Record<string, number>; next_deadline?: { title: string; due: string } | null; last_used_at?: string | null;
 };
 export type Limit = { unlimited: boolean; free_limit: number; active: number; can_add: boolean };
-export type ProjectList = { projects: Project[]; active_id: number | null; kinds: Record<string, string>; limit: Limit };
+export type ProjectList = { projects: Project[]; active_id: number | null; kinds: Record<string, string>; limit: Limit; trade?: string };

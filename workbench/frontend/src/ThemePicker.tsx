@@ -5,7 +5,7 @@ import { FONTS, THEMES, type ThemeInfo, pickTheme, useAppearance } from "./appea
 function Mini({ t }: { t: ThemeInfo }) {
   const s = t.swatch;
   if (t.mode === "auto") {
-    const light = THEMES.find((x) => x.id === "sunshine")!.swatch;
+    const light = THEMES.find((x) => x.id === "gallery")!.swatch;
     const dark = THEMES.find((x) => x.id === "night")!.swatch;
     return (
       <span className="look-mini split" aria-hidden="true">

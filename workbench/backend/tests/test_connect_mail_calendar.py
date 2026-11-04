@@ -632,7 +632,7 @@ def test_gmail_without_one_click_gets_app_password_not_a_loop(client, monkeypatc
     # Microsoft registration the button leads to the one-time setup (never an app scripting Apple Mail)
     for k in ("MICROSOFT_OAUTH_CLIENT_ID",):
         monkeypatch.delenv(k, raising=False)
-    monkeypatch.delenv("MAC_ACCOUNTS", raising=False)
+    monkeypatch.setenv("MAC_ACCOUNTS", "0")  # the Mac sign-in window is covered in test_mac_mail
     ms = client.get("/api/mail/autodetect", params={"email": "me@outlook.com"}).json()
     assert ms["kind"] == "one_click" and ms["provider"] == "microsoft" and ms["needs_setup"]
     monkeypatch.setenv("MICROSOFT_OAUTH_CLIENT_ID", "00000000-0000-0000-0000-000000000000")

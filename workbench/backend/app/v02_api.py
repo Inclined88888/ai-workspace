@@ -51,9 +51,43 @@ class ShareIn(BaseModel):
     file_id: int | None = None
 
 
+class OfferWhenIn(BaseModel):
+    when: str = Field(..., pattern="^(2|3|always|off)$")
+
+
+class HabitIn(BaseModel):
+    request: str = Field(..., max_length=1000)
+    name: str = Field("", max_length=80)
+
+
+class SkipIn(BaseModel):
+    key: str = Field(..., max_length=160)
+
+
 @router.get("/automations")
 def list_automations():
     return automations.listing()
+
+
+@router.get("/automations/offer")
+def automation_offer():
+    return {"when": automations.offer_when()}
+
+
+@router.put("/automations/offer")
+def set_automation_offer(body: OfferWhenIn):
+    return {"when": automations.set_offer_when(body.when)}
+
+
+@router.post("/automations/from-habit")
+def automation_from_habit(body: HabitIn):
+    return automations.save_habit(body.request, body.name)
+
+
+@router.post("/automations/offer-skip")
+def automation_offer_skip(body: SkipIn):
+    automations.skip_offer(body.key)
+    return {"ok": True}
 
 
 @router.post("/automations/parse")

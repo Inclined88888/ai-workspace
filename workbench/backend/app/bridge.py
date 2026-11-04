@@ -37,7 +37,7 @@ MAX_ATTACHMENTS_BYTES = 20 * 1024 * 1024
 def require_bridge_key(request: Request) -> None:
     auth = request.headers.get("authorization", "")
     token = auth[7:] if auth.lower().startswith("bearer ") else ""
-    keys = [k for k in (config.BROWSER_API_KEY, config.DESK_API_KEY) if k]
+    keys = [k for k in (config.BROWSER_API_KEY, config.DESK_API_KEY, config.CODING_BRIDGE_KEY) if k]
     if token and any(hmac.compare_digest(token, k) for k in keys):
         return
     cli = db.get_setting("cli_token_hash", "") or ""

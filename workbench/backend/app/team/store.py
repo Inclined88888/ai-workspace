@@ -434,6 +434,13 @@ def add_task(data: dict) -> dict:
     tid = db.run(f"INSERT INTO team_tasks({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})", *cols.values())
     t = task(tid)
     _mirror("task", t)
+    try:
+        from .. import projects
+
+        projects.file_on_project(t.get("project_id"), "update", f"team:{t['id']}", t["title"],
+                                 f"{t['title']} {t.get('project') or ''}", due=t.get("due"), reason="from the team")
+    except Exception:  # noqa: BLE001 - creating the task must not fail because filing did
+        pass
     return t
 
 
@@ -490,7 +497,18 @@ def add_update(tid: int, source: str, *, member_id: int | None = None, status: s
                  "VALUES (?, ?, ?, ?, ?, ?, ?, ?)", int(tid), member_id, source, status, percent, note[:2000], ref, now())
     if member_id:
         touch_member(member_id, last_heard_at=now())
-    return db.one("SELECT * FROM team_updates WHERE id = ?", uid)
+    row = db.one("SELECT * FROM team_updates WHERE id = ?", uid)
+    try:
+        from .. import projects
+
+        t = task(tid)
+        said = (note or status or "").strip()
+        if said:
+            projects.file_on_project(t.get("project_id"), "update", f"team-note:{uid}", f"{t['title']}: {said[:180]}",
+                                     f"{t['title']} {said}", reason="from the team")
+    except Exception:  # noqa: BLE001
+        pass
+    return row
 
 
 def updates(tid: int | None = None, member_id: int | None = None, limit: int = 50) -> list[dict]:

@@ -8,6 +8,7 @@ type Check = { name: string; kind: string; status: "ok" | "degraded" | "down" | 
 type Report = { status: "ok" | "degraded" | "down"; checked_at: string; checks: Check[] };
 type Host = { host: string; effect: "local" | "external"; components: string; requests: number; failures: number; last: string };
 type Egress = { hours: number; local_only: boolean; external_requests: number; hosts: Host[] };
+type Doctor = { models_connected: number; browser_ready: boolean; computer_ready: boolean; mail_accounts: number; docker_required: boolean; notes: string[] };
 
 const TONE = { ok: "ok", degraded: "warn", down: "danger", off: "" } as const;
 const LABEL = { ok: "Working", degraded: "Degraded", down: "Down", off: "Not set up" } as const;
@@ -16,6 +17,7 @@ const GROUPS: [string, string][] = [["core", "The app"], ["model connection", "M
 export default function Status() {
   const [report, setReport] = useState<Report | null>(null);
   const [egress, setEgress] = useState<Egress | null>(null);
+  const [doctor, setDoctor] = useState<Doctor | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const load = (fresh: boolean) => {
@@ -26,6 +28,7 @@ export default function Status() {
       .finally(() => {
         setBusy(false);
         api<Egress>("/egress?hours=24").then(setEgress).catch(() => setEgress(null)); // after the probes, so they are counted
+        api<Doctor>("/connections/doctor").then(setDoctor).catch(() => setDoctor(null));
       });
   };
   useEffect(() => load(false), []);
@@ -72,6 +75,19 @@ export default function Status() {
             );
           })}
         </>
+      )}
+      {doctor && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <h3 style={{ marginTop: 0 }}>Connections</h3>
+          <p className="muted small">
+            {doctor.models_connected} model connection{doctor.models_connected === 1 ? "" : "s"} ·
+            {" "}Browser {doctor.browser_ready ? "ready" : "off"} ·
+            {" "}Computer {doctor.computer_ready ? "ready" : "off"} ·
+            {" "}{doctor.mail_accounts} mail account{doctor.mail_accounts === 1 ? "" : "s"}
+            {doctor.docker_required ? "" : " · Docker is not required"}
+          </p>
+          {doctor.notes.map((n) => <p key={n} className="small">{n}</p>)}
+        </div>
       )}
       {egress && (
         <div style={{ marginBottom: 16 }}>

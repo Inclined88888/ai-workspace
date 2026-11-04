@@ -1,5 +1,5 @@
-import { AlertTriangle, CalendarDays, Check, ChevronRight, ExternalLink, KeyRound, Laptop, Loader2, Mail, RefreshCw, ShieldCheck, X } from "lucide-react";
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { AlertTriangle, CalendarDays, Check, ChevronRight, ExternalLink, Laptop, Loader2, Mail, RefreshCw, X } from "lucide-react";
+import { FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
 import { useToast } from "../util";
@@ -50,9 +50,7 @@ export default function ConnectMailCalendar({ compact = false, onlyWhenEmpty = f
   const [loaded, setLoaded] = useState(false);
   const [pending, setPending] = useState<{ provider: Provider; url: string; state: string } | null>(null);
   const [pasted, setPasted] = useState("");
-  const [notice, setNotice] = useState<{ provider: Provider; text: string } | null>(null);
   const [error, setError] = useState("");
-  const [other, setOther] = useState(false);
   const timer = useRef<number>();
   const toast = useToast();
 
@@ -78,9 +76,9 @@ export default function ConnectMailCalendar({ compact = false, onlyWhenEmpty = f
   };
 
   const connect = async (provider: Provider, hint = "") => {
-    setError(""); setNotice(null);
+    setError("");
     const info = providers?.[provider];
-    if (info && !info.configured) { setNotice({ provider, text: info.message }); return; }
+    if (info && !info.configured) { setError(`Sign-in with ${NAMES[provider]} isn't ready on this computer. Type the email address below.`); return; }
     try {
       const r = await api<{ url: string; state: string; opened: boolean }>(`/connect/${provider}/start`, { body: { login_hint: hint } });
       if (!r.opened) window.open(r.url, "_blank", "noopener");
@@ -92,7 +90,7 @@ export default function ConnectMailCalendar({ compact = false, onlyWhenEmpty = f
       }, 1500);
     } catch (e) {
       const msg = (e as Error).message;
-      if ((e as { status?: number }).status === 409) setNotice({ provider, text: msg }); else setError(msg);
+      if ((e as { status?: number }).status === 409) setError(`Sign-in with ${NAMES[provider]} isn't ready on this computer. Type the email address below.`); else setError(msg);
     }
   };
 
@@ -102,7 +100,7 @@ export default function ConnectMailCalendar({ compact = false, onlyWhenEmpty = f
   };
 
   const disconnect = async (a: Linked) => {
-    if (!confirm(`Disconnect ${a.email}? Its mail and calendar are removed from AI Workspace (nothing is deleted at ${NAMES[a.provider]}).`)) return;
+    if (!confirm(`Disconnect ${a.email}? Its mail and calendar are removed from Rooks (nothing is deleted at ${NAMES[a.provider]}).`)) return;
     try { const r = await api<{ note: string }>(`/connect/accounts/${a.id}`, { method: "DELETE" }); toast.ok(r.note); load(); onChange?.(); } catch (e) { toast.err(e); }
   };
   const removeImap = async (a: MailAccount) => {
@@ -112,16 +110,13 @@ export default function ConnectMailCalendar({ compact = false, onlyWhenEmpty = f
 
   if (onlyWhenEmpty && (!loaded || linked.length || imap.length || cals.length)) return null;
   const anything = linked.length + imap.length + cals.length > 0;
-  // Only offer one-click buttons this install can actually do; otherwise lead with "type your email address"
   const oneClick = (["google", "microsoft"] as Provider[]).filter((p) => providers?.[p]?.configured);
-  const signIn: Provider[] = ["google", "microsoft"];  // always offered: the provider's own sign-in page
-  const showOther = other;
 
   return (
     <div className="card col gap-lg" id="mail" style={compact ? { marginBottom: 16 } : undefined}>
-      <div className="row"><Mail size={16} /><CalendarDays size={16} /><h2 className="grow">Connect your mail &amp; calendar</h2>
+      <div className="row"><h2 className="grow">Mail</h2>
         {anything && <button className="btn ghost sm icon" title="Refresh" onClick={load}><RefreshCw size={13} /></button>}</div>
-      <div className="muted small">Sign in on Google's or Microsoft's own page; personal and work accounts both work. One sign-in sets up both your inbox and your calendar. Your assistant can read, summarise and draft; it never sends an email or an invitation until you say yes.</div>
+      <p className="muted" style={{ margin: 0 }}>Type an email address, then sign in in the window that opens. Nothing is sent until you say so.</p>
 
       {anything && (
         <div className="account-chips">
@@ -138,115 +133,144 @@ export default function ConnectMailCalendar({ compact = false, onlyWhenEmpty = f
           ))}
           {imap.map((a) => (
             <span key={`m${a.id}`} className="account-chip" title={a.imap_host}>
-              {a.kind === "mac" ? <Laptop size={13} /> : <Mail size={13} />}<span className="truncate">{a.email}</span><span className="what">{a.kind === "mac" ? "Mail · this Mac" : "Mail · IMAP"}</span>
+              {a.kind === "mac" ? <Laptop size={13} /> : <Mail size={13} />}<span className="truncate">{a.email}</span><span className="what">{a.kind === "mac" ? "On this Mac" : "Mail"}</span>
               <button className="btn ghost sm icon" title="Disconnect" aria-label={`Disconnect ${a.email}`} onClick={() => removeImap(a)}><X size={12} /></button>
             </span>
           ))}
           {cals.map((c) => (
             <Link key={`c${c.id}`} to="/calendar" className="account-chip" title="Manage on the Calendar page">
-              <CalendarDays size={13} style={{ color: c.color }} /><span className="truncate">{c.name}</span><span className="what">{c.kind === "ics" ? "Calendar · ICS" : "Calendar · CalDAV"}</span>
+              <CalendarDays size={13} style={{ color: c.color }} /><span className="truncate">{c.name}</span><span className="what">Calendar</span>
             </Link>
           ))}
         </div>
       )}
 
-      <div className="connect-buttons">
-        {signIn.map((p) => (
-          <button key={p} className="btn connect-btn" disabled={!!pending} onClick={() => connect(p)} title={WHAT[p]}>
-            {pending?.provider === p ? <Loader2 size={16} className="spin" /> : <ProviderLogo provider={p} />} Sign in with {NAMES[p]}
-          </button>
-        ))}
-        {!compact && <button className="btn ghost connect-btn" style={{ border: "1px solid transparent" }} onClick={() => setOther(!other)}>iCloud, Yahoo, other <ChevronRight size={14} /></button>}
-        {compact && <Link className="btn ghost connect-btn" style={{ border: "1px solid transparent" }} to="/mail">iCloud, Yahoo, other <ChevronRight size={14} /></Link>}
-      </div>
+      {oneClick.length > 0 && (
+        <div className="connect-buttons">
+          {oneClick.map((p) => (
+            <button key={p} className="btn connect-btn" disabled={!!pending} onClick={() => connect(p)} title={WHAT[p]}>
+              {pending?.provider === p ? <Loader2 size={16} className="spin" /> : <ProviderLogo provider={p} />} Sign in with {NAMES[p]}
+            </button>
+          ))}
+        </div>
+      )}
 
       {pending && (
         <div className="connect-pending">
           <Loader2 size={16} className="spin" style={{ marginTop: 2 }} />
           <div className="col grow" style={{ gap: 6 }}>
-            <div><strong>Finish signing in with {NAMES[pending.provider]} in your browser.</strong> Allow mail and calendar, then come back here.</div>
-            {pending.provider === "google" && <div className="small muted">If Google says it hasn't verified this app, that means this build's Google review isn't finished yet (it's limited to 100 people until it is). If you got AI Workspace from the official download, choose Advanced, then Go to AI Workspace.</div>}
-            {pending.provider === "microsoft" && <div className="small muted">Work or school account? Some organisations need an IT admin to approve the app first.</div>}
-            <div className="small muted">Browser didn't open? <a href={pending.url} target="_blank" rel="noreferrer">Open the sign-in page <ExternalLink size={11} /></a></div>
-            <div className="small muted">Signed in on a different device? Paste the address the browser ended on:</div>
+            <div>Finish signing in with {NAMES[pending.provider]}, then come back here.</div>
             <div className="row">
-              <input className="input mono grow" value={pasted} onChange={(e) => setPasted(e.target.value)} placeholder="http://127.0.0.1:…/oauth/callback?code=…" />
-              <button className="btn sm" disabled={!pasted.includes("state=")} onClick={completePasted}>Finish</button>
+              <a className="small" href={pending.url} target="_blank" rel="noreferrer">Open the sign-in page</a>
+              <div className="spacer" />
               <button className="btn ghost sm" onClick={() => { window.clearInterval(timer.current); setPending(null); }}>Cancel</button>
             </div>
+            <details className="connect-more">
+              <summary><ChevronRight size={12} /> Signed in on another device</summary>
+              <div className="row">
+                <input className="input grow" value={pasted} onChange={(e) => setPasted(e.target.value)} placeholder="Paste the page address" aria-label="Page address" />
+                <button className="btn sm" disabled={!pasted.includes("state=")} onClick={completePasted}>Finish</button>
+              </div>
+            </details>
           </div>
         </div>
       )}
       {error && <div className="alert err">{error}</div>}
-      {notice && (
-        <div className="alert">
-          <div className="col" style={{ gap: 6 }}>
-            <div>{notice.text}</div>
-            <div className="row wrap small">
-              {compact ? <Link className="btn sm" to="/mail">Set it up</Link> : <a className="btn sm primary" href="#own-registration" onClick={() => (document.getElementById("own-registration") as HTMLDetailsElement | null)?.setAttribute("open", "")}>Set up {NAMES[notice.provider]} sign-in (one time)</a>}
-              {notice.provider === "google" && !compact && <button className="btn sm ghost" onClick={() => { setNotice(null); setOther(true); }}>Use a Gmail app password instead</button>}
-            </div>
-          </div>
-        </div>
-      )}
 
-      {!compact && showOther && <OtherProvider plain={!oneClick.length} onSuggest={(p, email) => { setOther(false); connect(p, email); }} onAdded={() => { load(); onChange?.(); }} />}
+      {!compact && <OtherProvider onSuggest={(p, email) => connect(p, email)} onAdded={() => { load(); onChange?.(); }} />}
+      {compact && !oneClick.length && <Link className="btn" to="/mail">Add an email address</Link>}
 
-      {!compact && (
-        <>
-          <div className="connect-note row"><ShieldCheck size={13} /> Sign-in happens on Google's or Microsoft's own page in your browser; AI Workspace never sees your password and you can remove its access there any time. Tokens stay on this computer{oneClick.length < 2 ? "" : " (in the system keychain when available)"}.</div>
-          <OwnRegistration providers={providers} onSaved={load} />
-        </>
-      )}
+      {!compact && <OwnRegistration providers={providers} onSaved={load} />}
       {toast.node}
     </div>
   );
 }
 
-/** Mail through the account signed in on this Mac (Internet Accounts). The Mac signs in with the provider's normal page,
- *  so this works for Outlook (no app passwords) and any provider, with no password typed into AI Workspace. */
-function MacMail({ email, onAdded }: { email: string; onAdded: () => void }) {
+const ON_MAC = typeof navigator !== "undefined" && /Mac/.test(navigator.platform || "") && !/iPhone|iPad/.test(navigator.userAgent);
+
+/** Whose sign-in window to open: Google for Gmail, Apple for iCloud, and so on. */
+function signer(d: Detected | null): string {
+  if (!d) return "your email provider";
+  if (d.provider === "google" || d.key === "gmail" || d.one_click_unavailable === "google") return "Google";
+  if (d.provider === "microsoft" || d.one_click_unavailable === "microsoft") return "Microsoft";
+  if (d.key === "icloud") return "Apple";
+  if (d.key === "yahoo") return "Yahoo";
+  if (d.key === "aol") return "AOL";
+  return brand(d);
+}
+
+function PasswordShell({ mac, children }: { mac: boolean; children: ReactNode }) {
+  if (!mac) return <>{children}</>;
+  return <details className="connect-more"><summary><ChevronRight size={12} /> Use a password instead</summary>{children}</details>;
+}
+
+/** Opens the Mac's own account window (Google, Microsoft, Apple, Yahoo) and connects the address once it appears. */
+function MacSignIn({ email, who, onAdded }: { email: string; who: string; onAdded: () => void }) {
   const [accounts, setAccounts] = useState<MacAccount[] | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [waiting, setWaiting] = useState(false);
   const [error, setError] = useState("");
   const toast = useToast();
-  const check = async () => {
-    setError("");
-    const r = await api<{ available: boolean; accounts: MacAccount[]; error?: string }>("/mail/mac").catch((e) => ({ available: true, accounts: [], error: (e as Error).message }));
+  const timer = useRef<number>();
+  const lower = email.toLowerCase();
+
+  const look = async () => {
+    const r = await api<{ available: boolean; accounts: MacAccount[]; error?: string }>("/mail/mac").catch((e) => ({ available: false, accounts: [] as MacAccount[], error: (e as Error).message }));
     setAccounts(r.accounts);
     if (r.error) setError(r.error);
+    return r;
   };
-  useEffect(() => { check(); }, []);
-  const lower = email.toLowerCase();
-  const match = accounts?.find((a) => a.emails.some((e) => e.toLowerCase() === lower));
-  const connect = async () => {
-    if (!match) return;
-    setBusy(true); setError("");
-    try { await api("/mail/mac", { body: { name: match.name, email } }); toast.ok(`${email} is connected`); onAdded(); }
-    catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+  useEffect(() => () => window.clearInterval(timer.current), []);
+
+  const finish = async (name: string) => {
+    window.clearInterval(timer.current);
+    try {
+      await api("/mail/mac", { body: { name, email } });
+      toast.ok(`${email} is connected`);
+      onAdded();
+    } catch (e) {
+      setError((e as Error).message);
+      setWaiting(false);
+    }
   };
+
+  const start = async () => {
+    setError("");
+    setWaiting(true);
+    try {
+      await api("/mail/mac/settings", { method: "POST" });
+    } catch (e) {
+      setError((e as Error).message);
+      setWaiting(false);
+      return;
+    }
+    const until = Date.now() + 3 * 60 * 1000;
+    window.clearInterval(timer.current);
+    timer.current = window.setInterval(async () => {
+      const r = await look();
+      const hit = r.accounts.find((a) => a.emails.some((x) => x.toLowerCase() === lower));
+      if (hit?.enabled) { await finish(hit.name); return; }
+      if (hit && !hit.enabled) setError(`Signed in. In that window, open ${hit.name} and turn on Mail.`);
+      else if (Date.now() > until) { window.clearInterval(timer.current); setWaiting(false); setError("Finish signing in in the window, then press the button again."); }
+    }, 2000);
+  };
+
+  const match = accounts?.find((a) => a.emails.some((x) => x.toLowerCase() === lower));
   return (
-    <div className="col" style={{ gap: 12 }}>
-      {match && match.enabled ? (
+    <div className="col" style={{ gap: 10 }}>
+      {match?.enabled ? (
         <div className="row wrap">
           <Laptop size={15} /><span className="grow small"><strong>{email}</strong> is already signed in on this Mac.</span>
-          <button type="button" className="btn primary sm" disabled={busy} onClick={connect}>{busy ? <Loader2 size={14} className="spin" /> : "Connect"}</button>
+          <button type="button" className="btn primary sm" onClick={() => finish(match.name)}>Connect</button>
         </div>
       ) : (
         <>
-          <div className="row" style={{ alignItems: "flex-start", gap: 12 }}>
-            <span className="step-num">1</span>
-            <div className="col grow" style={{ gap: 6 }}>
-              <button type="button" className="btn primary" style={{ alignSelf: "flex-start" }} onClick={() => api("/mail/mac/settings", { method: "POST" }).catch(toast.err)}>Open Internet Accounts</button>
-              <div className="small muted">{match ? <>Open <strong>{match.name}</strong> and turn on <strong>Mail</strong>.</> : <>Click <strong>Add Account</strong>, pick <strong>Microsoft Exchange</strong> (Outlook), and sign in as usual. Keep <strong>Mail</strong> switched on.</>}</div>
-            </div>
-          </div>
-          <div className="row" style={{ alignItems: "flex-start", gap: 12 }}>
-            <span className="step-num">2</span>
-            <div className="col grow" style={{ gap: 6 }}>
-              <button type="button" className="btn" style={{ alignSelf: "flex-start" }} onClick={check}><RefreshCw size={13} /> Done, check again</button>
-              <div className="small muted">macOS may ask once to let AI Workspace use Mail. Click OK.</div>
-            </div>
+          <button type="button" className="btn primary" style={{ alignSelf: "flex-start" }} disabled={waiting} onClick={start}>
+            {waiting ? <Loader2 size={15} className="spin" /> : null} Sign in with {who}
+          </button>
+          <div className="small muted">
+            {waiting
+              ? `Waiting for you to finish. In the window, choose Add Account, pick ${who}, and sign in as usual. Your password stays with ${who}.`
+              : `A window from your Mac opens. Choose Add Account, pick ${who}, and sign in as usual. Your password stays with ${who}.`}
           </div>
         </>
       )}
@@ -290,8 +314,13 @@ function OtherProvider({ onSuggest, onAdded, plain = false }: { onSuggest: (p: P
   };
   useEffect(() => { const t = window.setTimeout(() => detect(email), 500); return () => window.clearTimeout(t); }, [email]);
 
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
+  const submit = async (e?: FormEvent) => {
+    e?.preventDefault();
+    if (ON_MAC && !form.password.trim()) return;
+    if (!form.password.trim() || form.imap_host.trim().length < 3 || form.smtp_host.trim().length < 3) {
+      setError("Wait until the address is recognised, then paste the password.");
+      return;
+    }
     setBusy(true); setError("");
     const username = form.username || email.trim();
     try {
@@ -316,7 +345,7 @@ function OtherProvider({ onSuggest, onAdded, plain = false }: { onSuggest: (p: P
     <form ref={formRef} className="card col" onSubmit={submit} style={{ background: "var(--panel-2)" }}>
       {plain
         ? <div className="row"><Mail size={15} /><h3 className="grow">Type your email address</h3><span className="muted small">Gmail, iCloud, Yahoo, Fastmail, AOL, Zoho, your own domain…</span></div>
-        : <div className="row"><KeyRound size={15} /><h3 className="grow">Other provider</h3><span className="muted small">iCloud, Yahoo, Fastmail, AOL, Zoho, your own domain…</span></div>}
+        : <div className="row"><Mail size={15} /><h3 className="grow">Your email</h3><span className="muted small">Gmail, Outlook, iCloud, Yahoo, and the rest</span></div>}
       <div className="row">
         <input className="input grow" required type="email" autoFocus placeholder="Your email address" value={email} onChange={(e) => setEmail(e.target.value)} onBlur={() => detect()} />
         {checking && <Loader2 size={15} className="spin" />}
@@ -337,7 +366,7 @@ function OtherProvider({ onSuggest, onAdded, plain = false }: { onSuggest: (p: P
           <div className="row"><ProviderLogo provider={det.provider!} /><strong className="grow">{det.label}</strong></div>
           <div className="small">{det.message}</div>
           {det.mac
-            ? <MacMail email={email.trim()} onAdded={() => { setDet(null); setEmail(""); onAdded(); }} />
+            ? <MacSignIn email={email.trim()} who={signer(det)} onAdded={() => { setDet(null); setEmail(""); onAdded(); }} />
             : det.steps && <ol className="connect-steps small">{det.steps.map((x) => <li key={x}>{x}</li>)}</ol>}
           {det.mac && det.steps && (
             <details className="connect-more">
@@ -363,7 +392,11 @@ function OtherProvider({ onSuggest, onAdded, plain = false }: { onSuggest: (p: P
           )}
         </div>
       )}
+      {ON_MAC && det && det.kind !== "one_click" && det.kind !== "invalid" && det.kind !== "unavailable" && (
+        <MacSignIn email={email.trim()} who={signer(det)} onAdded={() => { setDet(null); setEmail(""); onAdded(); }} />
+      )}
       {det && det.app_password && det.app_password_url && det.kind !== "one_click" && det.kind !== "unavailable" && (
+        <PasswordShell mac={ON_MAC}>
         <div className="col" style={{ gap: 14 }}>
           <div className="small muted">{brand(det)} needs an <strong>app password</strong>: a separate password just for this app. About a minute.</div>
           <div className="row" style={{ alignItems: "flex-start", gap: 12 }}>
@@ -378,14 +411,14 @@ function OtherProvider({ onSuggest, onAdded, plain = false }: { onSuggest: (p: P
             <div className="col grow" style={{ gap: 6 }}>
               <strong className="small">Paste the app password here</strong>
               <div className="row">
-                <input className="input grow mono" required type="password" autoComplete="off" placeholder="Paste it here" value={form.password}
+                <input className="input grow mono" type="password" autoComplete="off" placeholder="Paste it here" value={form.password}
                   onChange={(e) => {
                     const v = e.target.value;
                     setForm({ ...form, password: v });
                     // a full app password (16 letters, any spaces or dashes) connects straight away
-                    if (v.replace(/[\s-]/g, "").length === 16 && !busy) window.setTimeout(() => formRef.current?.requestSubmit(), 50);
+                    if (v.replace(/[\s-]/g, "").length === 16 && form.imap_host && !busy) window.setTimeout(() => submit(), 50);
                   }} />
-                <button className="btn primary" disabled={busy || !form.password}>{busy ? <Loader2 size={15} className="spin" /> : "Connect"}</button>
+                <button type="button" className="btn primary" disabled={busy || !form.password} onClick={() => submit()}>{busy ? <Loader2 size={15} className="spin" /> : "Connect"}</button>
               </div>
               {busy && <div className="small muted">Checking it with {brand(det)}…</div>}
             </div>
@@ -401,8 +434,10 @@ function OtherProvider({ onSuggest, onAdded, plain = false }: { onSuggest: (p: P
             </div>
           </details>
         </div>
+        </PasswordShell>
       )}
       {det && !(det.app_password && det.app_password_url) && det.kind !== "one_click" && det.kind !== "invalid" && det.kind !== "unavailable" && (
+        <PasswordShell mac={ON_MAC}>
         <>
           {det.one_click_unavailable && <div className="small muted">{det.one_click_unavailable === "google" ? "Gmail" : NAMES[det.one_click_unavailable]} connects with an app password: a special password just for this app. It takes about a minute.</div>}
           <div className="small"><strong>{det.label}</strong>{det.source === "guess" ? " · best guess" : det.source === "ispdb" ? " · settings found automatically" : ""}</div>
@@ -415,7 +450,7 @@ function OtherProvider({ onSuggest, onAdded, plain = false }: { onSuggest: (p: P
           )}
           <div className="row wrap">
             <input className="input grow" placeholder="Your name (shown on sent mail)" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-            <input className="input grow" required type="password" autoComplete="off" placeholder={det.app_password ? "App password" : "Password"} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+            <input className="input grow" type="password" autoComplete="off" placeholder={det.app_password ? "App password" : "Password"} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
           </div>
           {det.caldav_url && <label className="check small"><input type="checkbox" checked={addCal} onChange={(e) => setAddCal(e.target.checked)} /> Also add my calendars ({det.caldav_url.replace("https://", "")})</label>}
           <details className="connect-more" open={showServers} onToggle={(e) => setShowServers((e.target as HTMLDetailsElement).open)}>
@@ -424,17 +459,18 @@ function OtherProvider({ onSuggest, onAdded, plain = false }: { onSuggest: (p: P
               {det.username_hint && <div className="muted small">{det.username_hint}</div>}
               <input className="input" placeholder="Username (defaults to your email)" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} />
               <div className="row wrap">
-                <input className="input grow" required placeholder="IMAP host" value={form.imap_host} onChange={(e) => setForm({ ...form, imap_host: e.target.value })} />
+                <input className="input grow" placeholder="IMAP host" value={form.imap_host} onChange={(e) => setForm({ ...form, imap_host: e.target.value })} />
                 <input className="input" style={{ width: 90 }} type="number" value={form.imap_port} onChange={(e) => setForm({ ...form, imap_port: Number(e.target.value) })} />
-                <input className="input grow" required placeholder="SMTP host" value={form.smtp_host} onChange={(e) => setForm({ ...form, smtp_host: e.target.value })} />
+                <input className="input grow" placeholder="SMTP host" value={form.smtp_host} onChange={(e) => setForm({ ...form, smtp_host: e.target.value })} />
                 <input className="input" style={{ width: 90 }} type="number" value={form.smtp_port} onChange={(e) => setForm({ ...form, smtp_port: Number(e.target.value) })} />
                 <select className="input" style={{ width: 120 }} value={form.smtp_security} onChange={(e) => setForm({ ...form, smtp_security: e.target.value as "ssl" | "starttls" })}><option value="ssl">SSL</option><option value="starttls">STARTTLS</option></select>
               </div>
             </div>
           </details>
           {error && <div className="alert err">{error}</div>}
-          <div><button className="btn primary" disabled={busy || !form.password}>{busy ? <Loader2 size={15} className="spin" /> : "Test and connect"}</button></div>
+          <div><button type="button" className="btn primary" disabled={busy || !form.password} onClick={() => submit()}>{busy ? <Loader2 size={15} className="spin" /> : "Test and connect"}</button></div>
         </>
+        </PasswordShell>
       )}
       {toast.node}
     </form>

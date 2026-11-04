@@ -276,6 +276,13 @@ function PlaybookView({ id }: { id: number }) {
           <div className="row">
             {pb.status === "draft" && <button className="btn" onClick={() => save(true)}><Check size={14} /> Looks right</button>}
             <button className="btn primary" onClick={go} disabled={!!run && !runFinished(run.status)}><Play size={14} /> Do it for me</button>
+            <button className="btn" onClick={async () => {
+              try {
+                const r = await api<{ already: boolean }>(`/learn/playbooks/${id}/each-morning`, { method: "POST" });
+                toast.ok(r.already ? "Already checking this each morning." : "I'll check this on weekday mornings and tell you what changed.");
+                load();
+              } catch (e) { toast.err(e); }
+            }}>{pb.schedule_id ? "Checking each morning" : "Check this each morning"}</button>
             <span className="grow" />
             <button className="btn ghost sm" onClick={remove}><Trash2 size={14} /> Delete</button>
           </div>

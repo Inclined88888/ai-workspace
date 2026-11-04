@@ -5,9 +5,9 @@ import json
 from test_mobile import _auth, _pair, phone  # noqa: F401  (fixture)
 
 
-def test_defaults_to_sunshine(client):
+def test_defaults_to_the_everyday_look(client):
     a = client.get("/api/appearance").json()
-    assert a["theme"] == "sunshine" and a["dark"] is False and a["accent"] == "theme"
+    assert a["theme"] == "gallery" and a["dark"] is False and a["accent"] == "theme"
 
 
 def test_save_cleans_values_and_resolves_dark(client):
@@ -15,14 +15,14 @@ def test_save_cleans_values_and_resolves_dark(client):
     assert a == {"theme": "neon", "resolved": "neon", "dark": True, "font": "editorial", "size": 18, "motion": "subtle", "accent": "theme"}
     assert client.get("/api/appearance").json()["theme"] == "neon"
     a = client.put("/api/appearance", json={"theme": "<script>", "font": "x", "motion": "wild", "accent": "rainbow", "size": 3}).json()
-    assert (a["theme"], a["font"], a["motion"], a["accent"], a["size"]) == ("sunshine", "modern", "full", "theme", 12)
+    assert (a["theme"], a["font"], a["motion"], a["accent"], a["size"]) == ("gallery", "modern", "full", "theme", 12)
 
 
 def test_match_my_system_keeps_what_the_page_resolved(client):
     a = client.put("/api/appearance", json={"theme": "auto", "resolved": "night"}).json()
     assert (a["theme"], a["resolved"], a["dark"]) == ("auto", "night", True)
     a = client.put("/api/appearance", json={"theme": "auto"}).json()
-    assert (a["resolved"], a["dark"]) == ("sunshine", False)
+    assert (a["resolved"], a["dark"]) == ("gallery", False)
 
 
 def test_needs_the_owner(phone):  # noqa: F811

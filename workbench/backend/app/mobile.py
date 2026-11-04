@@ -136,7 +136,7 @@ def pair_start(request: Request):
     db.run("DELETE FROM pairing_codes WHERE expires_at < ? OR used = 1", now)
     db.run("INSERT INTO pairing_codes(code_hash, expires_at) VALUES (?, ?)", _hash(code), now + CODE_TTL)
     urls = addresses(request)
-    name = db.get_setting("workspace_name", config.WORKSPACE_NAME) or "AI Workspace"
+    name = db.get_setting("workspace_name", config.WORKSPACE_NAME) or "Rooks"
     payload = qr_payload(code, urls, name)
     return {"code": f"{code[:4]}-{code[4:]}", "expires_in": CODE_TTL, "urls": urls, "qr": payload, "qr_svg": qr_svg(payload),
             "lan": lan_status(), "relay_url": relay_url()}
@@ -186,7 +186,7 @@ def put_settings(data: MobileSettings):
 # Public: the phone before it has a token
 @public.get("/ping")
 def ping():
-    return {"ok": True, "app": "ai-workspace", "name": db.get_setting("workspace_name", config.WORKSPACE_NAME) or "AI Workspace"}
+    return {"ok": True, "app": "ai-workspace", "name": db.get_setting("workspace_name", config.WORKSPACE_NAME) or "Rooks"}
 
 
 class ClaimIn(BaseModel):
@@ -221,14 +221,14 @@ def pair_claim(data: ClaimIn, request: Request):
                         ((data.name.strip() or "Phone")[:60], data.platform, _hash(token), db.now(), db.now()))
         did = cur.lastrowid
     return {"device_token": token, "device_id": did,
-            "workspace_name": db.get_setting("workspace_name", config.WORKSPACE_NAME) or "AI Workspace"}
+            "workspace_name": db.get_setting("workspace_name", config.WORKSPACE_NAME) or "Rooks"}
 
 
 # Device: what the phone may do
 @device.get("/me")
 def me(d: dict = Depends(require_device)):
     return {"id": d["id"], "name": d["name"], "platform": d["platform"], "push": bool(d["push_token"]),
-            "workspace_name": db.get_setting("workspace_name", config.WORKSPACE_NAME) or "AI Workspace",
+            "workspace_name": db.get_setting("workspace_name", config.WORKSPACE_NAME) or "Rooks",
             "push_enabled_on_desktop": push.enabled()}
 
 
@@ -260,7 +260,7 @@ def _run_card(r: dict) -> dict:
 def home(_: dict = Depends(require_device)):
     pending = actions.pending()
     return {
-        "workspace_name": db.get_setting("workspace_name", config.WORKSPACE_NAME) or "AI Workspace",
+        "workspace_name": db.get_setting("workspace_name", config.WORKSPACE_NAME) or "Rooks",
         "approvals": pending[:3], "approvals_count": len(pending),
         "running": db.one("SELECT COUNT(*) AS n FROM actions WHERE kind = 'turn' AND outcome = 'running'")["n"],
         "runs": [_run_card(r) for r in actions.runs(5)],

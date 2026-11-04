@@ -331,6 +331,7 @@ export default function Settings({ onChanged }: { onChanged: () => void }) {
             </div>}
           </div>
         </details>
+        <p className="small muted" style={{ margin: 0 }}><Link to="/about">About</Link> · <Link to="/privacy">Privacy</Link></p>
         {!desktop?.desktop && <form className="card col" onSubmit={changePw}>
           <div className="row"><Shield size={16} /><h2>Password</h2></div>
           <div className="row wrap">

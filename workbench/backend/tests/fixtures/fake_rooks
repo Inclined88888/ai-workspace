@@ -1,0 +1,39 @@
+#!/usr/bin/env python3
+"""A stand-in for the `rooks` terminal agent. Asks before it writes a file, like the real prompt."""
+import json
+import os
+import sys
+
+args = sys.argv[1:]
+log = os.environ.get("FAKE_ROOKS_LOG")
+if args == ["--version"]:
+    print("rooks 0.test")
+    sys.exit(0)
+
+if log:
+    with open(log, "a") as f:
+        f.write(json.dumps({"argv": args, "has_bridge_key": bool(os.environ.get("WORKBENCH_API_KEY"))}) + "\n")
+
+print("Reading the project.", flush=True)
+if "-n" in args:
+    print("Plan only. Nothing changed.", flush=True)
+    sys.exit(0)
+if "-y" in args:
+    with open("made.txt", "w") as f:
+        f.write("from rooks\n")
+    print("Changed it without asking.", flush=True)
+    sys.exit(0)
+
+sys.stdout.write("  Apply this change? [y]es / [n]o / [a]lways this session: ")
+sys.stdout.flush()
+line = sys.stdin.readline()
+if log:
+    with open(log, "a") as f:
+        f.write(json.dumps({"answer": line.strip()}) + "\n")
+if line.strip().lower() in ("y", "yes", "a", "always"):
+    with open("made.txt", "w") as f:
+        f.write("from rooks\n")
+    print("Done.", flush=True)
+    sys.exit(0)
+print("Left it unchanged.", flush=True)
+sys.exit(0)

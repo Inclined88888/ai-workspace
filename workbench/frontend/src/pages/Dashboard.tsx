@@ -1,174 +1,217 @@
-import { ArrowRight, CalendarDays, CheckSquare, FileText, NotebookPen, Plus, Search } from "lucide-react";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { api, CalEvent, Doc, Task } from "../api";
-import { Empty, fmtTime, relTime, SkeletonList, todayISO, useToast } from "../util";
-import ConnectMailCalendar from "./ConnectMailCalendar";
-import { ImprovedCard } from "../memory/Improved"; // feat/memory-core
+import {
+  ArrowUp, Bell, Brain, CalendarClock, CalendarDays, CheckSquare, Code2, FileText, FolderKanban, FolderOpen,
+  Globe2, GraduationCap, Inbox, MessageSquare, NotebookPen, Puzzle, Search, UsersRound, Video,
+} from "lucide-react";
+import { api, CalEvent, Task } from "../api";
+import { fmtTime, todayISO, useToast } from "../util";
 
-type Dash = {
-  events: CalEvent[];
-  tasks_due: Task[];
-  overdue: number;
-  open_tasks: number;
-  recent_docs: Doc[];
-  research: { id: number; question: string; status: string; created_at: string }[];
-};
+type Arrived = { project_id: number; name: string; what: string; kind: string };
+type Dash = { events: CalEvent[]; tasks_due: Task[]; overdue: number; customers?: Arrived[] };
+type Piece = { key: string; line: string; ask: string; note: string };
 
-function greeting() {
-  const h = new Date().getHours();
-  return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+function dayNote(due: string, today: string) {
+  if (due < today) return "Late";
+  if (due === today) return "Today";
+  return new Date(`${due}T00:00:00`).toLocaleDateString([], { weekday: "short" });
 }
 
-function dayLabel(iso: string, allDay: boolean) {
-  const d = allDay ? new Date(`${iso}T00:00:00`) : new Date(iso);
-  const today = new Date();
-  const tomorrow = new Date();
-  tomorrow.setDate(today.getDate() + 1);
-  if (d.toDateString() === today.toDateString()) return "Today";
-  if (d.toDateString() === tomorrow.toDateString()) return "Tomorrow";
-  return d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+const STARTS: { id: string; label: string; text: string; icon: typeof Search }[] = [
+  { id: "catchup", label: "Catch me up", text: "Catch me up on my mail, what's due, and anything that changed.", icon: Inbox },
+  { id: "day", label: "My day", text: "Plan my day. Check my calendar and what's due, open the places I've shown you and see what's new, then put today in order.", icon: CalendarDays },
+  { id: "remind", label: "Remind me", text: "Remind me ", icon: Bell },
+  { id: "find", label: "Look it up", text: "Look this up: ", icon: Search },
+];
+
+const MORE: { to: string; label: string; icon: typeof Search }[] = [
+  { to: "/assistant", label: "Chat", icon: MessageSquare },
+  { to: "/mail", label: "Mail", icon: Inbox },
+  { to: "/calendar", label: "Calendar", icon: CalendarDays },
+  { to: "/tasks", label: "Tasks", icon: CheckSquare },
+  { to: "/notes", label: "Notes", icon: NotebookPen },
+  { to: "/files", label: "Files", icon: FolderOpen },
+  { to: "/documents", label: "Documents", icon: FileText },
+  { to: "/research", label: "Research", icon: Search },
+  { to: "/code", label: "Coding", icon: Code2 },
+  { to: "/projects", label: "Projects", icon: FolderKanban },
+  { to: "/meetings", label: "Meetings", icon: Video },
+  { to: "/automations", label: "Automations", icon: CalendarClock },
+  { to: "/knowledge", label: "Memory", icon: Brain },
+  { to: "/skills", label: "Skills", icon: Puzzle },
+  { to: "/team", label: "Team", icon: UsersRound },
+  { to: "/sites", label: "Sites", icon: Globe2 },
+  { to: "/teach", label: "Show me how", icon: GraduationCap },
+];
+
+function isToday(iso: string, allDay: boolean) {
+  const d = allDay ? new Date(`${iso.slice(0, 10)}T00:00:00`) : new Date(iso);
+  return d.toDateString() === new Date().toDateString();
 }
 
-/** One calm sentence instead of three stat tiles. */
-function summary(open: number, overdue: number, events: number) {
-  const tasks = open === 0 ? "No open tasks" : `${open} open task${open === 1 ? "" : "s"}`;
-  const late = open === 0 ? "" : overdue === 0 ? ", none overdue" : `, ${overdue} overdue`;
-  const cal = events === 0 ? "a clear calendar this week" : `${events} event${events === 1 ? "" : "s"} this week`;
-  return `${tasks}${late}, and ${cal}.`;
+function plainWhat(what: string) {
+  return what.replace(/^(Mail|Chat):\s*/, "").trim();
+}
+
+function pieces(data: Dash, today: string): Piece[] {
+  const out: Piece[] = [];
+  const seen = new Set<string>();
+  const add = (p: Piece) => {
+    const k = p.line.toLowerCase();
+    if (!p.line || seen.has(k)) return;
+    seen.add(k);
+    out.push(p);
+  };
+  for (const t of data.tasks_due ?? []) {
+    if (t.due && t.due < today) add({ key: `late${t.id}`, line: t.title, ask: `${t.title} is late. What should happen now?`, note: "Late" });
+  }
+  for (const ev of data.events ?? []) {
+    if (!isToday(ev.start, !!ev.all_day)) continue;
+    const title = ev.title || "Untitled";
+    add({ key: `e${ev.id}`, line: title, ask: `Get me ready for ${title}.`, note: ev.all_day ? "Today" : fmtTime(ev.start) });
+  }
+  for (const t of data.tasks_due ?? []) {
+    if (t.due === today) add({ key: `t${t.id}`, line: t.title, ask: t.title, note: "Today" });
+  }
+  for (const c of data.customers ?? []) {
+    const line = plainWhat(c.what);
+    const ask = c.kind === "mail" ? `Look at this mail and tell me what it needs: ${line}` : line;
+    add({ key: `a${c.project_id}-${c.kind}-${line}`, line, ask, note: c.kind === "mail" ? "Mail" : "New" });
+  }
+  for (const t of data.tasks_due ?? []) {
+    if (!t.due || t.due <= today) continue;
+    add({ key: `wait${t.id}`, line: t.title, ask: t.title, note: dayNote(t.due, today) });
+  }
+  for (const ev of data.events ?? []) {
+    if (isToday(ev.start, !!ev.all_day)) continue;
+    const title = ev.title || "Untitled";
+    add({ key: `later${ev.id}`, line: title, ask: `What's needed for ${title}?`, note: new Date(ev.start).toLocaleDateString([], { weekday: "short" }) });
+  }
+  return out.slice(0, 6);
 }
 
 export default function Dashboard(_: { chatUrl?: string }) {
   const [data, setData] = useState<Dash | null>(null);
-  const [capture, setCapture] = useState("");
-  const [mode, setMode] = useState<"task" | "note" | "research">("task");
+  const [line, setLine] = useState("");
+  const [pill, setPill] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
   const toast = useToast();
   const navigate = useNavigate();
+  const field = useRef<HTMLInputElement>(null);
+  const moreRef = useRef<HTMLDivElement>(null);
+  const today = todayISO();
 
   const load = () => api<Dash>("/dashboard").then(setData).catch(toast.err);
+  useEffect(() => { load(); }, []);
   useEffect(() => {
-    load();
-  }, []);
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    const onDown = (e: MouseEvent) => {
+      if (moreRef.current && !moreRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onDown);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("mousedown", onDown);
+    };
+  }, [open]);
+
+  const left = data ? pieces(data, today) : [];
+  const asTask = /^add\s+/i.test(line.trim());
+  const date = new Date().toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
+
+  const choose = (id: string, text: string) => {
+    setOpen(false);
+    if (pill === id && line === text) {
+      setPill(null);
+      setLine("");
+      return;
+    }
+    setPill(id);
+    setLine(text);
+    field.current?.focus();
+  };
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    const text = capture.trim();
+    const text = line.trim();
     if (!text) return;
-    try {
-      if (mode === "task") {
-        await api("/tasks", { body: { title: text } });
-        toast.ok("Task added");
-      } else if (mode === "note") {
-        const [first, ...rest] = text.split("\n");
-        await api("/docs", { body: { kind: "note", title: first.slice(0, 120), body: rest.join("\n") || text } });
-        toast.ok("Note saved");
-      } else {
-        const r = await api<{ id: number }>("/research", { body: { question: text } });
-        navigate(`/research/${r.id}`);
-        return;
+    if (asTask) {
+      try {
+        await api("/tasks", { body: { title: text.replace(/^add\s+/i, ""), due: today } });
+        setLine("");
+        setPill(null);
+        load();
+      } catch (err) {
+        toast.err(err);
       }
-      setCapture("");
-      load();
-    } catch (err) {
-      toast.err(err);
+      return;
     }
+    start(text);
   };
 
-  const today = todayISO();
+  const start = (text: string) => navigate("/assistant", { state: { draft: text, start: true } });
+
   return (
-    <div className="page">
-      <div className="page-head">
-        <div>
-          <p className="kicker">{new Date().toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })}</p>
-          <h1>{greeting()}</h1>
-          <p className="muted home-summary">{data ? summary(data.open_tasks, data.overdue, data.events.length) : "\u00a0"}</p>
-        </div>
-        <div className="spacer" />
-        <Link className="btn primary" to="/assistant">Ask your assistant <ArrowRight size={14} /></Link>
-      </div>
+    <div className="page home">
+      <div className="start-center">
+        <p className="desk-date">{date}</p>
+        <h1>What should Rooks do?</h1>
 
-      <ImprovedCard />{/* feat/memory-core: what I improved overnight */}
-
-      <form className="card col home-capture" onSubmit={submit} style={{ marginBottom: 24 }} aria-label="Quick capture">
-        <div className="row">
-          <div className="tabs">
-            {(["task", "note", "research"] as const).map((m) => (
-              <button type="button" key={m} className={`tab ${mode === m ? "active" : ""}`} onClick={() => setMode(m)}>
-                {m === "task" ? "Task" : m === "note" ? "Note" : "Research"}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="row">
+        <form className="home-add" onSubmit={submit}>
           <input
-            className="input grow"
-            value={capture}
-            onChange={(e) => setCapture(e.target.value)}
-            placeholder={mode === "task" ? "Add a task…" : mode === "note" ? "Jot something down…" : "Ask a research question, answered with sources…"}
+            ref={field}
+            value={line}
+            onChange={(e) => { setLine(e.target.value); if (pill && !STARTS.some((s) => s.text === e.target.value)) setPill(null); }}
+            placeholder="Ask anything, or give it a job"
+            aria-label="What should happen"
           />
-          <button className="btn primary" disabled={!capture.trim()}>{mode === "research" ? <Search size={16} /> : <Plus size={16} />}</button>
-        </div>
-      </form>
+          <button className="home-send" type="submit" disabled={!line.trim()} aria-label={asTask ? "Add" : "Send"}>
+            <ArrowUp size={16} />
+          </button>
+        </form>
 
-      <ConnectMailCalendar compact onlyWhenEmpty onChange={load} />
-
-      <div className="grid two home-grid">
-        <div className="card flush">
-          <div className="card-head" style={{ padding: "14px 14px 0" }}>
-            <CalendarDays size={16} /><h2>Coming up</h2><div className="spacer" /><Link to="/calendar" className="small">Calendar <ArrowRight size={12} /></Link>
-          </div>
-          {!data && <SkeletonList rows={3} />}
-          {data && data.events.length === 0 && <Empty icon={<CalendarDays size={22} />} title="Nothing scheduled" hint="Connect Google or Microsoft above, or add a calendar from the Calendar page." />}
-          {data?.events.slice(0, 8).map((ev) => (
-            <div key={ev.id} className="list-item" style={{ cursor: "default" }}>
-              <span className="dot" style={{ background: ev.color }} />
-              <div className="grow">
-                <div className="truncate">{ev.title || "(untitled)"}</div>
-                <div className="muted small">{dayLabel(ev.start, !!ev.all_day)} · {ev.all_day ? "All day" : fmtTime(ev.start)}{ev.location ? ` · ${ev.location}` : ""}</div>
+        <div className="start-actions">
+          {STARTS.map((s) => (
+            <button key={s.id} type="button" className={`start-chip${pill === s.id ? " on" : ""}`} aria-pressed={pill === s.id} onClick={() => choose(s.id, s.text)}>
+              <s.icon size={14} />
+              {s.label}
+            </button>
+          ))}
+          <div className="start-more" ref={moreRef}>
+            <button type="button" className={`start-chip${open ? " on" : ""}`} aria-expanded={open} aria-haspopup="menu" onClick={() => setOpen((v) => !v)}>
+              More
+            </button>
+            {open && (
+              <div className="start-menu" role="menu" aria-label="Everything else">
+                {MORE.map((item) => (
+                  <Link key={item.to} to={item.to} role="menuitem" onClick={() => setOpen(false)}>
+                    <item.icon size={16} />
+                    {item.label}
+                  </Link>
+                ))}
               </div>
-            </div>
-          ))}
-        </div>
-
-        <div className="card flush">
-          <div className="card-head" style={{ padding: "14px 14px 0" }}>
-            <CheckSquare size={16} /><h2>Due soon</h2><div className="spacer" /><Link to="/tasks" className="small">Tasks <ArrowRight size={12} /></Link>
+            )}
           </div>
-          {!data && <SkeletonList rows={3} />}
-          {data && data.tasks_due.length === 0 && <Empty icon={<CheckSquare size={22} />} title="Nothing due this week" />}
-          {data?.tasks_due.slice(0, 8).map((t) => (
-            <Link key={t.id} to="/tasks" className="list-item">
-              <div className="grow truncate">{t.title}</div>
-              <span className={`badge ${t.due! < today ? "danger" : t.due === today ? "warn" : ""}`}>{t.due! < today ? "Overdue" : t.due === today ? "Today" : t.due}</span>
-            </Link>
-          ))}
-        </div>
-
-        <div className="card flush">
-          <div className="card-head" style={{ padding: "14px 14px 0" }}><FileText size={16} /><h2>Recent writing</h2></div>
-          {!data && <SkeletonList rows={3} />}
-          {data && data.recent_docs.length === 0 && <Empty icon={<NotebookPen size={22} />} title="No notes yet" />}
-          {data?.recent_docs.map((d) => (
-            <Link key={d.id} to={`/${d.kind === "note" ? "notes" : "documents"}/${d.id}`} className="list-item">
-              {d.kind === "note" ? <NotebookPen size={15} className="faint" /> : <FileText size={15} className="faint" />}
-              <div className="grow truncate">{d.title}</div>
-              <span className="faint small">{relTime(d.updated_at)}</span>
-            </Link>
-          ))}
-        </div>
-
-        <div className="card flush">
-          <div className="card-head" style={{ padding: "14px 14px 0" }}><Search size={16} /><h2>Research</h2><div className="spacer" /><Link to="/research" className="small">All <ArrowRight size={12} /></Link></div>
-          {!data && <SkeletonList rows={3} />}
-          {data && data.research.length === 0 && <Empty icon={<Search size={22} />} title="No research yet" hint="Use quick capture above." />}
-          {data?.research.map((r) => (
-            <Link key={r.id} to={`/research/${r.id}`} className="list-item">
-              <div className="grow truncate">{r.question}</div>
-              <span className={`badge ${r.status === "done" ? "ok" : r.status === "error" ? "danger" : "accent"}`}>{r.status}</span>
-            </Link>
-          ))}
         </div>
       </div>
+
+      {left.length > 0 && (
+        <section className="left-dock" aria-label="Still to do">
+          <p>Still to do</p>
+          <ul>
+            {left.map((p) => (
+              <li key={p.key}>
+                <button type="button" onClick={() => start(p.ask)}>
+                  <span className="truncate">{p.line}</span>
+                  <small>{p.note}</small>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       {toast.node}
     </div>
   );

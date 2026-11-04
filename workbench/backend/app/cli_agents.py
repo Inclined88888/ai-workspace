@@ -1,4 +1,4 @@
-"""Coding agents you already have: hand a job to the user's own Claude Code (`claude`) or Codex (`codex`) CLI.
+"""Coding agents on this computer: Rooks' own terminal agent, plus Claude Code (`claude`) or Codex (`codex`) when those are signed in.
 
 Why this shape. Anthropic does not let other apps offer Claude.ai sign-in or route requests through a Claude plan's
 credentials, and apps may not collect or store Claude.ai tokens. It does allow a person to sign in to the unmodified
@@ -32,6 +32,14 @@ from typing import Any
 from . import actions, config, db
 
 AGENTS: dict[str, dict[str, Any]] = {
+    "rooks": {
+        "id": "rooks", "name": "Rooks", "bin": "rooks", "env": "WORKBENCH_ROOKS_BIN",
+        "plan": "The models already connected in Rooks",
+        "install": "Included with Rooks", "login": "",
+        "login_hint": "No separate sign-in. It uses the models already connected here.",
+        "docs": "", "terms": "",
+        "strip_env": (),
+    },
     "claude": {
         "id": "claude", "name": "Claude Code", "bin": "claude", "env": "WORKBENCH_CLAUDE_BIN",
         "plan": "Claude Pro, Max, Team or Enterprise",
@@ -62,7 +70,7 @@ AGENTS: dict[str, dict[str, Any]] = {
         "strip_env": (),
     },
 }
-CODING_AGENTS = ("claude", "codex")  # the Coding page runs these; Copilot is offered as a chat model only
+CODING_AGENTS = ("rooks", "claude", "codex")  # Rooks is the terminal agent; Claude Code and Codex stay if the person already uses them
 
 # What the user picks per job. Never a bypass mode.
 MODES = {
@@ -137,6 +145,12 @@ def detect(agent: str, fresh: bool = False) -> dict:
     info.update(installed=True, path=path)
     code, out, err = _run_quick([path, "--version"], agent)
     info["version"] = (out or err).strip().splitlines()[0][:80] if (out or err).strip() else ""
+    if agent == "rooks":
+        # The terminal agent uses the models already connected in this app. There is no second sign-in.
+        info.update(signed_in=True, auth="workspace", ready=True,
+                    detail="Uses the models already connected here. Asks before it changes a file or runs a command.")
+        _DETECT_CACHE[agent] = (time.time(), info)
+        return info
     if agent == "claude":
         code, out, _ = _run_quick([path, "auth", "status"], agent)
         try:
@@ -220,6 +234,7 @@ class Run:
         self.proc: asyncio.subprocess.Process | None = None
         self.rounds = 0
         self.git_base: str | None = None
+        self.rooks_wait: asyncio.Future | None = None  # the live terminal is waiting for y / n
 
     # -- public shape
     def summary(self) -> dict:
@@ -450,7 +465,58 @@ def compute_diff(run: Run) -> None:
 
 # ---- Running -------------------------------------------------------------------------------------------------------
 
+_ORIGIN = ""
+
+
+def note_origin(url: str) -> None:
+    """The address of this app, so a coding job can reach the models already connected here."""
+    global _ORIGIN
+    _ORIGIN = (url or "").rstrip("/")
+
+
+def _workbench_origin() -> str:
+    env = os.environ.get("WORKBENCH_URL", "").rstrip("/")
+    if env.endswith("/v1"):
+        env = env[:-3]
+    if env:
+        return env
+    if _ORIGIN and "testserver" not in _ORIGIN:
+        return _ORIGIN
+    return "http://127.0.0.1:8000"
+
+
+def coding_bridge_key() -> str:
+    """A key the terminal agent can use to call this app. Never put this in a run log or on screen."""
+    import secrets
+    if config.BROWSER_API_KEY:
+        return config.BROWSER_API_KEY
+    if config.DESK_API_KEY:
+        return config.DESK_API_KEY
+    if not config.CODING_BRIDGE_KEY:
+        config.CODING_BRIDGE_KEY = secrets.token_urlsafe(32)
+    return config.CODING_BRIDGE_KEY
+
+
+def rooks_env() -> dict[str, str]:
+    env = child_env("rooks")
+    env["WORKBENCH_URL"] = _workbench_origin()
+    env["WORKBENCH_API_KEY"] = coding_bridge_key()
+    env["PYTHONUNBUFFERED"] = "1"
+    env["ROOKS_PLAIN"] = "1"
+    return env
+
+
 def build_argv(run: Run, path: str, resume_prompt: str | None) -> list[str]:
+    if run.agent == "rooks":
+        argv = [path, "--no-color", "--no-stream", "-P", "workbench", "--base-url", _workbench_origin() + "/v1", "-C", run.folder]
+        if resume_prompt is not None:
+            argv.append("-c")
+        if run.mode == "plan":
+            argv.append("-n")
+        elif run.mode == "edits":
+            argv.append("-y")
+        argv.append(resume_prompt if resume_prompt is not None else run.task)
+        return argv
     if run.agent == "claude":
         mode = MODES[run.mode]["claude"]
         if mode == "manual":
@@ -469,7 +535,124 @@ def build_argv(run: Run, path: str, resume_prompt: str | None) -> list[str]:
     return [path, "exec", *common, "--color", "never", "--sandbox", sandbox, "-"]
 
 
+def _rooks_question(text: str) -> str:
+    """The terminal's ask line, even when it has not printed a newline yet."""
+    mark = text.find("[y]es")
+    if mark < 0 or "[n]o" not in text[mark:]:
+        return ""
+    start = text.rfind("\n", 0, mark) + 1
+    question = text[start:].strip()
+    return question if question.endswith(":") or question.endswith(": ") else question
+
+
+async def _drive_rooks(run: Run, prompt: str, resume: bool) -> None:
+    """Run the Rooks terminal agent in the folder. It asks on its own output; Allow writes y back to it."""
+    path = find_binary("rooks")
+    if not path:
+        run.status, run.error = "failed", "Rooks isn't installed on this computer."
+        run.add("result", text=run.error, error=True)
+        return _finish(run)
+    argv = build_argv(run, path, prompt if resume else None)
+    run.status = "running"
+    run.rounds += 1
+    run.pending = []
+    run.error = ""
+    run.session_id = run.session_id or "folder"
+    if run.rounds == 1:
+        run.git_base = await asyncio.to_thread(git_snapshot, run.folder)
+    kw: dict[str, Any] = {}
+    if sys.platform == "win32":
+        kw["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+    else:
+        kw["start_new_session"] = True
+    try:
+        run.proc = await asyncio.create_subprocess_exec(
+            *argv, cwd=run.folder, env=rooks_env(), stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, limit=8 * 1024 * 1024, **kw)
+    except OSError as e:
+        run.status, run.error = "failed", f"Couldn't start Rooks: {e}"
+        run.add("result", text=run.error, error=True)
+        return _finish(run)
+    assert run.proc.stdin and run.proc.stdout and run.proc.stderr
+    err_buf = bytearray()
+
+    async def read_err() -> None:
+        while chunk := await run.proc.stderr.read(4096):  # type: ignore[union-attr]
+            if len(err_buf) < 16000:
+                err_buf.extend(chunk)
+
+    err_task = asyncio.create_task(read_err())
+    buf = ""
+    last_save = time.time()
+
+    def emit(line: str) -> None:
+        nonlocal last_save
+        text = line.strip()
+        if text:
+            run.add("text", text=_clip(text, 2000))
+        if time.time() - last_save > 1:
+            run.save()
+            last_save = time.time()
+
+    while True:
+        chunk = await run.proc.stdout.read(4096)
+        if not chunk:
+            if buf.strip():
+                emit(buf)
+            break
+        buf += chunk.decode(errors="replace")
+        question = _rooks_question(buf)
+        if question:
+            earlier = buf[:buf.rfind(question)]
+            for line in earlier.splitlines():
+                emit(line)
+            buf = ""
+            run.pending = [{"id": f"rooks-{run.rounds}-{len(run.events)}", "tool": "change", "rule": "rooks:step",
+                            "label": question, "input": ""}]
+            run.status = "needs_approval"
+            run.add("note", text=question)
+            run.rooks_wait = asyncio.get_running_loop().create_future()
+            run.save()
+            answer = ""
+            try:
+                answer = await run.rooks_wait
+            except asyncio.CancelledError:
+                answer = ""
+            run.pending = []
+            if run.status == "needs_approval":
+                run.status = "running"
+            if answer and run.proc.returncode is None:
+                run.proc.stdin.write(f"{answer}\n".encode())
+                try:
+                    await run.proc.stdin.drain()
+                except (BrokenPipeError, ConnectionResetError, OSError):
+                    pass
+            if run.status == "stopped":
+                break
+            continue
+        if "\n" in buf:
+            done, buf = buf.rsplit("\n", 1)
+            for line in done.splitlines():
+                emit(line)
+    code = await run.proc.wait()
+    await err_task
+    run.proc = None
+    if run.status == "stopped":
+        return _finish(run)
+    if code != 0 and not run.error:
+        tail = err_buf.decode(errors="replace").strip().splitlines()[-3:]
+        run.error = _clip(" ".join(tail) or f"Rooks exited with code {code}", 800)
+    run.status = "failed" if run.error else "done"
+    if run.status == "done":
+        texts = [e.get("text", "") for e in run.events if e.get("kind") == "text" and e.get("text")]
+        run.result = texts[-1] if texts else ""
+    _finish(run)
+
+
 async def _drive(run: Run, prompt: str, resume: bool) -> None:
+    if run.agent == "rooks":
+        await _drive_rooks(run, prompt, resume)
+        return
     path = find_binary(run.agent)
     if not path:
         run.status, run.error = "failed", f"{AGENTS[run.agent]['name']} isn't installed. {AGENTS[run.agent]['install']}"
@@ -595,6 +778,12 @@ def approve(run: Run, rules: list[str] | None, note: str = "") -> None:
     run.allowed += [p["rule"] for p in chosen]
     labels = "; ".join(p["label"] for p in chosen)
     run.add("approved", text=labels)
+    if run.agent == "rooks" and run.rooks_wait is not None and not run.rooks_wait.done():
+        run.pending = []
+        run.status = "running"
+        run.save()
+        run.rooks_wait.set_result("y")
+        return
     prompt = (f"I approved these steps: {labels}. Go ahead with them and finish the task." + (f" {note}" if note else ""))
     asyncio.get_running_loop().create_task(_drive(run, prompt, resume=True))
 
@@ -602,8 +791,13 @@ def approve(run: Run, rules: list[str] | None, note: str = "") -> None:
 def deny(run: Run) -> None:
     if run.status != "needs_approval":
         raise ValueError("This job isn't waiting for approval.")
-    run.add("denied", text="You said no. Nothing else ran.")
+    run.add("denied", text="You said no." if run.agent == "rooks" else "You said no. Nothing else ran.")
     run.pending = []
+    if run.agent == "rooks" and run.rooks_wait is not None and not run.rooks_wait.done():
+        run.status = "running"
+        run.save()
+        run.rooks_wait.set_result("n")
+        return
     run.status = "done"
     run.ended_at = time.time()
     run.save()
@@ -611,7 +805,7 @@ def deny(run: Run) -> None:
 
 
 def follow_up(run: Run, text: str) -> None:
-    if run.status in ("queued", "running"):
+    if run.status in ("queued", "running") or (run.agent == "rooks" and run.proc and run.proc.returncode is None):
         raise ValueError("Wait for this job to finish first.")
     if not run.session_id:
         raise ValueError("This job can't be continued.")
@@ -624,6 +818,9 @@ def stop(run: Run) -> None:
     p = run.proc
     run.status = "stopped"
     run.add("note", text="Stopped by you.")
+    fut = run.rooks_wait
+    if fut is not None and not fut.done():
+        fut.cancel()
     if p and p.returncode is None:
         try:
             if sys.platform == "win32":

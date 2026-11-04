@@ -1,5 +1,5 @@
 // feat/v02-core: Projects with memory. One place per job, client, matter or course.
-import { Archive, Brain, CalendarClock, Check, FileText, FolderKanban, Globe2, Link2, MessageSquare, NotebookPen, Plus, Trash2, UserRound, X } from "lucide-react";
+import { Archive, Bell, Brain, CalendarClock, Check, FileText, FolderKanban, Globe2, Link2, Mail, MessageSquare, NotebookPen, Plus, Trash2, UserRound, X } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
@@ -18,7 +18,8 @@ const ADD: { kind: string; label: string; icon: typeof Plus; title?: string; bod
   { kind: "link", label: "Link", icon: Link2, title: "Web address" },
 ];
 const SECTIONS: { kind: string; label: string; icon: typeof Plus }[] = [
-  { kind: "deadline", label: "Deadlines", icon: CalendarClock }, { kind: "person", label: "People", icon: UserRound },
+  { kind: "deadline", label: "Deadlines", icon: CalendarClock }, { kind: "update", label: "What changed", icon: Bell },
+  { kind: "mail", label: "Mail", icon: Mail }, { kind: "person", label: "People", icon: UserRound },
   { kind: "note", label: "Notes", icon: NotebookPen }, { kind: "file", label: "Files", icon: FileText },
   { kind: "site", label: "Sites", icon: Globe2 }, { kind: "chat", label: "Chats", icon: MessageSquare }, { kind: "link", label: "Links", icon: Link2 },
 ];
@@ -79,9 +80,8 @@ export default function Projects() {
       {toast.node}
       <div className="page-head">
         <div>
-          <div className="v02-kicker">Your work</div>
           <h1>Projects</h1>
-          <p className="muted">One place for each job, client, case or course. Files, sites, chats, people and deadlines live together, and the assistant uses them whenever you mention the project.</p>
+          <p className="muted">One place for a job, a client, a case or a course.</p>
         </div>
         <button className="btn primary" onClick={startCreate}><Plus size={15} /> New project</button>
       </div>
@@ -180,9 +180,9 @@ export default function Projects() {
                           : it.kind === "file" ? <a href="/files" onClick={(e) => { e.preventDefault(); navigate("/files"); }}>{it.title}</a>
                           : it.kind === "site" ? <a href="/sites" onClick={(e) => { e.preventDefault(); navigate("/sites"); }}>{it.title}</a>
                           : it.kind === "link" ? <a href={it.ref} target="_blank" rel="noreferrer noopener">{it.title}</a>
+                          : it.kind === "mail" ? <a href="/mail" onClick={(e) => { e.preventDefault(); navigate("/mail"); }}>{it.title}</a>
                           : it.kind === "note" ? <span className="v02-note">{it.body}</span> : <span>{it.title}</span>}
-                        {it.kind === "person" && it.body && <span className="small muted"> · {it.body}</span>}
-                        {it.auto && <div className="small faint">Filed automatically: {it.reason}</div>}
+                        {(it.kind === "person" || it.kind === "mail") && it.body && <span className="small muted"> · {it.body}</span>}
                       </div>
                       {it.due && <span className={`small ${it.overdue ? "v02-late" : "muted"}`}>{it.overdue ? "Overdue · " : ""}{it.due}</span>}
                       <button className="btn ghost sm icon" aria-label="Take out of project" onClick={() => act(() => api(`/projects/items/${it.id}`, { method: "DELETE" }))}><X size={13} /></button>
@@ -190,7 +190,7 @@ export default function Projects() {
                   ))}
                 </section>
               ))}
-              {!SECTIONS.some((s) => sel.items[s.kind]?.length) && <Empty title="Nothing here yet" hint="Add a person, deadline or note above. Chats and files that mention this project are filed here automatically." />}
+              {!SECTIONS.some((s) => sel.items[s.kind]?.length) && <Empty title="Nothing here yet" hint="Add a person, a deadline or a note." />}
 
               {sel.facts.length > 0 && (
                 <section className="v02-section">

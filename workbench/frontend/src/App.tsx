@@ -1,9 +1,8 @@
 import {
-  Activity, Gauge, Bot, Brain, Building2, CalendarClock, CalendarDays, ChevronRight, MessageSquare, CheckSquare, Globe, Columns3, ExternalLink, FileText, Home, LogOut, Mail, Menu, NotebookPen,
+  Activity, Gauge, Bot, Brain, Building2, CalendarClock, CalendarDays, ChevronRight, MessageSquare, CheckSquare, Globe, Columns3, ExternalLink, FileText, Home, Info, LogOut, Mail, Menu, NotebookPen, Pin, PinOff, Shield,
   Code2, FolderOpen, Globe2, GraduationCap, ListTree, Monitor, Palette as PaletteIcon, Plug, Sparkles, Puzzle, Search, Settings as SettingsIcon,
   Layers, // feat/v02-automations
   AudioLines, Users, // feat/v02-anywhere-voice
-  Package, // feat/v02-packs
   UsersRound, // feat/team-lead
 } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
@@ -15,6 +14,7 @@ import PagesLib from "./teammates/Pages"; // feat/grok-style
 import Channels from "./teammates/Channels"; // feat/grok-style
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { api } from "./api";
+import { movePage, pinPage, readSidebar, sidebarKey, unpinPage } from "./navOrder";
 import { EdgeGlow, transitionClick } from "./motion";
 import Assistant from "./pages/Assistant";
 import Auth from "./pages/Auth";
@@ -38,9 +38,11 @@ import Insights from "./pages/Insights"; // phase 3: usage trends
 import FineTune from "./pages/FineTune"; // phase 4: datasets from chats, hosted training
 import Status from "./pages/Status";
 import Settings from "./pages/Settings";
+import About from "./pages/About";
+import Privacy from "./pages/Privacy";
 import Skills from "./pages/Skills";
 import Tasks from "./pages/Tasks";
-import Welcome from "./pages/Welcome";
+import Welcome, { AccountsStep } from "./pages/Welcome";
 import Models from "./pages/Models";
 import AboutYou from "./pages/AboutYou"; // adapt and learn (feat/learn-and-adapt)
 import Teach from "./pages/Teach"; // adapt and learn (feat/learn-and-adapt)
@@ -61,10 +63,6 @@ import { FlaskConical, Mic, SquareTerminal, UserRound, Video } from "lucide-reac
 import Projects from "./pages/Projects"; // feat/v02-core
 import HistoryPage from "./pages/History"; // feat/v02-core
 import McpServers from "./pages/McpServers"; // feat/mcp-client
-import Packs from "./pages/Packs"; // feat/v02-packs
-import PackTrade from "./pages/PackTrade"; // feat/v02-packs
-import PackLegal from "./pages/PackLegal"; // feat/v02-packs
-import PackStudy from "./pages/PackStudy"; // feat/v02-packs
 import Knowledge from "./memory/Knowledge"; // feat/memory-core
 import Team from "./team/Team"; // feat/team-lead
 const TerminalPage = lazy(() => import("./pages/TerminalPage")); // #7: xterm.js loads only on this page
@@ -84,6 +82,8 @@ export type Status = {
   /** Running inside the native desktop app (desktop/), which signs the window in itself. */
   desktop?: boolean;
   welcome_done?: boolean;
+  /** The Gmail / Apple / Microsoft / ChatGPT / Claude step has been shown. */
+  signins_offered?: boolean;
   welcome_pending?: boolean;
   needs_models?: boolean;
 };
@@ -92,33 +92,30 @@ type NavItem = { to: string; label: string; icon: typeof Home; addon?: "browser"
 type NavGroup = { section?: string; collapsible?: boolean; items: NavItem[] };
 
 /**
- * Navigation, one job per place: what you open daily is always visible (12 entries at most); everything else folds into
- * More, Settings and Advanced, and Search ({MOD_KEY} K) finds any page. Every page keeps its route.
+ * The sidebar shows a day's work. Everything else is under More, Settings or Advanced, and Search finds any page.
+ * Every page keeps its route.
  */
 const NAV: NavGroup[] = [
   { items: [
     { to: "/", label: "Home", icon: Home },
     { to: "/assistant", label: "Chat", icon: MessageSquare },
-  ] },
-  { section: "Today", items: [
     { to: "/mail", label: "Mail", icon: Mail },
     { to: "/calendar", label: "Calendar", icon: CalendarDays },
     { to: "/tasks", label: "Tasks", icon: CheckSquare },
-    { to: "/team", label: "Team", icon: UsersRound }, // feat/team-lead
-  ] },
-  { section: "Your stuff", items: [
     { to: "/notes", label: "Notes", icon: NotebookPen },
-    { to: "/files", label: "Files", icon: FolderOpen },
-    { to: "/research", label: "Research", icon: Search },
-  ] },
-  { section: "Do it for me", items: [
-    { to: "/browser", label: "Browser", icon: Globe, addon: "browser" },
-    { to: "/computer", label: "Computer", icon: Monitor, addon: "desk" },
-    { to: "/automations", label: "Automations", icon: CalendarClock },
-    { to: "/code", label: "Coding", icon: Code2 },
-    { to: "/terminal", label: "Terminal", icon: SquareTerminal }, // #7
   ] },
   { section: "More", collapsible: true, items: [
+    { to: "/teach", label: "Show me how", icon: GraduationCap },
+    { to: "/files", label: "Files", icon: FolderOpen },
+    { to: "/knowledge", label: "Memory", icon: Brain },
+    { to: "/skills", label: "Skills", icon: Puzzle },
+    { to: "/automations", label: "Automations", icon: CalendarClock },
+    { to: "/browser", label: "Browser", icon: Globe, addon: "browser" },
+    { to: "/computer", label: "Computer", icon: Monitor, addon: "desk" },
+    { to: "/code", label: "Coding", icon: Code2 },
+    { to: "/terminal", label: "Terminal", icon: SquareTerminal },
+    { to: "/team", label: "Team", icon: UsersRound },
+    { to: "/research", label: "Research", icon: Search },
     { to: "/projects", label: "Projects", icon: FolderKanban },
     { to: "/meetings", label: "Meetings", icon: Video },
     { to: "/documents", label: "Documents", icon: FileText },
@@ -127,13 +124,8 @@ const NAV: NavGroup[] = [
     { to: "/teammates", label: "Teammates", icon: Users },
     { to: "/channels", label: "Channels", icon: MessageCircleIcon },
     { to: "/talk", label: "Talk", icon: AudioLines },
-    { to: "/knowledge", label: "Memory", icon: Brain },
     { to: "/vault", label: "Vault", icon: LockIcon },
     { to: "/sites", label: "Sites", icon: Globe2 },
-    { to: "/skills", label: "Skills", icon: Puzzle },
-    { to: "/mcp", label: "MCP servers", icon: Plug },
-    { to: "/packs", label: "Packs", icon: Package },
-    { to: "/teach", label: "Show me how", icon: GraduationCap },
   ] },
   { section: "Settings", collapsible: true, items: [
     { to: "/models", label: "AI models", icon: Gauge },
@@ -142,6 +134,8 @@ const NAV: NavGroup[] = [
     { to: "/voice", label: "Ask anywhere & voice", icon: Mic },
     { to: "/appearance", label: "Appearance", icon: PaletteIcon },
     { to: "/plan", label: "Your plan", icon: Sparkles },
+    { to: "/about", label: "About", icon: Info },
+    { to: "/privacy", label: "Privacy", icon: Shield },
   ] },
   { section: "Advanced", collapsible: true, items: [
     { to: "/history", label: "History", icon: HistoryIcon },
@@ -151,10 +145,44 @@ const NAV: NavGroup[] = [
     { to: "/fine-tune", label: "Fine-tune", icon: FlaskConical },
     { to: "/company", label: "Company", icon: Building2 },
     { to: "/status", label: "System status", icon: Activity },
+    { to: "/mcp", label: "MCP servers", icon: Plug },
   ] },
 ];
 
-const foldKey = (section: string) => `wb-nav-${section.toLowerCase()}`; // wb-nav-more and wb-nav-advanced as before
+const foldKey = (section: string) => `wb-nav3-${section.toLowerCase()}`;
+const KNOWN_PAGES = NAV.flatMap((g) => g.items.map((i) => i.to));
+
+function NavRow({ item, pinned, onPin, onUnpin, onDrop }: {
+  item: NavItem;
+  pinned?: boolean;
+  onPin?: () => void;
+  onUnpin?: () => void;
+  onDrop?: (from: string) => void;
+}) {
+  const navigate = useNavigate();
+  return (
+    <div
+      className="nav-row"
+      draggable={!!pinned}
+      onDragStart={pinned ? (e) => { e.dataTransfer.setData("text/plain", item.to); e.dataTransfer.effectAllowed = "move"; } : undefined}
+      onDragOver={pinned ? (e) => { e.preventDefault(); } : undefined}
+      onDrop={pinned ? (e) => { e.preventDefault(); const from = e.dataTransfer.getData("text/plain"); if (from && from !== item.to) onDrop?.(from); } : undefined}
+    >
+      <NavLink to={item.to} end={item.to === "/"} className="nav-link" onClick={transitionClick(() => navigate(item.to))}>
+        {({ isActive }) => <>{isActive && <span className="nav-ind" aria-hidden="true" />}<item.icon size={16} /> <span className="truncate">{item.label}</span></>}
+      </NavLink>
+      <button
+        type="button"
+        className="nav-pin"
+        aria-label={pinned ? `Unpin ${item.label}` : `Pin ${item.label}`}
+        title={pinned ? "Take off the sidebar" : "Keep on the sidebar"}
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); (pinned ? onUnpin : onPin)?.(); }}
+      >
+        {pinned ? <PinOff size={13} /> : <Pin size={13} />}
+      </button>
+    </div>
+  );
+}
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 export const MOD_KEY = isMac ? "⌘" : "Ctrl";
@@ -178,7 +206,7 @@ function DeskGlow({ enabled }: { enabled: boolean }) {
 }
 
 function Boot() {
-  return <div className="boot" role="status" aria-label="Loading"><div className="wordmark lg">AI Workspace</div></div>;
+  return <div className="boot" role="status" aria-label="Loading"><div className="wordmark lg">Rooks</div></div>;
 }
 
 export default function App() {
@@ -195,7 +223,7 @@ export default function App() {
         setStatus(s);
         setError("");
         // the product name on the sign-in screen and the desktop app, after the workspace's own name when it has one
-        document.title = s.workspace_name && s.workspace_name !== "AI Workspace" ? `${s.workspace_name} · AI Workspace` : "AI Workspace";
+        document.title = s.workspace_name && s.workspace_name !== "Rooks" ? `${s.workspace_name} · Rooks` : "Rooks";
       })
       .catch((e) => setError(e.message));
   }, []);
@@ -228,11 +256,17 @@ export default function App() {
     () => NAV.map((g) => ({ ...g, items: g.items.filter((i) => !i.addon || (i.addon === "browser" && status?.browser_enabled) || (i.addon === "desk" && status?.desk_enabled)) })),
     [status?.browser_enabled, status?.desk_enabled],
   );
+  const [side, setSide] = useState<string[]>(() => readSidebar(localStorage.getItem(sidebarKey()), KNOWN_PAGES));
+  const writeSide = (next: string[]) => {
+    setSide(next);
+    localStorage.setItem(sidebarKey(), JSON.stringify(next));
+  };
+  const pinnedItems = side.map((p) => nav.flatMap((g) => g.items).find((i) => i.to === p)).filter((i): i is NavItem => !!i);
+  const pinnedSet = new Set(pinnedItems.map((i) => i.to));
   const palettePages = useMemo(
     () => [...nav.flatMap((g) => g.items.map((i) => ({ to: i.to, label: i.label, icon: i.icon })))],
     [nav],
   );
-  const inGroup = (g: NavGroup) => g.items.some((i) => location.pathname === i.to || location.pathname.startsWith(i.to + "/"));
   const toggleFold = (name: string) => setFolds((f) => {
     const open = !f[name];
     localStorage.setItem(foldKey(name), open ? "1" : "0");
@@ -245,13 +279,20 @@ export default function App() {
   if (!status) return <Boot />;
   if (!status.setup_complete || !status.signed_in) {
     if (status.desktop) {
-      return <div className="auth"><div className="card auth-card"><div className="alert" role="status">Your session ended. Close and reopen AI Workspace to sign back in.</div></div></div>;
+      return <div className="auth"><div className="card auth-card"><div className="alert" role="status">Your session ended. Close and reopen Rooks to sign back in.</div></div></div>;
     }
     return <Auth status={status} onDone={refresh} />;
   }
   if (location.pathname === "/ask-bar") return <AskBar />; // feat/v02-anywhere-voice: the floating window, no sidebar
   if (status.welcome_pending || ((status.desktop || status.needs_models) && !status.welcome_done)) {
     return <Welcome onDone={() => { refresh(); navigate("/assistant", { replace: true }); }} />;
+  }
+  if (!status.signins_offered) {
+    return (
+      <div className="auth">
+        <div className="card auth-card welcome-card"><AccountsStep onNext={refresh} /></div>
+      </div>
+    );
   }
 
   const logout = async () => {
@@ -268,19 +309,21 @@ export default function App() {
         <button type="button" className="sidebar-search" onClick={() => setPaletteOpen(true)} aria-keyshortcuts="Meta+K Control+K">
           <Search size={14} /> <span>Search</span> <span className="kbd">{MOD_KEY} K</span>
         </button>
-        {nav.map((g, gi) => {
-          const open = !g.collapsible || !!folds[g.section ?? ""] || inGroup(g);
+        {pinnedItems.map((item) => (
+          <NavRow key={item.to} item={item} pinned onUnpin={() => writeSide(unpinPage(side, item.to))} onDrop={(from) => writeSide(movePage(side, from, item.to))} />
+        ))}
+        {nav.filter((g) => g.section).map((g, gi) => {
+          const items = g.items.filter((i) => !pinnedSet.has(i.to));
+          const extras = g.section === "Advanced" && (status.chat_url || status.paperclip_url || status.hermes_url);
+          if (!items.length && !extras) return null;
+          const open = !!folds[g.section ?? ""] || items.some((i) => location.pathname === i.to || location.pathname.startsWith(i.to + "/"));
           return (
-            <div key={gi} className="nav-group">
-              {g.section && (g.collapsible ? (
-                <button type="button" className="nav-section nav-toggle" aria-expanded={open} onClick={() => toggleFold(g.section ?? "")}>
-                  <span className="grow">{g.section}</span><ChevronRight size={12} className="chev" />
-                </button>
-              ) : <div className="nav-section">{g.section}</div>)}
-              {open && g.items.map((item) => (
-                <NavLink key={item.to} to={item.to} end={item.to === "/"} className="nav-link" onClick={transitionClick(() => navigate(item.to))}>
-                  {({ isActive }) => <>{isActive && <span className="nav-ind" aria-hidden="true" />}<item.icon size={16} /> <span className="truncate">{item.label}</span></>}
-                </NavLink>
+            <div key={g.section ?? gi} className="nav-group">
+              <button type="button" className="nav-section nav-toggle" aria-expanded={open} onClick={() => toggleFold(g.section ?? "")}>
+                <span className="grow">{g.section}</span><ChevronRight size={12} className="chev" />
+              </button>
+              {open && items.map((item) => (
+                <NavRow key={item.to} item={item} onPin={() => writeSide(pinPage(side, item.to, KNOWN_PAGES))} />
               ))}
               {open && g.section === "Advanced" && (
                 <>
@@ -318,11 +361,8 @@ export default function App() {
           <Route path="/knowledge" element={<Knowledge />} />{/* feat/memory-core */}
           <Route path="/teach" element={<Teach />} />
           <Route path="/teach/:id" element={<Teach />} />
-          {/* feat/v02-packs */}
-          <Route path="/packs" element={<Packs />} />
-          <Route path="/packs/trade" element={<PackTrade />} />
-          <Route path="/packs/legal" element={<PackLegal />} />
-          <Route path="/packs/study" element={<PackStudy />} />
+          <Route path="/packs" element={<Navigate to="/" replace />} />
+          <Route path="/packs/*" element={<Navigate to="/" replace />} />
           <Route path="/appearance" element={<Appearance />} />
           <Route path="/appearance/motion" element={<MotionLab />} />
           <Route path="/models" element={<Models />} />
@@ -367,6 +407,8 @@ export default function App() {
           <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/mail" element={<MailPage />} />
           <Route path="/settings" element={<Settings onChanged={refresh} />} />
+          <Route path="/about" element={<About />} />
+          <Route path="/privacy" element={<Privacy />} />
           <Route path="/plan" element={<Plan />} />
           {/* feat/v02-anywhere-voice */}
           <Route path="/talk" element={<Talk />} />

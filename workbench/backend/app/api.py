@@ -67,12 +67,40 @@ def status(request: Request):
         "local_models_enabled": bool(config.OLLAMA_URL),
         "desktop": config.DESKTOP,
         "welcome_done": db.get_setting("desktop_welcome_done") == "1",
+        "signins_offered": db.get_setting("signins_offered") == "1",
         "welcome_pending": db.get_setting("desktop_welcome_done") == "0",
+        "trade": _trade(),
+    }
+
+
+@api.get("/connections/doctor")
+def connections_doctor():
+    """Plain-language health of models, browser, computer, and mail. Docker is never required for the desktop app."""
+    enabled = db.all("SELECT id, name, auth_kind, protocol FROM connections WHERE enabled = 1")
+    plans = [c for c in enabled if (c.get("auth_kind") or "") in ("oauth_subscription",) or (c.get("protocol") or "") == "cli_plan"]
+    mail_n = (db.one("SELECT COUNT(*) AS n FROM mail_accounts") or {"n": 0})["n"]
+    roles = {r["life_role"]: r["n"] for r in db.all("SELECT life_role, COUNT(*) AS n FROM mail_accounts GROUP BY life_role")}
+    notes = [
+        "The desktop app runs without Docker. Optional add-ons (search, a heavy browser image) are only if you turn them on.",
+    ]
+    if plans:
+        notes.append("A Claude or ChatGPT plan in Chat is a limited chat mode. Full coding with that plan is on the Coding page.")
+    if not enabled:
+        notes.append("No model is connected yet. Open AI models and add a key, a plan, or a local model.")
+    return {
+        "models_connected": len(enabled),
+        "plan_connections": len(plans),
+        "browser_ready": bool(config.BROWSER_URL and config.BROWSER_API_KEY),
+        "computer_ready": bool(config.DESK_URL and config.DESK_API_KEY),
+        "mail_accounts": mail_n,
+        "mail_roles": roles,
+        "docker_required": False,
+        "notes": notes,
     }
 
 
 class SetupIn(BaseModel):
-    password: str = Field(..., min_length=10, max_length=200)
+    password: str = Field(..., min_length=6, max_length=200)
     setup_code: str = ""
     workspace_name: str = Field("", max_length=80)
     timezone: str = Field("", max_length=64)  # the browser's zone, used when the server can't tell (Docker: UTC)
@@ -175,7 +203,7 @@ def login(data: LoginIn, request: Request, response: Response):
     throttle(request.client.host if request.client else "?")
     stored = db.get_setting("password_hash")
     if not stored or not verify_password(data.password, stored):
-        raise HTTPException(401, "Wrong password")
+        raise HTTPException(401, "That PIN or password isn't the one you created.")
     _login(response)
     return {"ok": True}
 
@@ -186,9 +214,23 @@ def logout(response: Response):
     return {"ok": True}
 
 
+@public.post("/lock/reset")
+def reset_lock(request: Request):
+    """A forgotten PIN cannot be read back. On this computer, drop the lock so a new one can be set. Work stays."""
+    host = request.client.host if request.client else ""
+    if host not in ("127.0.0.1", "::1", "localhost", "testclient"):
+        throttle(host or "?")
+        raise HTTPException(403, "A new PIN can only be set on this computer.")
+    throttle(host)
+    db.set_setting("password_hash", "")
+    db.set_setting("setup_complete", "0")
+    db.set_setting("session_generation", secrets.token_hex(8))
+    return {"ok": True}
+
+
 class PasswordIn(BaseModel):
     current: str
-    new: str = Field(..., min_length=10, max_length=200)
+    new: str = Field(..., min_length=6, max_length=200)
 
 
 @api.post("/password")
@@ -204,6 +246,14 @@ def change_password(data: PasswordIn, response: Response):
 @api.post("/desktop/welcome-done")
 def desktop_welcome_done():
     db.set_setting("desktop_welcome_done", "1")
+    db.set_setting("signins_offered", "1")
+    return {"ok": True}
+
+
+@api.post("/desktop/signins-done")
+def signins_done():
+    """The post-PIN sign-in screen (Gmail, Apple, Microsoft, ChatGPT, Claude, Grok) has been shown."""
+    db.set_setting("signins_offered", "1")
     return {"ok": True}
 
 
@@ -564,13 +614,43 @@ async def ollama_pull(data: PullIn):
     return sse(gen())
 
 
+def _trade() -> str:
+    from . import projects
+
+    return projects.current_trade()
+
+
+class TradeIn(BaseModel):
+    trade: str = ""
+
+
+@api.get("/trade")
+def get_trade():
+    return {"trade": _trade()}
+
+
+@api.put("/trade")
+def put_trade(data: TradeIn):
+    from . import projects
+
+    return {"trade": projects.set_trade(data.trade)}
+
+
 # Dashboard
 @api.get("/dashboard")
 def dashboard():
+    from . import projects
+
+    try:
+        customers = projects.today_lines()
+    except Exception:  # noqa: BLE001 - home still loads if a project table is mid-migration
+        customers = []
     return {
         **services.agenda(7),
         "recent_docs": services.list_docs(limit=6),
         "research": db.all("SELECT id, question, status, created_at FROM research ORDER BY id DESC LIMIT 5"),
+        "customers": customers,
+        "trade": _trade(),
     }
 
 
@@ -823,7 +903,7 @@ def mac_mail_settings():
     from . import mac_mail
 
     if not mac_mail.available():
-        raise HTTPException(400, "Only on a Mac")
+        raise HTTPException(400, "The sign-in window isn't available here. Use a password instead.")
     subprocess.Popen(["open", "x-apple.systempreferences:com.apple.Internet-Accounts-Settings.extension"])
     return {"ok": True}
 
@@ -845,6 +925,7 @@ class MailAccountIn(BaseModel):
     smtp_security: Literal["ssl", "starttls"] = "ssl"
     username: str = Field(..., min_length=1)
     password: str = Field(..., min_length=1)
+    life_role: Literal["work", "personal", "other"] = "other"
 
 
 @api.post("/mail/accounts")
@@ -859,13 +940,29 @@ async def add_mail_account(data: MailAccountIn):
             raise
         row["username"] = local
         await asyncio.to_thread(mail.test, row)
+    role = row.get("life_role") or "other"
+    if role not in ("work", "personal", "other"):
+        role = "other"
     aid = db.run(
-        "INSERT INTO mail_accounts(name, email, imap_host, imap_port, smtp_host, smtp_port, smtp_security, username, password_enc) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO mail_accounts(name, email, imap_host, imap_port, smtp_host, smtp_port, smtp_security, username, "
+        "password_enc, life_role) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         row["name"], row["email"], row["imap_host"], row["imap_port"], row["smtp_host"], row["smtp_port"],
-        row["smtp_security"], row["username"], row["password_enc"],
+        row["smtp_security"], row["username"], row["password_enc"], role,
     )
     return {"id": aid}
+
+
+class MailRoleIn(BaseModel):
+    life_role: Literal["work", "personal", "other"]
+
+
+@api.patch("/mail/accounts/{aid}")
+def patch_mail_account(aid: int, data: MailRoleIn):
+    """Set whether this mailbox is work, personal, or other — so Chat can pick the right one."""
+    if not db.one("SELECT id FROM mail_accounts WHERE id = ?", aid):
+        raise HTTPException(404, "No mail account with that id")
+    db.run("UPDATE mail_accounts SET life_role = ? WHERE id = ?", data.life_role, aid)
+    return {"id": aid, "life_role": data.life_role}
 
 
 @api.delete("/mail/accounts/{aid}")
@@ -879,7 +976,14 @@ def delete_mail_account(aid: int):
 
 @api.get("/mail/{aid}/messages")
 async def mail_list(aid: int, folder: str = "INBOX", q: str = ""):
-    return await asyncio.to_thread(mail.list_messages, _account(aid), folder, 50, q)
+    rows = await asyncio.to_thread(mail.list_messages, _account(aid), folder, 50, q)
+    try:
+        from . import projects
+
+        projects.file_mail(aid, rows, folder)
+    except Exception:  # noqa: BLE001 - listing mail must not fail because filing did
+        pass
+    return rows
 
 
 @api.get("/mail/{aid}/messages/{uid:path}")

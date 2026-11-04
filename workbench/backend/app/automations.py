@@ -391,6 +391,90 @@ def delete(aid: int) -> dict:
     return {"ok": True}
 
 
+# Repeated work: offer to save it once the same task shows up often enough.
+OFFER_KEY = "automation_offer"          # 2 | 3 | always | off
+SKIP_KEY = "automation_offer_skip"
+OFFER_WHEN = ("2", "3", "always", "off")
+
+
+def _fp(text: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]", " ", (text or "").lower())).strip()[:160]
+
+
+def offer_when() -> str:
+    w = db.get_setting(OFFER_KEY, "2") or "2"
+    return w if w in OFFER_WHEN else "2"
+
+
+def set_offer_when(w: str) -> str:
+    if w not in OFFER_WHEN:
+        raise HTTPException(400, "Choose twice, three times, every time, or never.")
+    db.set_setting(OFFER_KEY, w)
+    return w
+
+
+def _skipped() -> list[str]:
+    try:
+        raw = json.loads(db.get_setting(SKIP_KEY, "[]") or "[]")
+    except ValueError:
+        raw = []
+    return [x for x in raw if isinstance(x, str)]
+
+
+def skip_offer(key: str) -> None:
+    keys = _skipped()
+    if key and key not in keys:
+        keys.append(key[:160])
+    db.set_setting(SKIP_KEY, json.dumps(keys[-80:]))
+
+
+def _already_saved(key: str) -> bool:
+    ensure()
+    for r in db.all("SELECT action FROM automations"):
+        try:
+            act = json.loads(r["action"] or "{}")
+        except ValueError:
+            continue
+        if _fp(str(act.get("prompt") or "")) == key:
+            return True
+    return False
+
+
+def habit_offer(text: str) -> dict | None:
+    """Ask to save a task the user keeps doing. None when it is too short, turned off, dismissed, or already saved."""
+    when = offer_when()
+    if when == "off":
+        return None
+    key = _fp(text)
+    if len(key) < 24 or key in _skipped() or _already_saved(key):
+        return None
+    rows = db.all("SELECT content FROM messages WHERE role = 'user' ORDER BY id DESC LIMIT 300")
+    times = sum(1 for r in rows if _fp(r["content"]) == key)
+    need = 1 if when == "always" else int(when)
+    if times < need:
+        return None
+    name = ((text or "").strip().splitlines() or ["Repeated task"])[0][:60]
+    line = ("Save this as an automation? It runs on weekday mornings and asks you before it starts." if times == 1
+            else f"You've done this {times} times. Save it as an automation? It asks you before it runs.")
+    return {"key": key, "times": times, "name": name, "request": (text or "").strip()[:1000], "line": line}
+
+
+def save_habit(request: str, name: str = "") -> dict:
+    """Weekday morning, and it still asks before it runs. The when can be changed on the Automations page."""
+    text = (request or "").strip()
+    if len(_fp(text)) < 24:
+        raise HTTPException(400, "That task is too short to save.")
+    return create({
+        "name": ((name or text.splitlines()[0]).strip() or "Repeated task")[:60],
+        "request": text[:1000],
+        "trigger_kind": "schedule",
+        "trigger": {"cron": "0 8 * * 1-5"},
+        "action_kind": "task",
+        "action": {"prompt": text[:1000]},
+        "ask_first": True,
+    })
+
+
 # --- firing ----------------------------------------------------------------------------------------------------------------
 def _state(aid: int) -> dict:
     r = db.one("SELECT state FROM automations WHERE id = ?", aid)

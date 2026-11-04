@@ -307,6 +307,19 @@ def test_edits_and_thumbs_become_lessons(client, fakes, model):
     assert any("trade price" in l["lesson"] for l in client.get("/api/learn/lessons").json())
 
 
+def test_a_shown_task_can_be_checked_each_morning(client):
+    """Once they show where to look, weekday mornings go there and report what changed."""
+    from app.adapt import playbooks
+
+    pb = playbooks.save({"name": "Xero invoices", "surface": "browser", "start_url": "https://go.xero.com",
+                         "steps": [{"action": "navigate", "text": "Open the invoices that are waiting for payment"}]}, status="ready")
+    r = client.post(f"/api/learn/playbooks/{pb['id']}/each-morning").json()
+    assert r["already"] is False and r["schedule"]["cron"] == "30 7 * * 1-5"
+    assert f"run_playbook with id {pb['id']}" in r["schedule"]["prompt"]
+    again = client.post(f"/api/learn/playbooks/{pb['id']}/each-morning").json()
+    assert again["already"] is True and again["schedule"]["id"] == r["schedule"]["id"]
+
+
 def test_run_playbook_tool_is_offered(client):
     CALLS.clear()
     SCRIPT[:] = [{"role": "assistant", "content": "ok"}]

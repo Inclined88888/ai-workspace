@@ -12,12 +12,36 @@ log = logging.getLogger("adapt")
 
 def context(user_text: str) -> list[str]:
     """Extra system prompt parts for this turn (assistant.system_prompt)."""
+    parts: list[str] = []
     try:
         block = knowledge.context_block(user_text or "")
-        return [block] if block else []
+        if block:
+            parts.append(block)
     except Exception as e:  # noqa: BLE001 - never break a chat turn
         log.warning("adapt context failed: %s", e)
-        return []
+    try:
+        shown = _shown()
+        if shown:
+            parts.append(shown)
+    except Exception as e:  # noqa: BLE001
+        log.warning("adapt shown tasks failed: %s", e)
+    return parts
+
+
+def _shown() -> str:
+    """The places they showed, so planning the day can go there and click through."""
+    from . import playbooks
+
+    rows = [p for p in playbooks.all_playbooks() if p.get("steps")][:8]
+    if not rows:
+        return ""
+    lines = ["Tasks this person showed you, and where they start. When they ask you to plan the day, check for updates, "
+             "or do one of these, call run_playbook with the id. Go to that place and click through it the way they showed you. "
+             "Then write the plan: what to do today, in order. Do not ask them to add a site."]
+    for p in rows:
+        where = (p.get("start_url") or "").strip()
+        lines.append(f"- {p['id']}: {p['name']}" + (f", starts at {where}" if where else ""))
+    return "\n".join(lines)
 
 
 def memory_replaces_legacy() -> bool:

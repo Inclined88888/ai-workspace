@@ -4,6 +4,7 @@
 /v1/rooks/skills/check  check a GitHub skill for the Skills page (installing stays in the app)
 /v1/rooks/memory     the facts the app keeps (the terminal's /memory)
 /v1/rooks/skills/N   one skill's steps (counts as a use, like load_skill in chat)
+/v1/rooks/history    search past Chat and terminal turns (FTS) for /history in the terminal
 /v1/rooks/remember   save a fact the user stated in the terminal (same store as chat's remember tool)
 /v1/rooks/turn       a finished terminal request: kept as a conversation (shown in the app's chat history as a
                      terminal chat) and mined in the background for facts and reusable skills, exactly like a chat turn
@@ -46,6 +47,46 @@ def memory():
 
     facts = [{"content": f["content"], "category": f.get("category", "")} for f in knowledge.all_facts()[:40]]
     return {"facts": facts, "learning": learn.enabled()}
+
+
+@router.get("/history")
+def history(q: str = "", limit: int = 12):
+    """Full-text search over past Chat and terminal messages. Used by rooks /history."""
+    q = (q or "").strip()
+    limit = max(1, min(int(limit or 12), 30))
+    if not q:
+        rows = db.all(
+            "SELECT m.content, m.role, m.created_at, c.id AS conversation_id, c.title, c.channel "
+            "FROM messages m JOIN conversations c ON c.id = m.conversation_id "
+            "WHERE m.role IN ('user', 'assistant') ORDER BY m.id DESC LIMIT ?", limit)
+    else:
+        from . import services
+        fts = services._fts_query(q) if hasattr(services, "_fts_query") else ""
+        if fts.strip():
+            try:
+                rows = db.all(
+                    "SELECT m.content, m.role, m.created_at, c.id AS conversation_id, c.title, c.channel "
+                    "FROM messages_fts JOIN messages m ON m.id = messages_fts.rowid "
+                    "JOIN conversations c ON c.id = m.conversation_id "
+                    "WHERE messages_fts MATCH ? AND m.role IN ('user', 'assistant') "
+                    "ORDER BY bm25(messages_fts) LIMIT ?", fts, limit)
+            except Exception:  # noqa: BLE001 - FTS can fail on odd queries; fall back
+                rows = db.all(
+                    "SELECT m.content, m.role, m.created_at, c.id AS conversation_id, c.title, c.channel "
+                    "FROM messages m JOIN conversations c ON c.id = m.conversation_id "
+                    "WHERE m.role IN ('user', 'assistant') AND m.content LIKE ? "
+                    "ORDER BY m.id DESC LIMIT ?", f"%{q[:80]}%", limit)
+        else:
+            rows = db.all(
+                "SELECT m.content, m.role, m.created_at, c.id AS conversation_id, c.title, c.channel "
+                "FROM messages m JOIN conversations c ON c.id = m.conversation_id "
+                "WHERE m.role IN ('user', 'assistant') AND m.content LIKE ? "
+                "ORDER BY m.id DESC LIMIT ?", f"%{q[:80]}%", limit)
+    return {"results": [
+        {"conversation_id": r["conversation_id"], "title": r["title"] or "Chat", "channel": r["channel"],
+         "role": r["role"], "when": r["created_at"], "snippet": (r["content"] or "")[:280]}
+        for r in rows
+    ]}
 
 
 @router.get("/skills/{name}")

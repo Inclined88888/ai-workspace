@@ -171,6 +171,52 @@ def test_non_git_folder_diff_comes_from_edit_steps(client, fakes, tmp_path):
     assert "+hello from claude" in run["diff"] and run["files"][0].endswith("hello.txt")
 
 
+def test_rooks_asks_before_it_changes_a_file(client, fakes, monkeypatch):
+    from app import cli_agents, config
+
+    monkeypatch.setenv("WORKBENCH_ROOKS_BIN", str(FIX / "fake_rooks"))
+    monkeypatch.setenv("FAKE_ROOKS_LOG", str(fakes["tmp"] / "rooks.log"))
+    monkeypatch.setattr(config, "BROWSER_API_KEY", "")
+    monkeypatch.setattr(config, "DESK_API_KEY", "")
+    monkeypatch.setattr(config, "CODING_BRIDGE_KEY", "bridge-key-should-stay-off-the-page")
+    cli_agents._DETECT_CACHE.clear()
+    by = {a["id"]: a for a in client.get("/api/cli-agents?fresh=true").json()["agents"]}
+    assert by["rooks"]["ready"] and by["rooks"]["auth"] == "workspace" and by["rooks"]["name"] == "Rooks"
+    assert list(by)[0] == "rooks"
+
+    r = client.post("/api/cli-agents/runs", json={"agent": "rooks", "task": "Add a note", "folder": str(fakes["proj"]), "mode": "ask"})
+    assert r.status_code == 200, r.text
+    run = wait(client, r.json()["id"])
+    assert run["status"] == "needs_approval"
+    assert "change" in run["pending"][0]["label"].lower()
+    assert "bridge-key-should-stay-off-the-page" not in json.dumps(run)
+    assert not (fakes["proj"] / "made.txt").exists()
+
+    client.post(f"/api/cli-agents/runs/{run['id']}/approve", json={})
+    run = wait(client, run["id"])
+    assert run["status"] == "done"
+    assert (fakes["proj"] / "made.txt").read_text() == "from rooks\n"
+    lines = [json.loads(x) for x in (fakes["tmp"] / "rooks.log").read_text().splitlines()]
+    assert lines[0]["has_bridge_key"] is True
+    assert "-y" not in lines[0]["argv"] and "-n" not in lines[0]["argv"]
+    assert "workbench" in lines[0]["argv"]
+    assert lines[1]["answer"] == "y"
+
+
+def test_rooks_plan_changes_nothing(client, fakes, monkeypatch):
+    from app import cli_agents
+
+    monkeypatch.setenv("WORKBENCH_ROOKS_BIN", str(FIX / "fake_rooks"))
+    monkeypatch.setenv("FAKE_ROOKS_LOG", str(fakes["tmp"] / "rooks-plan.log"))
+    cli_agents._DETECT_CACHE.clear()
+    rid = client.post("/api/cli-agents/runs", json={"agent": "rooks", "task": "Plan it", "folder": str(fakes["proj"]), "mode": "plan"}).json()["id"]
+    run = wait(client, rid)
+    assert run["status"] == "done"
+    assert not (fakes["proj"] / "made.txt").exists()
+    argv = json.loads((fakes["tmp"] / "rooks-plan.log").read_text().splitlines()[0])["argv"]
+    assert "-n" in argv
+
+
 def test_subscriptions_list_offers_claude_through_claude_code(client):
     opts = {o["id"]: o for o in client.get("/api/auth/subscriptions").json()["options"]}
     assert opts["claude"]["available"] and opts["claude"]["via"] == "claude_code"

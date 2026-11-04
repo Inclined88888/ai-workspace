@@ -123,6 +123,7 @@ export default function Sites() {
                   <a className="small muted row" href={sel.url} target="_blank" rel="noreferrer noopener">{sel.url} <ExternalLink size={11} /></a>
                 </div>
                 {(sel.mode !== "api") && <button className="btn sm" disabled={!browser} title={browser ? "" : "Rooks Browser is not running"} onClick={() => act("Opening the browser…", () => api(`/sites/${sel.id}/sign-in`, { method: "POST" }), "Sign in in the window that opened, then press Check now")}><LogIn size={14} /> Sign in once</button>}
+                {(sel.mode !== "api") && <button className="btn ghost sm" disabled={!browser} title="Delete the saved sign-in for this site" onClick={() => confirm(`Forget the saved sign-in for ${sel.name}? You can sign in again later.`) && act("Forgetting the sign-in…", () => api(`/sites/${sel.id}/sign-out`, { method: "POST" }), "Saved sign-in removed")}>Forget sign-in</button>}
                 <button className="btn primary sm" onClick={() => act("Reading the site…", () => api(`/sites/${sel.id}/check`, { method: "POST" }))}><RefreshCw size={14} /> Check now</button>
                 <button className="btn ghost sm icon" aria-label="Remove site" onClick={() => confirm(`Remove ${sel.name}? Your sign-in in the browser stays.`) && act("Removing…", () => api(`/sites/${sel.id}`, { method: "DELETE" })).then(() => setSel(null))}><Trash2 size={14} /></button>
               </div>

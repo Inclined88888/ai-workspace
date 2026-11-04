@@ -112,7 +112,9 @@ class UI:
         prompt = f"  {label}? [y]es / [n]o / [a]lways this session: "
 
         def show():
-            self.out.write(self.c("36", prompt))
+            # A live terminal keeps the question on the same line. Piped output (the app) needs a newline so the question is visible.
+            shown = prompt if self.out.isatty() else prompt.rstrip() + "\n"
+            self.out.write(self.c("36", shown))
             self.out.flush()
 
         def read():

@@ -9,6 +9,9 @@ __pycache__/
 out/
 *.tsbuildinfo
 
+# Competitor clones for study only — never import into product packages
+/scratch/
+
 # Rooks Browser headed-run captures
 /screenshots/
 

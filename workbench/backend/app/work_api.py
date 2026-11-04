@@ -202,6 +202,11 @@ async def site_sign_in(sid: int):
     return await sites.sign_in(sid)
 
 
+@router.post("/sites/{sid}/sign-out")
+async def site_sign_out(sid: int):
+    return await sites.sign_out(sid)
+
+
 @router.post("/sites/{sid}/check")
 async def site_check(sid: int):
     return await sites.check(sid)

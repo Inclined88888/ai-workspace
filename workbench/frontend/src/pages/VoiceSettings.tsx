@@ -90,7 +90,7 @@ export default function VoiceSettings() {
           <div className="row"><h2 className="grow">Ask from anywhere</h2><PlanBadge tier="free" /></div>
           <p className="muted small" style={{ margin: 0 }}>Select some text in any app (an email, a web page, a document) and press the shortcut. A small ask bar opens on top with your text in it. Ask about it, or have it rewritten, then paste the answer back.</p>
           {desktop ? (sc ? <label className="field">Shortcut<ShortcutRecorder info={sc} onSave={saveShortcut} /></label> : <div className="faint small">Loading the shortcut…</div>)
-            : <div className="alert" role="status"><span>The shortcut works in the AI Workspace desktop app for Mac and Windows. In the browser you can still <Link to="/ask-bar">open the ask bar</Link>.</span></div>}
+            : <div className="alert" role="status"><span>The shortcut works in the Rooks desktop app for Mac and Windows. In the browser you can still <Link to="/ask-bar">open the ask bar</Link>.</span></div>}
           {any && <>
             <label className="row small"><input type="checkbox" checked={any.grab_selection} onChange={(e) => putAny({ grab_selection: e.target.checked })} />
               Bring in the text I have selected <span className="faint">(it's copied for a moment, then your clipboard is put back)</span></label>

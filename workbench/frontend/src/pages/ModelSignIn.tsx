@@ -1,6 +1,7 @@
-import { ArrowRight, Check, ClipboardPaste, ExternalLink, Loader2, ShieldCheck, UserRound } from "lucide-react";
+import { ArrowRight, Check, ClipboardPaste, ExternalLink, Loader2, ShieldCheck } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api";
+import { BrandMark } from "../brand";
 import PlanCard from "./PlanCard";
 
 /** Connecting a model without jargon, shared by the first-run welcome and Settings: sign in with a plan you already
@@ -95,12 +96,10 @@ export function ChatGPTCard({ sub, onConnected, cta = "Start chatting" }: { sub:
   return (
     <div className="sub-card on">
       <div className="row">
-        <strong className="sub-name">ChatGPT</strong>
+        <BrandMark name="chatgpt" /><strong className="sub-name">ChatGPT</strong>
         {status?.status === "connected" && <span className="badge ok"><Check size={11} /> Signed in</span>}
-        <div className="spacer" />
-        <span className="tiny muted">{sub.plans}</span>
       </div>
-      <p className="small muted">{sub.detail}</p>
+      <p className="small muted">Use the ChatGPT plan you already pay for. In Chat, pick the model and Chat, Plan, or Build.</p>
       {error && <div className="alert err">{error}</div>}
       {status?.status === "failed" && <div className="alert err">{status.error || "Sign-in didn't finish. Try again."}</div>}
       {status?.status === "connected" ? (
@@ -122,7 +121,7 @@ export function ChatGPTCard({ sub, onConnected, cta = "Start chatting" }: { sub:
           </details>
         </div>
       ) : (
-        <div className="row"><button className="btn primary" onClick={start}><UserRound size={15} /> Sign in with ChatGPT</button></div>
+        <div className="row"><button className="btn primary" onClick={start}><BrandMark name="chatgpt" /> Sign in with ChatGPT</button></div>
       )}
       <details className="small"><summary>Didn't work? Use ChatGPT through Codex instead</summary>
         <PlanCard agent="codex" title="ChatGPT through Codex" onConnected={onConnected} cta={cta}
@@ -147,9 +146,9 @@ export function SignInWithPlan({ onChange }: { onChange: () => void }) {
       {done && <div className="alert ok row"><Check size={14} /> {done} is connected. It now shows up in every model menu.</div>}
       {chatgpt && <ChatGPTCard sub={chatgpt} onConnected={connected("ChatGPT")} cta="Use it" />}
       {claude && <PlanCard agent="claude" title="Claude" onConnected={connected("Claude")} cta="Use it"
-        blurb={`For Claude ${claude.plans}. Uses Claude Code, Anthropic's own app: we set it up and open Anthropic's sign-in. Answers count against your plan.`} />}
+        blurb="Use the Claude plan you already pay for. Sign-in opens in Anthropic's own app. In Chat, pick the model and the mode." />}
       {copilot && <PlanCard agent="copilot" title="GitHub Copilot" onConnected={connected("GitHub Copilot")} cta="Use it"
-        blurb={`For Copilot ${copilot.plans}. Uses GitHub's own Copilot CLI: we set it up and open GitHub's sign-in. Each answer uses your plan's premium requests.`} />}
+        blurb="Use the Copilot plan you already pay for. Sign-in opens in GitHub's own app." />}
       {!chatgpt && !claude && !copilot && <div className="muted small">No plan sign-in is available in this build. Use a key below.</div>}
     </div>
   );
@@ -158,6 +157,9 @@ export function SignInWithPlan({ onChange }: { onChange: () => void }) {
 /** Settings: pick a provider (or just paste: it is recognised), open its key page, paste, checked before it is saved. */
 export function AddKey({ presets, info, onChange }: { presets: Record<string, Preset>; info: Record<string, KeyInfo>; onChange: () => void }) {
   const choices = KEY_ORDER.filter((k) => k !== "compatible" && presets[k]).map((k) => [k, presets[k]] as const);
+  const primaryIds = ["openai", "anthropic", "gemini", "groq"];
+  const primary = choices.filter(([k]) => primaryIds.includes(k));
+  const more = choices.filter(([k]) => !primaryIds.includes(k));
   const [kind, setKind] = useState("openai");
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
@@ -186,13 +188,26 @@ export function AddKey({ presets, info, onChange }: { presets: Record<string, Pr
   return (
     <form className="col" style={{ gap: 10 }} onSubmit={submit}>
       <div className="welcome-providers" role="radiogroup" aria-label="Provider">
-        {choices.map(([k, p]) => (
+        {primary.map(([k, p]) => (
           <button type="button" key={k} role="radio" aria-checked={k === kind} className={`welcome-choice ${k === kind ? "on" : ""}`}
             onClick={() => { setKind(k); setError(""); }}>
             {p.name}{info[k]?.free ? " (free)" : ""}
           </button>
         ))}
       </div>
+      {more.length > 0 && (
+        <details>
+          <summary className="small">More providers</summary>
+          <div className="welcome-providers" role="radiogroup" aria-label="More providers" style={{ marginTop: 8 }}>
+            {more.map(([k, p]) => (
+              <button type="button" key={k} role="radio" aria-checked={k === kind} className={`welcome-choice ${k === kind ? "on" : ""}`}
+                onClick={() => { setKind(k); setError(""); }}>
+                {p.name}{info[k]?.free ? " (free)" : ""}
+              </button>
+            ))}
+          </div>
+        </details>
+      )}
       {preset?.note && <div className="muted small">{preset.note}</div>}
       {error && <div className="alert err">{error}</div>}
       {added && <div className="alert ok row"><Check size={14} /> {added} is connected.</div>}

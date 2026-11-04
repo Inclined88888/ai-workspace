@@ -99,7 +99,7 @@ export function AccountSetup({ onDone }: { onDone: () => void }) {
       <div className="card auth-card welcome-card col gap-lg">
         <div className="welcome-hero">
           <div className="kicker">Optional</div>
-          <h1 className="welcome-title">Sign in to AI Workspace</h1>
+          <h1 className="welcome-title">Sign in to Rooks</h1>
           <p className="muted">Free works without an account. Sign in to use Pro: cloud models with no setup, computer use, website watchers, learning from a demo and phone sync.</p>
         </div>
         <SignIn onSignedIn={finish} />
@@ -185,7 +185,7 @@ export default function Plan() {
       {account.signed_in && (
         <>
           <div className="grid two">
-            {PLANS.map((p) => (
+            {PLANS.filter((p) => p.id === "free" || p.id === "pro").map((p) => (
               <div key={p.id} className={`card col gap-lg${account.plan === p.id ? " current" : ""}`} style={account.plan === p.id ? { borderColor: "var(--accent)" } : undefined}>
                 <div className="row"><h3 style={{ margin: 0 }}>{p.name}</h3><div className="spacer" /><strong>{p.price}</strong></div>
                 <p className="muted" style={{ margin: 0 }}>{p.blurb}</p>
@@ -195,20 +195,31 @@ export default function Plan() {
                     <button className="btn" disabled={!!busy} onClick={() => buy("pro_yearly")}>Yearly (save 2 months)</button>
                   </div>
                 )}
-                {(p.id === "team" || p.id === "business") && account.plan !== p.id && (
-                  <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-                    <input className="input" style={{ flex: "1 1 140px" }} placeholder="Team name" value={teamName} onChange={(e) => setTeamName(e.target.value)} />
-                    <input className="input" style={{ width: 80 }} type="number" min={1} max={500} value={seats} onChange={(e) => setSeats(Number(e.target.value) || 1)} aria-label="Seats" />
-                    <button className="btn" disabled={!!busy || !teamName.trim()} onClick={() => run(p.id, async () => openExternal((await teamCheckout(teamName, seats, p.id === "team" ? "team_monthly" : "business_monthly")).url))}>
-                      <Users size={14} /> Start {p.name}</button>
-                  </div>
-                )}
                 {account.plan === p.id && <span className="badge ok">Your plan</span>}
               </div>
             ))}
           </div>
 
-          <div className="grid two">
+          <details>
+            <summary className="small">Team plans, credits, and invites</summary>
+            <div className="grid two" style={{ marginTop: 12 }}>
+              {PLANS.filter((p) => p.id === "team" || p.id === "business").map((p) => (
+                <div key={p.id} className={`card col gap-lg${account.plan === p.id ? " current" : ""}`} style={account.plan === p.id ? { borderColor: "var(--accent)" } : undefined}>
+                  <div className="row"><h3 style={{ margin: 0 }}>{p.name}</h3><div className="spacer" /><strong>{p.price}</strong></div>
+                  <p className="muted" style={{ margin: 0 }}>{p.blurb}</p>
+                  {account.plan !== p.id && (
+                    <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                      <input className="input" style={{ flex: "1 1 140px" }} placeholder="Team name" value={teamName} onChange={(e) => setTeamName(e.target.value)} />
+                      <input className="input" style={{ width: 80 }} type="number" min={1} max={500} value={seats} onChange={(e) => setSeats(Number(e.target.value) || 1)} aria-label="Seats" />
+                      <button className="btn" disabled={!!busy || !teamName.trim()} onClick={() => run(p.id, async () => openExternal((await teamCheckout(teamName, seats, p.id === "team" ? "team_monthly" : "business_monthly")).url))}>
+                        <Users size={14} /> Start {p.name}</button>
+                    </div>
+                  )}
+                  {account.plan === p.id && <span className="badge ok">Your plan</span>}
+                </div>
+              ))}
+            </div>
+          <div className="grid two" style={{ marginTop: 12 }}>
             <div className="card col gap-lg">
               <h3 style={{ margin: 0 }}>Cloud model credits</h3>
               <p className="muted" style={{ margin: 0 }}>Pro includes 5,000 a month. Top up any time; top-ups never expire.</p>
@@ -225,6 +236,7 @@ export default function Plan() {
               </div>
             </form>
           </div>
+          </details>
         </>
       )}
     </div>

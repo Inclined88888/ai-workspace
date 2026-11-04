@@ -258,6 +258,12 @@ async def run_playbook(pid: int, data: RunIn):
     return await playbooks.run(pid, data.values)
 
 
+@router.post("/playbooks/{pid}/each-morning")
+def each_morning(pid: int):
+    """After they show where to look, check that place on weekday mornings."""
+    return playbooks.each_morning(pid)
+
+
 @router.get("/runs/{rid}")
 async def get_run(rid: int):
     return await playbooks.sync(rid)

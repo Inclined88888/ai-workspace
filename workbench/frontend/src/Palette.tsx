@@ -120,7 +120,7 @@ export function CommandPalette({ open, onClose, pages }: { open: boolean; onClos
         <div className="palette-foot">
           <span><span className="kbd">↑</span><span className="kbd">↓</span> to move</span>
           <span><span className="kbd"><CornerDownLeft size={11} /></span> to open</span>
-          <span style={{ marginLeft: "auto" }}>AI Workspace</span>
+          <span style={{ marginLeft: "auto" }}>Rooks</span>
         </div>
       </div>
     </div>

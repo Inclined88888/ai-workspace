@@ -12,7 +12,11 @@ function detail(body: unknown, fallback: string): string {
   if (body && typeof body === "object" && "detail" in body) {
     const d = (body as { detail: unknown }).detail;
     if (typeof d === "string") return d;
-    if (Array.isArray(d)) return d.map((e) => (e as { msg?: string }).msg ?? JSON.stringify(e)).join("; ");
+    if (Array.isArray(d)) {
+      const msgs = d.map((e) => (e as { msg?: string }).msg ?? "");
+      if (msgs.length && msgs.every((m) => /should have at least|field required|string should/i.test(m))) return "Fill in what's missing and try again.";
+      return msgs.filter(Boolean).join("; ") || fallback;
+    }
     if (d && typeof d === "object" && typeof (d as { message?: unknown }).message === "string") return (d as { message: string }).message;
   }
   return fallback;

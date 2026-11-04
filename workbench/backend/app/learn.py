@@ -133,7 +133,16 @@ async def mine_skill(conv_id: int) -> str:
     if isinstance(out, dict) and out.get("save") is True:
         try:
             r = upsert_skill(str(out.get("name", "")), str(out.get("description", "")), str(out.get("steps", "")))
-            return next(iter(r.values()))
+            name = next(iter(r.values()))
+            # Visible “learned this” moment (Hermes soul) — same conversation, plain words
+            kind = "Updated" if "updated" in r else "Saved"
+            note = (f"{kind} a reusable skill: **{name}**. "
+                    f"{str(out.get('description') or '').strip()[:200]} "
+                    "Open Skills to read or forget it.")
+            db.run("INSERT INTO messages(conversation_id, role, content, created_at) VALUES (?, 'assistant', ?, ?)",
+                   conv_id, note.strip(), db.now())
+            db.run("UPDATE conversations SET updated_at = ? WHERE id = ?", db.now(), conv_id)
+            return name
         except HTTPException:
             return ""
     return ""

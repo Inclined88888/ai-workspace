@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import re
 import threading
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -60,8 +60,9 @@ CREATE TABLE IF NOT EXISTS project_dismissed (
 """
 KINDS = {"job": "Job", "client": "Client", "matter": "Legal matter", "course": "Course or subject", "research": "Research",
          "studio": "Studio or creative brief", "other": "Something else"}
-ITEM_KINDS = ("file", "site", "chat", "note", "person", "deadline", "link")
-REF_KINDS = ("file", "site", "chat", "link")
+ITEM_KINDS = ("file", "site", "chat", "note", "person", "deadline", "link", "mail", "update")
+REF_KINDS = ("file", "site", "chat", "link", "mail", "update")
+TRADES = ("", "architect", "waste", "business")
 STOP = set("the a an and or of for to in on at by with from my our your this that job project client course matter new "
            "work site page file files chat notes note please can you me i we it is are be".split())
 
@@ -496,6 +497,127 @@ def suggestions(pid: int) -> list[dict]:
     return out[:12]
 
 
+def _already(pid: int, kind: str, ref: str) -> bool:
+    if db.one("SELECT 1 FROM project_dismissed WHERE project_id = ? AND kind = ? AND ref = ?", pid, kind, ref):
+        return True
+    return bool(db.one("SELECT 1 FROM project_items WHERE project_id = ? AND kind = ? AND ref = ?", pid, kind, ref))
+
+
+def file_text(kind: str, ref: str, title: str, text: str, body: str = "", due: str | None = None, reason: str = "") -> bool:
+    """File onto the one project the text clearly names. A weak or split match is left alone."""
+    ensure()
+    d = detect(text or "")
+    if not d.get("confident"):
+        return False
+    pid = d["project_id"]
+    if _already(pid, kind, ref):
+        return False
+    add_item(pid, kind, title=title, body=body, ref=ref, due=due, auto=True,
+             reason=reason or ("mentions " + ", ".join((d.get("matched") or [])[:3])))
+    return True
+
+
+def file_on_project(project_id: int | None, kind: str, ref: str, title: str, text: str, body: str = "",
+                    due: str | None = None, reason: str = "") -> bool:
+    """File onto a known project, or onto whichever project the text names."""
+    ensure()
+    try:
+        pid = int(project_id) if project_id else None
+    except (TypeError, ValueError):
+        pid = None
+    if pid:
+        if not db.one("SELECT 1 FROM projects WHERE id = ? AND status = 'active'", pid):
+            return False
+        if _already(pid, kind, ref):
+            return False
+        add_item(pid, kind, title=title, body=body, ref=ref, due=due, auto=True, reason=reason or "from the team")
+        return True
+    return file_text(kind, ref, title, text, body=body, due=due, reason=reason)
+
+
+def file_mail(account_id: int, messages: list[dict], folder: str = "INBOX") -> int:
+    """File inbox lines that name one project. Returns how many were newly filed."""
+    n = 0
+    for m in messages or []:
+        uid = str(m.get("uid") or "").strip()
+        if not uid:
+            continue
+        subject = (m.get("subject") or "(no subject)")[:300]
+        sender = (m.get("from") or "")[:300]
+        if file_text("mail", f"{account_id}:{folder}:{uid}", subject, f"{subject} {sender}", body=sender, reason="the mail names it"):
+            n += 1
+    return n
+
+
+def file_site_change(site_id: int, check_id: int, site_name: str, digest: str) -> bool:
+    """File one plain line when a watched site actually changed."""
+    ensure()
+    line = next((ln.strip() for ln in (digest or "").splitlines()
+                 if ln.strip() and not ln.startswith("Nothing changed") and not ln.startswith("First look")), "")
+    if not line:
+        return False
+    ref = f"site:{check_id}"
+    owners = [r["project_id"] for r in db.all("SELECT project_id FROM project_items WHERE kind = 'site' AND ref = ?", str(site_id))]
+    if not owners:
+        return file_text("update", ref, line[:300], f"{site_name} {digest}", reason="the site changed")
+    filed = False
+    for pid in owners:
+        if _already(pid, "update", ref):
+            continue
+        add_item(pid, "update", title=line[:300], ref=ref, auto=True, reason="the site changed")
+        filed = True
+    return filed
+
+
+def _what(row: dict) -> str:
+    title = (row["title"] or "Update").strip()
+    due = row["due"]
+    today = date.today().isoformat()
+    if row["kind"] == "mail":
+        return f"Mail: {title}"
+    if row["kind"] == "chat":
+        return f"Chat: {title}"
+    if due and due < today:
+        return f"{title} is overdue"
+    if due and due == today:
+        return f"{title} is due today"
+    return title
+
+
+def today_lines(limit: int = 5) -> list[dict]:
+    """Up to five lines for Home: who, what moved, and when."""
+    ensure()
+    today = date.today().isoformat()
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat(timespec="seconds")
+    rows = db.all(
+        "SELECT i.id, i.project_id, i.kind, i.title, i.due, i.created_at, p.name AS project_name "
+        "FROM project_items i JOIN projects p ON p.id = i.project_id "
+        "WHERE p.status = 'active' AND i.done = 0 AND ("
+        " (i.kind IN ('deadline', 'update') AND i.due IS NOT NULL AND i.due <= ?) "
+        " OR (i.kind IN ('mail', 'update', 'chat') AND i.auto = 1 AND i.created_at >= ?)"
+        ") ORDER BY CASE WHEN i.due IS NOT NULL AND i.due <= ? THEN 0 ELSE 1 END, COALESCE(i.due, i.created_at), i.id DESC",
+        today, cutoff, today)
+    out = []
+    for r in rows:
+        out.append({"project_id": r["project_id"], "name": r["project_name"], "what": _what(r),
+                    "at": r["due"] or r["created_at"], "kind": r["kind"]})
+        if len(out) >= limit:
+            break
+    return out
+
+
+def current_trade() -> str:
+    t = db.get_setting("trade", "") or ""
+    return t if t in TRADES else ""
+
+
+def set_trade(value: str) -> str:
+    if value not in TRADES:
+        raise HTTPException(400, "Choose an architect, a waste office, a small business, or leave it blank.")
+    db.set_setting("trade", value)
+    return value
+
+
 def dismiss(pid: int, kind: str, ref: str) -> dict:
     get(pid)
     db.run("INSERT OR IGNORE INTO project_dismissed(project_id, kind, ref) VALUES (?, ?, ?)", pid, kind, str(ref))
@@ -595,7 +717,7 @@ class TextIn(BaseModel):
 @router.get("")
 def api_list(archived: bool = False):
     scan()
-    return {"projects": listing(archived), "active_id": active_id(), "kinds": KINDS, "limit": limit_info()}
+    return {"projects": listing(archived), "active_id": active_id(), "kinds": KINDS, "limit": limit_info(), "trade": current_trade()}
 
 
 @router.post("")

@@ -7,13 +7,14 @@ import json
 import os
 import platform
 import re
+import subprocess
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
 
 from . import images, providers
-from .extras import READ_ONLY, Extras, project_instructions
+from .extras import BUILD_TOOLS, READ_ONLY, Extras, project_instructions
 from .extras import NAMES as EXTRA_NAMES
 from .extras import SPECS as EXTRA_SPECS
 from .learning import Learning
@@ -102,14 +103,15 @@ class Budget:
 
 class Agent:
     def __init__(self, settings, ui, model=None, log: RunLog | None = None, messages: list[dict] | None = None,
-                 sub: bool = False):
+                 sub: bool = False, sub_mode: str = "explore"):
         self.s, self.ui = settings, ui
         self.root: Path = settings.root.resolve()
         self.log = log or RunLog(self.root, provider=settings.provider, model=settings.model)
         self.model = model or providers.make(settings, on_egress=self._egress)
         self.tools = Toolbox(self.root, settings.command_timeout)
         self.changes = ChangeSets(self.root)
-        self.sub = sub  # a sub-agent (the task tool): read-only tools, no MCP servers, no learning
+        self.sub = sub  # a sub-agent (the task tool): no MCP servers, no learning; tools depend on sub_mode
+        self.sub_mode = sub_mode if sub else "explore"  # explore|plan = read-only; build = edits under parent approvals
         self.mcp = MCPManager(settings.mcp_servers, str(self.root), warn=ui.warn) if settings.mcp_servers and not sub else None
         self.messages: list[dict] = list(messages or [])
         self.always: set[str] = set()  # effects approved for the rest of the session ("a" at the prompt)
@@ -155,7 +157,8 @@ class Agent:
 
     def tool_specs(self) -> list[dict]:
         if self.sub:
-            return [t for t in SPECS + EXTRA_SPECS if t["name"] in READ_ONLY]
+            allow = BUILD_TOOLS if self.sub_mode == "build" else READ_ONLY
+            return [t for t in SPECS + EXTRA_SPECS if t["name"] in allow]
         return SPECS + EXTRA_SPECS + (self.learning.specs() if self.learning else []) + (self.mcp.tool_specs() if self.mcp else [])
 
     def trusted_effect(self, effect: str, mcp_server: str | None = None) -> str:
@@ -537,8 +540,9 @@ class Agent:
         else:
             mcp_server = None
             try:
-                if self.sub and call.name not in READ_ONLY:
-                    raise ToolError(f"{call.name} is not available to a sub-agent (read-only)")
+                allow = BUILD_TOOLS if self.sub_mode == "build" else READ_ONLY
+                if self.sub and call.name not in allow:
+                    raise ToolError(f"{call.name} is not available to a {self.sub_mode} sub-agent")
                 if call.name in EXTRA_NAMES:
                     plan = self.extras.prepare(call.name, call.arguments)
                 elif self.learning and call.name in self.learning.names():
@@ -570,6 +574,11 @@ class Agent:
         effect = {"command": "external"}.get(plan.effect, plan.effect)
         action = self.log.add("tool_call", "running", parent=turn, tool=call.name, effect=effect, args=args_text,
                               from_text=int(call.from_text))
+        blocked = self._project_hook(call.name, plan.effect, call.arguments)
+        if blocked:
+            self.log.finish(action, "denied", detail=blocked[:500])
+            self.ui.tool_note(f"stopped by a project hook: {blocked[:200]}")
+            return f"Error: a project hook stopped this ({blocked}). Do not retry it unless the user says to.", "denied"
         if plan.effect != "read":
             self.ui.show_plan(plan)
             if self.s.dry_run:
@@ -617,6 +626,20 @@ class Agent:
                         failure_reason=evidence if outcome == "tool_error" else "")
         self.ui.tool_result(plan, result, outcome)
         return result, outcome
+
+    def _project_hook(self, tool: str, effect: str, arguments: dict) -> str:
+        """Optional .rooks/hooks/before_tool script. Exit 0 allows; any other exit stops the tool. Empty if no hook."""
+        script = self.root / ".rooks" / "hooks" / "before_tool"
+        if not script.is_file():
+            return ""
+        payload = json.dumps({"tool": tool, "effect": effect, "arguments": arguments}, ensure_ascii=False)
+        try:
+            proc = subprocess.run([str(script)], input=payload, text=True, capture_output=True, timeout=8, cwd=self.root)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            return f"before_tool hook failed ({e})"
+        if proc.returncode == 0:
+            return ""
+        return (proc.stderr or proc.stdout or "blocked by before_tool").strip()[:500]
 
     def _mcp(self, server, tool: str, arguments: dict):
         ok, text = server.call(tool, arguments)

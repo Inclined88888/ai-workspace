@@ -55,6 +55,7 @@ COMMANDS: dict[str, str] = {
     "/provider": "switch the AI service: /provider NAME",
     "/login": "connect an AI service (paste a key, or use your AI Workspace app)",
     "/memory": "what Rooks remembers about you (shared with the AI Workspace app)",
+    "/history": "search past Chat and terminal turns: /history words",
     "/skills": "procedures Rooks learned; /skills add GITHUB-LINK checks a new one",
     "/undo": "put back the files changed by the last request",
     "/diff": "what changed in this folder (git), as a diff",
@@ -509,7 +510,7 @@ def help_table(ui: RichUI) -> None:
     categories = {
         "Session": ["/help", "/new", "/undo", "/diff", "/compact", "/cost", "/receipt", "/exit"],
         "Model": ["/model", "/effort", "/provider", "/login"],
-        "Context": ["/memory", "/skills", "/init", "/context", "/sessions", "/resume"],
+        "Context": ["/memory", "/history", "/skills", "/init", "/context", "/sessions", "/resume"],
         "Behavior": ["/auto", "/dry-run", "/doctor", "/copy", "/image", "/jobs"],
     }
     listed = {c for cmds in categories.values() for c in cmds}
@@ -779,6 +780,19 @@ def command(agent, ui: RichUI, cmd: str, rest: str) -> None:
         if facts:
             ui.p(ui.c("dim", "  Shared with the AI Workspace app (About you page)." if learning.app else
                       f"  Kept in {learning_path()}. Connect the app to share it with chat."))
+    elif cmd == "/history":
+        learning = getattr(agent, "learning", None)
+        if not learning or not learning.app:
+            ui.p("  History search needs the AI Workspace app connected (provider workbench).")
+        else:
+            found = learning.history(rest.strip())
+            if not found:
+                ui.p("  Nothing matched." if rest.strip() else "  No past turns yet.")
+            for r in found:
+                ch = r.get("channel") or "?"
+                title = (r.get("title") or "Chat")[:40]
+                snip = (r.get("snippet") or "").replace("\n", " ")[:120]
+                ui.p(f"  {ui.c('accent', ch)} · {title}\n    {snip}")
     elif cmd == "/skills" and rest.split(" ", 1)[0].lower() in ("add", "install"):
         add_skill(agent, ui, rest.split(" ", 1)[1].strip() if " " in rest else "")
     elif cmd == "/skills":

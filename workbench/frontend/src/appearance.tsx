@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 
 /**
  * Appearance: theme, type, size, density, motion and accent. One object in localStorage, applied to <html> as data
- * attributes and CSS variables, so every page restyles live without a reload. Six curated themes: Sunshine (the
- * default), Paper, Cherry & Ink, Neon, Dark and High contrast, plus "Match my system" (Sunshine or Dark from the OS).
+ * attributes and CSS variables, so every page restyles live without a reload. Standard is the everyday look.
+ * Sunshine, Paper, Cherry & Ink, Neon, Dark and High contrast stay available, plus "Match my system".
  * The choice is also saved to the backend so the desktop window, Rooks Code, Rooks Browser and the phone follow it.
  * Anyone who already saved their own choices keeps them (Linen and Gallery still work, they are just not offered).
  */
@@ -14,7 +14,7 @@ export type AccentId = "theme" | "sun" | "cherry" | "ink" | "cobalt" | "forest" 
 export type Appearance = { theme: ThemeId; font: FontId; size: number; density: "comfortable" | "compact"; motion: MotionId; accent: AccentId };
 
 /** "theme" accent = each theme's own designed accent (Sunshine's sun, Cherry's red, Neon's lime...). */
-export const DEFAULTS: Appearance = { theme: "sunshine", font: "modern", size: 14, density: "comfortable", motion: "full", accent: "theme" };
+export const DEFAULTS: Appearance = { theme: "gallery", font: "modern", size: 14, density: "comfortable", motion: "full", accent: "theme" };
 const KEY = "wb-appearance";
 const LEGACY = "wb-theme";
 
@@ -24,7 +24,9 @@ export type ThemeInfo = { id: ThemeId; label: string; note: string; mode: "light
 
 /** The curated six, plus "Match my system". Linen and Gallery stay valid for anyone who saved them, just not offered. */
 export const THEMES: ThemeInfo[] = [
-  { id: "sunshine", label: "Sunshine", note: "Bright, warm and airy. The default.", mode: "light",
+  { id: "gallery", label: "Standard", note: "White page, black type. The everyday look.", mode: "light",
+    swatch: { paper: "#ffffff", panel: "#f7f7f8", text: "#0d0d0d", muted: "#6e6e80", accent: "#0d0d0d", onAccent: "#ffffff", border: "#ececec" } },
+  { id: "sunshine", label: "Sunshine", note: "Bright, warm and airy.", mode: "light",
     swatch: { paper: "#fffdf8", panel: "#ffffff", text: "#2a2620", muted: "#615a4e", accent: "#ffc83d", onAccent: "#2a2000", border: "#f0e9da" } },
   { id: "paper", label: "Paper", note: "Soft newsprint, quiet ink.", mode: "light",
     swatch: { paper: "#f5f1e8", panel: "#fbf9f4", text: "#141311", muted: "#5a554c", accent: "#141311", onAccent: "#f5f1e8", border: "#dcd5c6" } },
@@ -36,10 +38,10 @@ export const THEMES: ThemeInfo[] = [
     swatch: { paper: "#121110", panel: "#191816", text: "#efeae0", muted: "#aca598", accent: "#ff4d5e", onAccent: "#121110", border: "#33302b" } },
   { id: "contrast", label: "High contrast", note: "Pure black on white, bold edges.", mode: "light",
     swatch: { paper: "#ffffff", panel: "#ffffff", text: "#000000", muted: "#1f1f1f", accent: "#0033aa", onAccent: "#ffffff", border: "#000000" } },
-  { id: "auto", label: "Match my system", note: "Sunshine by day, Dark when your computer is dark.", mode: "auto",
-    swatch: { paper: "#fffdf8", panel: "#121110", text: "#2a2620", muted: "#aca598", accent: "#ffc83d", onAccent: "#2a2000", border: "#f0e9da" } },
+  { id: "auto", label: "Match my system", note: "Standard by day, Dark when your computer is dark.", mode: "auto",
+    swatch: { paper: "#ffffff", panel: "#121110", text: "#0d0d0d", muted: "#aca598", accent: "#0d0d0d", onAccent: "#ffffff", border: "#ececec" } },
 ];
-const HIDDEN_THEMES: ThemeId[] = ["linen", "gallery"];
+const HIDDEN_THEMES: ThemeId[] = ["linen"];
 /** Themes with a hand-tuned palette whose accent never changes (an accent picked elsewhere would break contrast). */
 const FIXED_ACCENT: ThemeId[] = ["neon", "contrast"];
 export const DARK_THEMES: ThemeId[] = ["night", "neon"];
@@ -48,7 +50,7 @@ export const DARK_THEMES: ThemeId[] = ["night", "neon"];
 export function resolveTheme(t: ThemeId): Exclude<ThemeId, "auto"> {
   if (t !== "auto") return t;
   const dark = typeof window !== "undefined" && !!window.matchMedia?.("(prefers-color-scheme: dark)").matches;
-  return dark ? "night" : "sunshine";
+  return dark ? "night" : "gallery";
 }
 export const isDark = (t: ThemeId) => DARK_THEMES.includes(resolveTheme(t));
 

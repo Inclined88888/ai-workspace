@@ -30,13 +30,13 @@ const ap = await import(pathToFileURL(file).href);
 
 beforeEach(() => { store.clear(); reduced = false; darkOS = false; events.length = 0; document.documentElement = fakeEl(); });
 
-test("defaults to Sunshine, Clean type, 14px, full motion, the theme's own accent", () => {
+test("defaults to Standard, Clean type, 14px, full motion, the theme's own accent", () => {
   assert.deepEqual(ap.readAppearance(), ap.DEFAULTS);
-  assert.deepEqual([ap.DEFAULTS.theme, ap.DEFAULTS.font, ap.DEFAULTS.accent], ["sunshine", "modern", "theme"]);
+  assert.deepEqual([ap.DEFAULTS.theme, ap.DEFAULTS.font, ap.DEFAULTS.accent], ["gallery", "modern", "theme"]);
 });
 
-test("the curated six plus Match my system, Sunshine first", () => {
-  assert.deepEqual(ap.THEMES.map((t) => t.id), ["sunshine", "paper", "cherry", "neon", "night", "contrast", "auto"]);
+test("Standard leads the list, then the other looks and Match my system", () => {
+  assert.deepEqual(ap.THEMES.map((t) => t.id), ["gallery", "sunshine", "paper", "cherry", "neon", "night", "contrast", "auto"]);
   for (const t of ap.THEMES) for (const c of Object.values(t.swatch)) assert.match(c, /^#[0-9a-f]{6}$/);
 });
 
@@ -69,7 +69,7 @@ test("applyTo writes data attributes and scales text tokens", () => {
   assert.equal(el.style.props.get("--text-md"), "16px");
   assert.equal(el.style.props.get("--text-4xl"), "64px");
   ap.applyTo(el, ap.DEFAULTS);
-  assert.equal(el.dataset.theme, "sunshine");
+  assert.equal(el.dataset.theme, "gallery");
   assert.equal(el.dataset.mode, "light");
   ap.applyTo(el, { ...ap.DEFAULTS, theme: "paper" });
   assert.equal(el.dataset.theme, "paper");
@@ -105,10 +105,10 @@ test("Neon and High contrast always keep their own accent", () => {
   assert.equal(el.dataset.accent, "cobalt", "light themes still take any accent");
 });
 
-test("Match my system follows the OS: Sunshine by day, Dark at night", () => {
+test("Match my system follows the OS: Standard by day, Dark at night", () => {
   const el = fakeEl();
   ap.applyTo(el, { ...ap.DEFAULTS, theme: "auto" });
-  assert.equal(el.dataset.theme, "sunshine");
+  assert.equal(el.dataset.theme, "gallery");
   darkOS = true;
   ap.applyTo(el, { ...ap.DEFAULTS, theme: "auto" });
   assert.deepEqual([el.dataset.theme, el.dataset.mode], ["dark", "dark"]);
@@ -123,7 +123,7 @@ test("picking a theme resets the accent and tells subscribers (window chrome, ba
   ap.pickTheme("neon");
   off();
   ap.pickTheme("paper");
-  assert.deepEqual(seen, ["sunshine", "neon"]);
+  assert.deepEqual(seen, ["gallery", "neon"]);
   assert.equal(ap.readAppearance().accent, "theme");
   assert.equal(ap.readAppearance().theme, "paper");
 });

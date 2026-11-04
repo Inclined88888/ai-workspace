@@ -1,4 +1,4 @@
-import { SquareTerminal, ArrowLeft, ArrowUp, BookOpen, Brain, Check, Copy, KeyRound, MessageSquare, Pencil, Plus, RotateCcw, Search, ShieldAlert, Square, ThumbsDown, ThumbsUp, Trash2, Wrench, X } from "lucide-react";
+import { SquareTerminal, ArrowLeft, ArrowUp, BookOpen, Brain, Check, Copy, KeyRound, MessageSquare, Pencil, Plus, RotateCcw, Search, ShieldAlert, Square, ThumbsDown, ThumbsUp, Trash2, X } from "lucide-react";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, stream } from "../api";
@@ -12,10 +12,11 @@ import { WebSearchSetup } from "./ModelSignIn";
 import { askNotifyPermission, inBackground, notify } from "../desktop"; // feat/tauri-native
 import { Att, AttachButton, filesFrom, MessageAttachments, PendingChips, useAttachments } from "../Attachments"; // feat/attachments
 import { DiffView, extractDiffFromArgs } from "../components/DiffView";
+import { plainStep } from "../plainStep";
 
 type Conv = { id: number; title: string; channel: string; updated_at: string; model: string };
 type Msg = { id: number; role: string; content: string; tool_calls: string[]; name: string; via?: RouterInfo; attachments?: Att[] };
-type Step = { kind: "call" | "result" | "check"; name: string; text: string; ok?: boolean };
+type Step = { kind: "call" | "check"; name: string; text: string; line: string; ok?: boolean };
 type Approval = { id: number; tool: string; args: string; effect: string; reason: string };
 type Memory = { id: number; content: string; kind: string; source: string; updated_at: string };
 type Skill = { id: number; name: string; description: string; steps: string; uses: number; source: string; enabled: number };
@@ -31,11 +32,15 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   const [q, setQ] = useState("");
   const [messages, setMessages] = useState<Msg[]>([]);
   const [steps, setSteps] = useState<Step[]>([]);
+  const [lookAt, setLookAt] = useState<number | null>(null);
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const location = useLocation();
-  const [text, setText] = useState(((location.state as { draft?: string } | null)?.draft) ?? ""); // pre-filled from Files / Sites
+  const [text, setText] = useState(((location.state as { draft?: string; start?: boolean } | null)?.start ? "" : (location.state as { draft?: string } | null)?.draft) ?? ""); // pre-filled from Files / Sites; Home sends straight away
   // feat/v02-anywhere-voice: a draft handed over while Chat is already open (the ask bar's "Do it in Chat")
-  useEffect(() => { const d = (location.state as { draft?: string } | null)?.draft; if (d) setText(d); }, [location.state]);
+  useEffect(() => {
+    const s = location.state as { draft?: string; start?: boolean } | null;
+    if (s?.draft && !s.start) setText(s.draft);
+  }, [location.state]);
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState("");  // the answer as it is being written (cleared when the step ends)
   const [model, setModel] = useState("");
@@ -43,6 +48,10 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   const exit = useExit<number>(200);
   const { models } = useModels();
   const [effort, setEffort] = useEffort();
+  const [workMode, setWorkMode] = useState<"chat" | "plan" | "build">(() => {
+    const saved = localStorage.getItem("aiw.workMode");
+    return saved === "plan" || saved === "build" ? saved : "chat";
+  });
   const isPlan = !!models.find((m) => m.ref === model)?.effort;
   const endRef = useRef<HTMLDivElement>(null);
   const toast = useToast();
@@ -54,6 +63,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   const [editText, setEditText] = useState("");
   const att = useAttachments(); // feat/attachments: files waiting to go with the next message
   const [dropping, setDropping] = useState(false);
+  const [offer, setOffer] = useState<{ key: string; name: string; request: string; line: string } | null>(null);
 
   const loadConvs = () => api<Conv[]>(`/conversations${q ? `?q=${encodeURIComponent(q)}` : ""}`).then(setConvs).catch(toast.err);
   useEffect(() => { const t = setTimeout(loadConvs, 200); return () => clearTimeout(t); }, [q]);
@@ -79,6 +89,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
   }, [cid]);
   useEffect(() => {
     setSteps([]);
+    setLookAt(null);
     setApprovals([]);
     setEditing(null);
     if (!cid) return setMessages([]);
@@ -103,6 +114,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
     setBusy(true);
     setBusySince(Date.now());
     setSteps([]);
+    setLookAt(null);
     setEditing(null);
     if (opts.echo) setMessages((m) => [...m, { id: Date.now(), role: "user", content: msg, tool_calls: [], name: "", attachments: opts.files }]);
     let newId = cid;
@@ -112,21 +124,26 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     try {
-      await stream("/assistant/chat", { message: msg, conversation_id: cid, model: model || null, effort: isPlan ? effort : "", resend: !!opts.resend, attachments: (opts.files ?? []).map((a) => a.id) }, (ev) => {
+      await stream("/assistant/chat", { message: msg, conversation_id: cid, model: model || null, effort: isPlan ? effort : "", mode: workMode, resend: !!opts.resend, attachments: (opts.files ?? []).map((a) => a.id) }, (ev) => {
         const t = ev.type as string | undefined;
         if (t === "writing") { setDraft((d) => d + String(ev.text)); return; }
         if (t !== "router") setDraft("");
         if (t === "start") newId = Number(ev.conversation_id);
         if (t === "router") via = ev as unknown as RouterInfo;
-        if (t === "tool_call") setSteps((s) => [...s, { kind: "call", name: String(ev.name), text: String(ev.args) }]);
+        if (t === "tool_call") setSteps((s) => [...s, { kind: "call", name: String(ev.name), text: String(ev.args), line: plainStep(String(ev.name), String(ev.args)) }]);
         if (t === "tool_result") {
-          const r = (ev.receipt ?? {}) as { verified?: boolean | null; evidence?: string };
-          // Show what was confirmed in the database when there is a check; otherwise the raw result
-          const text = r.verified === true ? `verified: ${r.evidence}` : r.verified === false ? `check failed: ${r.evidence}` : String(ev.preview);
-          setSteps((s) => [...s, { kind: "result", name: String(ev.name), text, ok: Boolean(ev.ok) }]);
+          setSteps((s) => {
+            const name = String(ev.name);
+            let idx = -1;
+            for (let i = s.length - 1; i >= 0; i--) if (s[i].kind === "call" && s[i].name === name && s[i].ok == null) { idx = i; break; }
+            if (idx < 0) return s;
+            const next = s.slice();
+            next[idx] = { ...next[idx], ok: Boolean(ev.ok) };
+            return next;
+          });
         }
-        if (t === "claim_check") setSteps((s) => [...s, { kind: "check", name: "", ok: false,
-          text: ev.retrying ? `Answer said "${ev.claim}" but nothing confirms it. Asking the model to act or correct it.` : `Still unconfirmed: "${ev.claim}"` }]);
+        if (t === "claim_check") setSteps((s) => [...s, { kind: "check", name: "", text: "", ok: false,
+          line: ev.retrying ? "That claim needs a check. Asking again." : "That claim is still unchecked." }]);
         if (t === "approval_required") {
           setApprovals((a) => [...a, { id: Number(ev.id), tool: String(ev.tool), args: String(ev.args), effect: String(ev.effect), reason: String(ev.reason) }]);
           if (inBackground()) void notify("Approval needed", `${String(ev.tool)}: ${String(ev.reason || "waiting for your OK")}`, { tag: "approval" });
@@ -138,6 +155,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
           setFreshId(mid);
           setMessages((m) => [...m, { id: mid, role: "assistant", content: String(ev.content), tool_calls: [], name: "", via }]);
         }
+        if (t === "automate_offer") setOffer({ key: String(ev.key), name: String(ev.name), request: String(ev.request), line: String(ev.line) });
         if (t === "stopped") stopped = true;
         if (t === "error" || (!t && ev.error)) toast.err(String(ev.error));
       }, ctrl.signal);
@@ -165,6 +183,20 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
     if (composerRef.current) composerRef.current.style.height = "auto";
     await run(msg, { echo: true, files });
   };
+
+  // Home hands over a sentence and means it: send once, then drop the handoff so a refresh does not send it again.
+  const runRef = useRef(run);
+  runRef.current = run;
+  useEffect(() => {
+    const handed = location.state as { draft?: string; start?: boolean } | null;
+    const msg = handed?.start ? handed.draft?.trim() : "";
+    if (!msg) return;
+    const t = window.setTimeout(() => {
+      navigate(location.pathname, { replace: true, state: null });
+      void runRef.current(msg, { echo: true });
+    }, 0);
+    return () => clearTimeout(t);
+  }, []);
 
   /** Stop: abort the fetch here and tell the server to cancel the turn, so tools stop too; partial text is kept. */
   const stopTurn = async () => {
@@ -205,12 +237,9 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
 
   const visible = messages.filter((m) => (m.role === "user" && m.name !== "claim_check") || (m.role === "assistant" && (m.content || m.tool_calls.length)));
   const lastReply = [...visible].reverse().find((m) => m.role === "assistant" && m.content);
-  const suggestions = [
-    { title: "Plan my week", hint: "from my tasks and calendar", text: "Plan my week from my tasks and calendar" },
-    { title: "Research a topic", hint: "with sources I can check", text: "Research the best free local AI models for a laptop, with sources" },
-    { title: "Draft an email", hint: "in my usual tone", text: "Draft a friendly follow-up email to a beta tester" },
-    { title: "Automate something", hint: "like a daily summary", text: "Every weekday at 8am, send me a summary of what's due" },
-  ];
+  const look = lookAt == null || lookAt >= steps.length ? steps.length - 1 : lookAt;
+  const shown = look >= 0 ? steps[look] : null;
+  const shownDiff = shown?.kind === "call" && (shown.name === "edit_file" || shown.name === "write_file") ? extractDiffFromArgs(shown.text) : null;
   // Screen reader only utility
   const srOnly: React.CSSProperties = {
     position: "absolute",
@@ -275,7 +304,7 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
               <div className="approvals-header-list">
                 {approvals.slice(0, 3).map((a) => (
                   <div key={a.id} className="approval-header-item">
-                    <span className="tool-name">{a.tool}</span>
+                    <span className="tool-name">{plainStep(a.tool, a.args)}</span>
                     <span className="tool-reason">{a.reason}</span>
                   </div>
                 ))}
@@ -286,21 +315,10 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
             </div>
           </div>
         )}
+        <div className="chat-stage">
         <div className="chat-scroll" aria-live="polite">
           <main className="chat-thread" role="main" aria-label="Chat conversation">
             <h1 style={srOnly}>Chat conversation</h1>
-            {visible.length === 0 && !busy && (
-              <Empty hero title="What can I do for you?"
-                hint="I remember what matters across conversations, use your notes, tasks, calendar and mail, search the web, and can schedule things like a daily report.">
-                <div className="chat-suggestions">
-                  {suggestions.map((sg) => (
-                    <button key={sg.title} type="button" className="chat-suggestion" onClick={() => { setText(sg.text); composerRef.current?.focus(); }}>
-                      {sg.title}<span>{sg.hint}</span>
-                    </button>
-                  ))}
-                </div>
-              </Empty>
-            )}
             {visible.map((m) => m.role === "user"
               ? <div key={m.id} className="msg user">
                   {editing === m.id ? (
@@ -327,7 +345,6 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
               : <div key={m.id} className="msg">
                   <div className="msg-body">
                     <div className="msg-byline" aria-hidden="true">Workspace</div>
-                    {m.tool_calls.length > 0 && <div className="msg-tools"><Wrench size={11} /> {m.tool_calls.join(", ")}</div>}
                     {m.content && (m.id === freshId
                       ? <LiveMarkdown text={m.content} messageId={m.id} streaming onDone={() => setFreshId(null)} />
                       : <LiveMarkdown text={m.content} messageId={m.id} />)}
@@ -341,37 +358,19 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
                     )}
                   </div>
                 </div>)}
-            {steps.length > 0 && (
-              <div className="steps-list timeline" aria-label="Tool activity" aria-live="polite" aria-atomic="false">
-                {steps.map((s, i) => {
-                  const diff = (s.kind === "call" && (s.name === "edit_file" || s.name === "write_file"))
-                    ? extractDiffFromArgs(s.text)
-                    : null;
-                  return (
-                    <div key={i} className={`step ${s.kind === "result" ? (s.ok ? "ok" : "bad") : s.kind === "check" ? "bad" : busy && i === steps.length - 1 ? "live" : ""}`}>
-                      {s.kind === "call" ? <Wrench size={12} /> : s.kind === "check" ? <ShieldAlert size={12} />
-                        : s.ok ? <Check size={12} /> : <X size={12} />}
-                      <span className="truncate">{s.kind === "call" ? `${s.name} ${s.text}` : s.text}</span>
-                      {diff && <DiffView diff={diff} compact />}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
             {approvals.map((a) => {
               const diff = (a.tool === "edit_file" || a.tool === "write_file")
                 ? extractDiffFromArgs(a.args)
                 : null;
               return (
-                <div key={a.id} className={`card col approval-card spring-in${exit.leaving(a.id) ? " leaving-out" : ""}`} style={{ gap: 10 }} role="alertdialog" aria-label={`Approve ${a.tool}?`}>
-                  <div className="row"><ShieldAlert size={16} style={{ color: "var(--warn-text)" }} /> <b>Approve {a.tool}?</b></div>
+                <div key={a.id} className={`card col approval-card spring-in${exit.leaving(a.id) ? " leaving-out" : ""}`} style={{ gap: 10 }} role="alertdialog" aria-label={plainStep(a.tool, a.args)}>
+                  <div className="row"><ShieldAlert size={16} style={{ color: "var(--warn-text)" }} /> <b>{plainStep(a.tool, a.args)}</b></div>
                   <div className="small muted">{a.reason} {{
                     persistent: "This would change how the assistant behaves from now on.",
                     write: "This changes a file on your computer.",
                     command: "This runs a command on your computer.",
                   }[a.effect] ?? "This acts outside the workspace."}</div>
-                  {!diff && <pre className="small mono" style={{ whiteSpace: "pre-wrap", margin: 0 }}>{
-                    a.effect === "command" ? (() => { try { return String(JSON.parse(a.args).command ?? a.args); } catch { return a.args; } })() : a.args}</pre>}
+                  {a.effect === "command" && !diff && <pre className="small" style={{ whiteSpace: "pre-wrap", margin: 0 }}>{(() => { try { return String(JSON.parse(a.args).command ?? ""); } catch { return ""; } })()}</pre>}
                   {diff && <DiffView diff={diff} compact />}
                   <div className="row">
                     <button className="btn primary sm" onClick={() => decide(a, true)}>Approve</button>
@@ -385,13 +384,44 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
                 <div className="msg-body">
                   <div className="msg-byline is-thinking" aria-hidden="true">Workspace</div>
                   {draft && <div className="msg-text"><Markdown text={draft} /></div>}
-                  <Thinking since={busySince} phase={(() => { const l = steps[steps.length - 1]; return l?.kind === "call" ? l.name.replace(/[_.]+/g, " ") : undefined; })()} />
+                  <Thinking since={busySince} line={steps.at(-1)?.line} />
                 </div>
               </div>
             )}
             <div ref={endRef} />
           </main>
         </div>
+        {steps.length > 0 && shown && (
+          <aside className="shoulder" aria-label="What Rooks is doing">
+            <h2>Working</h2>
+            <p className="shoulder-now">{shown.line}</p>
+            {shownDiff && <DiffView diff={shownDiff} compact />}
+            <ol>
+              {steps.map((s, i) => (
+                <li key={i}>
+                  <button type="button" className={i === look ? "on" : ""} aria-current={i === look ? "step" : undefined} onClick={() => setLookAt(i)}>
+                    {s.ok === false ? <X size={12} /> : s.ok ? <Check size={12} /> : <span className="shoulder-dot" />}
+                    <span>{s.line}</span>
+                  </button>
+                </li>
+              ))}
+            </ol>
+          </aside>
+        )}
+        </div>
+        {offer && (
+          <div className="card row" style={{ margin: "0 12px 8px", alignItems: "center", gap: 10 }}>
+            <div className="grow">
+              <div>{offer.line}</div>
+              <div className="small muted truncate">{offer.name}</div>
+            </div>
+            <button type="button" className="btn primary sm" onClick={async () => {
+              try { await api("/automations/from-habit", { body: { request: offer.request, name: offer.name } }); toast.ok("Saved. It asks you before it runs."); setOffer(null); }
+              catch (e) { toast.err(e); }
+            }}>Save</button>
+            <button type="button" className="btn ghost sm" onClick={() => { api("/automations/offer-skip", { body: { key: offer.key } }).catch(() => undefined); setOffer(null); }}>Not now</button>
+          </div>
+        )}
         <form className="composer-wrap" onSubmit={send}>
           <div className={`composer has-tracer${busy ? " is-working" : ""}${dropping ? " drop-target" : ""}`}
             onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setDropping(true); } }}
@@ -407,6 +437,21 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
             <div className="composer-bar">
               <AttachButton onFiles={att.add} disabled={busy} />
               <ModelSelect value={model} onChange={setModel} models={models} />
+              <select
+                className="input"
+                aria-label="Mode"
+                title="Chat talks. Plan proposes steps first. Build carries the task through."
+                value={workMode}
+                onChange={(e) => {
+                  const v = e.target.value as "chat" | "plan" | "build";
+                  setWorkMode(v);
+                  localStorage.setItem("aiw.workMode", v);
+                }}
+              >
+                <option value="chat">Chat</option>
+                <option value="plan">Plan</option>
+                <option value="build">Build</option>
+              </select>
               {isPlan && <EffortSelect value={effort} onChange={setEffort} />}
               <div className="spacer" />
               <span className="composer-hint">Shift + Enter for a new line</span>

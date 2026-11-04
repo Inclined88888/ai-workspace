@@ -52,7 +52,7 @@ def _system_timezone() -> str:
 
 
 TIMEZONE = os.getenv("TZ_NAME") or os.getenv("WORKSPACE_TIMEZONE") or _system_timezone()
-WORKSPACE_NAME = os.getenv("WORKSPACE_NAME", "AI Workspace")
+WORKSPACE_NAME = os.getenv("WORKSPACE_NAME", "Rooks")
 CHAT_URL = os.getenv("CHAT_URL", "")  # Open WebUI add-on link, empty when not installed
 SEARXNG_URL = os.getenv("SEARXNG_URL", "").rstrip("/")  # optional add-on
 OLLAMA_URL = os.getenv("OLLAMA_URL", "").rstrip("/")  # optional: add-on container or native app on the host
@@ -64,6 +64,7 @@ BROWSER_URL = os.getenv("BROWSER_URL", "").rstrip("/")  # optional add-on
 BROWSER_API_KEY = os.getenv("BROWSER_API_KEY", "")
 DESK_URL = os.getenv("DESK_URL", "").rstrip("/")  # optional add-on: Rooks Desk, computer use on this machine
 DESK_API_KEY = os.getenv("DESK_API_KEY", "")
+CODING_BRIDGE_KEY = os.getenv("CODING_BRIDGE_KEY", "")  # lets the Rooks terminal agent use this app's models; filled in on first job if empty
 PAPERCLIP_URL = os.getenv("PAPERCLIP_URL", "")
 HERMES_URL = os.getenv("HERMES_URL", "")
 # Desktop app (desktop/): the native shell runs this backend as a sidecar on 127.0.0.1 for one local user.

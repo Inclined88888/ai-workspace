@@ -1,6 +1,7 @@
 """Mail through the account signed in on this Mac (mac_mail.py): Outlook without app passwords or an app registration."""
 
 import json
+import sys
 
 import pytest
 
@@ -99,10 +100,12 @@ def test_drafts_from_chat_also_land_in_apple_mail(client, mac):
     assert mac[-1][0] == mac_mail.COMPOSE_JS and mac[-1][1][5] == "draft"
 
 
-def test_off_unless_opted_in(monkeypatch):
+def test_sign_in_window_is_on_for_a_mac(monkeypatch):
     from app import mac_mail
 
     monkeypatch.delenv("MAC_ACCOUNTS", raising=False)
+    assert mac_mail.available() is (sys.platform == "darwin")
+    monkeypatch.setenv("MAC_ACCOUNTS", "0")
     assert not mac_mail.available()
 
 

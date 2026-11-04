@@ -194,6 +194,25 @@ def save(pb: dict, recording_id: int | None = None, pid: int | None = None, stat
     return get(pid)
 
 
+def each_morning(pid: int) -> dict:
+    """Weekday morning: go to the place they showed, look for what changed, and say what to do."""
+    from .. import scheduler
+
+    pb = get(pid)
+    if pb.get("schedule_id"):
+        existing = db.one("SELECT * FROM schedules WHERE id = ?", pb["schedule_id"])
+        if existing:
+            return {"already": True, "schedule": existing}
+    prompt = (
+        f"Check “{pb['name']}” the way I showed you. Use run_playbook with id {pid}. "
+        "Open that place, look for what changed, and tell me what is new and what I should do today. "
+        "Do not send, pay, or submit anything."
+    )
+    sched = scheduler.create_schedule((pb["name"] or "Morning check")[:100], "30 7 * * 1-5", prompt)
+    db.run("UPDATE adapt_playbooks SET schedule_id = ? WHERE id = ?", sched["id"], pid)
+    return {"already": False, "schedule": sched}
+
+
 def delete(pid: int) -> dict:
     store.ensure()
     db.run("DELETE FROM adapt_playbooks WHERE id = ?", pid)

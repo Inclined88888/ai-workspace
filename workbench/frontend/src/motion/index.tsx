@@ -62,11 +62,11 @@ export function transitionClick(go: () => void) {
  * when there is one, so a long wait becomes a described one. The element stays mounted across re-renders so the
  * loop never restarts mid-cycle.
  */
-export function Thinking({ phase, since }: { phase?: string; since: number }) {
+export function Thinking({ phase, line, since }: { phase?: string; line?: string; since: number }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
   const secs = Math.floor((now - since) / 1000);
-  const label = phase ? `Using ${phase}` : "Thinking";
+  const label = line || (phase ? `Using ${phase}` : "Thinking");
   return (
     <div className="thinking" role="status" aria-live="polite">
       <span className="shimmer-text">{label}</span>

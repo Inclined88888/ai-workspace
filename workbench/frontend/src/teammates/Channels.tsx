@@ -147,7 +147,7 @@ export default function Channels() {
       {link.relay.error && <p className="tm-err">{link.relay.error}</p>}
       <label>Folders your phone can browse (one per line, read-only)<textarea rows={3} value={folders} onChange={(e) => setFolders(e.target.value)} /></label>
       <button className="btn primary sm" onClick={() => save("/link", { relay_url: relay, shared_folders: folders.split("\n").map((x) => x.trim()).filter(Boolean) })}>Save</button>
-      <p className="tm-muted">To link a phone, open the Phone page and scan the pairing code with the AI Workspace app.</p>
+      <p className="tm-muted">To link a phone, open the Phone page and scan the pairing code with Rooks.</p>
     </section>
   </div>;
 }

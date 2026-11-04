@@ -30,18 +30,25 @@ function Login({ onDone }: { onDone: () => void }) {
   return (
     <form className="col gap-lg" onSubmit={submit}>
       <div className="auth-brand">
-        <div className="wordmark lg" aria-hidden="true">AI Workspace</div>
+        <div className="wordmark lg" aria-hidden="true">Rooks</div>
         <div>
           <h1>Welcome back</h1>
-          <p className="muted">Sign in to your workspace.</p>
+          <p className="muted">Use the PIN or password you created for Rooks. Gmail, Apple, Microsoft, ChatGPT and Claude are the next step, after this.</p>
         </div>
       </div>
       {error && <div className="alert err">{error}</div>}
       <label className="field">
-        Password
+        PIN or password
         <input className="input" type="password" autoFocus autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
       </label>
       <button className="btn primary" disabled={busy || !password}>{busy ? <Loader2 size={16} className="spin" /> : "Sign in"}</button>
+      <button type="button" className="btn ghost" disabled={busy} onClick={async () => {
+        if (!window.confirm("The old PIN can't be looked up. Set a new one? Your mail, notes and tasks stay.")) return;
+        setBusy(true);
+        setError("");
+        try { await api("/lock/reset", { method: "POST" }); onDone(); }
+        catch (err) { setError((err as Error).message); setBusy(false); }
+      }}>Forgot it? Set a new one</button>
     </form>
   );
 }
@@ -160,7 +167,7 @@ export default function Auth({ status, onDone }: { status: Status; onDone: () =>
 
   const createAccount = async (e: FormEvent) => {
     e.preventDefault();
-    if (form.password !== form.confirm) return setError("Passwords do not match");
+    if (form.password !== form.confirm) return setError("Those don't match. Type the same PIN or password twice.");
     setBusy(true);
     setError("");
     try {
@@ -180,10 +187,11 @@ export default function Auth({ status, onDone }: { status: Status; onDone: () =>
         {step === 0 && (
           <form className="col gap-lg" onSubmit={createAccount}>
             <div className="auth-brand">
-              <div className="wordmark lg" aria-hidden="true">AI Workspace</div>
+              <div className="wordmark lg" aria-hidden="true">Rooks</div>
+              <p className="muted small" style={{ margin: "8px 0 0" }}>Your own workspace and assistant.</p>
               <div>
-                <h1>Set up your workspace</h1>
-                <p className="muted">Create the password that protects your workspace. Only you use it.</p>
+                <h1>Set a PIN or password</h1>
+                <p className="muted">This locks Rooks on this computer. Your mail, notes and tasks stay. Next you can sign in with Gmail, Apple, Microsoft, ChatGPT or Claude.</p>
               </div>
             </div>
             {error && <div className="alert err">{error}</div>}
@@ -194,11 +202,11 @@ export default function Auth({ status, onDone }: { status: Status; onDone: () =>
               </label>
             )}
             <label className="field">Workspace name<input className="input" value={form.workspace_name} onChange={(e) => setForm({ ...form, workspace_name: e.target.value })} /></label>
-            <label className="field">Password <span className="hint">At least 10 characters</span>
+            <label className="field">PIN or password <span className="hint">At least 6 characters</span>
               <input className="input" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
             </label>
-            <label className="field">Confirm password<input className="input" type="password" value={form.confirm} onChange={(e) => setForm({ ...form, confirm: e.target.value })} /></label>
-            <button className="btn primary" disabled={busy || form.password.length < 10}>{busy ? <Loader2 size={16} className="spin" /> : <>Create workspace <ArrowRight size={16} /></>}</button>
+            <label className="field">Type it again<input className="input" type="password" value={form.confirm} onChange={(e) => setForm({ ...form, confirm: e.target.value })} /></label>
+            <button className="btn primary" disabled={busy || form.password.length < 6}>{busy ? <Loader2 size={16} className="spin" /> : <>Set PIN <ArrowRight size={16} /></>}</button>
           </form>
         )}
         {step === 1 && <ModelsStep onNext={() => setStep(2)} />}

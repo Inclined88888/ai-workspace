@@ -80,8 +80,9 @@ SPECS = [
     {"name": "write_file", "description": "Create a file or overwrite it with the given content.",
      "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
                     "required": ["path", "content"]}},
-    {"name": "run_command", "description": "Run a shell command in the project root and return its exit code and output. "
-                                           "Use it to run tests, builds, git and other CLIs.",
+    {"name": "run_command", "description": "Run a shell command in the project folder and return its exit code and output. "
+                                           "Use it for tests, builds, and git. The user approves commands. Stay inside the "
+                                           "project unless they asked you to go outside it. This is not a kernel sandbox.",
      "parameters": {"type": "object", "properties": {
          "command": {"type": "string"}, "timeout": {"type": "integer", "description": "Seconds (default 120)"}},
          "required": ["command"]}},
