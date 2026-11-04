@@ -210,13 +210,24 @@ async def run_turn(data: RunTurnIn):
         db.run("UPDATE conversations SET model = ? WHERE id = ?", data.model, data.conversation_id)
 
     async def events():
-        ctx = assistant.Ctx(channel=CHANNEL, conversation_id=data.conversation_id, request_key="", skip_save=False, attachments=[])
+        import asyncio
+
+        cid = data.conversation_id
+        ctx = assistant.Ctx(channel=CHANNEL, conversation_id=cid, request_key="", skip_save=False, attachments=[])
+        task = asyncio.current_task()
+        if task is not None:
+            assistant.TURNS[cid] = task  # the app's Stop button (/api/assistant/stop) reaches a terminal turn too
         try:
             async for e in assistant.run_turn(ctx, data.prompt, data.model):
                 yield e
+        except asyncio.CancelledError:
+            return  # run_turn already saved and yielded the stopped state
         except Exception as e:
             yield {"type": "error", "error": f"{e.__class__.__name__}: {e}"}
             raise
+        finally:
+            if assistant.TURNS.get(cid) is task:
+                del assistant.TURNS[cid]
 
     return sse(events())
 

@@ -932,11 +932,27 @@ async def run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> AsyncI
     try:
         async for e in _run_turn(ctx, user_text, model):
             yield e
+    except asyncio.CancelledError:
+        # Stop during a tool step (the model-call step handles its own): same partial-state answer as there
+        if ctx.turn_action_id and (db.one("SELECT outcome FROM actions WHERE id = ?", ctx.turn_action_id) or {}).get("outcome") == "running":
+            yield _stopped(ctx)
+        raise
     except Exception as e:
         _close_turn(ctx, "error", f"{e.__class__.__name__}: {e}")
         raise
     finally:
         _close_turn(ctx, "interrupted", "the stream was closed before the turn finished")
+
+
+def _stopped(ctx: Ctx) -> dict:
+    """Stop button: end the turn where it stands and keep what was already written or done."""
+    note = "Stopped."
+    done_so_far = receipts.summary(ctx.receipts)
+    if done_so_far:
+        note = done_so_far + "\n\n" + note
+    _save(ctx.conversation_id, "assistant", note, name="stopped")
+    receipts.record_turn(ctx, "stopped", "stopped by the user")
+    return {"type": "stopped", "content": note}
 
 
 def _close_turn(ctx: Ctx, outcome: str, reason: str) -> None:
@@ -1018,14 +1034,7 @@ async def _run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> Async
             if res.get("router"):  # the smart router answered: say who, what it skipped, and what is left
                 yield {"type": "router", **res["router"]}
         except asyncio.CancelledError:
-            # Stop button: end the turn where it stands and keep what was already written or done
-            note = "Stopped."
-            done_so_far = receipts.summary(ctx.receipts)
-            if done_so_far:
-                note = done_so_far + "\n\n" + note
-            _save(ctx.conversation_id, "assistant", note, name="stopped")
-            receipts.record_turn(ctx, "stopped", "stopped by the user")
-            yield {"type": "stopped", "content": note}
+            yield _stopped(ctx)
             raise
         except HTTPException as e:
             receipts.record_turn(ctx, "model_error", str(e.detail))
@@ -1082,6 +1091,15 @@ async def _run_turn(ctx: Ctx, user_text: str, model: str | None = None) -> Async
                         ok, out = await asyncio.wait_for(fut, timeout=DELEGATION_TIMEOUT_S)
                     except asyncio.TimeoutError:
                         out, ok = "Error: the terminal did not answer in time", False
+                    except asyncio.CancelledError:
+                        # Stop (app or terminal) while the terminal runs the tool: close the action and answer the
+                        # tool call so the ledger and the history stay whole; a late result gets 404 and is dropped
+                        stopped = "Stopped before the terminal answered; its result was discarded."
+                        actions.finish(e.action_id, "stopped", failure_reason=stopped)
+                        ctx.receipts.append({"tool": e.tool, "effect": e.effect, "outcome": "stopped", "verified": None,
+                                             "evidence": "", "ref": None, "action_id": e.action_id})
+                        _save(ctx.conversation_id, "tool", stopped, tool_call_id=call["id"], name=fn["name"])
+                        raise
                     finally:
                         _PENDING_DELEGATIONS.pop(e.action_id, None)
                 actions.finish(e.action_id, "ok" if ok else "tool_error", evidence=out[:200] if ok else "",

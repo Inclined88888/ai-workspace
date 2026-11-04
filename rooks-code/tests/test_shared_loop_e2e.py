@@ -167,3 +167,53 @@ def test_an_edit_denied_in_the_app_is_not_made(project, app):
         assert (project / "calc.py").read_text() == "def add(a, b):\n    return a - b\n"
     finally:
         model.close()
+
+
+def test_stopping_in_the_app_while_the_terminal_runs_a_tool_ends_the_turn_everywhere(project, app):
+    """Scenario E: the app's Stop lands while rooks is still running a delegated command. The app closes the step as
+    stopped and answers the tool call; rooks finishes the command, gets 404 for the late result, drops it and exits
+    cleanly; the model is never asked again."""
+    import threading
+
+    cmd = "touch started; sleep 3; touch finished"
+    model = FakeModel([
+        openai_reply("", [("run_command", {"command": cmd})]),
+        openai_reply("SHOULD NOT BE ASKED"),
+    ])
+    try:
+        app.call("POST", "/api/setup", {"password": "testpassword1"})
+        pid = app.call("POST", "/api/providers", {"name": "Fake", "kind": "openai", "base_url": model.url, "api_key": "x"})["id"]
+        app.call("PUT", "/api/settings", {"default_model": f"{pid}/fake-model"})
+        token = app.call("POST", "/api/cli-token")["token"]
+        stopped = {}
+
+        def stop_in_app():
+            for _ in range(300):
+                if (project / "started").exists():
+                    cid = next(c["id"] for c in app.call("GET", "/api/conversations") if c.get("channel") == "cli")
+                    stopped.update(cid=cid, **app.call("POST", "/api/assistant/stop", {"conversation_id": cid}))
+                    return
+                time.sleep(0.05)
+
+        t = threading.Thread(target=stop_in_app, daemon=True)
+        t.start()
+        r = rooks(project, "-P", "workbench", "run the slow thing", stdin="y\n",
+                  env={"WORKBENCH_URL": app.url, "WORKBENCH_API_KEY": token})
+        t.join(10)
+        out = r.stdout + r.stderr
+        assert r.returncode == 1, out  # a stopped one-shot prompt is not a success
+        assert stopped.get("stopped") is True, stopped
+        assert "result not sent" in out and "unreachable" not in out
+        assert (project / "finished").exists()  # the local command ran to its end under rooks' own timeout
+        assert len(model.requests) == 1  # the turn did not continue after Stop
+
+        conv = app.call("GET", f"/api/conversations/{stopped['cid']}")
+        tool_msg = next(m for m in conv["messages"] if m["role"] == "tool" and m["name"] == "run_command")
+        assert tool_msg["content"].startswith("Stopped before the terminal answered")
+        assert conv["messages"][-1]["name"] == "stopped"
+        # nothing is left waiting: no pending approval, and a second Stop finds no running turn
+        assert not [a for a in app.call("GET", f"/api/approvals?conversation_id={stopped['cid']}") if a["status"] == "pending"]
+        assert app.call("POST", "/api/assistant/stop", {"conversation_id": stopped["cid"]})["stopped"] is False
+        assert "Stopped." in out, (out, conv["messages"][-3:], (app.url, open(app.log.name).read()[-3000:]))
+    finally:
+        model.close()

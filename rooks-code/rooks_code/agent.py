@@ -8,6 +8,7 @@ import os
 import platform
 import re
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -422,8 +423,15 @@ class Agent:
                         post = urllib.request.Request(f"{base}/v1/rooks/tool_result", method="POST", headers=hdr,
                                                       data=json.dumps({"delegation_id": ev.get("id"), "ok": ok,
                                                                        "result": result}).encode())
-                        with urllib.request.urlopen(post, timeout=30):
-                            pass
+                        try:
+                            with urllib.request.urlopen(post, timeout=30):
+                                pass
+                        except urllib.error.HTTPError as e:
+                            if e.code not in (404, 409):
+                                raise
+                            # the turn was stopped (or timed out) in the app while this tool ran here: the app has
+                            # already closed the step, so this result is dropped and the stream ends with "stopped"
+                            self.ui.tool_note(f"{call.name} finished after the turn was stopped; result not sent")
                     elif kind == "tool_call" and ev.get("name") not in BRIDGE_LOCAL:
                         self.ui.tool_note(f"{ev.get('name')} (app)", read=True)
                     elif kind == "approval_required":
@@ -444,7 +452,7 @@ class Agent:
         except (OSError, ValueError) as e:  # urllib errors are OSError subclasses
             self.log.finish(turn, "model_error", failure_reason=str(e)[:500])
             raise providers.ProviderError(f"the app's shared loop is unreachable: {e}") from e
-        if answer and outcome not in ("stopped", "model_error"):
+        if answer and outcome != "model_error":  # a stop from the app is shown too: the user sees why it ended
             self.ui.assistant(answer, final=True)
         self.log.finish(turn, outcome)
         return answer or "(no answer)"

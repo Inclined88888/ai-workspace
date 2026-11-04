@@ -156,3 +156,43 @@ def test_chat_controls_require_auth(client):
     assert anon.post("/api/assistant/stop", json={"conversation_id": 1}, headers=h).status_code == 401
     assert anon.post("/api/conversations/1/regenerate", headers=h).status_code == 401
     assert anon.patch("/api/conversations/1/messages/1", json={"content": "x"}, headers=h).status_code == 401
+
+
+def test_stop_during_a_tool_step_ends_the_turn_as_stopped(client, monkeypatch):
+    """Stop used to work only while the model was answering: during a tool the turn ended 'interrupted' with no note."""
+    import asyncio
+
+    from app import assistant, db
+
+    SCRIPT[:] = [tool_call("remember", {"fact": "x"}), {"role": "assistant", "content": "SHOULD NOT BE ASKED"}]
+    cid = assistant.new_conversation("web")
+
+    async def slow_tool(name, raw_args, ctx):
+        await asyncio.sleep(30)
+
+    monkeypatch.setattr(assistant, "run_tool", slow_tool)
+
+    async def go():
+        seen = []
+
+        async def consume():
+            ctx = assistant.Ctx(channel="web", conversation_id=cid)
+            async for e in assistant.run_turn(ctx, "remember x", None):
+                seen.append(e)
+
+        task = asyncio.create_task(consume())
+        assistant.TURNS[cid] = task
+        while not any(e["type"] == "tool_call" for e in seen):
+            await asyncio.sleep(0.01)
+        assert assistant.stop_turn(cid) is True
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        return seen
+
+    seen = asyncio.run(go())
+    assistant.TURNS.pop(cid, None)
+    assert seen[-1]["type"] == "stopped" and "Stopped." in seen[-1]["content"]
+    msgs = client.get(f"/api/conversations/{cid}").json()["messages"]
+    assert msgs[-1]["name"] == "stopped"
+    turn = db.one("SELECT outcome FROM actions WHERE kind = 'turn' ORDER BY id DESC")
+    assert turn["outcome"] == "stopped"
