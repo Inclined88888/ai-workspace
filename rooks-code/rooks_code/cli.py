@@ -7,9 +7,7 @@ or local Ollama / LM Studio (works fully offline).
   rooks login                   connect a model: paste a key, or point at your AI Workspace server
   rooks undo                    put back the files changed by the last prompt
   rooks pack [list|info|add|remove] ID   the app's Packs gallery
-
   rooks egress [--hours N]      what the app sent off this machine, per host
-
   cmd | rooks redact [--check]  hide keys, tokens, emails and phone numbers (offline)
   rooks receipts [list|show|import --db PATH]
   rooks -P claude-code "task"   hand the job to your own signed-in Claude Code (your Claude plan); also -P codex
