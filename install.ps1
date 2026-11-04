@@ -3,7 +3,7 @@
 #   From the downloaded folder (zip or clone), in PowerShell:
 #       powershell -ExecutionPolicy Bypass -File .\install.ps1
 #   Straight from GitHub:
-#       powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/Inclined88888/ai-workspace/main/install.ps1 | iex"
+#       powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/Inclined88888/ai-workspace/integration/v0.4/install.ps1 | iex"
 #
 # Then start everything with:   ai-workspace      (or Start menu > AI Workspace)
 #
@@ -17,9 +17,9 @@
 #
 # Settings (env vars, because `irm | iex` cannot take arguments):
 #   AI_WORKSPACE_NO_START=1   don't open the app at the end
-#   AI_WORKSPACE_NATIVE=auto|yes|no   native installer from GitHub releases (default auto)
+#   AI_WORKSPACE_NATIVE=auto|yes|no   native installer from GitHub releases (default no; that release is the old app)
 #   AI_WORKSPACE_HELPERS=yes|no   optional helper apps for Files (Tesseract, FFmpeg, LibreOffice via winget; default: ask)
-#   AI_WORKSPACE_REF (branch/tag to download, default integration/v0.3)   AI_WORKSPACE_REPO (owner/repo)
+#   AI_WORKSPACE_REF (branch/tag to download, default integration/v0.4)   AI_WORKSPACE_REPO (owner/repo)
 # Run it again to upgrade. Your chats, keys and settings are kept. Uninstall: QUICKSTART.md.
 
 & {
@@ -28,7 +28,7 @@
   [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
   $repo = if ($env:AI_WORKSPACE_REPO) { $env:AI_WORKSPACE_REPO } else { 'Inclined88888/ai-workspace' }
-  $ref = if ($env:AI_WORKSPACE_REF) { $env:AI_WORKSPACE_REF } else { 'integration/v0.3' }
+  $ref = if ($env:AI_WORKSPACE_REF) { $env:AI_WORKSPACE_REF } else { 'integration/v0.4' }
   $bin = if ($env:AI_WORKSPACE_BIN) { $env:AI_WORKSPACE_BIN } else { Join-Path $env:USERPROFILE '.local\bin' }
 
   Write-Host 'AI Workspace installer' -ForegroundColor White
@@ -64,7 +64,7 @@
   $env:PYTHONUTF8 = '1'
 
   # 3. Everything else is the same on every OS: desktop\launcher\install_helper.py.
-  $native = if ($env:AI_WORKSPACE_NATIVE) { $env:AI_WORKSPACE_NATIVE } else { 'auto' }
+  $native = if ($env:AI_WORKSPACE_NATIVE) { $env:AI_WORKSPACE_NATIVE } else { 'no' }
   & $uv run --quiet --no-project --python 3.12 (Join-Path $src 'desktop\launcher\install_helper.py') --src $src --bin $bin --native $native
   if ($LASTEXITCODE -ne 0) { throw "Install failed (exit $LASTEXITCODE). Scroll up for the reason." }
 

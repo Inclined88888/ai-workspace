@@ -1,4 +1,4 @@
-# AI Workspace: Quick start (v0.1 release candidate)
+# AI Workspace: Quick start
 
 One command installs everything for your user account, with no admin rights, Docker or Node.js needed:
 
@@ -22,7 +22,7 @@ they use your keys and your free tiers, fall back when a provider hits a limit, 
 Open **Terminal** and paste:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/integration/v0.3/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/integration/v0.4/install.sh | bash
 ```
 
 ### Windows 10 / 11
@@ -30,18 +30,18 @@ curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/integrat
 Open **PowerShell** (Start → type *PowerShell* → Enter) and paste:
 
 ```powershell
-irm https://raw.githubusercontent.com/Inclined88888/ai-workspace/integration/v0.3/install.ps1 | iex
+irm https://raw.githubusercontent.com/Inclined88888/ai-workspace/integration/v0.4/install.ps1 | iex
 ```
 
 **To install a different branch or tag**, set `AI_WORKSPACE_REF`:
 
 ```bash
 # macOS / Linux
-curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/integration/v0.3/install.sh | AI_WORKSPACE_REF=main bash
+curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/integration/v0.4/install.sh | AI_WORKSPACE_REF=integration/v0.4 bash
 ```
 ```powershell
 # Windows
-$env:AI_WORKSPACE_REF='main'; irm https://raw.githubusercontent.com/Inclined88888/ai-workspace/integration/v0.3/install.ps1 | iex
+$env:AI_WORKSPACE_REF='integration/v0.4'; irm https://raw.githubusercontent.com/Inclined88888/ai-workspace/integration/v0.4/install.ps1 | iex
 ```
 
 **From the release zip** (no download step), unzip `ai-workspace-0.1.0-rc1.zip`, then either:

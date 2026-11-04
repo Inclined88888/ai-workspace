@@ -25,12 +25,12 @@ You don't need any of them for the assistant, memory, skills, schedules, Telegra
 
 ```bash
 # macOS / Linux
-curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/integration/v0.3/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/integration/v0.4/install.sh | bash
 ```
 
 ```powershell
 # Windows (PowerShell)
-irm https://raw.githubusercontent.com/Inclined88888/ai-workspace/integration/v0.3/install.ps1 | iex
+irm https://raw.githubusercontent.com/Inclined88888/ai-workspace/integration/v0.4/install.ps1 | iex
 ```
 
 This installs three commands for your user only (no admin password): `ai-workspace` (the app, in its own window),

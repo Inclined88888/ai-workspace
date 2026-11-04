@@ -2,7 +2,7 @@
 # AI Workspace: one-command install for macOS and Linux (Windows: install.ps1).
 #
 #   From the downloaded folder (zip or clone):   bash install.sh
-#   Straight from GitHub:                        curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/main/install.sh | bash
+#   Straight from GitHub:                        curl -fsSL https://raw.githubusercontent.com/Inclined88888/ai-workspace/integration/v0.4/install.sh | bash
 #
 # Then start everything with:   ai-workspace
 #
@@ -18,7 +18,7 @@
 #           --no-desk (don't install rooks-desk, computer use)
 #           --native auto|yes|no (native installer from GitHub releases; default no, that release is the old app)
 #           --no-helpers (don't offer the optional helper apps: Tesseract, FFmpeg, LibreOffice)
-# Settings: AI_WORKSPACE_REF (branch/tag when downloading, default integration/v0.3)  AI_WORKSPACE_REPO (owner/repo)
+# Settings: AI_WORKSPACE_REF (branch/tag when downloading, default integration/v0.4)  AI_WORKSPACE_REPO (owner/repo)
 #           AI_WORKSPACE_HELPERS=yes|no (answer the helper-apps question in advance)
 #           AI_WORKSPACE_HOME (default ~/.ai-workspace)  AI_WORKSPACE_BIN (default ~/.local/bin)
 # Run it again to upgrade. Your chats, keys and settings are kept. Uninstall: QUICKSTART.md.
@@ -67,7 +67,7 @@ optional_helpers() {
 main() {
   set -euo pipefail
   local repo=${AI_WORKSPACE_REPO:-Inclined88888/ai-workspace}
-  local ref=${AI_WORKSPACE_REF:-integration/v0.3}
+  local ref=${AI_WORKSPACE_REF:-integration/v0.4}
   local bin=${AI_WORKSPACE_BIN:-$HOME/.local/bin}
   local start=true helper_args=() helpers=${AI_WORKSPACE_HELPERS:-ask}
   while [ $# -gt 0 ]; do
