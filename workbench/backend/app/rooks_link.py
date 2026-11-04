@@ -305,3 +305,23 @@ def terminal_approval_answer(aid: int, data: TerminalDecisionIn):
     _terminal_row(aid)
     actions.decide(aid, data.approve, CHANNEL)
     return {"id": aid, "status": actions.approval(aid)["status"]}
+
+
+# ---- B3 packs from the terminal: the same gallery, add and remove as the app's Packs page ------------------------------
+@router.get("/packs")
+def packs_list():
+    from .packs import registry, store
+
+    store.ensure()
+    return registry.catalogue()
+
+
+@router.post("/packs/{pack_id}/{op}")
+def packs_change(pack_id: str, op: str):
+    from .packs import registry, store
+
+    if op not in ("add", "remove"):
+        raise HTTPException(404, "Use add or remove")
+    store.ensure()
+    registry.manifest(pack_id)  # 404 for an unknown pack
+    return registry.add(pack_id) if op == "add" else registry.remove(pack_id)
