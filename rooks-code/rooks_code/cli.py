@@ -30,7 +30,7 @@ from . import __version__, config, receipts
 from . import theme as term_theme
 from .undo import ChangeSets
 
-SUBCOMMANDS = ("undo", "receipts", "doctor", "init", "mcp", "version", "login")
+SUBCOMMANDS = ("undo", "receipts", "doctor", "init", "mcp", "version", "login", "egress")
 
 
 class UI:
@@ -604,6 +604,13 @@ def subcommand(name: str, rest: list[str]) -> int:
                     print(f"  mcp__{name_}__{t['name']}  {t.get('description', '')[:80]}")
         finally:
             m.close()
+    elif name == "egress":
+        s = config.resolve({"provider": a.provider, "model": a.model, "base_url": a.base_url}, root)
+        if s.provider != "workbench":
+            print("rooks egress requires the workbench provider (connect to AI Workspace)")
+            return 1
+        from .egress_cli import EgressCLI
+        return EgressCLI(s, root).run(rest)
     return 0
 
 
