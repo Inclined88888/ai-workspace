@@ -44,6 +44,15 @@ ITEMS = [
      [(ROOKS, "tests/test_sessions_stream_login.py"), (ROOKS, "tests/test_tui_pty.py"),
       (BACKEND, "tests/test_attachments.py"), (BACKEND, "tests/test_sites.py::test_plain_english_watch"),
       (BACKEND, "tests/test_cli_agents.py")]),
+    ("CANCEL", "Stop from the app while rooks runs a delegated tool: the turn ends as stopped in the app and the terminal, the "
+               "step is closed, the late result is dropped, the model is not asked again; Stop also lands during web tool steps",
+     "726f968", [(ROOKS, "tests/test_shared_loop_e2e.py::test_stopping_in_the_app_while_the_terminal_runs_a_tool_ends_the_turn_everywhere"),
+                 (BACKEND, "tests/test_chat_controls.py")]),
+    ("L4-catalog", "models.dev price list download is off by default; Settings switch; env override", "1c89656",
+     [(BACKEND, "tests/test_catalog_default_off.py")]),
+    ("APP-TERM", "#7 terminal inside the app: real shell over a PTY WebSocket, signed in + same origin + loopback only, "
+                 "no app secrets in its env, the tab's close ends the shell and its background jobs",
+     "4e17ff4", [(BACKEND, "tests/test_app_terminal.py")]),
 ]
 
 
@@ -79,6 +88,23 @@ def main() -> int:
         status[iid] = "PASS" if ok else "FAIL"
         out += [f"result: {status[iid]}", ""]
         print(f"{iid}: {status[iid]}", flush=True)
+    # Browser checks (B1 and B2 screens, #7 in the page, axe-core, ARIA snapshots) come from scripts/audit/ui_screens.py,
+    # run per engine: Chromium (browser) and WebKit (the engine of the macOS app window)
+    for engine in ("chromium", "webkit"):
+        txt = ROOT / "docs" / "evidence" / "ui" / f"{engine}.txt"
+        res = ROOT / "docs" / "evidence" / "ui" / engine / "results.json"
+        if txt.exists() and res.exists():
+            import json
+
+            at = json.loads(res.read_text()).get("commit", "?")
+            body = txt.read_text().strip()
+            ok = "FAIL" not in body and "PASS" in body
+            status[f"UI-{engine}"] = "PASS" if ok else "FAIL"
+            out += [f"## UI-{engine}: B1 run tree, B2 graph walk, #7 app terminal, axe-core WCAG A/AA and ARIA snapshots", "",
+                    f"- run at: {at}; screenshots, axe JSON and ARIA trees in docs/evidence/ui/{engine}/", "",
+                    "```", f"$ AXE_JS=axe-core-4.10.3/axe.min.js UI_BROWSER={engine} python scripts/audit/ui_screens.py",
+                    body, "```", "", f"result: {status[f'UI-{engine}']}", ""]
+            print(f"UI-{engine}: {status[f'UI-{engine}']}", flush=True)
     path = ROOT / "docs" / "evidence" / "EVIDENCE.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(out) + "\n")
