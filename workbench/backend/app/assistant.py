@@ -551,7 +551,10 @@ TERMINAL_MAP = {t.name: t for t in TERMINAL_TOOLS}
 def _tool_for(name: str, ctx: "Ctx") -> "Tool | None":
     if ctx.channel == "cli" and name in TERMINAL_MAP:
         return TERMINAL_MAP[name]
-    return TOOL_MAP.get(name)
+    t = TOOL_MAP.get(name)
+    if ctx.channel == "subagent" and t and (t.effect != "read" or t.name == "team_dispatch"):
+        return None  # a sub-agent naming a write tool it was never offered gets "unknown tool", not the tool
+    return t
 UNTRUSTED_TOOLS = {t.name for t in TOOLS if t.untrusted}
 GATED_EFFECTS = ("external", "persistent")
 UNATTENDED = ("schedule", "agent")  # nobody is there to approve
@@ -617,6 +620,7 @@ def available_tools(ctx: Ctx) -> list[Tool]:
     tools = [t for t in TOOLS if t.when(ctx)]
     if ctx.channel == "cli":  # the terminal's own file and shell tools replace the workspace ones of the same name
         tools = [t for t in tools if t.name not in TERMINAL_MAP] + TERMINAL_TOOLS
+
     # MCP servers the user connected (feat/mcp-client): tools join the loop as mcp__<server>__<tool>. Output is
     # third party content, so every MCP tool taints the turn (ctx.tainted). A server can do anything (push code, send
     # mail), so every call waits for the user's OK unless the server marks the tool readOnlyHint, like Claude Code.
@@ -638,6 +642,8 @@ def available_tools(ctx: Ctx) -> list[Tool]:
     has_active_goal = goals.get_by_conversation(ctx.conversation_id) is not None
     if not has_active_goal:
         tools = [t for t in tools if t.name != "complete_goal"]
+    if ctx.channel == "subagent":  # team-lead sub-agents (team/lead.py) only look things up, MCP tools included
+        tools = [t for t in tools if t.effect == "read" and t.name != "team_dispatch"]
     return tm_hooks.filter_tools(ctx, tools)
 
 

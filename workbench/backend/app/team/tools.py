@@ -40,6 +40,13 @@ def register_tools() -> None:
         store.add_update(t["id"], "leader", status=p["status"], percent=p["percent"], note=p["note"])
         return store.task(t["id"])
 
+    def dispatch(goal: str, subtasks: list, ctx=None) -> dict:
+        from . import lead
+
+        t = lead.dispatch(goal, subtasks, getattr(ctx, "conversation_id", None))
+        return {"team_run": t["id"], "subtasks": [{"id": s["id"], "task": s["task"], "job_id": s["job_id"]} for s in t["subtasks"]],
+                "note": "Sub-agents are working on the Jobs board. The combined answer is posted to this chat when all finish."}
+
     tools = [
         T("team_assign", "Team lead: create a task for a team member from one plain-English sentence, e.g. 'give Sam the Smith St "
           "quote by Friday'. If nobody is named it suggests who should do it. The message to the member waits for the user's OK.",
@@ -50,6 +57,11 @@ def register_tools() -> None:
           lambda: engine.today_plan()),
         T("team_update_task", "Team lead: record progress on a team task, e.g. 'done', '50%', 'blocked: waiting on parts'.",
           {"task_id": I(), "update": S()}, update, ("task_id", "update"), effect="write"),
+        T("team_dispatch", "Team lead: split a goal into 2 to 6 independent sub-tasks and run each on its own read-only sub-agent "
+          "in parallel. The combined answer is posted to this chat when they finish. Use for research that splits cleanly.",
+          {"goal": S("the overall goal"), "subtasks": {"type": "array", "items": {"type": "string"},
+                                                     "description": "2 to 6 independent sub-tasks, one sentence each"}},
+          dispatch, ("goal", "subtasks"), effect="write"),
     ]
     for t in tools:
         assistant.TOOLS.append(t)

@@ -14,6 +14,10 @@ from . import connect, engine, loop as team_loop, outbox, parse, replies, sms, s
 
 router = APIRouter(prefix="/api/team", dependencies=[Depends(require_user)])
 phone = APIRouter(prefix="/api/mobile/team", dependencies=[Depends(require_device)])
+# the rooks terminal (bridge key): the same sub-agent runs, read-only
+from ..bridge import require_bridge_key  # noqa: E402
+
+terminal = APIRouter(prefix="/v1/rooks/team", dependencies=[Depends(require_bridge_key)])
 PRIVACY = ("Your team's details stay on this computer. Members only ever see their own tasks. Nothing on their phones or "
            "computers is tracked: no location, no screens, no apps. Updates come only from what they send you.")
 
@@ -317,6 +321,21 @@ def cancel(oid: int):
     return outbox.cancel(oid)
 
 
+# AI sub-agent runs (team/lead.py): the tree of sub-tasks, their jobs and the synthesis
+@router.get("/lead")
+def lead_runs(limit: int = 20):
+    from . import lead
+
+    return lead.runs(max(1, min(limit, 100)))
+
+
+@router.get("/lead/{rid}")
+def lead_run(rid: int):
+    from . import lead
+
+    return lead.tree(rid)
+
+
 @router.post("/check")
 def check_now():
     return engine.check()
@@ -405,3 +424,13 @@ def phone_add(body: TextIn):
 @phone.get("/notices")
 def phone_notices(after: int = 0):
     return store.notices(after)
+
+
+@terminal.get("/lead")
+def terminal_lead_runs(limit: int = 20):
+    return lead_runs(limit)
+
+
+@terminal.get("/lead/{rid}")
+def terminal_lead_run(rid: int):
+    return lead_run(rid)
