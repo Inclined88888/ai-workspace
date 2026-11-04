@@ -117,3 +117,20 @@ def test_terminal_approval_endpoints_need_the_bridge_key_and_a_terminal_row(clie
     held = actions.add("tool_call", "held", trace={"channel": "web", "conversation_id": cid}, tool="send_email", effect="external")
     assert client.get(f"/v1/rooks/approvals/{held}", headers=h).status_code == 404
     assert client.post(f"/v1/rooks/approvals/{held}", headers=h, json={"approve": True}).status_code == 404
+
+
+def test_the_terminal_reaches_an_app_chat_only_after_a_handoff(client):
+    from conftest import SCRIPT, events
+
+    token = client.post("/api/cli-token").json()["token"]
+    h = {"Authorization": f"Bearer {token}"}
+    SCRIPT[:] = [{"role": "assistant", "content": "ok"}]
+    web_cid = events(client.post("/api/assistant/chat", json={"message": "private web chat"}))[0]["conversation_id"]
+    attach = {"session": "s-1", "conversation_id": web_cid}
+    assert client.post("/v1/rooks/conversation", headers=h, json=attach).status_code == 404
+    assert client.post("/v1/rooks/run_turn", headers=h, json={"conversation_id": web_cid, "prompt": "x"}).status_code == 404
+    code = client.post("/api/assistant/handoff", json={"conversation_id": web_cid}).json()["code"]
+    assert client.get("/v1/rooks/handoff", params={"code": code}).status_code == 401  # needs the terminal token
+    assert client.get("/v1/rooks/handoff", headers=h, params={"code": code}).json()["conversation_id"] == web_cid
+    assert client.get("/v1/rooks/handoff", headers=h, params={"code": code}).status_code == 404  # one use
+    assert client.post("/v1/rooks/conversation", headers=h, json=attach).json()["conversation_id"] == web_cid

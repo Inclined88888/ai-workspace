@@ -152,15 +152,33 @@ def _conversation(data: TurnIn) -> int:
                   title, CHANNEL, data.session, data.model if data.model not in ("", "default") else "", db.now(), db.now())
 
 
+def _terminal_conversation(cid: int):
+    """The terminal may use its own conversations and ones the signed-in app handed to it, nothing else."""
+    _handoff_table()
+    return db.one("SELECT * FROM conversations WHERE id = ? AND (channel = ? OR id IN (SELECT conversation_id FROM rooks_handoffs))",
+                  cid, CHANNEL)
+
+
+def _handoff_table() -> None:
+    db.conn().execute("CREATE TABLE IF NOT EXISTS rooks_handoffs (conversation_id INTEGER PRIMARY KEY, claimed_at TEXT NOT NULL)")
+
+
 class ConversationIn(BaseModel):
     session: str = Field(..., min_length=1, max_length=120)
     model: str = Field("", max_length=300)
+    conversation_id: int | None = Field(None, gt=0)  # attach to this existing conversation (a hand-off from the app)
 
 
 @router.post("/conversation")
 def conversation(data: ConversationIn):
     """Create or get a conversation for the given terminal session.
     Returns the conversation_id so the terminal can track approvals in real time."""
+    if data.conversation_id:  # a terminal conversation, or one the app handed off (rooks --handoff)
+        row = _terminal_conversation(data.conversation_id)
+        if not row:
+            raise HTTPException(404, "No such terminal conversation. To continue an app chat, use Continue in terminal there.")
+        db.run("UPDATE conversations SET updated_at = ? WHERE id = ?", db.now(), row["id"])
+        return {"conversation_id": row["id"], "existing": True, "title": row["title"]}
     row = db.one("SELECT id FROM conversations WHERE channel = ? AND external_id = ?", CHANNEL, data.session)
     if row:
         db.run("UPDATE conversations SET updated_at = ?, model = ? WHERE id = ?",
@@ -185,7 +203,7 @@ async def run_turn(data: RunTurnIn):
     Returns SSE stream of events: tool_call, tool_result, message, error, done, writing."""
     from .api import sse
 
-    conv = db.one("SELECT * FROM conversations WHERE id = ? AND channel = ?", data.conversation_id, CHANNEL)
+    conv = _terminal_conversation(data.conversation_id)
     if not conv:
         raise HTTPException(404, "Conversation not found")
     if data.model:
@@ -264,7 +282,7 @@ def terminal_approval(data: TerminalApprovalIn):
 
     from . import actions, push
 
-    if not db.one("SELECT 1 FROM conversations WHERE id = ? AND channel = ?", data.conversation_id, CHANNEL):
+    if not _terminal_conversation(data.conversation_id):
         raise HTTPException(404, "Conversation not found")
     effect = "external" if data.effect == "command" else data.effect
     args = json.dumps({"summary": data.summary, "diff": data.preview} if data.effect == "write"
@@ -305,3 +323,56 @@ def terminal_approval_answer(aid: int, data: TerminalDecisionIn):
     _terminal_row(aid)
     actions.decide(aid, data.approve, CHANNEL)
     return {"id": aid, "status": actions.approval(aid)["status"]}
+
+
+
+# ---- B4 hand-off: continue an app conversation in the terminal ---------------------------------------------------------
+# The app (signed-in user) mints a short-lived one-time code; `rooks --handoff CODE` claims it with the terminal token
+# and attaches to that conversation. Codes live in memory (one backend process); only their SHA-256 is kept.
+import hashlib as _hashlib  # noqa: E402
+import secrets as _secrets  # noqa: E402
+import threading as _threading  # noqa: E402
+import time as _time  # noqa: E402
+
+from .security import require_user as _require_user  # noqa: E402
+
+web = APIRouter(prefix="/api/assistant", dependencies=[Depends(_require_user)])
+_HANDOFFS: dict[str, dict] = {}
+_HANDOFF_LOCK = _threading.Lock()
+
+
+class HandoffIn(BaseModel):
+    conversation_id: int = Field(..., gt=0)
+    ttl: int = Field(300, ge=30, le=900)
+
+
+def _h(code: str) -> str:
+    return _hashlib.sha256(code.encode()).hexdigest()
+
+
+@web.post("/handoff")
+def handoff_create(data: HandoffIn):
+    row = db.one("SELECT id, title FROM conversations WHERE id = ?", data.conversation_id)
+    if not row:
+        raise HTTPException(404, "No such conversation")
+    code = _secrets.token_urlsafe(16)
+    now = _time.monotonic()
+    with _HANDOFF_LOCK:
+        for k in [k for k, v in _HANDOFFS.items() if v["expires"] < now]:
+            del _HANDOFFS[k]
+        _HANDOFFS[_h(code)] = {"conversation_id": row["id"], "expires": now + data.ttl}
+    return {"code": code, "expires_in": data.ttl, "command": f"rooks --handoff {code}", "title": row["title"]}
+
+
+@router.get("/handoff")
+def handoff_claim(code: str):
+    with _HANDOFF_LOCK:
+        entry = _HANDOFFS.pop(_h(code), None)  # one use, even when it has expired
+    if not entry or entry["expires"] < _time.monotonic():
+        raise HTTPException(404, "That hand-off code is wrong, used or expired. Make a new one in the app.")
+    row = db.one("SELECT id, title FROM conversations WHERE id = ?", entry["conversation_id"])
+    if not row:
+        raise HTTPException(404, "That conversation was deleted")
+    _handoff_table()
+    db.run("INSERT OR REPLACE INTO rooks_handoffs(conversation_id, claimed_at) VALUES (?, ?)", row["id"], db.now())
+    return {"conversation_id": row["id"], "title": row["title"]}
