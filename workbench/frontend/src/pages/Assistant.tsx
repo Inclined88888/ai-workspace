@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowUp, BookOpen, Brain, Check, Copy, KeyRound, MessageSquare, Pencil, Plus, RotateCcw, Search, ShieldAlert, Square, ThumbsDown, ThumbsUp, Trash2, Wrench, X } from "lucide-react";
+import { SquareTerminal, ArrowLeft, ArrowUp, BookOpen, Brain, Check, Copy, KeyRound, MessageSquare, Pencil, Plus, RotateCcw, Search, ShieldAlert, Square, ThumbsDown, ThumbsUp, Trash2, Wrench, X } from "lucide-react";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, stream } from "../api";
@@ -242,6 +242,14 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
           <div className="toolbar-title truncate">{convs?.find((c) => c.id === cid)?.title ?? "New chat"}</div>
           <div className="spacer" />
           <ProjectSwitcher cid={cid} /><CheckToggle cid={cid} />{/* feat/v02-core */}
+          {cid ? (
+            <button className="btn ghost sm" title="Continue this chat in the rooks terminal" aria-label="Continue in terminal"
+              onClick={() => api<{ command: string; expires_in: number }>("/assistant/handoff", { body: { conversation_id: cid } })
+                .then((h) => { navigator.clipboard?.writeText(h.command); toast.ok(`Copied: ${h.command} (one use, ${Math.round(h.expires_in / 60)} min)`); })
+                .catch(toast.err)}>
+              <SquareTerminal size={14} />
+            </button>
+          ) : null}
           {tabs}
         </div>
         {approvals.length > 0 && (

@@ -26,8 +26,9 @@ import sys
 import threading
 import time
 import uuid
-import urllib.request
 import urllib.error
+import urllib.parse
+import urllib.request
 import json as _json
 from pathlib import Path
 
@@ -174,6 +175,8 @@ def parser() -> argparse.ArgumentParser:
     ap.add_argument("--no-mcp", action="store_true", help="do not start MCP servers")
     ap.add_argument("-c", "--continue", dest="cont", action="store_true", help="continue the last session in this folder")
     ap.add_argument("--resume", metavar="ID", help="continue an earlier session (ids: rooks receipts list)")
+    ap.add_argument("--handoff", metavar="CODE", help="continue a conversation from the app (Continue in terminal gives the code)")
+    ap.add_argument("--conversation", metavar="ID", type=int, help="continue app conversation ID (provider workbench)")
     ap.add_argument("--no-stream", action="store_true", help="print each answer when it is complete")
     ap.add_argument("--no-color", action="store_true")
     ap.add_argument("--theme", choices=term_theme.THEMES, help="terminal colours (default: the theme chosen in AI Workspace, or $ROOKS_THEME)")
@@ -232,6 +235,9 @@ def main(argv: list[str] | None = None) -> int:
             ui_class = tui.RichUI
     ui = ui_class(color=False if args.no_color else None, theme=getattr(args, "theme", None))
 
+    if (args.handoff or args.conversation) and s.provider != "workbench":
+        ui.error("--handoff and --conversation continue an app conversation: use --provider workbench (rooks login)")
+        return 1
     # Create or get Workbench conversation for cross-surface approval tracking
     if s.provider == "workbench" and s.base_url and s.api_key:
         ui.base_url = s.base_url.rstrip("/")
@@ -240,13 +246,35 @@ def main(argv: list[str] | None = None) -> int:
         try:
             conv_url = f"{ui.base_url}/rooks/conversation"  # base_url ends in /v1
             headers = {"Authorization": f"Bearer {ui.api_key}", "Content-Type": "application/json"}
-            data = _json.dumps({"session": ui.session_id, "model": s.model or ""}).encode()
+            target = args.conversation
+            if args.handoff:  # claim the one-time code from the app; it names the conversation to continue
+                hreq = urllib.request.Request(f"{ui.base_url}/rooks/handoff?code={urllib.parse.quote(args.handoff)}", headers=headers)
+                try:
+                    with urllib.request.urlopen(hreq, timeout=10) as r:
+                        target = _json.loads(r.read())["conversation_id"]
+                except urllib.error.HTTPError as he:
+                    detail = ""
+                    try:
+                        detail = _json.loads(he.read()).get("detail", "")
+                    except ValueError:
+                        pass
+                    ui.error(detail or f"hand-off failed (HTTP {he.code})")
+                    return 1
+            body = {"session": ui.session_id, "model": s.model or ""}
+            if target:
+                body["conversation_id"] = int(target)
+            data = _json.dumps(body).encode()
             req = urllib.request.Request(conv_url, data=data, headers=headers, method="POST")
             with urllib.request.urlopen(req, timeout=10) as r:
                 resp = _json.loads(r.read())
             ui.conversation_id = resp.get("conversation_id")
+            if target:
+                ui.p(ui.c("2", f"  Continuing app conversation #{ui.conversation_id}: {resp.get('title') or ''}"))
             ui.p(ui.c("2", f"  Linked to Workbench conversation #{ui.conversation_id}"))
         except (urllib.error.URLError, urllib.error.HTTPError, ValueError, OSError) as e:
+            if args.handoff or args.conversation:  # asked for that conversation: never quietly start a new one
+                ui.error(f"could not open app conversation: {e}")
+                return 1
             ui.p(ui.c("33", f"  Could not link to Workbench conversation: {e}"))
             ui.conversation_id = None
             ui.base_url = None
