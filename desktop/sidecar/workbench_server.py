@@ -112,7 +112,9 @@ def load_master_secrets(data_dir: Path) -> tuple[dict, str]:
         if any(name not in values for name in wanted):
             # One last keychain read moves secrets an older build saved there (macOS asks once), so the app keeps its
             # sessions and saved keys; after that this build never touches the keychain for its own secrets.
-            kr = _keyring()
+            # A fresh data folder (new install, or the old one moved away) has nothing those secrets could unlock:
+            # skip the read, so a clean install never shows the "wants to use the ai-workspace keychain" prompt.
+            kr = _keyring() if (data_dir / "workbench.db").exists() else None
             for name, size in wanted.items():
                 old = ""
                 if kr is not None and not values.get(name):

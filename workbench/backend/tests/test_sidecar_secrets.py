@@ -29,6 +29,7 @@ def test_adhoc_build_moves_old_keychain_secrets_to_the_file_once(tmp_path, monke
     kr = OldKeychain({"APP_SECRET": "old-app-secret-kept"})
     monkeypatch.setattr(side, "keychain_unstable", lambda: True)
     monkeypatch.setattr(side, "_keyring", lambda: kr)
+    (tmp_path / "workbench.db").write_bytes(b"")  # an existing install whose data the old secrets unlock
     values, where = side.load_master_secrets(tmp_path)
     assert where == "file" and values["APP_SECRET"] == "old-app-secret-kept"
     path = tmp_path / ".desktop-secrets.json"
@@ -43,3 +44,14 @@ def test_keychain_is_stable_outside_a_frozen_mac_build(monkeypatch):
     side = _sidecar()
     monkeypatch.delattr(side.sys, "frozen", raising=False)
     assert side.keychain_unstable() is False
+
+
+def test_a_fresh_data_folder_never_reads_the_keychain(tmp_path, monkeypatch):
+    """Clean reinstall: old keychain items from an earlier build must not trigger macOS password prompts."""
+    side = _sidecar()
+    kr = OldKeychain({"APP_SECRET": "old-app-secret"})
+    monkeypatch.setattr(side, "keychain_unstable", lambda: True)
+    monkeypatch.setattr(side, "_keyring", lambda: kr)
+    values, where = side.load_master_secrets(tmp_path)
+    assert where == "file" and kr.reads == 0
+    assert values["APP_SECRET"] != "old-app-secret" and len(values["APP_SECRET"]) > 40
