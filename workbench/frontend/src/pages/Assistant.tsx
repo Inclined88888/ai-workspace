@@ -365,8 +365,13 @@ function Chat({ tabs }: { tabs: React.ReactNode }) {
               return (
                 <div key={a.id} className={`card col approval-card spring-in${exit.leaving(a.id) ? " leaving-out" : ""}`} style={{ gap: 10 }} role="alertdialog" aria-label={`Approve ${a.tool}?`}>
                   <div className="row"><ShieldAlert size={16} style={{ color: "var(--warn-text)" }} /> <b>Approve {a.tool}?</b></div>
-                  <div className="small muted">{a.reason} {a.effect === "persistent" ? "This would change how the assistant behaves from now on." : "This acts outside the workspace."}</div>
-                  <pre className="small mono" style={{ whiteSpace: "pre-wrap", margin: 0 }}>{a.args}</pre>
+                  <div className="small muted">{a.reason} {{
+                    persistent: "This would change how the assistant behaves from now on.",
+                    write: "This changes a file on your computer.",
+                    command: "This runs a command on your computer.",
+                  }[a.effect] ?? "This acts outside the workspace."}</div>
+                  {!diff && <pre className="small mono" style={{ whiteSpace: "pre-wrap", margin: 0 }}>{
+                    a.effect === "command" ? (() => { try { return String(JSON.parse(a.args).command ?? a.args); } catch { return a.args; } })() : a.args}</pre>}
                   {diff && <DiffView diff={diff} compact />}
                   <div className="row">
                     <button className="btn primary sm" onClick={() => decide(a, true)}>Approve</button>

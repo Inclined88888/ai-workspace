@@ -501,6 +501,15 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
 .step.ok svg { color: var(--success-text); }
 .step.bad { color: var(--danger-text); }
 .approval-card { border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: var(--radius-md); }
+/* anomaly-first: pending approvals pinned above the conversation (Assistant.tsx) */
+.approvals-header { position: sticky; top: 0; z-index: 5; margin: 0 0 var(--space-3); border: 1px solid var(--border);
+  border-left: 3px solid var(--warn-text); border-radius: var(--radius-md); background: var(--panel); }
+.approvals-header-inner { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-2) var(--space-3); }
+.approvals-header-title { display: flex; align-items: center; gap: var(--space-2); }
+.approvals-header-list { display: flex; flex-direction: column; gap: 2px; }
+.approval-header-item { display: flex; gap: var(--space-2); align-items: baseline; min-width: 0; }
+.approval-header-item .tool-name { font-family: var(--mono); font-size: 0.85em; flex: none; }
+.approval-header-item .tool-reason { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .approval-card pre { background: var(--code-bg); border: 1px solid var(--border); padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); }
 .typing { display: inline-flex; align-items: center; gap: 4px; height: 24px; }
 .typing span { width: 5px; height: 5px; background: var(--accent-text); animation: typing 1.4s var(--ease-in-out) infinite; border-radius: 50%; }
