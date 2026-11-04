@@ -610,6 +610,8 @@ async def _run_tool(name: str, raw_args: str, ctx: Ctx, approved: bool = False) 
 
         if mcp_client.resolve(name):
             t = next((x for x in available_tools(ctx) if x.name == name), None)
+    if ctx.channel == "subagent" and t and (t.effect != "read" or t.name == "team_dispatch"):
+        t = None  # a sub-agent naming a write tool it was never offered gets "unknown tool", not the tool
 
     def done(ok: bool, out: str, outcome: str, verified: bool | None = None, evidence: str = "", ref=None,
              **row) -> tuple[bool, str]:

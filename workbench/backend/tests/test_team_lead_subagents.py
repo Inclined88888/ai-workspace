@@ -95,6 +95,21 @@ def test_subagents_only_get_read_only_tools(client):
     assert not names & {"send_email", "create_task", "team_dispatch", "remember", "save_skill", "run_python"}
 
 
+def test_a_subagent_cannot_call_a_write_tool_by_name(client):
+    """Offering only read tools is not enough: the lookup itself refuses, whatever name the model emits."""
+    import asyncio
+    import json
+
+    from app import assistant, db
+
+    ctx = assistant.Ctx(channel="subagent", conversation_id=assistant.new_conversation("subagent", "probe"))
+    before = db.one("SELECT COUNT(*) AS n FROM tasks")["n"] if db.one("SELECT name FROM sqlite_master WHERE name = 'tasks'") else 0
+    ok, out = asyncio.run(assistant.run_tool("create_task", json.dumps({"title": "should not exist"}), ctx))[:2]
+    assert not ok and "unknown" in out.lower()
+    after = db.one("SELECT COUNT(*) AS n FROM tasks")["n"] if db.one("SELECT name FROM sqlite_master WHERE name = 'tasks'") else 0
+    assert after == before
+
+
 def test_dispatch_needs_a_goal_and_two_to_six_subtasks(client):
     from fastapi import HTTPException
 
