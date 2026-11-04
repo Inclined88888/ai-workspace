@@ -125,6 +125,8 @@ class FakeModel:
                     self.wfile.write(data)
                     return
                 reply = fake.script.pop(0) if fake.script else openai_reply("(script exhausted)")
+                if callable(reply):  # a function of the request body: answers depend on what the model was sent
+                    reply = reply(body)
                 if isinstance(reply, dict) and "__status__" in reply:  # {"__status__": 503}: a provider error, e.g. overloaded
                     data = json.dumps({"error": {"message": "Service temporarily overloaded"}}).encode()
                     self.send_response(reply["__status__"])

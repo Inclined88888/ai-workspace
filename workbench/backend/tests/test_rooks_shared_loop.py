@@ -117,3 +117,15 @@ def test_terminal_approval_endpoints_need_the_bridge_key_and_a_terminal_row(clie
     held = actions.add("tool_call", "held", trace={"channel": "web", "conversation_id": cid}, tool="send_email", effect="external")
     assert client.get(f"/v1/rooks/approvals/{held}", headers=h).status_code == 404
     assert client.post(f"/v1/rooks/approvals/{held}", headers=h, json={"approve": True}).status_code == 404
+
+
+def test_terminal_egress_audit_counts_external_hosts(client, bridge):
+    from app import egress
+
+    h, _ = bridge
+    egress.record("POST", "https://api.example-llm.test/v1/chat/completions", "ok", 120, component="llm")
+    egress.record("GET", "http://127.0.0.1:11434/api/tags", "ok", 3, component="ollama")
+    d = client.get("/v1/rooks/egress", headers=h, params={"hours": 1}).json()
+    assert d["local_only"] is False and d["external_requests"] >= 1
+    assert any(x["host"] == "api.example-llm.test" and x["effect"] == "external" for x in d["hosts"])
+    assert client.get("/v1/rooks/egress").status_code == 401

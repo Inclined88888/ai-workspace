@@ -305,3 +305,11 @@ def terminal_approval_answer(aid: int, data: TerminalDecisionIn):
     _terminal_row(aid)
     actions.decide(aid, data.approve, CHANNEL)
     return {"id": aid, "status": actions.approval(aid)["status"]}
+
+
+# ---- B5 egress audit from the terminal: what left this machine, per host (egress.py records every outbound request) ----
+@router.get("/egress")
+def egress_audit(hours: int = 24):
+    from . import egress
+
+    return egress.summary(max(1, min(hours, 24 * 90)))
