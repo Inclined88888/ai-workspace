@@ -30,7 +30,7 @@ from . import __version__, config, receipts
 from . import theme as term_theme
 from .undo import ChangeSets
 
-SUBCOMMANDS = ("undo", "receipts", "doctor", "init", "mcp", "version", "login")
+SUBCOMMANDS = ("undo", "receipts", "doctor", "init", "mcp", "version", "login", "redact")
 
 
 class UI:
@@ -604,6 +604,9 @@ def subcommand(name: str, rest: list[str]) -> int:
                     print(f"  mcp__{name_}__{t['name']}  {t.get('description', '')[:80]}")
         finally:
             m.close()
+    elif name == "redact":
+        from .redact_cli import RedactCLI
+        return RedactCLI(root).run(rest)
     return 0
 
 
