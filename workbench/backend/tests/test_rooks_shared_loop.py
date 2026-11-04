@@ -134,3 +134,14 @@ def test_the_terminal_reaches_an_app_chat_only_after_a_handoff(client):
     assert client.get("/v1/rooks/handoff", headers=h, params={"code": code}).json()["conversation_id"] == web_cid
     assert client.get("/v1/rooks/handoff", headers=h, params={"code": code}).status_code == 404  # one use
     assert client.post("/v1/rooks/conversation", headers=h, json=attach).json()["conversation_id"] == web_cid
+
+def test_terminal_egress_audit_counts_external_hosts(client, bridge):
+    from app import egress
+
+    h, _ = bridge
+    egress.record("POST", "https://api.example-llm.test/v1/chat/completions", "ok", 120, component="llm")
+    egress.record("GET", "http://127.0.0.1:11434/api/tags", "ok", 3, component="ollama")
+    d = client.get("/v1/rooks/egress", headers=h, params={"hours": 1}).json()
+    assert d["local_only"] is False and d["external_requests"] >= 1
+    assert any(x["host"] == "api.example-llm.test" and x["effect"] == "external" for x in d["hosts"])
+    assert client.get("/v1/rooks/egress").status_code == 401

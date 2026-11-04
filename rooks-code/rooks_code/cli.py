@@ -7,6 +7,8 @@ or local Ollama / LM Studio (works fully offline).
   rooks login                   connect a model: paste a key, or point at your AI Workspace server
   rooks undo                    put back the files changed by the last prompt
   rooks pack [list|info|add|remove] ID   the app's Packs gallery
+
+  rooks egress [--hours N]      what the app sent off this machine, per host
   rooks receipts [list|show|import --db PATH]
   rooks -P claude-code "task"   hand the job to your own signed-in Claude Code (your Claude plan); also -P codex
   rooks doctor                  check the provider, key and MCP servers, and say what to fix
@@ -36,7 +38,7 @@ from . import __version__, config, receipts
 from . import theme as term_theme
 from .undo import ChangeSets
 
-SUBCOMMANDS = ("undo", "receipts", "doctor", "init", "mcp", "version", "login", "pack")
+SUBCOMMANDS = ("undo", "receipts", "doctor", "init", "mcp", "version", "login", "pack", "egress")
 
 
 class UI:
@@ -584,6 +586,11 @@ def subcommand(name: str, rest: list[str]) -> int:
         from . import pack_cli
 
         return pack_cli.main(rest)
+
+    if name == "egress":  # B5: has its own arguments
+        from . import egress_cli
+
+        return egress_cli.main(rest)
     ap = argparse.ArgumentParser(prog=f"rooks {name}")
     ap.add_argument("-C", "--cwd", default=os.getcwd())
     if name == "receipts":

@@ -395,3 +395,10 @@ def handoff_claim(code: str):
     _handoff_table()
     db.run("INSERT OR REPLACE INTO rooks_handoffs(conversation_id, claimed_at) VALUES (?, ?)", row["id"], db.now())
     return {"conversation_id": row["id"], "title": row["title"]}
+
+# ---- B5 egress audit from the terminal: what left this machine, per host (egress.py records every outbound request) ----
+@router.get("/egress")
+def egress_audit(hours: int = 24):
+    from . import egress
+
+    return egress.summary(max(1, min(hours, 24 * 90)))
