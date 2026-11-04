@@ -183,6 +183,7 @@ app.include_router(packs_mobile.router)  # feat/v02-packs: phone flashcards and 
 packs_tools.register_tools()  # feat/v02-packs: pack shortcuts, shown only once a pack is added
 app.include_router(team_routes.router)  # feat/team-lead: /api/team (staff, tasks, tracking, plan)
 app.include_router(team_routes.phone)
+app.include_router(team_routes.terminal)  # B1: rooks reads the sub-agent run tree
 team_tools.register_tools()  # feat/team-lead
 app.include_router(bridge.router)  # /v1: OpenAI-shaped access to every connection, for the browser agent (item 103)
 from . import rooks_link  # noqa: E402

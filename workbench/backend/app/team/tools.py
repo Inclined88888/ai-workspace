@@ -7,7 +7,7 @@ from . import engine, outbox, parse, store
 
 
 def register_tools() -> None:
-    from .. import assistant, jobs
+    from .. import assistant
 
     if "team_assign" in assistant.TOOL_MAP:
         return
@@ -40,13 +40,12 @@ def register_tools() -> None:
         store.add_update(t["id"], "leader", status=p["status"], percent=p["percent"], note=p["note"])
         return store.task(t["id"])
 
-    # Team dispatch: run a sub-agent in the background
-    def dispatch(request: str) -> dict:
-        """Dispatch a sub-agent to do research/work in the background. Returns job ID."""
-        # Create a background job with the sub-agent prompt
-        prompt = f"You are a research sub-agent. Your goal: {request}. Use only read-only tools (search, read, browse). Return a dense summary with exact file paths, line numbers, facts, and open questions."
-        job = jobs.create("chat", prompt, title=f"Research: {request[:80]}", channel="job")
-        return {"job_id": job["id"], "title": job["title"], "status": "queued", "page": "/team/jobs"}
+    def dispatch(goal: str, subtasks: list, ctx=None) -> dict:
+        from . import lead
+
+        t = lead.dispatch(goal, subtasks, getattr(ctx, "conversation_id", None))
+        return {"team_run": t["id"], "subtasks": [{"id": s["id"], "task": s["task"], "job_id": s["job_id"]} for s in t["subtasks"]],
+                "note": "Sub-agents are working on the Jobs board. The combined answer is posted to this chat when all finish."}
 
     tools = [
         T("team_assign", "Team lead: create a task for a team member from one plain-English sentence, e.g. 'give Sam the Smith St "
@@ -58,8 +57,11 @@ def register_tools() -> None:
           lambda: engine.today_plan()),
         T("team_update_task", "Team lead: record progress on a team task, e.g. 'done', '50%', 'blocked: waiting on parts'.",
           {"task_id": I(), "update": S()}, update, ("task_id", "update"), effect="write"),
-        T("team_dispatch", "Team lead: dispatch a sub-agent to do research/work in the background (read-only). Returns a job ID you can track.",
-          {"request": S("the goal or question")}, dispatch, ("request",), effect="write"),
+        T("team_dispatch", "Team lead: split a goal into 2 to 6 independent sub-tasks and run each on its own read-only sub-agent "
+          "in parallel. The combined answer is posted to this chat when they finish. Use for research that splits cleanly.",
+          {"goal": S("the overall goal"), "subtasks": {"type": "array", "items": {"type": "string"},
+                                                     "description": "2 to 6 independent sub-tasks, one sentence each"}},
+          dispatch, ("goal", "subtasks"), effect="write"),
     ]
     for t in tools:
         assistant.TOOLS.append(t)

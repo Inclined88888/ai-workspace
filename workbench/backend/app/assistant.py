@@ -532,6 +532,8 @@ def available_tools(ctx: Ctx) -> list[Tool]:
     from . import goals, mcp_client
 
     tools = [t for t in TOOLS if t.when(ctx)]
+    if ctx.channel == "subagent":  # team-lead sub-agents (team/lead.py) look things up; they never change anything
+        tools = [t for t in tools if t.effect == "read" and t.name != "team_dispatch"]
     # MCP servers the user connected (feat/mcp-client): tools join the loop as mcp__<server>__<tool>. Output is
     # third party content, so every MCP tool taints the turn (ctx.tainted). A server can do anything (push code, send
     # mail), so every call waits for the user's OK unless the server marks the tool readOnlyHint, like Claude Code.
