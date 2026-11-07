@@ -68,6 +68,9 @@ import McpServers from "./pages/McpServers"; // feat/mcp-client
 import Knowledge from "./memory/Knowledge"; // feat/memory-core
 import Team from "./team/Team"; // feat/team-lead
 const TerminalPage = lazy(() => import("./pages/TerminalPage")); // #7: xterm.js loads only on this page
+const PackTrade = lazy(() => import("./pages/PackTrade")); // a workspace's own screen, reached from Your work
+const PackLegal = lazy(() => import("./pages/PackLegal"));
+const PackStudy = lazy(() => import("./pages/PackStudy"));
 
 export type Status = {
   setup_complete: boolean;
@@ -365,8 +368,12 @@ export default function App() {
           <Route path="/teach" element={<Teach />} />
           <Route path="/teach/:id" element={<Teach />} />
           <Route path="/work" element={<Work />} />
-          <Route path="/packs" element={<Navigate to="/" replace />} />
-          <Route path="/packs/*" element={<Navigate to="/" replace />} />
+          {/* No pack gallery: Your work chooses a workspace, and the workspace's card opens its screen */}
+          <Route path="/packs" element={<Navigate to="/work" replace />} />
+          <Route path="/packs/trade" element={<Suspense fallback={null}><PackTrade /></Suspense>} />
+          <Route path="/packs/legal" element={<Suspense fallback={null}><PackLegal /></Suspense>} />
+          <Route path="/packs/study" element={<Suspense fallback={null}><PackStudy /></Suspense>} />
+          <Route path="/packs/*" element={<Navigate to="/work" replace />} />
           <Route path="/appearance" element={<Appearance />} />
           <Route path="/appearance/motion" element={<MotionLab />} />
           <Route path="/models" element={<Models />} />

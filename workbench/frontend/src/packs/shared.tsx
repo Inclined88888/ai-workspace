@@ -68,7 +68,7 @@ export function PackGate({ error, packId, name }: { error: unknown; packId: stri
           setAdding(true); setMsg("");
           try { await api(`/packs/${packId}/add`, { method: "POST" }); window.location.reload(); } catch (x) { setMsg((x as Error).message); setAdding(false); }
         }}>{adding ? "Checking and adding…" : `Add ${name}`}</button>
-        <Link className="btn ghost" to="/packs">All packs</Link>
+        <Link className="btn ghost" to="/work">Your work</Link>
       </div>
       {msg && <p className="pk-err">{msg}</p>}
     </div>

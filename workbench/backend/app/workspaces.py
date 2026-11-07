@@ -83,11 +83,13 @@ WORKSPACES: dict[str, dict] = {
 def _public(wid: str, active: str) -> dict:
     w = WORKSPACES[wid]
     out = {"id": wid, "name": w["name"], "for": w["for"], "pack": w["pack"], "project_kind": w["project_kind"],
-           "starters": list(w["starters"]), "active": wid == active, "tier": "free", "allowed": True, "pack_added": False}
+           "starters": list(w["starters"]), "active": wid == active, "tier": "free", "allowed": True, "pack_added": False,
+           "page": None}
     if w["pack"]:
         from .packs import registry
 
         feature = f"packs.{w['pack']}"
+        out["page"] = registry.manifest(w["pack"])["page"]  # the pack's own screen (quotes, clauses, flashcards)
         out["tier"] = registry.feature_tier(feature)
         out["allowed"] = registry.allowed(feature)
         out["pack_added"] = registry.is_installed(w["pack"])

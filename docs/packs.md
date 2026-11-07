@@ -1,7 +1,7 @@
 # Packs: Trade, Legal and Study (feat/v02-packs)
 
-> The app no longer has a Packs page. Choose a [professional workspace](workspaces.md) instead (**More → Your work**,
-> or `rooks work use ID`): it adds the matching pack with the same security check. `rooks pack` still adds or removes a
+> The app no longer has a Packs gallery. Choose a [professional workspace](workspaces.md) instead (**More → Your work**,
+> or `rooks work use ID`): it adds the matching pack with the same security check, and its card opens the pack's screen. `rooks pack` still adds or removes a
 > pack on its own.
 
 Packs are optional bundles of skills, templates and pages for one kind of work. The assistant stays general: a pack only

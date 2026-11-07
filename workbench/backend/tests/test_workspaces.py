@@ -47,6 +47,7 @@ def test_four_workspaces_and_general_is_the_default(client):
     assert [w["id"] for w in got if w["active"]] == ["general"]
     tiers = {w["id"]: w["tier"] for w in got}
     assert tiers == {"general": "free", "trade": "pro", "legal": "pro", "study": "free"}  # same tiers as the packs
+    assert {w["id"]: w["page"] for w in got} == {"general": None, "trade": "/packs/trade", "legal": "/packs/legal", "study": "/packs/study"}
     assert client.get("/api/workspaces/active").json()["id"] == "general"
     assert "Professional workspace" not in prompt()
 
@@ -60,6 +61,7 @@ def test_choosing_study_adds_its_pack_and_every_channel_hears_it(client, auth):
     assert r.status_code == 200, r.text
     w = r.json()
     assert w["id"] == "study" and w["active"] and w["pack_added"] and w["project_kind"] == "course"
+    assert w["page"] == "/packs/study"  # the app links to the pack's own screen
     assert registry.is_installed("study")
     for channel in ("web", "cli", "telegram"):  # Chat, the terminal's shared loop, chat apps: one system prompt
         assert "Professional workspace: Study and research." in prompt(channel)

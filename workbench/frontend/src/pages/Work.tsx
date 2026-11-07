@@ -2,7 +2,7 @@
 // and tells the assistant how that work is done, in Chat, the terminal (`rooks work`) and chat apps alike.
 // One memory either way: nothing is split or hidden when you switch.
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Check } from "lucide-react";
 import { api, ApiError } from "../api";
 import { tierLabel } from "../packs/logic";
@@ -11,7 +11,7 @@ import "../packs/packs.css";
 
 export type Workspace = {
   id: string; name: string; for: string; pack: string | null; project_kind: string; starters: string[];
-  active: boolean; tier: string; allowed: boolean; pack_added: boolean;
+  active: boolean; tier: string; allowed: boolean; pack_added: boolean; page: string | null;
 };
 
 export default function Work() {
@@ -62,9 +62,10 @@ export default function Work() {
             <p className="label" style={{ margin: 0 }}>Things to ask</p>
             <ul>{w.starters.map((s) => <li key={s}>{s}</li>)}</ul>
             <div className="pk-foot">
-              {w.active ? (
+              {w.active ? (<>
                 <button className="btn primary" onClick={() => navigate("/assistant", { state: { draft: w.starters[0] ?? "" } })}>Ask something</button>
-              ) : (
+                {w.page && w.pack_added && <Link className="btn ghost" to={w.page}>Open {w.name} tools</Link>}
+              </>) : (
                 <button className="btn primary" disabled={!!busy} onClick={() => choose(w)}>
                   {busy === w.id ? (w.pack ? "Checking the tools…" : "Switching…") : "Use this"}
                 </button>

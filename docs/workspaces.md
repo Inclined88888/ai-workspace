@@ -16,6 +16,9 @@ added.
 ## Where to choose
 
 * **App:** sidebar, **More → Your work**, or search for "Your work".
+* **The workspace's own screen:** on the card in use, **Open … tools** opens the Trade quotes and invoices, the Legal
+  checks and clauses, or the Study flashcards, maths, references and lab notebook. The old Packs gallery address now
+  opens Your work.
 * **Terminal:** `rooks work` lists them, `rooks work show` shows the one in use, `rooks work use ID` chooses one.
   Inside a session, `/work` does the same.
 
