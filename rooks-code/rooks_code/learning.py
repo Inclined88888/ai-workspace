@@ -98,6 +98,8 @@ class Learning:
                 return ""
             self.skills = [s for s in d.get("skills") or [] if isinstance(s, dict) and s.get("name")]
             parts = [d["context"]] if d.get("context") else []
+            if d.get("workspace_context"):  # the professional workspace chosen in the app (or with `rooks work`)
+                parts.append(d["workspace_context"])
             if self.skills:
                 parts.append("Your saved skills (call load_skill before doing that kind of task):\n" +
                              "\n".join(f"- {s['name']}: {s.get('description', '')}" for s in self.skills))

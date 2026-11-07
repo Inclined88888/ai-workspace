@@ -58,6 +58,7 @@ COMMANDS: dict[str, str] = {
     "/memory": "what Rooks remembers about you; /memory forget <words> drops one",
     "/history": "search past Chat and terminal turns: /history words",
     "/skills": "procedures Rooks learned; /skills add GITHUB-LINK checks a new one",
+    "/work": "your kind of work (Trade, Legal, Study and research, General): /work use ID",
     "/undo": "put back the files changed by the last request",
     "/diff": "what changed in this folder (git), as a diff",
     "/jobs": "background jobs (servers, watchers): /jobs, /jobs stop ID",
@@ -512,7 +513,7 @@ def help_table(ui: RichUI) -> None:
     categories = {
         "Session": ["/help", "/new", "/undo", "/diff", "/compact", "/cost", "/receipt", "/exit"],
         "Model": ["/model", "/effort", "/mode", "/provider", "/login"],
-        "Context": ["/memory", "/history", "/skills", "/init", "/context", "/sessions", "/resume"],
+        "Context": ["/memory", "/history", "/skills", "/work", "/init", "/context", "/sessions", "/resume"],
         "Behavior": ["/auto", "/dry-run", "/doctor", "/copy", "/image", "/jobs"],
     }
     listed = {c for cmds in categories.values() for c in cmds}
@@ -788,6 +789,10 @@ def command(agent, ui: RichUI, cmd: str, rest: str) -> None:
         if facts:
             ui.p(ui.c("dim", "  Shared with the AI Workspace app (About you page)." if learning.app else
                       f"  Kept in {learning_path()}. Connect the app to share it with chat."))
+    elif cmd == "/work":
+        from . import work_cli
+
+        ui.p(work_cli.text(Path(getattr(agent, "root", ".")), rest))
     elif cmd == "/history":
         learning = getattr(agent, "learning", None)
         if not learning or not learning.app:

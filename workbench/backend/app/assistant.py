@@ -878,6 +878,9 @@ def system_prompt(ctx: Ctx, user_text: str) -> str:
     from .teammates import hooks as tm_hooks  # feat/grok-style: which teammate answers, its persona and own memory
 
     parts.extend(tm_hooks.context(ctx, user_text))  # feat/grok-style
+    from . import workspaces  # professional workspace: how this user's kind of work is done (same for every channel)
+
+    parts.extend(workspaces.context())
     skills = db.all("SELECT name, description FROM skills WHERE enabled = 1 ORDER BY uses DESC, updated_at DESC LIMIT 30")
     if skills:
         parts.append("Your saved skills (load_skill before using):\n" + "\n".join(f"- {s['name']}: {s['description']}" for s in skills))

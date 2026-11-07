@@ -39,6 +39,8 @@ class App:
                 detail = json.loads(e.read()).get("detail")
             except (ValueError, AttributeError):
                 detail = None
+            if isinstance(detail, dict):  # the app's upgrade card (402) and similar: show its plain message
+                detail = detail.get("message") or detail.get("error")
             if e.code == 401:
                 detail = "the app refused the Terminal access token: make a new one in Settings > Terminal access, then `rooks login`"
             raise AppError(str(detail or f"HTTP {e.code}")) from None

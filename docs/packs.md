@@ -1,5 +1,9 @@
 # Packs: Trade, Legal and Study (feat/v02-packs)
 
+> The app no longer has a Packs page. Choose a [professional workspace](workspaces.md) instead (**More → Your work**,
+> or `rooks work use ID`): it adds the matching pack with the same security check. `rooks pack` still adds or removes a
+> pack on its own.
+
 Packs are optional bundles of skills, templates and pages for one kind of work. The assistant stays general: a pack only
 adds shortcuts, and they show up only once the pack is added. Open **Packs** in the sidebar (under *Your work*) and press
 **Add**. One click installs the whole pack, or nothing if any part fails. **Remove** takes the shortcuts away and leaves

@@ -7,6 +7,7 @@ or local Ollama / LM Studio (works fully offline).
   rooks login                   connect a model: paste a key, or point at your AI Workspace server
   rooks undo                    put back the files changed by the last prompt
   rooks pack [list|info|add|remove] ID   the app's Packs gallery
+  rooks work [show|use ID]      your professional workspace (Trade, Legal, Study and research or General)
   rooks egress [--hours N]      what the app sent off this machine, per host
   cmd | rooks redact [--check]  hide keys, tokens, emails and phone numbers (offline)
   rooks receipts [list|show|import --db PATH]
@@ -40,7 +41,7 @@ from . import __version__, config, receipts
 from . import theme as term_theme
 from .undo import ChangeSets
 
-SUBCOMMANDS = ("undo", "receipts", "doctor", "init", "mcp", "version", "login", "pack", "egress", "redact")
+SUBCOMMANDS = ("undo", "receipts", "doctor", "init", "mcp", "version", "login", "pack", "work", "egress", "redact")
 
 
 class UI:
@@ -697,6 +698,11 @@ def subcommand(name: str, rest: list[str]) -> int:
         from . import pack_cli
 
         return pack_cli.main(rest)
+
+    if name == "work":  # professional workspaces: same list and rules as the app
+        from . import work_cli
+
+        return work_cli.main(rest)
 
     if name == "egress":  # B5: has its own arguments
         from . import egress_cli

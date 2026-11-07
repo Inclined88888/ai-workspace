@@ -7,6 +7,7 @@
 /v1/rooks/history    search past Chat and terminal turns (FTS) for /history in the terminal
 /v1/rooks/remember   save a fact the user stated in the terminal (same store as chat's remember tool)
 /v1/rooks/forget     drop facts that contain a phrase, or everything (same store as chat)
+/v1/rooks/workspaces the professional workspaces (`rooks work`); POST /v1/rooks/workspaces/ID chooses one
 /v1/rooks/turn       a finished terminal request: kept as a conversation (shown in the app's chat history as a
                      terminal chat) and mined in the background for facts and reusable skills, exactly like a chat turn
 
@@ -38,7 +39,14 @@ def context(q: str = ""):
         except Exception:  # noqa: BLE001 - context is a help, never a reason for the terminal to fail
             block = ""
     skills = db.all("SELECT name, description FROM skills WHERE enabled = 1 ORDER BY uses DESC, updated_at DESC LIMIT 30")
-    return {"context": block, "skills": [dict(s) for s in skills], "learning": learn.enabled()}
+    from . import workspaces  # the terminal's own loop gets the same working style as Chat
+
+    try:
+        ws, ws_lines = workspaces.current(), workspaces.context()
+    except Exception:  # noqa: BLE001 - context is a help, never a reason for the terminal to fail
+        ws, ws_lines = None, []
+    return {"context": block, "skills": [dict(s) for s in skills], "learning": learn.enabled(),
+            "workspace": {"id": ws["id"], "name": ws["name"]} if ws else None, "workspace_context": "\n".join(ws_lines)}
 
 
 @router.get("/memory")
@@ -408,6 +416,22 @@ def packs_change(pack_id: str, op: str):
     store.ensure()
     registry.manifest(pack_id)  # 404 for an unknown pack
     return registry.add(pack_id) if op == "add" else registry.remove(pack_id)
+
+
+@router.get("/workspaces")
+def workspaces_list():
+    """`rooks work`: the same professional workspaces as the app's Your work page."""
+    from . import workspaces
+
+    return workspaces.catalogue()
+
+
+@router.post("/workspaces/{wid}")
+def workspaces_choose(wid: str):
+    """`rooks work use ID`: same rules as the app (plan check, the pack's security gate, nothing changes on refusal)."""
+    from . import workspaces
+
+    return workspaces.choose(wid)
 
 
 # ---- B4 hand-off: continue an app conversation in the terminal ---------------------------------------------------------

@@ -61,6 +61,8 @@ import { LineChart as LineChartIcon } from "lucide-react"; // phase 3: Insights
 import { FileText as FileTextIcon, Lock as LockIcon, MessageCircle as MessageCircleIcon } from "lucide-react"; // feat/grok-style
 import { FlaskConical, Mic, SquareTerminal, UserRound, Video } from "lucide-react"; // one icon per meaning in the nav
 import Projects from "./pages/Projects"; // feat/v02-core
+import Work from "./pages/Work"; // professional workspaces: what kind of work you do
+import { Briefcase } from "lucide-react";
 import HistoryPage from "./pages/History"; // feat/v02-core
 import McpServers from "./pages/McpServers"; // feat/mcp-client
 import Knowledge from "./memory/Knowledge"; // feat/memory-core
@@ -116,6 +118,7 @@ const NAV: NavGroup[] = [
     { to: "/terminal", label: "Terminal", icon: SquareTerminal },
     { to: "/team", label: "Team", icon: UsersRound },
     { to: "/research", label: "Research", icon: Search },
+    { to: "/work", label: "Your work", icon: Briefcase },
     { to: "/projects", label: "Projects", icon: FolderKanban },
     { to: "/meetings", label: "Meetings", icon: Video },
     { to: "/documents", label: "Documents", icon: FileText },
@@ -361,6 +364,7 @@ export default function App() {
           <Route path="/knowledge" element={<Knowledge />} />{/* feat/memory-core */}
           <Route path="/teach" element={<Teach />} />
           <Route path="/teach/:id" element={<Teach />} />
+          <Route path="/work" element={<Work />} />
           <Route path="/packs" element={<Navigate to="/" replace />} />
           <Route path="/packs/*" element={<Navigate to="/" replace />} />
           <Route path="/appearance" element={<Appearance />} />

@@ -4,6 +4,24 @@ Every user-visible change that needs action, or changes data on upgrade, gets an
 migration steps, rollback steps. Workbench has no release numbers yet (BACKLOG). Entries are identified by schema
 version and the merge commit on `main`.
 
+## 2026-11-07 · Professional workspaces · branch feat/professional-workspaces (from integration/v0.4)
+
+- **New: Your work (More → Your work), `rooks work` and `/work`.** Choose General, Trade, Legal or Study and research.
+  The choice adds that kind of work's pack, through the usual security check, and tells the assistant how that work is
+  done. The same instructions reach Chat, chat apps and the terminal. One memory either way. See
+  [docs/workspaces.md](docs/workspaces.md).
+- Tiers are unchanged: Trade and Legal follow their Pro packs, and General and Study are free. On refusal (plan or
+  security check) nothing changes.
+- `rooks` now prints the plain message of an upgrade answer (402) instead of the raw error.
+- Fixed: the browser and computer health check in `local_agents.py` used `urllib`, which bypassed the outbound audit
+  rule. It now uses the audited client, with the same success rule as before.
+- Tests: the backend suite signed itself out partway through (the sign-in throttle's 10 attempts ran out in a suite
+  that now finishes in under 5 minutes). About 200 later tests failed with 401. Each test now starts with a clean
+  throttle count.
+- Migration: none. One new setting, `professional_workspace` (default `general`), with no schema change.
+- Rollback: revert the branch. A stored `professional_workspace` value is then ignored. Packs added through a
+  workspace stay added, and `rooks pack remove ID` removes one.
+
 ## 2026-11-01 · Long tool results, step limit setting, repeat guard · branch feat/rea-p0-harness
 
 From the competitor review (P0 items 1, 2 and 4):

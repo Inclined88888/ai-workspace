@@ -31,6 +31,7 @@ from . import auto_tools, automations, jobs, v02_api  # noqa: E402 - feat/v02-au
 from .team import loop as team_loop, routes as team_routes, tools as team_tools  # feat/team-lead
 from . import v02_hooks  # feat/v02-core: projects, action history with undo, checked answers
 from .packs import mobile_routes as packs_mobile, routes as packs_routes, tools as packs_tools  # feat/v02-packs: Trade, Legal, Study packs
+from . import workspaces  # noqa: E402 - professional workspaces: one choice of work for app, terminal and chat apps
 from .security import check_bearer
 from .tools import tools
 
@@ -181,6 +182,7 @@ from .knowledge import mobile as knowledge_mobile  # feat/memory-core: read-only
 
 app.include_router(knowledge_mobile.device)  # feat/memory-core
 app.include_router(packs_routes.router)  # feat/v02-packs
+app.include_router(workspaces.router)  # professional workspaces (/api/workspaces)
 app.include_router(packs_mobile.router)  # feat/v02-packs: phone flashcards and quotes
 packs_tools.register_tools()  # feat/v02-packs: pack shortcuts, shown only once a pack is added
 app.include_router(team_routes.router)  # feat/team-lead: /api/team (staff, tasks, tracking, plan)

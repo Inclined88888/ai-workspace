@@ -59,6 +59,9 @@ Inside a session type `/` for the command menu (every command with what it does)
 * `/new`, `/sessions`, `/resume ID`, `/compact`, `/copy`, `/undo`, `/cost`, `/auto`, `/dry-run`, `/login`, `/provider`,
   `/doctor`, `/receipt`, `/exit`.
 * `/memory` and `/skills` show what Rooks has learned (below).
+* `/work` shows or chooses your professional workspace (Trade, Legal, Study and research, General), the same one
+  the app uses. Outside a session: `rooks work`, `rooks work show`, `rooks work use ID`. See
+  [../docs/workspaces.md](../docs/workspaces.md).
 
 ## It learns
 
