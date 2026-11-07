@@ -11,8 +11,9 @@ import shutil
 import socket
 import subprocess
 import time
-import urllib.request
 from pathlib import Path
+
+import httpx
 
 from . import config
 
@@ -42,8 +43,7 @@ def _port() -> int:
 
 def _up(url: str) -> bool:
     try:
-        urllib.request.urlopen(f"{url}/healthz", timeout=0.4).close()
-        return True
+        return httpx.get(f"{url}/healthz", timeout=0.4).status_code < 400  # same as urlopen (4xx/5xx raised); loopback only: audited client, nothing leaves
     except Exception:  # noqa: BLE001 - not up yet, or not our process
         return False
 

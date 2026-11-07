@@ -337,3 +337,16 @@ def tool_call(name: str, args: dict, call_id: str = "c1") -> dict:
 
 def events(resp) -> list[dict]:
     return [json.loads(line[5:]) for line in resp.text.splitlines() if line.startswith("data:")]
+
+
+@pytest.fixture(autouse=True)
+def _fresh_login_throttle():
+    """The sign-in throttle counts per client IP for 5 minutes, and every test shares the test client's IP. A suite that
+    runs in under 5 minutes used up the 10 attempts and signed every later test out (429 at test_lock_reset, then 401).
+    Each test starts with a clean count; the throttle's own behaviour is still tested inside single tests."""
+    import sys
+
+    security = sys.modules.get("app.security")  # never import the app here: `client` must set DATA_DIR first
+    if security is not None:
+        security._attempts.clear()
+    yield
